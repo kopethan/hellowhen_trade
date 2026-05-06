@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
+    "paths": {
+      "@zizilia/contracts": ["packages/contracts/src"],
+      "@zizilia/api-client": ["packages/api-client/src"],
+      "@zizilia/shared": ["packages/shared/src"],
+      "@zizilia/theme": ["packages/theme/src"],
+      "@zizilia/trade-domain": ["packages/trade-domain/src"],
+      "@zizilia/ui": ["packages/ui/src"]
+    }
+  }
+}

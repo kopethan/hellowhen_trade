@@ -1,0 +1,27 @@
+{
+  "name": "@zizilia/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@zizilia/api-client": "file:../../packages/api-client",
+    "@zizilia/contracts": "file:../../packages/contracts",
+    "@zizilia/shared": "file:../../packages/shared",
+    "@zizilia/theme": "file:../../packages/theme",
+    "next": "^16.1.6",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "~19.1.10",
+    "@types/react-dom": "~19.1.10",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "zizilia",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @zizilia/api",
+    "dev:web": "npm run dev -w @zizilia/web",
+    "dev:mobile": "npm run start -w @zizilia/mobile",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate -w @zizilia/api",
+    "prisma:migrate": "npm run prisma:migrate -w @zizilia/api",
+    "prisma:validate": "npm run prisma:validate -w @zizilia/api"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

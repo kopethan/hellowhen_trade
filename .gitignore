@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.next/
+.expo/
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+*.log
+apps/api/prisma/migrations/*/migration_lock.toml

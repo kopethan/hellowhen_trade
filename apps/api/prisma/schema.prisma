@@ -1,0 +1,264 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum NeedStatus {
+  draft
+  active
+  fulfilled
+  closed
+  expired
+}
+
+enum OfferStatus {
+  draft
+  active
+  accepted
+  closed
+  expired
+}
+
+enum TradeStatus {
+  draft
+  active
+  funded
+  in_progress
+  submitted
+  completed
+  disputed
+  expired
+  closed
+  cancelled
+}
+
+enum LedgerEntryType {
+  test_credit_grant
+  credit_purchase
+  trade_hold
+  trade_release
+  trade_refund
+  platform_fee
+  payout_requested
+  payout_paid
+  adjustment
+}
+
+enum LedgerBalanceType {
+  purchased
+  earned_pending
+  earned_available
+  held
+}
+
+enum TradePaymentStatus {
+  draft
+  authorized
+  held
+  released
+  refunded
+  failed
+  cancelled
+}
+
+enum PayoutRequestStatus {
+  draft
+  requested
+  approved
+  paid
+  rejected
+  cancelled
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  profile      Profile?
+  settings     UserSettings?
+  sessions     Session[]
+  needs        Need[]
+  offers       Offer[]
+  trades       Trade[]
+  wallet       Wallet?
+  ledger       CreditLedgerEntry[]
+  payoutRequests PayoutRequest[]
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  refreshToken String   @unique
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  displayName String?
+  handle      String?  @unique
+  bio         String?
+  avatarUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserSettings {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  appearance            String   @default("system")
+  accent                String   @default("teal")
+  language              String   @default("en")
+  notificationsEnabled  Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Need {
+  id          String     @id @default(cuid())
+  ownerId     String
+  title       String
+  description String
+  status      NeedStatus @default(draft)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  expiresAt   DateTime?
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  trades Trade[]
+
+  @@index([ownerId, status])
+}
+
+model Offer {
+  id          String      @id @default(cuid())
+  ownerId     String
+  title       String
+  description String
+  status      OfferStatus @default(draft)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  expiresAt   DateTime?
+
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  trades Trade[]
+
+  @@index([ownerId, status])
+}
+
+model Trade {
+  id           String      @id @default(cuid())
+  ownerId      String
+  needId       String?
+  offerId      String?
+  title        String
+  description  String
+  creditAmount Int
+  status       TradeStatus @default(draft)
+  isPublic     Boolean     @default(false)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  expiresAt    DateTime?
+  closedAt     DateTime?
+
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  need     Need?     @relation(fields: [needId], references: [id], onDelete: SetNull)
+  offer    Offer?    @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  payment  TradePayment?
+  escrow   TradeEscrow?
+  ledgerEntries CreditLedgerEntry[]
+
+  @@index([status, isPublic, createdAt])
+  @@index([ownerId, status])
+}
+
+model Wallet {
+  id                         String   @id @default(cuid())
+  userId                     String   @unique
+  purchasedAvailableCredits  Int      @default(0)
+  earnedPendingCredits       Int      @default(0)
+  earnedAvailableCredits     Int      @default(0)
+  heldCredits                Int      @default(0)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  user    User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  entries CreditLedgerEntry[]
+}
+
+model CreditLedgerEntry {
+  id          String            @id @default(cuid())
+  userId      String
+  walletId    String
+  tradeId     String?
+  type        LedgerEntryType
+  balanceType LedgerBalanceType
+  amount      Int
+  description String?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  trade  Trade? @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([walletId, createdAt])
+  @@index([tradeId])
+}
+
+model TradePayment {
+  id             String             @id @default(cuid())
+  tradeId        String             @unique
+  buyerId        String
+  sellerId       String?
+  creditAmount   Int
+  platformFee    Int                @default(0)
+  status         TradePaymentStatus @default(draft)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+}
+
+model TradeEscrow {
+  id              String   @id @default(cuid())
+  tradeId         String   @unique
+  heldCredits     Int
+  holdReleasedAt  DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+}
+
+model PayoutRequest {
+  id          String              @id @default(cuid())
+  userId      String
+  amount      Int
+  status      PayoutRequestStatus @default(draft)
+  requestedAt DateTime            @default(now())
+  reviewedAt  DateTime?
+  paidAt      DateTime?
+  notes       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
