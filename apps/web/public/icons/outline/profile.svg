@@ -1,4 +1,140 @@
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M12 12.5C15.7089 12.5 18.5 14.8442 18.5 17.5C18.5 20.1558 15.7089 22.5 12 22.5C8.2911 22.5 5.5 20.1558 5.5 17.5C5.5 14.8442 8.2911 12.5 12 12.5Z" stroke="currentColor" stroke-width="1.8"/>
-  <path d="M12 6.5C13.3807 6.5 14.5 7.61929 14.5 9C14.5 10.3807 13.3807 11.5 12 11.5C10.6193 11.5 9.5 10.3807 9.5 9C9.5 7.61929 10.6193 6.5 12 6.5Z" stroke="currentColor" stroke-width="1.8"/>
+  <path d="M12 12.5C15.7089 12.5 18.5 14.8442 18.5 17.5C18.5 20.1558 15.7089 22.5 12 22.5C8.2911 22.5 5.5 20.1558 5.5 17.5C5.5 14.8442 8.2911 12.5 12 12.5Z" stroke="currentColor"/>
+  <path d="M12 6.5C13.3807 6.5 14.5 7.61929 14.5 9C14.5 10.3807 13.3807 11.5 12 11.5C10.6193 11.5 9.5 10.3807 9.5 9C9.5 7.61929 10.6193 6.5 12 6.5Z" stroke="currentColor"/>
 </svg>
+diff --git a/apps/web/public/icons/outline/public.svg b/apps/web/public/icons/outline/public.svg
+new file mode 100644
+index 0000000..a10bad4
+--- /dev/null
+@@ -0,0 +1,13 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++<g clip-path="url(#clip0_15_168)">
++
++<path d="M16 6.99998C16 5.71432 15.3016 4.53014 14.1764 3.90808L14.1281 3.88135C13.0827 3.30342 11.8198 3.27728 10.7515 3.81147L10.6573 3.85856C9.3608 4.5068 8.54186 5.83188 8.54186 7.28137L8.54186 9.99998" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
++<circle cx="12" cy="15" r="1.5" stroke="currentColor"/>
++<rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2"/>
++</g>
++<defs>
++<clipPath id="clip0_15_168">
++
++</clipPath>
++</defs>
++</svg>
+diff --git a/apps/web/public/icons/outline/search.svg b/apps/web/public/icons/outline/search.svg
+new file mode 100644
+index 0000000..68f059c
+--- /dev/null
+@@ -0,0 +1,5 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++
++<circle cx="10" cy="10" r="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
++<line x1="14.4142" y1="14" x2="20" y2="19.5858" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/settings.svg b/apps/web/public/icons/outline/settings.svg
+new file mode 100644
+index 0000000..c71ea36
+--- /dev/null
+@@ -0,0 +1,5 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++
++<path d="M4.01074 12.75C3.74279 12.2859 3.74279 11.7141 4.01074 11.25L7.35547 5.45605C7.62335 4.99207 8.11855 4.7062 8.6543 4.70605L15.3457 4.70605C15.8814 4.7062 16.3766 4.99207 16.6445 5.45605L19.9893 11.25C20.2237 11.6561 20.253 12.1446 20.0771 12.5713L19.9893 12.75L16.6445 18.5439C16.3766 19.0079 15.8814 19.2938 15.3457 19.2939L8.6543 19.2939C8.11855 19.2938 7.62335 19.0079 7.35547 18.5439L4.01074 12.75Z" stroke="currentColor"/>
++<circle cx="12" cy="12" r="2.5" stroke="currentColor"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/trade.svg b/apps/web/public/icons/outline/trade.svg
+new file mode 100644
+index 0000000..8ae43a5
+--- /dev/null
+@@ -0,0 +1,3 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M7 7h10m0 0-3-3m3 3-3 3M17 17H7m0 0 3 3m-3-3 3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/wallet.svg b/apps/web/public/icons/outline/wallet.svg
+new file mode 100644
+index 0000000..4c01a1b
+--- /dev/null
+@@ -0,0 +1,10 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++
++<rect x="3" y="7" width="18" height="12" rx="1" stroke="currentColor"/>
++<rect x="3" y="5" width="18" height="14" rx="1" stroke="currentColor"/>
++<rect x="3" y="11" width="18" height="8" fill="white"/>
++<rect x="3" y="9" width="18" height="10" rx="1" stroke="currentColor"/>
++<rect x="10" y="10" width="4" height="5" fill="currentColor"/>
++<circle cx="12" cy="15" r="2" fill="currentColor"/>
++<circle cx="12" cy="15" r="1" fill="white"/>
++</svg>
+diff --git a/apps/web/src/app/auth/page.tsx b/apps/web/src/app/auth/page.tsx
+new file mode 100644
+index 0000000..898bcea
+--- /dev/null
+@@ -0,0 +1,16 @@
++export default function AuthPage() {
++  return (
++    <section className="hero">
++      <div className="card">
++        <p className="eyebrow">Auth shell</p>
++        <h1>Sign in to manage trades.</h1>
++        <p>Patch 1 placeholder for the reusable Hellowhen auth flow. Patch 2 should wire email/password, Google auth, token storage, and /me refresh.</p>
++      </div>
++      <form className="card form">
++        <input className="input" placeholder="Email" type="email" />
++        <input className="input" placeholder="Password" type="password" />
++        <button className="button primary" type="button">Continue</button>
++      </form>
++    </section>
++  );
++}
+diff --git a/apps/web/src/app/dashboard/page.tsx b/apps/web/src/app/dashboard/page.tsx
+new file mode 100644
+index 0000000..aefd2af
+--- /dev/null
+@@ -0,0 +1,9 @@
++export default function DashboardPage() {
++  return (
++    <section className="card">
++      <p className="eyebrow">Later</p>
++      <h1>Dashboard / Admin Tools</h1>
++      <p>Placeholder for future trade moderation, ledger review, payout review, and admin tools.</p>
++    </section>
++  );
++}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+new file mode 100644
+index 0000000..1dfc649
+--- /dev/null
+@@ -0,0 +1,35 @@
++:root {
++  color-scheme: light;
++  --bg: #f7f7f4;
++  --surface: #ffffff;
++  --text: #171717;
++  --muted: #6b7280;
++  --border: #e5e7eb;
++  --accent: #14b8a6;
++}
++
++* { box-sizing: border-box; }
++html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
++a { color: inherit; text-decoration: none; }
++button, input, textarea { font: inherit; }
++
++.shell { max-width: 1120px; margin: 0 auto; padding: 28px 20px 56px; }
++.nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 32px; }
++.nav-links { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 14px; }
++.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: -0.03em; }
++.brand-mark { width: 34px; height: 34px; border-radius: 12px; background: var(--accent); display: grid; place-items: center; color: white; }
++.hero { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr); gap: 24px; align-items: stretch; }
++.card { background: var(--surface); border: 1px solid var(--border); border-radius: 28px; padding: 24px; box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08); }
++.eyebrow { color: var(--accent); font-weight: 700; margin: 0 0 10px; }
++h1 { font-size: clamp(42px, 8vw, 78px); line-height: 0.92; letter-spacing: -0.07em; margin: 0 0 18px; }
++h2 { font-size: 28px; letter-spacing: -0.04em; margin: 0 0 12px; }
++p { color: var(--muted); line-height: 1.7; }
++.cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
++.button { display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 12px 18px; border: 1px solid var(--border); background: white; font-weight: 700; }
++.button.primary { background: var(--text); color: white; border-color: var(--text); }
++.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
++.meta { font-size: 13px; color: var(--muted); }
++.badge { display: inline-flex; border-radius: 999px; padding: 6px 10px; background: #e6fffb; color: #0f766e; font-size: 12px; font-weight: 800; }
++.form { display: grid; gap: 12px; }
++.input { width: 100%; border: 1px solid var(--border); border-radius: 16px; padding: 12px 14px; background: white; }
++@media (max-width: 780px) { .hero { grid-template-columns: 1fr; } .nav { align-items: flex-start; flex-direction: column; } }

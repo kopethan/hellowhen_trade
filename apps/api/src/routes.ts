@@ -1,10 +1,15 @@
 import { Router } from 'express';
+import { adminRoutes } from './modules/admin/admin.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
+import { creditsRoutes } from './modules/credits/credits.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { needsRoutes } from './modules/needs/needs.routes.js';
+import { mediaRoutes } from './modules/media/media.routes.js';
 import { offersRoutes } from './modules/offers/offers.routes.js';
 import { profileRoutes } from './modules/profile/profile.routes.js';
+import { proposalsRoutes } from './modules/proposals/proposals.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
+import { supportRoutes } from './modules/support/support.routes.js';
 import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { walletRoutes } from './modules/wallet/wallet.routes.js';
 
@@ -12,9 +17,14 @@ export const routes = Router();
 
 routes.use('/health', healthRoutes);
 routes.use('/auth', authRoutes);
+routes.use('/credits', creditsRoutes);
 routes.use('/profile', profileRoutes);
 routes.use('/settings', settingsRoutes);
+routes.use('/support', supportRoutes);
 routes.use('/needs', needsRoutes);
 routes.use('/offers', offersRoutes);
 routes.use('/trades', tradesRoutes);
+routes.use('/proposals', proposalsRoutes);
 routes.use('/wallet', walletRoutes);
+routes.use('/media', mediaRoutes);
+routes.use('/admin', adminRoutes);

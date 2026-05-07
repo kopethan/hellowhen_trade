@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
-import type { AuthUser } from '@hellowhen/contracts';
+import type { AuthUser, ForgotPasswordResponse } from '@hellowhen/contracts';
 import { api } from '../lib/api';
 import { clearAccessToken, setAccessToken } from '../lib/tokenStore';
 
@@ -7,7 +7,9 @@ type AuthContextValue = {
   user: AuthUser | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string, confirmPassword?: string, acceptedTerms?: boolean) => Promise<void>;
+  loginWithGoogleIdToken: (idToken: string) => Promise<void>;
+  forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
   logout: () => Promise<void>;
 };
 
@@ -24,10 +26,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await setAccessToken(result.accessToken);
       setUser(result.user);
     },
-    async register(email, password, displayName) {
-      const result = await api.auth.register({ email, password, displayName });
+    async register(email, password, displayName, confirmPassword, acceptedTerms) {
+      const result = await api.auth.register({ email, password, confirmPassword, displayName, acceptedTerms });
       await setAccessToken(result.accessToken);
       setUser(result.user);
+    },
+    async loginWithGoogleIdToken(idToken) {
+      const result = await api.auth.google({ idToken });
+      await setAccessToken(result.accessToken);
+      setUser(result.user);
+    },
+    forgotPassword(email) {
+      return api.auth.forgotPassword({ email });
     },
     async logout() {
       await clearAccessToken();

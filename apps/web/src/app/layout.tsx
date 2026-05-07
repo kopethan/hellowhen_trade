@@ -15,13 +15,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <main className="shell">
           <nav className="nav">
             <Link href="/" className="brand" aria-label="Hellowhen home">
-              <img src="/brand/wordmark-light.svg" alt="Hellowhen" className="brand-wordmark" />
+              <span className="brand-mark">Z</span>
+              <span>Hellowhen</span>
             </Link>
             <div className="nav-links">
               <Link href="/trades">Feed</Link>
               <Link href="/me">Me</Link>
               <Link href="/settings">Settings</Link>
               <Link href="/wallet">Wallet</Link>
+              <Link href="/admin/media">Admin Media</Link>
+              <Link href="/admin/credits">Admin Credits</Link>
+              <Link href="/admin/support">Admin Support</Link>
+              <Link href="/reset-password">Reset Password</Link>
             </div>
           </nav>
           {children}

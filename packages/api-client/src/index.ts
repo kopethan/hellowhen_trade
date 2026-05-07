@@ -1,59 +1,20 @@
-import type {
-  LoginRequest,
-  RegisterRequest,
-  AuthResponse,
-  UpdateProfileRequest,
-  UpdateSettingsRequest,
-  CreateNeedRequest,
-  CreateOfferRequest,
-  CreateTradeRequest
-} from '@hellowhen/contracts';
-import { requestJson, type ApiClientOptions } from './http';
+import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, ForgotPasswordResponse, ResetPasswordResponse, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest } from '@hellowhen/contracts';
+import { requestFormData, requestJson, type ApiClientOptions } from './http';
 
 export function createApiClient(options: ApiClientOptions) {
   return {
-    auth: {
-      login: (body: LoginRequest) => requestJson<AuthResponse>(options, '/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(body)
-      }),
-      register: (body: RegisterRequest) => requestJson<AuthResponse>(options, '/auth/register', {
-        method: 'POST',
-        body: JSON.stringify(body)
-      }),
-      me: () => requestJson<AuthResponse>(options, '/auth/me')
-    },
-    profile: {
-      updateMe: (body: UpdateProfileRequest) => requestJson(options, '/profile/me', {
-        method: 'PATCH',
-        body: JSON.stringify(body)
-      })
-    },
-    settings: {
-      updateMe: (body: UpdateSettingsRequest) => requestJson(options, '/settings/me', {
-        method: 'PATCH',
-        body: JSON.stringify(body)
-      })
-    },
-    needs: {
-      create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }),
-      mine: () => requestJson(options, '/needs/mine')
-    },
-    offers: {
-      create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }),
-      mine: () => requestJson(options, '/offers/mine')
-    },
-    trades: {
-      feed: () => requestJson(options, '/trades/feed'),
-      get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`),
-      create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }),
-      close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }),
-      mine: () => requestJson(options, '/trades/mine')
-    },
-    wallet: {
-      me: () => requestJson(options, '/wallet/me')
-    }
+    auth: { login: (body: LoginRequest) => requestJson<AuthResponse>(options, '/auth/login', { method: 'POST', body: JSON.stringify(body) }), register: (body: RegisterRequest) => requestJson<AuthResponse>(options, '/auth/register', { method: 'POST', body: JSON.stringify(body) }), google: (body: GoogleAuthRequest) => requestJson<AuthResponse>(options, '/auth/google', { method: 'POST', body: JSON.stringify(body) }), forgotPassword: (body: ForgotPasswordRequest) => requestJson<ForgotPasswordResponse>(options, '/auth/forgot-password', { method: 'POST', body: JSON.stringify(body) }), resetPassword: (body: ResetPasswordRequest) => requestJson<ResetPasswordResponse>(options, '/auth/reset-password', { method: 'POST', body: JSON.stringify(body) }), me: () => requestJson<AuthResponse>(options, '/auth/me') },
+    profile: { updateMe: (body: UpdateProfileRequest) => requestJson(options, '/profile/me', { method: 'PATCH', body: JSON.stringify(body) }) },
+    settings: { updateMe: (body: UpdateSettingsRequest) => requestJson(options, '/settings/me', { method: 'PATCH', body: JSON.stringify(body) }) },
+    needs: { create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/needs/mine') },
+    offers: { create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/offers/mine') },
+    trades: { feed: () => requestJson(options, '/trades/feed'), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+    proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+    media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+    admin: { media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+    credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+    support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+    wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger') }
   };
 }
-
 export type HellowhenApiClient = ReturnType<typeof createApiClient>;
