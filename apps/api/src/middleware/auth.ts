@@ -28,3 +28,22 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 }
+
+
+export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  const header = req.headers.authorization;
+  const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
+
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const payload = verifyAccessToken(token);
+    req.user = { id: payload.sub, email: payload.email };
+  } catch {
+    // Public routes should continue when an optional token is missing or invalid.
+  }
+
+  return next();
+}

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { createTradeRequestSchema } from '@zizilia/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { optionalAuth, requireAuth } from '../../middleware/auth.js';
 
 export const tradesRoutes = Router();
 
@@ -40,7 +40,7 @@ tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   res.json({ trades });
 }));
 
-tradesRoutes.get('/:tradeId', asyncRoute(async (req, res) => {
+tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const trade = await prisma.trade.findFirst({
     where: {
       id: req.params.tradeId,

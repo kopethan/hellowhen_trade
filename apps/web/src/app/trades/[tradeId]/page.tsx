@@ -2,8 +2,9 @@ import { notFound } from 'next/navigation';
 import { formatCredits } from '@zizilia/shared';
 import { mockTrades } from '../../../lib/mockData';
 
-export default function TradeDetailPage({ params }: { params: { tradeId: string } }) {
-  const trade = mockTrades.find((item) => item.id === params.tradeId);
+export default async function TradeDetailPage({ params }: { params: Promise<{ tradeId: string }> }) {
+  const { tradeId } = await params;
+  const trade = mockTrades.find((item) => item.id === tradeId);
   if (!trade) notFound();
 
   return (
