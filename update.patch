@@ -1,7 +1,7 @@
 From 592ae132d6ef0aee3e8a5a320ebb0d429785f7e2 Mon Sep 17 00:00:00 2001
-From: Zizilia Patch <patch@zizilia.local>
+From: Hellowhen Patch <patch@hellowhen.local>
 Date: Wed, 6 May 2026 20:16:04 +0000
-Subject: [PATCH] Patch 1: create Zizilia trade repo base structure
+Subject: [PATCH] Patch 1: create Hellowhen trade repo base structure
 
 ---
  .env.example                                  |  12 +
@@ -257,7 +257,7 @@ index 0000000..4e616c2
 +# API
 +NODE_ENV=development
 +PORT=4000
-+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/zizilia?schema=public
++DATABASE_URL=postgresql://postgres:postgres@localhost:5432/hellowhen?schema=public
 +JWT_SECRET=dev-change-me
 +WEB_ORIGIN=http://localhost:3000
 +MOBILE_ORIGIN=exp://127.0.0.1:8081
@@ -294,7 +294,7 @@ index 0000000..d9f4f48
 +
 +## Completed
 +
-+- Created a fresh `zizilia` monorepo.
++- Created a fresh `hellowhen` monorepo.
 +- Added apps for API, web, and mobile.
 +- Added packages for contracts, API client, theme, shared utilities, UI, and trade domain.
 +- Added Prisma schema draft for User, Profile, Need, Offer, Trade, Wallet, CreditLedgerEntry, TradePayment, TradeEscrow, and PayoutRequest.
@@ -304,7 +304,7 @@ index 0000000..d9f4f48
 +- Added Profile/Me and Settings placeholders.
 +- Added mobile My Needs, My Offers, Trade Detail shells.
 +- Added web auth shell and future dashboard placeholder.
-+- Added new Zizilia placeholder wordmark assets.
++- Added new Hellowhen placeholder wordmark assets.
 +
 +## Intentionally not migrated
 +
@@ -325,11 +325,11 @@ index 0000000..1b73985
 --- /dev/null
 +++ b/README.md
 @@ -0,0 +1,71 @@
-+# Zizilia
++# Hellowhen
 +
 +Clean Trade-first product repo.
 +
-+Zizilia is **not** a continuation of the old Plans app. The uploaded previous project is used only as a reference/source for reusable foundations:
++Hellowhen is **not** a continuation of the old Plans app. The uploaded previous project is used only as a reference/source for reusable foundations:
 +
 +- auth flow patterns
 +- me/profile and settings patterns
@@ -342,7 +342,7 @@ index 0000000..1b73985
 +
 +## Product concept
 +
-+Zizilia is focused on:
++Hellowhen is focused on:
 +
 +- Needs
 +- Offers
@@ -403,7 +403,7 @@ index 0000000..4176e20
 +++ b/apps/api/package.json
 @@ -0,0 +1,38 @@
 +{
-+  "name": "@zizilia/api",
++  "name": "@hellowhen/api",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -418,8 +418,8 @@ index 0000000..4176e20
 +    "prisma:validate": "prisma validate"
 +  },
 +  "dependencies": {
-+    "@zizilia/contracts": "file:../../packages/contracts",
-+    "@zizilia/trade-domain": "file:../../packages/trade-domain",
++    "@hellowhen/contracts": "file:../../packages/contracts",
++    "@hellowhen/trade-domain": "file:../../packages/trade-domain",
 +    "@prisma/client": "5.22.0",
 +    "bcryptjs": "^2.4.3",
 +    "cors": "^2.8.5",
@@ -842,7 +842,7 @@ index 0000000..153a49f
 @@ -0,0 +1,66 @@
 +import bcrypt from 'bcryptjs';
 +import { Router } from 'express';
-+import { loginRequestSchema, registerRequestSchema } from '@zizilia/contracts';
++import { loginRequestSchema, registerRequestSchema } from '@hellowhen/contracts';
 +import { asyncRoute } from '../../lib/asyncRoute.js';
 +import { prisma } from '../../lib/prisma.js';
 +import { signAccessToken } from '../../lib/tokens.js';
@@ -928,7 +928,7 @@ index 0000000..f2e1d86
 +export const healthRoutes = Router();
 +
 +healthRoutes.get('/', (_req, res) => {
-+  res.json({ ok: true, service: 'zizilia-api' });
++  res.json({ ok: true, service: 'hellowhen-api' });
 +});
 diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
 new file mode 100644
@@ -937,7 +937,7 @@ index 0000000..1573206
 +++ b/apps/api/src/modules/needs/needs.routes.ts
 @@ -0,0 +1,31 @@
 +import { Router } from 'express';
-+import { createNeedRequestSchema } from '@zizilia/contracts';
++import { createNeedRequestSchema } from '@hellowhen/contracts';
 +import { asyncRoute } from '../../lib/asyncRoute.js';
 +import { prisma } from '../../lib/prisma.js';
 +import { requireAuth } from '../../middleware/auth.js';
@@ -976,7 +976,7 @@ index 0000000..63e1606
 +++ b/apps/api/src/modules/offers/offers.routes.ts
 @@ -0,0 +1,31 @@
 +import { Router } from 'express';
-+import { createOfferRequestSchema } from '@zizilia/contracts';
++import { createOfferRequestSchema } from '@hellowhen/contracts';
 +import { asyncRoute } from '../../lib/asyncRoute.js';
 +import { prisma } from '../../lib/prisma.js';
 +import { requireAuth } from '../../middleware/auth.js';
@@ -1015,7 +1015,7 @@ index 0000000..36ab240
 +++ b/apps/api/src/modules/profile/profile.routes.ts
 @@ -0,0 +1,24 @@
 +import { Router } from 'express';
-+import { updateProfileRequestSchema } from '@zizilia/contracts';
++import { updateProfileRequestSchema } from '@hellowhen/contracts';
 +import { asyncRoute } from '../../lib/asyncRoute.js';
 +import { prisma } from '../../lib/prisma.js';
 +import { requireAuth } from '../../middleware/auth.js';
@@ -1044,7 +1044,7 @@ index 0000000..50b92f5
 +++ b/apps/api/src/modules/settings/settings.routes.ts
 @@ -0,0 +1,27 @@
 +import { Router } from 'express';
-+import { updateSettingsRequestSchema } from '@zizilia/contracts';
++import { updateSettingsRequestSchema } from '@hellowhen/contracts';
 +import { asyncRoute } from '../../lib/asyncRoute.js';
 +import { prisma } from '../../lib/prisma.js';
 +import { requireAuth } from '../../middleware/auth.js';
@@ -1079,7 +1079,7 @@ index 0000000..efb5242
 +++ b/apps/api/src/modules/trades/trades.routes.ts
 @@ -0,0 +1,67 @@
 +import { Router } from 'express';
-+import { createTradeRequestSchema } from '@zizilia/contracts';
++import { createTradeRequestSchema } from '@hellowhen/contracts';
 +import { asyncRoute } from '../../lib/asyncRoute.js';
 +import { prisma } from '../../lib/prisma.js';
 +import { requireAuth } from '../../middleware/auth.js';
@@ -1241,7 +1241,7 @@ index 0000000..a98daac
 +const app = createApp();
 +
 +app.listen(env.port, () => {
-+  console.log(`Zizilia API listening on ${env.port}`);
++  console.log(`Hellowhen API listening on ${env.port}`);
 +});
 diff --git a/apps/api/tsconfig.json b/apps/api/tsconfig.json
 new file mode 100644
@@ -1268,8 +1268,8 @@ index 0000000..4d2c6b7
 @@ -0,0 +1,28 @@
 +{
 +  "expo": {
-+    "name": "Zizilia",
-+    "slug": "zizilia",
++    "name": "Hellowhen",
++    "slug": "hellowhen",
 +    "version": "0.1.0",
 +    "orientation": "portrait",
 +    "icon": "./assets/icon.png",
@@ -1282,14 +1282,14 @@ index 0000000..4d2c6b7
 +    "assetBundlePatterns": ["**/*"],
 +    "ios": {
 +      "supportsTablet": true,
-+      "bundleIdentifier": "com.zizilia.app"
++      "bundleIdentifier": "com.hellowhen.app"
 +    },
 +    "android": {
 +      "adaptiveIcon": {
 +        "foregroundImage": "./assets/adaptive-icon.png",
 +        "backgroundColor": "#0B1220"
 +      },
-+      "package": "com.zizilia.app"
++      "package": "com.hellowhen.app"
 +    },
 +    "web": {
 +      "favicon": "./assets/icon.png"
@@ -1305,7 +1305,7 @@ index 0000000..62eb813
 +<svg width="180" height="42" viewBox="0 0 180 42" fill="none" xmlns="http://www.w3.org/2000/svg">
 +  <rect width="42" height="42" rx="14" fill="#14B8A6"/>
 +  <path d="M12 27L27 12H14V9H33L18 24H31V27H12Z" fill="#062925"/>
-+  <text x="54" y="28" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#F8FAFC">Zizilia</text>
++  <text x="54" y="28" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#F8FAFC">Hellowhen</text>
 +</svg>
 diff --git a/apps/mobile/assets/brand/wordmark-light.svg b/apps/mobile/assets/brand/wordmark-light.svg
 new file mode 100644
@@ -1316,7 +1316,7 @@ index 0000000..3d6ddaf
 +<svg width="180" height="42" viewBox="0 0 180 42" fill="none" xmlns="http://www.w3.org/2000/svg">
 +  <rect width="42" height="42" rx="14" fill="#0F766E"/>
 +  <path d="M12 27L27 12H14V9H33L18 24H31V27H12Z" fill="#ECFEFF"/>
-+  <text x="54" y="28" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#0F172A">Zizilia</text>
++  <text x="54" y="28" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#0F172A">Hellowhen</text>
 +</svg>
 diff --git a/apps/mobile/index.js b/apps/mobile/index.js
 new file mode 100644
@@ -1335,7 +1335,7 @@ index 0000000..b405f40
 +++ b/apps/mobile/package.json
 @@ -0,0 +1,37 @@
 +{
-+  "name": "@zizilia/mobile",
++  "name": "@hellowhen/mobile",
 +  "version": "0.1.0",
 +  "private": true,
 +  "main": "index.js",
@@ -1352,12 +1352,12 @@ index 0000000..b405f40
 +    "@react-navigation/bottom-tabs": "^6.5.20",
 +    "@react-navigation/native": "^6.1.17",
 +    "@react-navigation/native-stack": "^6.9.26",
-+    "@zizilia/api-client": "file:../../packages/api-client",
-+    "@zizilia/contracts": "file:../../packages/contracts",
-+    "@zizilia/shared": "file:../../packages/shared",
-+    "@zizilia/theme": "file:../../packages/theme",
-+    "@zizilia/trade-domain": "file:../../packages/trade-domain",
-+    "@zizilia/ui": "file:../../packages/ui",
++    "@hellowhen/api-client": "file:../../packages/api-client",
++    "@hellowhen/contracts": "file:../../packages/contracts",
++    "@hellowhen/shared": "file:../../packages/shared",
++    "@hellowhen/theme": "file:../../packages/theme",
++    "@hellowhen/trade-domain": "file:../../packages/trade-domain",
++    "@hellowhen/ui": "file:../../packages/ui",
 +    "expo": "~51.0.28",
 +    "expo-status-bar": "~1.12.1",
 +    "react": "18.2.0",
@@ -1470,13 +1470,13 @@ index 0000000..117915d
 +
 +export function LoginScreen() {
 +  const auth = useAuth();
-+  const [email, setEmail] = useState('demo@zizilia.app');
++  const [email, setEmail] = useState('demo@hellowhen.app');
 +  const [password, setPassword] = useState('password123');
 +
 +  return (
 +    <AppScreen>
 +      <AppCard>
-+        <AppText style={{ fontSize: 34, fontWeight: '800', marginBottom: 8 }}>Zizilia</AppText>
++        <AppText style={{ fontSize: 34, fontWeight: '800', marginBottom: 8 }}>Hellowhen</AppText>
 +        <AppText style={{ marginBottom: 16 }}>Patch 1 auth shell. Wire old auth flow in Patch 2.</AppText>
 +        <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" placeholder="Email" style={{ marginBottom: 10, padding: 12, backgroundColor: 'white', borderRadius: 12 }} />
 +        <TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry style={{ marginBottom: 12, padding: 12, backgroundColor: 'white', borderRadius: 12 }} />
@@ -1687,7 +1687,7 @@ index 0000000..6990998
 @@ -0,0 +1,28 @@
 +import React from 'react';
 +import { ScrollView } from 'react-native';
-+import { formatCredits } from '@zizilia/shared';
++import { formatCredits } from '@hellowhen/shared';
 +import { AppCard } from '../../components/AppCard';
 +import { AppScreen } from '../../components/AppScreen';
 +import { AppText } from '../../components/AppText';
@@ -1740,7 +1740,7 @@ index 0000000..70e5913
 --- /dev/null
 +++ b/apps/mobile/src/lib/api.ts
 @@ -0,0 +1,9 @@
-+import { createApiClient } from '@zizilia/api-client';
++import { createApiClient } from '@hellowhen/api-client';
 +import { getAccessToken } from './tokenStore';
 +
 +const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000';
@@ -1757,7 +1757,7 @@ index 0000000..d0cd387
 @@ -0,0 +1,15 @@
 +import * as SecureStore from 'expo-secure-store';
 +
-+const ACCESS_TOKEN_KEY = 'zizilia_access_token';
++const ACCESS_TOKEN_KEY = 'hellowhen_access_token';
 +
 +export async function getAccessToken() {
 +  return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
@@ -1838,7 +1838,7 @@ index 0000000..4e66446
 +++ b/apps/mobile/src/providers/AppSettingsProvider.tsx
 @@ -0,0 +1,23 @@
 +import React, { createContext, useContext, useState } from 'react';
-+import type { AppSettings } from '@zizilia/contracts';
++import type { AppSettings } from '@hellowhen/contracts';
 +
 +const defaultSettings: AppSettings = {
 +  appearance: 'system',
@@ -1867,7 +1867,7 @@ index 0000000..0be47e4
 +++ b/apps/mobile/src/providers/AuthProvider.tsx
 @@ -0,0 +1,45 @@
 +import React, { createContext, useContext, useMemo, useState } from 'react';
-+import type { AuthUser } from '@zizilia/contracts';
++import type { AuthUser } from '@hellowhen/contracts';
 +import { api } from '../lib/api';
 +import { clearAccessToken, setAccessToken } from '../lib/tokenStore';
 +
@@ -1918,7 +1918,7 @@ index 0000000..b51129f
 +++ b/apps/mobile/src/providers/ThemeProvider.tsx
 @@ -0,0 +1,12 @@
 +import React, { createContext, useContext } from 'react';
-+import { themeTokens } from '@zizilia/theme';
++import { themeTokens } from '@hellowhen/theme';
 +
 +const ThemeContext = createContext(themeTokens);
 +
@@ -1963,11 +1963,11 @@ index 0000000..8c45449
 +/** @type {import('next').NextConfig} */
 +const nextConfig = {
 +  transpilePackages: [
-+    '@zizilia/api-client',
-+    '@zizilia/contracts',
-+    '@zizilia/shared',
-+    '@zizilia/theme',
-+    '@zizilia/trade-domain',
++    '@hellowhen/api-client',
++    '@hellowhen/contracts',
++    '@hellowhen/shared',
++    '@hellowhen/theme',
++    '@hellowhen/trade-domain',
 +  ],
 +};
 +
@@ -1979,7 +1979,7 @@ index 0000000..a165546
 +++ b/apps/web/package.json
 @@ -0,0 +1,27 @@
 +{
-+  "name": "@zizilia/web",
++  "name": "@hellowhen/web",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -1990,10 +1990,10 @@ index 0000000..a165546
 +    "typecheck": "tsc --noEmit -p tsconfig.json"
 +  },
 +  "dependencies": {
-+    "@zizilia/api-client": "file:../../packages/api-client",
-+    "@zizilia/contracts": "file:../../packages/contracts",
-+    "@zizilia/shared": "file:../../packages/shared",
-+    "@zizilia/theme": "file:../../packages/theme",
++    "@hellowhen/api-client": "file:../../packages/api-client",
++    "@hellowhen/contracts": "file:../../packages/contracts",
++    "@hellowhen/shared": "file:../../packages/shared",
++    "@hellowhen/theme": "file:../../packages/theme",
 +    "next": "^16.1.6",
 +    "react": "19.1.0",
 +    "react-dom": "19.1.0"
@@ -2011,11 +2011,11 @@ index 0000000..b046642
 --- /dev/null
 +++ b/apps/web/public/brand/wordmark-dark.svg
 @@ -0,0 +1,6 @@
-+<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zizilia">
++<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Hellowhen">
 +  <rect width="164" height="40" rx="20" fill="#14B8A6"/>
 +  <circle cx="22" cy="20" r="10" fill="white" opacity="0.95"/>
 +  <path d="M16 21.5L22 15L28 21.5L22 27L16 21.5Z" fill="#14B8A6"/>
-+  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="white">Zizilia</text>
++  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="white">Hellowhen</text>
 +</svg>
 diff --git a/apps/web/public/brand/wordmark-light.svg b/apps/web/public/brand/wordmark-light.svg
 new file mode 100644
@@ -2023,11 +2023,11 @@ index 0000000..2233ae1
 --- /dev/null
 +++ b/apps/web/public/brand/wordmark-light.svg
 @@ -0,0 +1,6 @@
-+<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zizilia">
++<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Hellowhen">
 +  <rect width="164" height="40" rx="20" fill="#F8FAFC"/>
 +  <circle cx="22" cy="20" r="10" fill="#14B8A6" opacity="0.95"/>
 +  <path d="M16 21.5L22 15L28 21.5L22 27L16 21.5Z" fill="#F8FAFC"/>
-+  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="#111827">Zizilia</text>
++  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="#111827">Hellowhen</text>
 +</svg>
 diff --git a/apps/web/public/icons/outline/add.svg b/apps/web/public/icons/outline/add.svg
 new file mode 100644
@@ -2171,7 +2171,7 @@ index 0000000..fbb662f
 ++      <div className="card">
 ++        <p className="eyebrow">Auth shell</p>
 ++        <h1>Sign in to manage trades.</h1>
-++        <p>Patch 1 placeholder for the reusable Zizilia auth flow. Patch 2 should wire email/password, Google auth, token storage, and /me refresh.</p>
+++        <p>Patch 1 placeholder for the reusable Hellowhen auth flow. Patch 2 should wire email/password, Google auth, token storage, and /me refresh.</p>
 ++      </div>
 ++      <form className="card form">
 ++        <input className="input" placeholder="Email" type="email" />
@@ -2248,7 +2248,7 @@ index 0000000..8822847
 +import type { ReactNode } from 'react';
 +
 +export const metadata = {
-+  title: 'Zizilia',
++  title: 'Hellowhen',
 +  description: 'Publish needs, offers, and focused public trades.',
 +};
 +
@@ -2258,9 +2258,9 @@ index 0000000..8822847
 +      <body>
 +        <main className="shell">
 +          <nav className="nav">
-+            <Link href="/" className="brand" aria-label="Zizilia home">
++            <Link href="/" className="brand" aria-label="Hellowhen home">
 +              <span className="brand-mark">↔</span>
-+              <span>Zizilia</span>
++              <span>Hellowhen</span>
 +            </Link>
 +            <div className="nav-links">
 +              <Link href="/trades">Feed</Link>
@@ -2305,7 +2305,7 @@ index 0000000..38842c7
 +        <p className="eyebrow">Trade-first MVP</p>
 +        <h1>Needs, offers, and public trades.</h1>
 +        <p>
-+          Zizilia starts clean: no Plans, no old action bar, no place/feed complexity.
++          Hellowhen starts clean: no Plans, no old action bar, no place/feed complexity.
 +          The MVP focuses on publishing trades and preparing a safe fake-credit ledger for later payment review.
 +        </p>
 +        <div className="cta-row">
@@ -2356,7 +2356,7 @@ index 0000000..b6b15bb
 +++ b/apps/web/src/app/trades/[tradeId]/page.tsx
 @@ -0,0 +1,18 @@
 +import { notFound } from 'next/navigation';
-+import { formatCredits } from '@zizilia/shared';
++import { formatCredits } from '@hellowhen/shared';
 +import { mockTrades } from '../../../lib/mockData';
 +
 +export default function TradeDetailPage({ params }: { params: { tradeId: string } }) {
@@ -2425,8 +2425,8 @@ index 0000000..6aaeba9
 +++ b/apps/web/src/features/trade/TradeCard.tsx
 @@ -0,0 +1,15 @@
 +import Link from 'next/link';
-+import type { TradeDto } from '@zizilia/contracts';
-+import { formatCredits, truncateText } from '@zizilia/shared';
++import type { TradeDto } from '@hellowhen/contracts';
++import { formatCredits, truncateText } from '@hellowhen/shared';
 +
 +export function TradeCard({ trade }: { trade: TradeDto }) {
 +  return (
@@ -2445,7 +2445,7 @@ index 0000000..494e0da
 --- /dev/null
 +++ b/apps/web/src/lib/mockData.ts
 @@ -0,0 +1,28 @@
-+import type { TradeDto } from '@zizilia/contracts';
++import type { TradeDto } from '@hellowhen/contracts';
 +
 +export const mockTrades: TradeDto[] = [
 +  {
@@ -2504,8 +2504,8 @@ index 0000000..728761d
 +COPY packages packages
 +RUN npm install
 +COPY . .
-+RUN npm run build -w @zizilia/api
-+CMD ["npm", "run", "start", "-w", "@zizilia/api"]
++RUN npm run build -w @hellowhen/api
++CMD ["npm", "run", "start", "-w", "@hellowhen/api"]
 diff --git a/deploy/lightsail/docker-compose.yml b/deploy/lightsail/docker-compose.yml
 new file mode 100644
 index 0000000..120de0d
@@ -2518,7 +2518,7 @@ index 0000000..120de0d
 +    environment:
 +      POSTGRES_USER: postgres
 +      POSTGRES_PASSWORD: postgres
-+      POSTGRES_DB: zizilia
++      POSTGRES_DB: hellowhen
 +    ports:
 +      - "5432:5432"
 +    volumes:
@@ -2542,9 +2542,9 @@ index 0000000..9820ed9
 --- /dev/null
 +++ b/docs/architecture.md
 @@ -0,0 +1,28 @@
-+# Zizilia architecture
++# Hellowhen architecture
 +
-+`zizilia` is a clean monorepo with three apps and shared packages.
++`hellowhen` is a clean monorepo with three apps and shared packages.
 +
 +```txt
 +apps/api      Express + Prisma + PostgreSQL
@@ -2562,7 +2562,7 @@ index 0000000..9820ed9
 +
 +## Core rule
 +
-+Zizilia is Trade-first:
++Hellowhen is Trade-first:
 +
 +- public feed contains active public trades
 +- needs are private to their owner
@@ -2707,7 +2707,7 @@ index 0000000..644476d
 +++ b/package.json
 @@ -0,0 +1,29 @@
 +{
-+  "name": "zizilia",
++  "name": "hellowhen",
 +  "version": "0.1.0",
 +  "private": true,
 +  "workspaces": [
@@ -2715,14 +2715,14 @@ index 0000000..644476d
 +    "packages/*"
 +  ],
 +  "scripts": {
-+    "dev:api": "npm run dev -w @zizilia/api",
-+    "dev:web": "npm run dev -w @zizilia/web",
-+    "dev:mobile": "npm run start -w @zizilia/mobile",
++    "dev:api": "npm run dev -w @hellowhen/api",
++    "dev:web": "npm run dev -w @hellowhen/web",
++    "dev:mobile": "npm run start -w @hellowhen/mobile",
 +    "build": "npm run build --workspaces --if-present",
 +    "typecheck": "npm run typecheck --workspaces --if-present",
-+    "prisma:generate": "npm run prisma:generate -w @zizilia/api",
-+    "prisma:migrate": "npm run prisma:migrate -w @zizilia/api",
-+    "prisma:validate": "npm run prisma:validate -w @zizilia/api"
++    "prisma:generate": "npm run prisma:generate -w @hellowhen/api",
++    "prisma:migrate": "npm run prisma:migrate -w @hellowhen/api",
++    "prisma:validate": "npm run prisma:validate -w @hellowhen/api"
 +  },
 +  "devDependencies": {
 +    "typescript": "^5.4.5"
@@ -2738,14 +2738,14 @@ index 0000000..8e53e31
 +++ b/packages/api-client/package.json
 @@ -0,0 +1,18 @@
 +{
-+  "name": "@zizilia/api-client",
++  "name": "@hellowhen/api-client",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
 +  "main": "src/index.ts",
 +  "types": "src/index.ts",
 +  "dependencies": {
-+    "@zizilia/contracts": "file:../contracts"
++    "@hellowhen/contracts": "file:../contracts"
 +  },
 +  "devDependencies": {
 +    "typescript": "^5.4.5"
@@ -2814,7 +2814,7 @@ index 0000000..36e1c59
 +  CreateNeedRequest,
 +  CreateOfferRequest,
 +  CreateTradeRequest
-+} from '@zizilia/contracts';
++} from '@hellowhen/contracts';
 +import { requestJson, type ApiClientOptions } from './http';
 +
 +export function createApiClient(options: ApiClientOptions) {
@@ -2863,7 +2863,7 @@ index 0000000..36e1c59
 +  };
 +}
 +
-+export type ZiziliaApiClient = ReturnType<typeof createApiClient>;
++export type HellowhenApiClient = ReturnType<typeof createApiClient>;
 diff --git a/packages/api-client/tsconfig.json b/packages/api-client/tsconfig.json
 new file mode 100644
 index 0000000..9befb2d
@@ -2888,7 +2888,7 @@ index 0000000..6ba559f
 +++ b/packages/contracts/package.json
 @@ -0,0 +1,18 @@
 +{
-+  "name": "@zizilia/contracts",
++  "name": "@hellowhen/contracts",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -3120,7 +3120,7 @@ index 0000000..bb654f9
 +++ b/packages/shared/package.json
 @@ -0,0 +1,15 @@
 +{
-+  "name": "@zizilia/shared",
++  "name": "@hellowhen/shared",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -3180,7 +3180,7 @@ index 0000000..8664abf
 +++ b/packages/theme/package.json
 @@ -0,0 +1,15 @@
 +{
-+  "name": "@zizilia/theme",
++  "name": "@hellowhen/theme",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -3267,7 +3267,7 @@ index 0000000..5a9348c
 +++ b/packages/trade-domain/package.json
 @@ -0,0 +1,15 @@
 +{
-+  "name": "@zizilia/trade-domain",
++  "name": "@hellowhen/trade-domain",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -3455,7 +3455,7 @@ index 0000000..4e038c2
 +++ b/packages/ui/package.json
 @@ -0,0 +1,15 @@
 +{
-+  "name": "@zizilia/ui",
++  "name": "@hellowhen/ui",
 +  "version": "0.1.0",
 +  "private": true,
 +  "type": "module",
@@ -3516,12 +3516,12 @@ index 0000000..913e489
 +    "noUncheckedIndexedAccess": true,
 +    "baseUrl": ".",
 +    "paths": {
-+      "@zizilia/contracts": ["packages/contracts/src"],
-+      "@zizilia/api-client": ["packages/api-client/src"],
-+      "@zizilia/shared": ["packages/shared/src"],
-+      "@zizilia/theme": ["packages/theme/src"],
-+      "@zizilia/trade-domain": ["packages/trade-domain/src"],
-+      "@zizilia/ui": ["packages/ui/src"]
++      "@hellowhen/contracts": ["packages/contracts/src"],
++      "@hellowhen/api-client": ["packages/api-client/src"],
++      "@hellowhen/shared": ["packages/shared/src"],
++      "@hellowhen/theme": ["packages/theme/src"],
++      "@hellowhen/trade-domain": ["packages/trade-domain/src"],
++      "@hellowhen/ui": ["packages/ui/src"]
 +    }
 +  }
 +}

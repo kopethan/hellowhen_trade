@@ -1,4 +1,4 @@
-import type { TradeDto } from '@zizilia/contracts';
+import type { TradeDto } from '@hellowhen/contracts';
 
 export const mockTrades: TradeDto[] = [
   {

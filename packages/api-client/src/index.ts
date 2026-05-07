@@ -7,7 +7,7 @@ import type {
   CreateNeedRequest,
   CreateOfferRequest,
   CreateTradeRequest
-} from '@zizilia/contracts';
+} from '@hellowhen/contracts';
 import { requestJson, type ApiClientOptions } from './http';
 
 export function createApiClient(options: ApiClientOptions) {
@@ -56,4 +56,4 @@ export function createApiClient(options: ApiClientOptions) {
   };
 }
 
-export type ZiziliaApiClient = ReturnType<typeof createApiClient>;
+export type HellowhenApiClient = ReturnType<typeof createApiClient>;

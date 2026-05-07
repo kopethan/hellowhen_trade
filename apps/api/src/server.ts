@@ -4,5 +4,5 @@ import { env } from './config/env.js';
 const app = createApp();
 
 app.listen(env.port, () => {
-  console.log(`Zizilia API listening on ${env.port}`);
+  console.log(`Hellowhen API listening on ${env.port}`);
 });

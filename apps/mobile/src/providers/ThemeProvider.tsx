@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import { themeTokens } from '@zizilia/theme';
+import { themeTokens } from '@hellowhen/theme';
 
 const ThemeContext = createContext(themeTokens);
 

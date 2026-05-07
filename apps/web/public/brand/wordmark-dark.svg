@@ -1,6 +1,38 @@
-<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zizilia">
-  <rect width="164" height="40" rx="20" fill="#14B8A6"/>
-  <circle cx="22" cy="20" r="10" fill="white" opacity="0.95"/>
-  <path d="M16 21.5L22 15L28 21.5L22 27L16 21.5Z" fill="#14B8A6"/>
-  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="white">Zizilia</text>
+<svg width="140" height="32" viewBox="0 0 140 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="140" height="32" fill="white"/>
+<rect x="100" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="108" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="114" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="125" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="133" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="102" y="14" width="8" height="4" rx="2" fill="black"/>
+<rect x="114" y="3" width="8" height="4" rx="2" fill="black"/>
+<rect x="115" y="14" width="8" height="4" rx="2" fill="black"/>
+<rect x="114" y="25" width="8" height="4" rx="2" fill="black"/>
+<path d="M127 5.00001L135 27" stroke="black" stroke-width="4" stroke-linecap="round"/>
+<path d="M75.9684 24.8149C75.9684 24.8149 74.8496 20.6129 73.3474 14.9762C71.8452 9.33954 71 6.17176 71 6.17176" stroke="black" stroke-width="7" stroke-linecap="round"/>
+<path d="M89.0847 24.7011C89.0847 24.7011 90.2035 20.4991 91.7057 14.8625C93.2079 9.22577 94.0531 6.05799 94.0531 6.05799" stroke="black" stroke-width="7" stroke-linecap="round"/>
+<path d="M76.0528 24.7849L82.3399 13.3261" stroke="black" stroke-width="7" stroke-linecap="round"/>
+<path d="M83.0151 13.8897L88.7869 24.4092" stroke="black" stroke-width="7" stroke-linecap="round"/>
+<rect x="27" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="37" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="47" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="27" y="3" width="8" height="4" rx="2" fill="black"/>
+<rect x="27" y="14" width="8" height="4" rx="2" fill="black"/>
+<rect x="27" y="25" width="8" height="4" rx="2" fill="black"/>
+<rect x="37" y="25" width="8" height="4" rx="2" fill="black"/>
+<rect x="47" y="25" width="8" height="4" rx="2" fill="black"/>
+<ellipse cx="61" cy="16" rx="4" ry="11" fill="white" stroke="black" stroke-width="4"/>
+<rect x="27" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="37" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="47" y="3" width="4" height="26" rx="2" fill="black"/>
+<rect x="27" y="3" width="8" height="4" rx="2" fill="black"/>
+<rect x="27" y="14" width="8" height="4" rx="2" fill="black"/>
+<rect x="27" y="25" width="8" height="4" rx="2" fill="black"/>
+<rect x="37" y="25" width="8" height="4" rx="2" fill="black"/>
+<rect x="47" y="25" width="8" height="4" rx="2" fill="black"/>
+<ellipse cx="61" cy="16" rx="4" ry="11" fill="white" stroke="black" stroke-width="4"/>
+<path d="M8.75575 25.1137C8.75575 25.1137 6.95112 20.9278 6.95172 15.3122C6.95231 9.69672 8.75776 6.02092 8.75776 6.02092" stroke="black" stroke-width="7" stroke-linecap="round"/>
+<path d="M20.7005 25.1137C20.7005 25.1137 18.8958 20.9278 18.8964 15.3122C18.897 9.69672 20.7025 6.02092 20.7025 6.02092" stroke="black" stroke-width="7" stroke-linecap="round"/>
+<path d="M20.4017 14.5424C20.4017 14.5424 17.2611 16.3972 13.0252 16.4627C8.78944 16.5283 5.99999 14.7653 5.99999 14.7653" stroke="black" stroke-width="7" stroke-linecap="round"/>
 </svg>

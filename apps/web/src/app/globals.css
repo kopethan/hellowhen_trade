@@ -75,15 +75,6 @@ textarea {
   font-weight: 800;
 }
 
-.brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--accent);
-  color: white;
-}
 
 .hero {
   display: grid;
@@ -203,4 +194,11 @@ p {
   .nav-links {
     flex-wrap: wrap;
   }
+}
+
+.brand-wordmark {
+  display: block;
+  width: 140px;
+  height: 32px;
+  object-fit: contain;
 }

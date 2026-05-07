@@ -1,8 +1,8 @@
-# Zizilia
+# Hellowhen
 
 Clean Trade-first product repo.
 
-Zizilia is **not** a continuation of the old Plans app. The uploaded previous project is used only as a reference/source for reusable foundations:
+Hellowhen is **not** a continuation of the old Plans app. The uploaded previous project is used only as a reference/source for reusable foundations:
 
 - auth flow patterns
 - me/profile and settings patterns
@@ -15,7 +15,7 @@ It intentionally does **not** migrate Plans, the old action bar, place/feed/deck
 
 ## Product concept
 
-Zizilia is focused on:
+Hellowhen is focused on:
 
 - Needs
 - Offers

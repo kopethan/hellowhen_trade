@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState } from 'react';
-import type { AppSettings } from '@zizilia/contracts';
+import type { AppSettings } from '@hellowhen/contracts';
 
 const defaultSettings: AppSettings = {
   appearance: 'system',

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
-import type { AuthUser } from '@zizilia/contracts';
+import type { AuthUser } from '@hellowhen/contracts';
 import { api } from '../lib/api';
 import { clearAccessToken, setAccessToken } from '../lib/tokenStore';
 

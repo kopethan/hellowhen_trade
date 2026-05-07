@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { formatCredits } from '@zizilia/shared';
+import { formatCredits } from '@hellowhen/shared';
 import { mockTrades } from '../../../lib/mockData';
 
 export default function TradeDetailPage({ params }: { params: { tradeId: string } }) {

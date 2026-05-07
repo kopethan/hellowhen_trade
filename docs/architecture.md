@@ -1,6 +1,6 @@
-# Zizilia architecture
+# Hellowhen architecture
 
-`zizilia` is a clean monorepo with three apps and shared packages.
+`hellowhen` is a clean monorepo with three apps and shared packages.
 
 ```txt
 apps/api      Express + Prisma + PostgreSQL
@@ -18,7 +18,7 @@ Do not import or copy old Plans, action bar, deck/feed/place, polls, messages, t
 
 ## Core rule
 
-Zizilia is Trade-first:
+Hellowhen is Trade-first:
 
 - public feed contains active public trades
 - needs are private to their owner

@@ -1,5 +1,5 @@
 {
-  "name": "@zizilia/web",
+  "name": "@hellowhen/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,10 +10,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@zizilia/api-client": "file:../../packages/api-client",
-    "@zizilia/contracts": "file:../../packages/contracts",
-    "@zizilia/shared": "file:../../packages/shared",
-    "@zizilia/theme": "file:../../packages/theme",
+    "@hellowhen/api-client": "file:../../packages/api-client",
+    "@hellowhen/contracts": "file:../../packages/contracts",
+    "@hellowhen/shared": "file:../../packages/shared",
+    "@hellowhen/theme": "file:../../packages/theme",
     "next": "^16.1.6",
     "react": "19.1.0",
     "react-dom": "19.1.0"

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Zizilia",
-    "slug": "zizilia",
+    "name": "Hellowhen",
+    "slug": "hellowhen",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,19 +9,19 @@
     "splash": {
       "image": "./assets/splash-logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0B1220"
+      "backgroundColor": "#FFFFFF"
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.zizilia.app"
+      "bundleIdentifier": "com.hellowhen.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0B1220"
+        "backgroundColor": "#FFFFFF"
       },
-      "package": "com.zizilia.app"
+      "package": "com.hellowhen.app"
     },
     "web": {
       "favicon": "./assets/icon.png"

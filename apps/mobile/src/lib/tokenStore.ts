@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 
-const ACCESS_TOKEN_KEY = 'zizilia_access_token';
+const ACCESS_TOKEN_KEY = 'hellowhen_access_token';
 
 export async function getAccessToken() {
   return SecureStore.getItemAsync(ACCESS_TOKEN_KEY);

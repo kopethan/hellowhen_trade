@@ -1,5 +1,29 @@
-<svg width="180" height="42" viewBox="0 0 180 42" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="42" height="42" rx="14" fill="#0F766E"/>
-  <path d="M12 27L27 12H14V9H33L18 24H31V27H12Z" fill="#ECFEFF"/>
-  <text x="54" y="28" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#0F172A">Zizilia</text>
+<svg width="350" height="80" viewBox="0 0 350 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="350" height="80" fill="white"/>
+<rect x="248" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="268" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="282" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="306" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="326" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="285" y="20" width="10" height="20" rx="5" transform="rotate(-90 285 20)" fill="black"/>
+<rect x="282" y="45" width="10" height="20" rx="5" transform="rotate(-90 282 45)" fill="black"/>
+<rect x="282" y="70" width="10" height="20" rx="5" transform="rotate(-90 282 70)" fill="black"/>
+<rect x="253" y="46" width="10" height="20" rx="5" transform="rotate(-90 253 46)" fill="black"/>
+<path d="M311 15L331 65.5" stroke="black" stroke-width="10" stroke-linecap="round"/>
+<path d="M188.421 62.0372C188.421 62.0372 185.624 51.5322 181.868 37.4405C178.113 23.3488 176 15.4293 176 15.4293" stroke="black" stroke-width="18" stroke-linecap="round"/>
+<path d="M221.212 61.7529C221.212 61.7529 224.009 51.2479 227.764 37.1562C231.52 23.0645 233.633 15.145 233.633 15.145" stroke="black" stroke-width="18" stroke-linecap="round"/>
+<path d="M188.632 61.9622L204.35 33.3152" stroke="black" stroke-width="18" stroke-linecap="round"/>
+<path d="M206.038 34.7242L220.467 61.023" stroke="black" stroke-width="18" stroke-linecap="round"/>
+<rect x="66" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="92" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="116" y="10" width="10" height="60" rx="5" fill="black"/>
+<rect x="69" y="20" width="10" height="20" rx="5" transform="rotate(-90 69 20)" fill="black"/>
+<rect x="68" y="45" width="10" height="20" rx="5" transform="rotate(-90 68 45)" fill="black"/>
+<rect x="66" y="70" width="10" height="20" rx="5" transform="rotate(-90 66 70)" fill="black"/>
+<rect x="92" y="70" width="10" height="20" rx="5" transform="rotate(-90 92 70)" fill="black"/>
+<rect x="116" y="70" width="10" height="20" rx="5" transform="rotate(-90 116 70)" fill="black"/>
+<ellipse cx="150" cy="40" rx="10" ry="24" stroke="black" stroke-width="10"/>
+<path d="M20.8894 62.7843C20.8894 62.7843 16.3779 52.3195 16.3794 38.2806C16.3808 24.2418 20.8945 15.0523 20.8945 15.0523" stroke="black" stroke-width="18" stroke-linecap="round"/>
+<path d="M50.7511 62.7843C50.7511 62.7843 46.2396 52.3195 46.241 38.2806C46.2425 24.2418 50.7562 15.0523 50.7562 15.0523" stroke="black" stroke-width="18" stroke-linecap="round"/>
+<path d="M50.0043 36.3561C50.0043 36.3561 42.1526 40.9929 31.5631 41.1568C20.9736 41.3207 14 36.9133 14 36.9133" stroke="black" stroke-width="18" stroke-linecap="round"/>
 </svg>
