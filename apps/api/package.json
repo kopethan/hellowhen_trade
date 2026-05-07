@@ -11,7 +11,8 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@zizilia/contracts": "file:../../packages/contracts",

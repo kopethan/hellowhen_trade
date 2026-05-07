@@ -14,7 +14,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "prisma:generate": "npm run prisma:generate -w @zizilia/api",
     "prisma:migrate": "npm run prisma:migrate -w @zizilia/api",
-    "prisma:validate": "npm run prisma:validate -w @zizilia/api"
+    "prisma:validate": "npm run prisma:validate -w @zizilia/api",
+    "prisma:seed": "npm run prisma:seed -w @zizilia/api"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

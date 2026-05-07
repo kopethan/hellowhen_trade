@@ -61,6 +61,21 @@ npm run dev:web
 npm run dev:mobile
 ```
 
+### Mobile API networking
+
+Expo only exposes variables prefixed with `EXPO_PUBLIC_`. The mobile app reads
+`EXPO_PUBLIC_API_URL` from `apps/mobile/.env`.
+
+```bash
+cp apps/mobile/.env.example apps/mobile/.env
+```
+
+Use the API URL that the device can reach:
+
+- iOS simulator or local web: `http://127.0.0.1:4000`
+- Android emulator: `http://10.0.2.2:4000`
+- Physical phone: `http://<your-computer-lan-ip>:4000`
+
 ## Credit safety rule
 
 Purchased credits and earned credits must stay separate:
