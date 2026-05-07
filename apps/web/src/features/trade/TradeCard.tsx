@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import type { TradeDto } from '@zizilia/contracts';
-import { formatCredits, truncateText } from '@zizilia/shared';
+import type { TradeDto } from '@hellowhen/contracts';
+import { formatCredits, truncateText } from '@hellowhen/shared';
 
 export function TradeCard({ trade }: { trade: TradeDto }) {
   return (

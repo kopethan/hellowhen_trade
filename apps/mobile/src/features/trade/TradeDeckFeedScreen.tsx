@@ -1,361 +1,111 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Button, PanResponder, Pressable, StyleSheet, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { formatCredits } from '@zizilia/shared';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { api } from '../../lib/api';
+import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { api } from '../../lib/api';
-import { FeedTrade, mockTrades } from './mockTrades';
+import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { TradeDeckCard } from './components/TradeDeckCard';
+import type { TradeDeckItem } from './types';
 
-type FeedResponse = {
-  trades?: FeedTrade[];
-};
+const now = () => new Date().toISOString();
+const mockTrades: TradeDeckItem[] = [
+  { id: 'mock-trade-1', ownerId: 'mock-owner-1', needId: 'mock-need-video', offerId: null, title: 'Need help editing a short launch video', description: 'Polish a 45-second launch video for social. I have the clips and copy, but need pacing, captions, and a clean export.', creditAmount: 25, status: 'active', isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString(), closedAt: null, owner: { profile: { displayName: 'Mina' } } },
+  { id: 'mock-trade-2', ownerId: 'mock-owner-2', needId: null, offerId: 'mock-offer-copy', title: 'Offer: landing page copy review', description: 'I can review your hero section, headline, CTA, and first fold. You will get quick notes and 3 rewrite directions.', creditAmount: 15, status: 'active', isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 72).toISOString(), closedAt: null, owner: { profile: { displayName: 'Noah' } } },
+  { id: 'mock-trade-3', ownerId: 'mock-owner-3', needId: null, offerId: null, title: 'Trade: database cleanup for brand feedback', description: 'Looking for someone to clean a small Airtable base. In return I can do brand naming feedback or pay fake test credits.', creditAmount: 40, status: 'active', isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: null, closedAt: null, owner: { profile: { displayName: 'Ari' } } },
+];
 
-function getOwnerLabel(trade: FeedTrade) {
-  return trade.owner?.profile?.displayName || trade.owner?.profile?.handle || 'Community member';
-}
-
-function getInitials(label: string) {
-  return label
-    .split(' ')
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
-
-function getExpirationLabel(expiresAt?: string | null) {
-  if (!expiresAt) return 'Expiration not set';
-
-  const date = new Date(expiresAt);
-  if (Number.isNaN(date.getTime())) return 'Expiration not set';
-
-  return `Expires ${date.toLocaleDateString()}`;
-}
+type FeedResponse = { trades: TradeDeckItem[] };
 
 export function TradeDeckFeedScreen() {
-  const navigation = useNavigation<any>();
-  const position = useRef(new Animated.ValueXY()).current;
-  const [trades, setTrades] = useState<FeedTrade[]>(mockTrades);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [feedNotice, setFeedNotice] = useState('Loading live feed when available.');
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const [trades, setTrades] = useState<TradeDeckItem[]>(mockTrades);
+  const [source, setSource] = useState<'api' | 'mock'>('mock');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [passedIds, setPassedIds] = useState<Set<string>>(() => new Set());
+  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
 
-  const topTrade = trades[currentIndex];
-  const remainingCount = Math.max(trades.length - currentIndex, 0);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    api.trades.feed()
-      .then((response) => {
-        if (!isMounted) return;
-
-        const liveTrades = ((response as FeedResponse).trades ?? []).filter(Boolean);
-        if (liveTrades.length > 0) {
-          setTrades(liveTrades);
-          setCurrentIndex(0);
-          setFeedNotice('Live API feed');
-        } else {
-          setFeedNotice('Demo feed: the API returned no active public trades.');
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setFeedNotice('Demo feed: API unavailable. Check EXPO_PUBLIC_API_URL for live data.');
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
+  const loadFeed = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.trades.feed() as FeedResponse;
+      const apiTrades = Array.isArray(result.trades) ? result.trades : [];
+      if (apiTrades.length > 0) {
+        setTrades(apiTrades);
+        setSource('api');
+        setPassedIds(new Set());
+      } else {
+        setTrades(mockTrades);
+        setSource('mock');
+        setError('No active public trades yet. Showing mock trades so the deck stays usable.');
+      }
+    } catch (caughtError) {
+      setTrades(mockTrades);
+      setSource('mock');
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const rotate = position.x.interpolate({
-    inputRange: [-220, 0, 220],
-    outputRange: ['-8deg', '0deg', '8deg'],
-    extrapolate: 'clamp'
-  });
+  useFocusEffect(useCallback(() => { void loadFeed(); }, [loadFeed]));
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 6 || Math.abs(gesture.dy) > 6,
-    onPanResponderMove: Animated.event([null, { dx: position.x, dy: position.y }], { useNativeDriver: false }),
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx > 120) {
-        completeCard('save');
-        return;
-      }
+  useEffect(() => {
+    if (trades.length > 0 && passedIds.size >= trades.length) setPassedIds(new Set());
+  }, [passedIds.size, trades.length]);
 
-      if (gesture.dx < -120) {
-        completeCard('pass');
-        return;
-      }
+  const visibleTrades = useMemo(() => trades.filter((trade) => !passedIds.has(trade.id)), [passedIds, trades]);
+  const activeTrade = visibleTrades[0];
+  const activeIndex = activeTrade ? trades.findIndex((trade) => trade.id === activeTrade.id) : 0;
 
-      Animated.spring(position, {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: true
-      }).start();
-    }
-  }), [currentIndex, position, trades]);
-
-  function openDetail(trade = topTrade) {
-    if (!trade) return;
-    navigation.navigate('TradeDetail', { tradeId: trade.id, trade });
-  }
-
-  function advanceDeck() {
-    position.setValue({ x: 0, y: 0 });
-    setCurrentIndex((value) => value + 1);
-  }
-
-  function completeCard(action: 'save' | 'pass') {
-    if (!topTrade) return;
-
-    if (action === 'save') {
-      setSavedIds((ids) => ids.includes(topTrade.id) ? ids : [...ids, topTrade.id]);
-    }
-
-    Animated.timing(position, {
-      toValue: { x: action === 'save' ? 500 : -500, y: 20 },
-      duration: 180,
-      useNativeDriver: true
-    }).start(advanceDeck);
-  }
-
-  function resetDeck() {
-    position.setValue({ x: 0, y: 0 });
-    setCurrentIndex(0);
-  }
+  const openTrade = useCallback((trade: TradeDeckItem) => {
+    navigation.navigate('TradeDetail', { tradeId: trade.id, title: trade.title, description: trade.description, creditAmount: trade.creditAmount, status: trade.status, expiresAt: trade.expiresAt ?? null });
+  }, [navigation]);
+  const passTrade = useCallback((tradeId: string) => setPassedIds((current) => new Set(current).add(tradeId)), []);
+  const saveTrade = useCallback((tradeId: string) => setSavedIds((current) => { const next = new Set(current); next.has(tradeId) ? next.delete(tradeId) : next.add(tradeId); return next; }), []);
 
   return (
-    <AppScreen style={styles.screen}>
-      <View style={styles.header}>
-        <View>
-          <AppText style={styles.eyebrow}>Trade Feed</AppText>
-          <AppText style={styles.title}>Find a trade</AppText>
-        </View>
-        <View style={styles.counter}>
-          <AppText style={styles.counterText}>{remainingCount}</AppText>
-        </View>
-      </View>
-
-      <View style={styles.deck}>
-        {topTrade ? (
-          trades.slice(currentIndex, currentIndex + 3).reverse().map((trade, reverseIndex, visibleTrades) => {
-            const deckIndex = visibleTrades.length - reverseIndex - 1;
-            const isTopCard = deckIndex === 0;
-            const ownerLabel = getOwnerLabel(trade);
-
-            return (
-              <Animated.View
-                key={trade.id}
-                {...(isTopCard ? panResponder.panHandlers : {})}
-                style={[
-                  styles.card,
-                  {
-                    zIndex: 10 - deckIndex,
-                    top: deckIndex * 12,
-                    transform: isTopCard
-                      ? [{ translateX: position.x }, { translateY: position.y }, { rotate }]
-                      : [{ scale: 1 - deckIndex * 0.04 }]
-                  }
-                ]}
-              >
-                <Pressable onPress={() => openDetail(trade)} style={styles.cardPressable}>
-                  <View style={styles.cardTopRow}>
-                    <View style={styles.profile}>
-                      <AppText style={styles.profileText}>{getInitials(ownerLabel)}</AppText>
-                    </View>
-                    <View style={styles.ownerBlock}>
-                      <AppText style={styles.ownerName}>{ownerLabel}</AppText>
-                      <AppText style={styles.expiration}>{getExpirationLabel(trade.expiresAt)}</AppText>
-                    </View>
-                    <View style={styles.badge}>
-                      <AppText style={styles.badgeText}>{trade.status}</AppText>
-                    </View>
-                  </View>
-
-                  <AppText style={styles.cardTitle}>{trade.title}</AppText>
-                  <AppText style={styles.description}>{trade.description}</AppText>
-
-                  <View style={styles.creditRow}>
-                    <AppText style={styles.creditAmount}>{formatCredits(trade.creditAmount)}</AppText>
-                    <AppText style={styles.creditNote}>Fake test credits</AppText>
-                  </View>
-                </Pressable>
-
-                {isTopCard ? (
-                  <View style={styles.actions}>
-                    <Button title="Pass" onPress={() => completeCard('pass')} />
-                    <Button title="Open Detail" onPress={() => openDetail(trade)} />
-                    <Button title={savedIds.includes(trade.id) ? 'Saved' : 'Save'} onPress={() => completeCard('save')} />
-                  </View>
-                ) : null}
-              </Animated.View>
-            );
-          })
-        ) : (
-          <View style={styles.emptyCard}>
-            <AppText style={styles.cardTitle}>No more trades</AppText>
-            <AppText style={styles.description}>You have reached the end of this deck.</AppText>
-            <Button title="Review again" onPress={resetDeck} />
+    <AppScreen>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadFeed(); }} />}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <SemanticBadge label="Patch 6 semantic colors" tone="instruction" />
+            <AppText style={styles.title}>Trades</AppText>
+            <AppText style={styles.subtitle}>Browse public active trades with semantic colors: purple for trades, blue for needs, green for offers, gold for credits, and orange for time.</AppText>
           </View>
-        )}
-      </View>
-
-      <View style={styles.footer}>
-        <AppText style={styles.notice}>{feedNotice}</AppText>
-        <AppText style={styles.savedText}>{savedIds.length} saved in this session</AppText>
-      </View>
+          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateTrade')} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable>
+        </View>
+        {error ? <InfoNotice tone="warning" title="Feed fallback" body={error} /> : null}
+        <AppText style={styles.sourceLabel}>{source === 'api' ? 'Live API feed' : 'Mock fallback feed'}{loading ? ' · refreshing' : ''}</AppText>
+        <View style={styles.deckStage}>
+          {visibleTrades.slice(1, 4).reverse().map((trade, layerIndex) => <View key={trade.id} pointerEvents="none" style={[styles.backCard, { top: 24 - layerIndex * 8, left: 18 - layerIndex * 6, right: 18 - layerIndex * 6, opacity: 0.36 + layerIndex * 0.14, transform: [{ scale: 0.93 + layerIndex * 0.025 }] }]} />)}
+          {activeTrade ? <TradeDeckCard trade={activeTrade} index={Math.max(0, activeIndex)} total={trades.length} saved={savedIds.has(activeTrade.id)} onOpen={() => openTrade(activeTrade)} onPass={() => passTrade(activeTrade.id)} onSave={() => saveTrade(activeTrade.id)} /> : <View style={styles.emptyCard}><AppText style={styles.emptyTitle}>All caught up</AppText><AppText style={styles.emptyText}>You passed every trade in this local deck.</AppText><Button title="Reset passed trades" onPress={() => setPassedIds(new Set())} /></View>}
+        </View>
+      </ScrollView>
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    gap: 16
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  eyebrow: {
-    color: '#475569',
-    fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase'
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '800'
-  },
-  counter: {
-    minWidth: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#111827'
-  },
-  counterText: {
-    color: '#FFFFFF',
-    fontWeight: '800'
-  },
-  deck: {
-    flex: 1,
-    minHeight: 460
-  },
-  card: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    minHeight: 430,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-    padding: 18,
-    shadowColor: '#111827',
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 4
-  },
-  cardPressable: {
-    flex: 1,
-    gap: 16
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10
-  },
-  profile: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E5E7EB'
-  },
-  profileText: {
-    color: '#374151',
-    fontWeight: '800'
-  },
-  ownerBlock: {
-    flex: 1
-  },
-  ownerName: {
-    fontWeight: '800'
-  },
-  expiration: {
-    color: '#64748B',
-    marginTop: 2
-  },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#A7F3D0'
-  },
-  badgeText: {
-    color: '#047857',
-    fontSize: 12,
-    fontWeight: '800',
-    textTransform: 'uppercase'
-  },
-  cardTitle: {
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: '800'
-  },
-  description: {
-    color: '#475569',
-    fontSize: 16,
-    lineHeight: 23
-  },
-  creditRow: {
-    marginTop: 'auto',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    paddingTop: 16
-  },
-  creditAmount: {
-    fontSize: 30,
-    fontWeight: '900'
-  },
-  creditNote: {
-    color: '#64748B',
-    marginTop: 4
-  },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 14
-  },
-  emptyCard: {
-    minHeight: 430,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#FFFFFF',
-    padding: 18,
-    justifyContent: 'center',
-    gap: 14
-  },
-  footer: {
-    gap: 4
-  },
-  notice: {
-    color: '#475569'
-  },
-  savedText: {
-    color: '#111827',
-    fontWeight: '700'
-  }
+  content: { paddingBottom: 28, gap: 16 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 },
+  headerCopy: { flex: 1 },
+  kicker: { color: '#0F766E', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' },
+  title: { marginTop: 4, fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  subtitle: { marginTop: 8, color: '#64748B', lineHeight: 20, fontWeight: '600' },
+  createButton: { borderRadius: 18, backgroundColor: '#7C3AED', paddingHorizontal: 16, paddingVertical: 12 },
+  createButtonText: { color: '#FFFFFF', fontWeight: '900' },
+  notice: { color: '#92400E', backgroundColor: '#FEF3C7', borderColor: '#FCD34D', borderWidth: 1, borderRadius: 16, padding: 12, fontWeight: '700' },
+  sourceLabel: { color: '#64748B', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  deckStage: { position: 'relative', minHeight: 520, justifyContent: 'center' },
+  backCard: { position: 'absolute', height: 444, borderRadius: 34, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#F8FAFC' },
+  emptyCard: { minHeight: 420, borderRadius: 34, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
+  emptyTitle: { fontSize: 26, fontWeight: '900' },
+  emptyText: { color: '#64748B', textAlign: 'center', marginBottom: 10 },
+  pressed: { opacity: 0.78 },
 });

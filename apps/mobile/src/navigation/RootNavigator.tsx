@@ -1,52 +1,25 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AccountScreen } from '../features/account/AccountScreen';
+import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
+import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
 import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
+import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
 import { CreateTradeScreen } from '../features/trade/CreateTradeScreen';
 import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
 import { MyOffersScreen } from '../features/trade/MyOffersScreen';
-import { MyTradesScreen } from '../features/trade/MyTradesScreen';
+import { ProposalDetailScreen } from '../features/trade/ProposalDetailScreen';
+import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
-import { TradeFeedScreen } from '../features/trade/TradeFeedScreen';
-import { MeScreen } from '../features/me/MeScreen';
-import { SettingsScreen } from '../features/settings/SettingsScreen';
-import { WalletScreen } from '../features/wallet/WalletScreen';
 import { useAuth } from '../providers/AuthProvider';
 
-const Tabs = createBottomTabNavigator();
-const Stack = createNativeStackNavigator();
-
-function TradeTabs() {
-  return (
-    <Tabs.Navigator screenOptions={{ headerShown: false }}>
-      <Tabs.Screen name="Feed" component={TradeFeedScreen} />
-      <Tabs.Screen name="Create" component={CreateTradeScreen} />
-      <Tabs.Screen name="Needs" component={MyNeedsScreen} options={{ title: 'My Needs' }} />
-      <Tabs.Screen name="Offers" component={MyOffersScreen} options={{ title: 'My Offers' }} />
-      <Tabs.Screen name="Trades" component={MyTradesScreen} options={{ title: 'My Trades' }} />
-      <Tabs.Screen name="Wallet" component={WalletScreen} />
-      <Tabs.Screen name="Me" component={MeScreen} />
-      <Tabs.Screen name="Settings" component={SettingsScreen} />
-    </Tabs.Navigator>
-  );
-}
-
-export function RootNavigator() {
-  const auth = useAuth();
-  return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {auth.isAuthenticated ? (
-        <>
-          <Stack.Screen name="TradeTabs" component={TradeTabs} />
-          <Stack.Screen name="CreateNeed" component={CreateNeedScreen} />
-          <Stack.Screen name="CreateOffer" component={CreateOfferScreen} />
-          <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
-        </>
-      ) : (
-        <Stack.Screen name="Login" component={LoginScreen} />
-      )}
-    </Stack.Navigator>
-  );
-}
+export type RootStackParamList = { TradeTabs: undefined; BuyCredits: undefined; SupportCenter: undefined; SupportTicketDetail: { ticketId: string; subject?: string }; CreateNeed: undefined; CreateOffer: undefined; CreateTrade: undefined; CreateProposal: { tradeId: string; title?: string }; ProposalDetail: { proposalId: string }; TradeDetail: { tradeId: string; title?: string; description?: string; creditAmount?: number; status?: string; expiresAt?: string | null }; Login: undefined; };
+type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined; Account: undefined };
+const Tabs = createBottomTabNavigator<MainTabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
+function TradeTabs() { return <Tabs.Navigator screenOptions={{ headerShown: false, tabBarLabelStyle: { fontWeight: '800' }, tabBarActiveTintColor: '#0F766E', tabBarInactiveTintColor: '#64748B' }}><Tabs.Screen name="Trades" component={TradeDeckFeedScreen} /><Tabs.Screen name="Needs" component={MyNeedsScreen} /><Tabs.Screen name="Offers" component={MyOffersScreen} /><Tabs.Screen name="Account" component={AccountScreen} /></Tabs.Navigator>; }
+export function RootNavigator() { const auth = useAuth(); return <Stack.Navigator screenOptions={{ headerShown: false }}>{auth.isAuthenticated ? <><Stack.Screen name="TradeTabs" component={TradeTabs} /><Stack.Screen name="BuyCredits" component={BuyCreditsScreen} /><Stack.Screen name="SupportCenter" component={SupportCenterScreen} /><Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} /><Stack.Screen name="CreateNeed" component={CreateNeedScreen} /><Stack.Screen name="CreateOffer" component={CreateOfferScreen} /><Stack.Screen name="CreateTrade" component={CreateTradeScreen} /><Stack.Screen name="CreateProposal" component={CreateProposalScreen} /><Stack.Screen name="ProposalDetail" component={ProposalDetailScreen} /><Stack.Screen name="TradeDetail" component={TradeDetailScreen} /></> : <Stack.Screen name="Login" component={LoginScreen} />}</Stack.Navigator>; }

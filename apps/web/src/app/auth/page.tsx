@@ -4,7 +4,7 @@ export default function AuthPage() {
       <div className="card">
         <p className="eyebrow">Auth shell</p>
         <h1>Sign in to manage trades.</h1>
-        <p>Patch 1 placeholder for the reusable Zizilia auth flow. Patch 2 should wire email/password, Google auth, token storage, and /me refresh.</p>
+        <p>Patch 1 placeholder for the reusable Hellowhen auth flow. Patch 2 should wire email/password, Google auth, token storage, and /me refresh.</p>
       </div>
       <form className="card form">
         <input className="input" placeholder="Email" type="email" />

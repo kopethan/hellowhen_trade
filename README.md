@@ -1,8 +1,8 @@
-# Zizilia
+# Hellowhen
 
 Clean Trade-first product repo.
 
-Zizilia is **not** a continuation of the old Plans app. The uploaded previous project is used only as a reference/source for reusable foundations:
+Hellowhen is **not** a continuation of the old Plans app. The uploaded previous project is used only as a reference/source for reusable foundations:
 
 - auth flow patterns
 - me/profile and settings patterns
@@ -15,7 +15,7 @@ It intentionally does **not** migrate Plans, the old action bar, place/feed/deck
 
 ## Product concept
 
-Zizilia is focused on:
+Hellowhen is focused on:
 
 - Needs
 - Offers
@@ -60,21 +60,6 @@ npm run dev:api
 npm run dev:web
 npm run dev:mobile
 ```
-
-### Mobile API networking
-
-Expo only exposes variables prefixed with `EXPO_PUBLIC_`. The mobile app reads
-`EXPO_PUBLIC_API_URL` from `apps/mobile/.env`.
-
-```bash
-cp apps/mobile/.env.example apps/mobile/.env
-```
-
-Use the API URL that the device can reach:
-
-- iOS simulator or local web: `http://127.0.0.1:4000`
-- Android emulator: `http://10.0.2.2:4000`
-- Physical phone: `http://<your-computer-lan-ip>:4000`
 
 ## Credit safety rule
 

@@ -1,6 +1,6 @@
-<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Zizilia">
+<svg width="164" height="40" viewBox="0 0 164 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Hellowhen">
   <rect width="164" height="40" rx="20" fill="#14B8A6"/>
   <circle cx="22" cy="20" r="10" fill="white" opacity="0.95"/>
   <path d="M16 21.5L22 15L28 21.5L22 27L16 21.5Z" fill="#14B8A6"/>
-  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="white">Zizilia</text>
+  <text x="42" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" letter-spacing="0.6" fill="white">Hellowhen</text>
 </svg>

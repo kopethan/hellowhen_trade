@@ -3,3 +3,6 @@ export * from './profile.js';
 export * from './settings.js';
 export * from './trade.js';
 export * from './wallet.js';
+export * from './media.js';
+export * from './credits.js';
+export * from './support.js';

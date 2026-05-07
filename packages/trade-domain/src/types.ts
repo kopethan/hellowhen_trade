@@ -1,4 +1,4 @@
-import type { NeedStatus, OfferStatus, TradeStatus } from './statuses';
+import type { NeedStatus, OfferStatus, ProposalStatus, TradeStatus } from './statuses';
 
 export type TradeVisibility = 'public' | 'owner_private';
 
@@ -25,6 +25,7 @@ export type Offer = {
 export type Trade = {
   id: string;
   ownerId: string;
+  providerId?: string | null;
   needId?: string | null;
   offerId?: string | null;
   title: string;
@@ -35,3 +36,7 @@ export type Trade = {
   createdAt: string;
   expiresAt?: string | null;
 };
+
+
+export type TradeProposal = { id: string; tradeId: string; applicantId: string; message: string; status: ProposalStatus; createdAt: string; updatedAt: string; };
+export type ProposalMessage = { id: string; proposalId: string; senderId: string; body: string; createdAt: string; };

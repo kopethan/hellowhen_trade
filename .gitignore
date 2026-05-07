@@ -10,6 +10,3 @@ coverage/
 .DS_Store
 *.log
 apps/api/prisma/migrations/*/migration_lock.toml
-
-*.tsbuildinfo
-update.patch

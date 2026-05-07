@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   transpilePackages: [
-    '@zizilia/api-client',
-    '@zizilia/contracts',
-    '@zizilia/shared',
-    '@zizilia/theme',
-    '@zizilia/trade-domain',
+    '@hellowhen/api-client',
+    '@hellowhen/contracts',
+    '@hellowhen/shared',
+    '@hellowhen/theme',
+    '@hellowhen/trade-domain',
   ],
 };
 

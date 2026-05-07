@@ -7,7 +7,7 @@ export default function HomePage() {
         <p className="eyebrow">Trade-first MVP</p>
         <h1>Needs, offers, and public trades.</h1>
         <p>
-          Zizilia starts clean: no Plans, no old action bar, no place/feed complexity.
+          Hellowhen starts clean: no Plans, no old action bar, no place/feed complexity.
           The MVP focuses on publishing trades and preparing a safe fake-credit ledger for later payment review.
         </p>
         <div className="cta-row">

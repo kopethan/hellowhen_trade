@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { updateSettingsRequestSchema } from '@zizilia/contracts';
+import { updateSettingsRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
