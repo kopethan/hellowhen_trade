@@ -1,5 +1,5 @@
 <svg width="180" height="42" viewBox="0 0 180 42" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="42" height="42" rx="14" fill="#14B8A6"/>
-  <path d="M12 27L27 12H14V9H33L18 24H31V27H12Z" fill="#062925"/>
+  <path d="M12 9H17V18H25V9H30V33H25V23H17V33H12V9Z" fill="#062925"/>
   <text x="54" y="28" font-family="Inter, Arial, sans-serif" font-size="24" font-weight="700" fill="#F8FAFC">Hellowhen</text>
 </svg>

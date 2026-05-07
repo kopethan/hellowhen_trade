@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <main className="shell">
           <nav className="nav">
             <Link href="/" className="brand" aria-label="Hellowhen home">
-              <span className="brand-mark">Z</span>
+              <span className="brand-mark">H</span>
               <span>Hellowhen</span>
             </Link>
             <div className="nav-links">
