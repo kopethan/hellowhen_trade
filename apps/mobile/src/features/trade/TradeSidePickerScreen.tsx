@@ -10,7 +10,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
-import { AppScreen } from '../../components/AppScreen';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -85,9 +85,8 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
   }
 
   return (
-    <AppScreen>
+    <AppFixedHeaderScreen header={<AppHeader title={title} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
-        <AppHeader title={title} onBack={() => navigation.goBack()} />
         {error ? <InfoNotice tone="warning" title="Could not load resources" body={error} /> : null}
 
         <AppCard>
@@ -115,7 +114,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
           <AppText style={[styles.body, { color: theme.color.muted }]}>Tickets, gifts, checks, and vouchers can be added here later without changing the I need / I offer model.</AppText>
         </AppCard>
       </ScrollView>
-    </AppScreen>
+    </AppFixedHeaderScreen>
   );
 }
 

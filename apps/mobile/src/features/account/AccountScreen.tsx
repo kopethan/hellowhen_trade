@@ -6,7 +6,7 @@ import type { AuthUser, WalletDto, LedgerEntryDto } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
-import { AppScreen } from '../../components/AppScreen';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
@@ -100,15 +100,11 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
-  return (
-    <AppScreen>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { void loadWallet(); }} />}>
-        <View style={styles.header}>
-          <SemanticBadge label="Account" tone="info" />
-          <AppText style={styles.title}>Account</AppText>
-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, wallet, settings, and support.</AppText>
-        </View>
+  const header = <View style={styles.header}><SemanticBadge label="Account" tone="info" /><AppText style={styles.title}>Account</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, wallet, settings, and support.</AppText></View>;
 
+  return (
+    <AppFixedHeaderScreen header={header}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { void loadWallet(); }} />}>
         <AppCard>
           <View style={styles.profileHero}>
             <View style={styles.avatar}>
@@ -178,7 +174,7 @@ export function AccountScreen() {
           <AppText style={styles.logoutButtonText}>Logout</AppText>
         </Pressable>
       </ScrollView>
-    </AppScreen>
+    </AppFixedHeaderScreen>
   );
 }
 

@@ -1,9 +1,9 @@
 import React from 'react';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeTokens } from '../providers/ThemeProvider';
 
-export function AppScreen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
+export function AppScreen({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const theme = useThemeTokens();
   const insets = useSafeAreaInsets();
 

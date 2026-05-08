@@ -8,7 +8,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppHeader } from '../../components/AppHeader';
-import { AppScreen } from '../../components/AppScreen';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useAuth } from '../../providers/AuthProvider';
@@ -204,9 +204,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     finally { setReplyingProposalId(null); }
   }, [replyDrafts]);
 
-  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
-    <AppHeader title="Trade" onBack={() => navigation.goBack()} />
-
+  return <AppFixedHeaderScreen header={<AppHeader title="Trade" onBack={() => navigation.goBack()} />}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
     <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? (moneySide(trade) === 'need' ? 'Money needed' : 'Money offered') : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={moneySide(trade) === 'need' ? 'needed' : 'offered'} /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
 
     <Separator theme={theme} />
@@ -219,7 +217,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
 
     <Separator theme={theme} />
     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? 'Proposals' : myProposal ? 'Your proposal' : 'Ask to trade'}</AppText>{error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}{message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>Refreshing trade detail...</AppText> : null}{role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} theme={theme} /> : null}{role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>This trade is not accepting new proposals.</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No proposals yet. New private proposals will appear here.</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title="Accepted conversation" body="Only you and the accepted applicant can see this thread." /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} />)}</View></View>
-  </ScrollView></AppScreen>;
+  </ScrollView></AppFixedHeaderScreen>;
 }
 
 function Separator({ theme }: { theme: ThemeTokens }) { return <View style={[styles.separator, { backgroundColor: theme.color.border }]} />; }

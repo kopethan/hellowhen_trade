@@ -7,7 +7,7 @@ import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
-import { AppScreen } from '../../components/AppScreen';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
@@ -69,9 +69,8 @@ export function WalletScreen() {
   const recentEntries = wallet?.entries ?? [];
 
   return (
-    <AppScreen>
+    <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadWallet(); }} />}>
-        <AppHeader title="Wallet" onBack={() => navigation.goBack()} />
         <View style={styles.header}>
           <SemanticBadge label="Wallet" tone="credits" />
           <AppText style={styles.title}>Wallet</AppText>
@@ -108,7 +107,7 @@ export function WalletScreen() {
           ) : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
         </AppCard>
       </ScrollView>
-    </AppScreen>
+    </AppFixedHeaderScreen>
   );
 }
 

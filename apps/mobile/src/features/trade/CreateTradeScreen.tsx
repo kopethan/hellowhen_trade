@@ -12,7 +12,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
-import { AppScreen } from '../../components/AppScreen';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -128,9 +128,8 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   }
 
   return (
-    <AppScreen>
+    <AppFixedHeaderScreen header={<AppHeader title="Create Trade" onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
-        <AppHeader title="Create Trade" onBack={() => navigation.goBack()} />
         <View style={styles.header}>
           <SemanticBadge label="Trade" tone="trade" />
           <AppText style={styles.title}>Create Trade</AppText>
@@ -156,7 +155,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Cancel</AppText></Pressable>
         </View>
       </ScrollView>
-    </AppScreen>
+    </AppFixedHeaderScreen>
   );
 }
 

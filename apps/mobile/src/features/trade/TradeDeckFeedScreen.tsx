@@ -7,7 +7,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
-import { AppScreen } from '../../components/AppScreen';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -114,52 +114,31 @@ export function TradeDeckFeedScreen() {
   const hasVisibleTrades = visibleTrades.length > 0;
   const hasFilters = activeFilterCount > 0;
 
-  return (
-    <AppScreen>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadFeed(); }} />}>
-        <View style={styles.headerRow}>
-          <AppText style={styles.title}>Trades</AppText>
-          <View style={styles.headerActions}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, searchOpen && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>S</AppText>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (filtersOpen || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>F</AppText>
-              {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-              <AppText style={[styles.iconButtonText, styles.createIconButtonText]}>+</AppText>
-            </Pressable>
-          </View>
+  const header = (
+    <View style={styles.fixedHeaderStack}>
+      <View style={styles.headerRow}>
+        <AppText style={styles.title}>Trades</AppText>
+        <View style={styles.headerActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+            <AppText style={[styles.iconButtonText, { color: theme.color.background }, styles.createIconButtonText]}>+</AppText>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, searchOpen && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+            <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>S</AppText>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (filtersOpen || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+            <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>F</AppText>
+            {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
+          </Pressable>
         </View>
+      </View>
+      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /> : null}
+      {filtersOpen ? <AppCard style={styles.filterCard}><View style={styles.filterPanel}><View style={styles.filterHeaderRow}><AppText style={styles.filterTitle}>Filters</AppText>{hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>Clear</AppText></Pressable> : null}</View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Mode</AppText><View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{option.label}</AppText></Pressable>; })}</View></View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Category</AppText><TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /></View><View style={styles.chipRow}><Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>Has images</AppText></Pressable><Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>Wallet amount</AppText></Pressable></View></View></AppCard> : null}
+    </View>
+  );
 
-        {searchOpen ? (
-          <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
-        ) : null}
-
-        {filtersOpen ? (
-          <AppCard>
-            <View style={styles.filterPanel}>
-              <View style={styles.filterHeaderRow}>
-                <AppText style={styles.filterTitle}>Filters</AppText>
-                {hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>Clear</AppText></Pressable> : null}
-              </View>
-              <View style={styles.filterGroup}>
-                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Mode</AppText>
-                <View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, selected && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>{option.label}</AppText></Pressable>; })}</View>
-              </View>
-              <View style={styles.filterGroup}>
-                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Category</AppText>
-                <TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
-              </View>
-              <View style={styles.chipRow}>
-                <Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, imagesOnly && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, imagesOnly && styles.filterChipTextSelected]}>Has images</AppText></Pressable>
-                <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, moneyOnly && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, moneyOnly && styles.filterChipTextSelected]}>Wallet amount</AppText></Pressable>
-              </View>
-            </View>
-          </AppCard>
-        ) : null}
-
+  return (
+    <AppFixedHeaderScreen header={header}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadFeed(); }} />}>
         {error ? <InfoNotice tone="danger" title="Could not load trades" body={error} /> : null}
         {hasVisibleTrades ? (
           <View style={styles.feedList}>
@@ -169,7 +148,7 @@ export function TradeDeckFeedScreen() {
           <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={loadFeed} onClear={clearFilters} />
         )}
       </ScrollView>
-    </AppScreen>
+    </AppFixedHeaderScreen>
   );
 }
 
@@ -204,12 +183,13 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 30, gap: 16 },
+  fixedHeaderStack: { gap: 12 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   iconButtonText: { fontSize: 16, fontWeight: '900', lineHeight: 20 },
-  createIconButtonText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24 },
+  createIconButtonText: { fontSize: 22, lineHeight: 24 },
   filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827', paddingHorizontal: 4 },
   filterDotText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   searchInput: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, fontWeight: '700' },
@@ -221,10 +201,9 @@ const styles = StyleSheet.create({
   filterGroup: { gap: 8 },
   filterLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  filterChip: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 9 },
-  filterChipSelected: { borderColor: '#0F172A', backgroundColor: '#111827' },
-  filterChipText: { color: '#475569', fontSize: 13, fontWeight: '900' },
-  filterChipTextSelected: { color: '#FFFFFF' },
+  filterCard: { padding: 14, borderRadius: 22 },
+  filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9 },
+  filterChipText: { fontSize: 13, fontWeight: '900' },
   categoryInput: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
   feedList: { gap: 20 },
   tradeSection: { alignItems: 'center', justifyContent: 'center' },

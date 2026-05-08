@@ -20,8 +20,8 @@ const styles = StyleSheet.create({
   card: {
     position: 'relative',
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#94A3B8',
+    borderWidth: 0,
+    borderColor: 'transparent',
     backgroundColor: '#FFFFFF',
     ...(Platform.OS === 'web' ? ({ willChange: 'transform' } as any) : null),
   },
