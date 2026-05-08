@@ -4,7 +4,6 @@ import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
-import { API_URL } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 
@@ -17,10 +16,10 @@ const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.
 export function LoginScreen() {
   const auth = useAuth();
   const [mode, setMode] = useState<AuthMode>('login');
-  const [displayName, setDisplayName] = useState('Demo User');
-  const [email, setEmail] = useState('demo@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [confirmPassword, setConfirmPassword] = useState('password123');
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -33,8 +32,9 @@ export function LoginScreen() {
   function validateLocalForm() {
     if (!email.trim()) return 'Enter your email.';
     if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
+    if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
-    if (mode === 'register' && !acceptedTerms) return 'Please accept the terms placeholder to continue.';
+    if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
     return null;
   }
 
@@ -49,7 +49,7 @@ export function LoginScreen() {
       else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms);
       else {
         const result = await auth.forgotPassword(email);
-        setMessage(result.devResetUrl ? `${result.message} Dev reset link: ${result.devResetUrl}` : result.message);
+        setMessage(result.message);
       }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
@@ -59,7 +59,7 @@ export function LoginScreen() {
   }
 
   async function handleGoogle() {
-    if (!googleConfigured) { setError('Google sign-in needs EXPO_PUBLIC_GOOGLE_* client IDs and API GOOGLE_* client IDs.'); return; }
+    if (!googleConfigured) { setError('Google sign-in is not available in this build.'); return; }
     setGoogleSubmitting(true);
     setError(null);
     setMessage(null);
@@ -73,7 +73,7 @@ export function LoginScreen() {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const result = await GoogleSignin.signIn();
       const idToken = (result as { idToken?: string; data?: { idToken?: string } }).idToken ?? (result as { data?: { idToken?: string } }).data?.idToken;
-      if (!idToken) throw new Error('Google did not return an identity token. Check Google client ID configuration.');
+      if (!idToken) throw new Error('Google sign-in could not be completed.');
       await auth.loginWithGoogleIdToken(idToken);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, caughtError instanceof Error ? caughtError.message : 'Google sign-in failed.'));
@@ -82,19 +82,10 @@ export function LoginScreen() {
     }
   }
 
-  function fillDemo(nextEmail: string) {
-    setMode('login');
-    setEmail(nextEmail);
-    setPassword('password123');
-    setConfirmPassword('password123');
-    setError(null);
-    setMessage(null);
-  }
-
   return <AppScreen><ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled"><AppCard>
-    <SemanticBadge label="Perfect Auth" tone="trade" />
+    <SemanticBadge label="Trade" tone="trade" />
     <AppText style={styles.logo}>Hellowhen</AppText>
-    <InfoNotice tone="info" title="Trade-first account" body="Create an account, sign in with Google, or reset your password. Google sign-in requires a development build, not Expo Go." />
+    <AppText style={styles.subtitle}>Sign in to create needs, offers, and trades.</AppText>
 
     <View style={styles.toggleRow}><ModeButton label="Login" active={mode === 'login'} onPress={() => setMode('login')} /><ModeButton label="Register" active={mode === 'register'} onPress={() => setMode('register')} /><ModeButton label="Reset" active={mode === 'forgot'} onPress={() => setMode('forgot')} /></View>
 
@@ -102,18 +93,14 @@ export function LoginScreen() {
     <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" style={styles.input} />
     {mode !== 'forgot' ? <View style={styles.passwordRow}><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry={!showPassword} style={[styles.input, styles.passwordInput]} /><Pressable onPress={() => setShowPassword((value) => !value)} style={styles.showButton}><AppText style={styles.showButtonText}>{showPassword ? 'Hide' : 'Show'}</AppText></Pressable></View> : null}
     {mode === 'register' ? <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} style={styles.input} /> : null}
-    {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I understand this is a test MVP with fake credits and placeholder terms.</AppText></Pressable> : null}
+    {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
 
-    {mode === 'forgot' ? <InfoNotice tone="instruction" title="Password reset" body="Enter your account email. If it exists, Hellowhen will send a reset link through Resend when email is configured." /> : <InfoNotice tone="instruction" title="Password hint" body="Use at least 8 characters. Keep fake test accounts separate from real passwords." />}
-    {error ? <InfoNotice tone="danger" title="Auth error" body={error} /> : null}
+    {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
+    {error ? <InfoNotice tone="danger" title="Sign-in error" body={error} /> : null}
     {message ? <InfoNotice tone="success" title="Done" body={message} /> : null}
 
     <Button title={submitting ? 'Working...' : mode === 'login' ? 'Login' : mode === 'register' ? 'Create account' : 'Send reset link'} disabled={submitting || googleSubmitting} onPress={handleSubmit} />
-    <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting} style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={styles.googleButtonText}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
-
-    <View style={styles.demoRow}><Pressable onPress={() => fillDemo('demo@hellowhen.app')}><AppText style={styles.demoLink}>Demo</AppText></Pressable><Pressable onPress={() => fillDemo('helper@hellowhen.app')}><AppText style={styles.demoLink}>Helper</AppText></Pressable><Pressable onPress={() => fillDemo('admin@hellowhen.app')}><AppText style={styles.demoLink}>Admin</AppText></Pressable></View>
-    <AppText style={styles.apiHint}>Password for demo users: password123</AppText>
-    <AppText style={styles.apiHint}>API URL: {API_URL}</AppText>
+    <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={styles.googleButtonText}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
   </AppCard></ScrollView></AppScreen>;
 }
 
@@ -124,6 +111,7 @@ function ModeButton({ label, active, onPress }: { label: string; active: boolean
 const styles = StyleSheet.create({
   shell: { flexGrow: 1, justifyContent: 'center', paddingVertical: 24 },
   logo: { fontSize: 38, fontWeight: '900', letterSpacing: -1 },
+  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
   toggleRow: { flexDirection: 'row', gap: 8, padding: 4, borderRadius: 18, backgroundColor: '#F1F5F9' },
   modeButton: { flex: 1, borderRadius: 14, paddingVertical: 10, alignItems: 'center' },
   modeButtonActive: { backgroundColor: '#111827' },
@@ -141,8 +129,5 @@ const styles = StyleSheet.create({
   googleButton: { borderRadius: 16, borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 13, alignItems: 'center', backgroundColor: '#FFFFFF' },
   googleButtonText: { color: '#0F172A', fontWeight: '900' },
   disabledButton: { opacity: 0.55 },
-  demoRow: { flexDirection: 'row', justifyContent: 'center', gap: 18 },
-  demoLink: { color: '#0F766E', fontWeight: '900' },
-  apiHint: { color: '#64748B', fontSize: 12, fontWeight: '700', textAlign: 'center' },
   pressed: { opacity: 0.78 },
 });

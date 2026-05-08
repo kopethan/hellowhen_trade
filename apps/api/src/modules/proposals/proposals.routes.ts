@@ -3,7 +3,7 @@ import { createProposalMessageRequestSchema, updateProposalStatusRequestSchema }
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { holdOwnerCreditsForProposal, proposalInclude } from '../trades/trades.routes.js';
+import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
 
 export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
@@ -12,14 +12,14 @@ function canReadProposal(proposal: { applicantId: string; trade: { ownerId: stri
 proposalsRoutes.get('/mine', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const proposals = await prisma.tradeProposal.findMany({ where: { OR: [{ applicantId: actorId }, { trade: { ownerId: actorId } }, { trade: { providerId: actorId } }] }, include: proposalInclude, orderBy: { updatedAt: 'desc' }, take: 50 });
-  res.json({ proposals });
+  res.json({ proposals: await withProposalTradeMedia(proposals, 'owner') });
 }));
 proposalsRoutes.get('/:proposalId', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: proposalInclude });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
-  res.json({ proposal });
+  res.json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
 }));
 proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
   const input = updateProposalStatusRequestSchema.parse(req.body);
@@ -30,20 +30,20 @@ proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
     if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
     if (!['pending', 'declined'].includes(proposal.status)) return res.status(409).json({ error: 'invalid_proposal_status_transition' });
     const updated = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { status: 'withdrawn', respondedAt: new Date() }, include: proposalInclude });
-    return res.json({ proposal: updated });
+    return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
   }
   if (proposal.trade.ownerId !== actorId) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can accept or decline proposals.' });
   if (input.status === 'declined') {
     if (proposal.status !== 'pending') return res.status(409).json({ error: 'invalid_proposal_status_transition' });
     const updated = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { status: 'declined', respondedAt: new Date() }, include: proposalInclude });
-    return res.json({ proposal: updated });
+    return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
   }
   if (input.status === 'accepted') {
     if (proposal.status !== 'pending') return res.status(409).json({ error: 'invalid_proposal_status_transition' });
     try {
-      const trade = await holdOwnerCreditsForProposal(proposal.tradeId, proposal.id, proposal.trade.ownerId, proposal.applicantId);
+      const trade = await withOneTradeDeckMedia(await holdOwnerCreditsForProposal(proposal.tradeId, proposal.id, proposal.trade.ownerId, proposal.applicantId), 'owner');
       const updated = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
-      return res.json({ proposal: updated, trade });
+      return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0], trade });
     } catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
       if (code === 'INSUFFICIENT_FAKE_CREDITS') return res.status(400).json({ error: 'insufficient_fake_credits', message: 'Not enough fake/test credits to accept this proposal.' });
@@ -73,5 +73,5 @@ proposalsRoutes.post('/:proposalId/messages', asyncRoute(async (req, res) => {
   if (['declined', 'withdrawn'].includes(proposal.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: { id: true, profile: true } } } });
   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
-  res.status(201).json({ message, proposal: updatedProposal });
+  res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
 }));

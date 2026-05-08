@@ -23,12 +23,35 @@ export const mediaAssetSchema = z.object({
   reviewer: z.unknown().optional(),
 });
 
+export const listMyMediaQuerySchema = z.object({
+  status: mediaAssetStatusSchema.optional(),
+  entityType: mediaEntityTypeSchema.optional(),
+  entityId: z.string().min(1).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+export const adminListMediaQuerySchema = z.object({
+  status: mediaAssetStatusSchema.optional(),
+  entityType: mediaEntityTypeSchema.optional(),
+  entityId: z.string().min(1).optional(),
+  ownerId: z.string().min(1).optional(),
+  take: z.coerce.number().int().min(1).max(200).optional(),
+});
+
 export const updateMediaStatusRequestSchema = z.object({
   status: mediaAssetStatusSchema,
-  reviewNote: z.string().max(500).optional(),
+  reviewNote: z.string().trim().max(500).optional(),
+}).refine((value) => {
+  if (!['flagged', 'removed'].includes(value.status)) return true;
+  return Boolean(value.reviewNote && value.reviewNote.length >= 3);
+}, {
+  message: 'Add a short review note when flagging or removing an image.',
+  path: ['reviewNote'],
 });
 
 export type MediaEntityType = z.infer<typeof mediaEntityTypeSchema>;
 export type MediaAssetStatus = z.infer<typeof mediaAssetStatusSchema>;
 export type MediaAssetDto = z.infer<typeof mediaAssetSchema>;
+export type ListMyMediaQuery = z.infer<typeof listMyMediaQuerySchema>;
+export type AdminListMediaQuery = z.infer<typeof adminListMediaQuerySchema>;
 export type UpdateMediaStatusRequest = z.infer<typeof updateMediaStatusRequestSchema>;

@@ -56,6 +56,7 @@ export type AuthUser = {
     displayName?: string | null;
     handle?: string | null;
     avatarUrl?: string | null;
+    bio?: string | null;
   } | null;
 };
 

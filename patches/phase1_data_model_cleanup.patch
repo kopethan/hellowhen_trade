@@ -1,0 +1,451 @@
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 801be7b..59bec9b 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -33,6 +33,12 @@ enum OfferStatus {
+   expired
+ }
+ 
++enum TradeExchangeMode {
++  remote
++  local
++  hybrid
++}
++
+ enum TradeStatus {
+   draft
+   active
+@@ -246,35 +252,50 @@ model UserSettings {
+ }
+ 
+ model Need {
+-  id          String     @id @default(cuid())
+-  ownerId     String
+-  title       String
+-  description String
+-  status      NeedStatus @default(draft)
+-  createdAt   DateTime   @default(now())
+-  updatedAt   DateTime   @updatedAt
+-  expiresAt   DateTime?
++  id            String             @id @default(cuid())
++  ownerId       String
++  title         String
++  description   String
++  category      String?
++  timing        String?
++  mode          TradeExchangeMode?
++  locationLabel String?
++  tags          String[]           @default([])
++  status        NeedStatus         @default(draft)
++  createdAt     DateTime           @default(now())
++  updatedAt     DateTime           @updatedAt
++  expiresAt     DateTime?
+ 
+   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+   trades Trade[]
+ 
+   @@index([ownerId, status])
++  @@index([category])
++  @@index([mode])
+ }
+ 
+ model Offer {
+-  id          String      @id @default(cuid())
+-  ownerId     String
+-  title       String
+-  description String
+-  status      OfferStatus @default(draft)
+-  createdAt   DateTime    @default(now())
+-  updatedAt   DateTime    @updatedAt
+-  expiresAt   DateTime?
++  id            String             @id @default(cuid())
++  ownerId       String
++  title         String
++  description   String
++  category      String?
++  availability  String?
++  mode          TradeExchangeMode?
++  locationLabel String?
++  includes      String[]           @default([])
++  tags          String[]           @default([])
++  status        OfferStatus        @default(draft)
++  createdAt     DateTime           @default(now())
++  updatedAt     DateTime           @updatedAt
++  expiresAt     DateTime?
+ 
+   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+   trades Trade[]
+ 
+   @@index([ownerId, status])
++  @@index([category])
++  @@index([mode])
+ }
+ 
+ model Trade {
+@@ -305,6 +326,8 @@ model Trade {
+   @@index([status, isPublic, createdAt])
+   @@index([ownerId, status])
+   @@index([providerId, status])
++  @@index([needId])
++  @@index([offerId])
+ }
+ 
+ model TradeProposal {
+diff --git a/apps/api/prisma/migrations/20260508090000_trade_need_offer_metadata/migration.sql b/apps/api/prisma/migrations/20260508090000_trade_need_offer_metadata/migration.sql
+new file mode 100644
+index 0000000..16dd046
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260508090000_trade_need_offer_metadata/migration.sql
+@@ -0,0 +1,28 @@
++-- Phase 1: Need/Offer metadata for the new trade deck model.
++-- New public trades should be composed from one saved Need and one saved Offer.
++-- Existing nullable Trade.needId / Trade.offerId columns are kept nullable for legacy data;
++-- the API contract now validates both IDs for newly published trades.
++
++CREATE TYPE "TradeExchangeMode" AS ENUM ('remote', 'local', 'hybrid');
++
++ALTER TABLE "Need"
++  ADD COLUMN "category" TEXT,
++  ADD COLUMN "timing" TEXT,
++  ADD COLUMN "mode" "TradeExchangeMode",
++  ADD COLUMN "locationLabel" TEXT,
++  ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
++
++ALTER TABLE "Offer"
++  ADD COLUMN "category" TEXT,
++  ADD COLUMN "availability" TEXT,
++  ADD COLUMN "mode" "TradeExchangeMode",
++  ADD COLUMN "locationLabel" TEXT,
++  ADD COLUMN "includes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
++  ADD COLUMN "tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
++
++CREATE INDEX "Need_category_idx" ON "Need"("category");
++CREATE INDEX "Need_mode_idx" ON "Need"("mode");
++CREATE INDEX "Offer_category_idx" ON "Offer"("category");
++CREATE INDEX "Offer_mode_idx" ON "Offer"("mode");
++CREATE INDEX "Trade_needId_idx" ON "Trade"("needId");
++CREATE INDEX "Trade_offerId_idx" ON "Trade"("offerId");
+diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
+index 459a8f3..6201886 100644
+--- a/apps/api/src/modules/needs/needs.routes.ts
++++ b/apps/api/src/modules/needs/needs.routes.ts
+@@ -21,6 +21,11 @@ needsRoutes.post('/', asyncRoute(async (req, res) => {
+       ownerId: req.user!.id,
+       title: input.title,
+       description: input.description,
++      category: input.category ?? null,
++      timing: input.timing ?? null,
++      mode: input.mode ?? null,
++      locationLabel: input.locationLabel ?? null,
++      tags: input.tags ?? [],
+       status: input.status ?? 'draft',
+       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+     }
+diff --git a/apps/api/src/modules/offers/offers.routes.ts b/apps/api/src/modules/offers/offers.routes.ts
+index d7a7b01..d53747d 100644
+--- a/apps/api/src/modules/offers/offers.routes.ts
++++ b/apps/api/src/modules/offers/offers.routes.ts
+@@ -21,6 +21,12 @@ offersRoutes.post('/', asyncRoute(async (req, res) => {
+       ownerId: req.user!.id,
+       title: input.title,
+       description: input.description,
++      category: input.category ?? null,
++      availability: input.availability ?? null,
++      mode: input.mode ?? null,
++      locationLabel: input.locationLabel ?? null,
++      includes: input.includes ?? [],
++      tags: input.tags ?? [],
+       status: input.status ?? 'draft',
+       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+     }
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 10acbfc..9910feb 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -3,11 +3,11 @@ import { createTradeProposalRequestSchema, createTradeRequestSchema, updateTrade
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+-import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
++import { withMedia, withOneMedia } from '../media/media.helpers.js';
+ 
+ export const tradesRoutes = Router();
+ const userPreviewSelect = { id: true, profile: true } as const;
+-export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, payment: true, escrow: true } as const;
++export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+ export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+ 
+ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
+@@ -34,7 +34,7 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
+ }
+ 
+ tradesRoutes.get('/feed', asyncRoute(async (_req, res) => {
+-  const trades = await prisma.trade.findMany({ where: { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, include: { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect } }, orderBy: { createdAt: 'desc' }, take: 50 });
++  const trades = await prisma.trade.findMany({ where: { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, include: tradeInclude, orderBy: { createdAt: 'desc' }, take: 50 });
+   res.json({ trades: await withMedia('trade', trades) });
+ }));
+ tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
+@@ -50,10 +50,42 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
+ }));
+ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+   const input = createTradeRequestSchema.parse(req.body);
+-  const trade = await prisma.trade.create({ data: { ownerId: req.user!.id, title: input.title, description: input.description, creditAmount: input.creditAmount, needId: input.needId ?? null, offerId: input.offerId ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null }, include: tradeInclude });
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'trade', trade.id);
++  const actorId = req.user!.id;
++
++  const [need, offer] = await Promise.all([
++    prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
++    prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } })
++  ]);
++
++  if (!need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
++  if (!offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
++  if (['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
++  if (['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
++
++  const title = input.title?.trim() || `${need.title} ↔ ${offer.title}`;
++  const description = input.description?.trim() || `I need: ${need.description}\n\nI offer: ${offer.description}`;
++
++  const trade = await prisma.trade.create({
++    data: {
++      ownerId: actorId,
++      title,
++      description,
++      creditAmount: input.creditAmount,
++      needId: need.id,
++      offerId: offer.id,
++      status: 'active',
++      isPublic: true,
++      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
++    },
++    include: tradeInclude
++  });
++
++  // Trade-level media is intentionally no longer attached here. The new deck design
++  // renders media from the selected Need and Offer, which keeps admin review scoped
++  // to reusable user inventory instead of one-off public trades.
+   res.status(201).json({ trade: await withOneMedia('trade', trade) });
+ }));
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index a70b7a9..11e4cbf 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -7,10 +7,52 @@ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'complet
+ export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
+ export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
++export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
+ 
+-export const createNeedRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), status: needStatusSchema.optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
+-export const createOfferRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), status: offerStatusSchema.optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
+-export const createTradeRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), creditAmount: z.number().int().positive().max(100000), needId: z.string().optional(), offerId: z.string().optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
++const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
++const needMetadataSchema = z.object({
++  category: z.string().trim().min(1).max(80).optional(),
++  timing: z.string().trim().min(1).max(80).optional(),
++  mode: tradeExchangeModeSchema.optional(),
++  locationLabel: z.string().trim().min(1).max(120).optional(),
++  tags: tradeTagsSchema
++});
++const offerMetadataSchema = z.object({
++  category: z.string().trim().min(1).max(80).optional(),
++  availability: z.string().trim().min(1).max(80).optional(),
++  mode: tradeExchangeModeSchema.optional(),
++  locationLabel: z.string().trim().min(1).max(120).optional(),
++  includes: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
++  tags: tradeTagsSchema
++});
++
++export const createNeedRequestSchema = z.object({
++  title: z.string().min(3).max(120),
++  description: z.string().min(10).max(2000),
++  status: needStatusSchema.optional(),
++  expiresAt: z.string().datetime().optional(),
++  mediaIds: z.array(z.string()).max(5).optional()
++}).merge(needMetadataSchema);
++
++export const createOfferRequestSchema = z.object({
++  title: z.string().min(3).max(120),
++  description: z.string().min(10).max(2000),
++  status: offerStatusSchema.optional(),
++  expiresAt: z.string().datetime().optional(),
++  mediaIds: z.array(z.string()).max(5).optional()
++}).merge(offerMetadataSchema);
++
++export const createTradeRequestSchema = z.object({
++  title: z.string().min(3).max(120).optional(),
++  description: z.string().min(10).max(2000).optional(),
++  creditAmount: z.number().int().positive().max(100000),
++  needId: z.string().min(1).optional(),
++  offerId: z.string().min(1).optional(),
++  expiresAt: z.string().datetime().optional(),
++  // Deprecated for the new mobile create flow. Trade deck images come from the selected Need and Offer.
++  mediaIds: z.array(z.string()).max(5).optional()
++}).refine((value) => Boolean(value.needId && value.offerId), {
++  message: 'A trade must be created from one saved Need and one saved Offer.',
++  path: ['needId']
++});
+ export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
+ export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
+ export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
+@@ -18,9 +60,65 @@ export const createProposalMessageRequestSchema = z.object({ body: z.string().mi
+ 
+ export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional() }).nullable().optional();
+ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
+-export const needSchema = z.object({ id: z.string(), ownerId: z.string(), title: z.string(), description: z.string(), status: needStatusSchema, createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), media: z.array(mediaAssetSchema).optional() });
+-export const offerSchema = z.object({ id: z.string(), ownerId: z.string(), title: z.string(), description: z.string(), status: offerStatusSchema, createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), media: z.array(mediaAssetSchema).optional() });
+-export const tradeSchema = z.object({ id: z.string(), ownerId: z.string(), providerId: z.string().nullable().optional(), needId: z.string().nullable().optional(), offerId: z.string().nullable().optional(), title: z.string(), description: z.string(), creditAmount: z.number().int(), status: tradeStatusSchema, isPublic: z.boolean(), createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), closedAt: z.string().nullable().optional(), owner: userPreviewSchema.optional(), provider: userPreviewSchema.nullable().optional(), media: z.array(mediaAssetSchema).optional() });
++
++export const needSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string(),
++  category: z.string().nullable().optional(),
++  timing: z.string().nullable().optional(),
++  mode: tradeExchangeModeSchema.nullable().optional(),
++  locationLabel: z.string().nullable().optional(),
++  tags: z.array(z.string()).optional(),
++  status: needStatusSchema,
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  expiresAt: z.string().nullable().optional(),
++  media: z.array(mediaAssetSchema).optional()
++});
++
++export const offerSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string(),
++  category: z.string().nullable().optional(),
++  availability: z.string().nullable().optional(),
++  mode: tradeExchangeModeSchema.nullable().optional(),
++  locationLabel: z.string().nullable().optional(),
++  includes: z.array(z.string()).optional(),
++  tags: z.array(z.string()).optional(),
++  status: offerStatusSchema,
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  expiresAt: z.string().nullable().optional(),
++  media: z.array(mediaAssetSchema).optional()
++});
++
++export const tradeSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  providerId: z.string().nullable().optional(),
++  needId: z.string().nullable().optional(),
++  offerId: z.string().nullable().optional(),
++  title: z.string(),
++  description: z.string(),
++  creditAmount: z.number().int(),
++  status: tradeStatusSchema,
++  isPublic: z.boolean(),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  expiresAt: z.string().nullable().optional(),
++  closedAt: z.string().nullable().optional(),
++  owner: userPreviewSchema.optional(),
++  provider: userPreviewSchema.nullable().optional(),
++  need: needSchema.nullable().optional(),
++  offer: offerSchema.nullable().optional(),
++  // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
++  media: z.array(mediaAssetSchema).optional()
++});
+ export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
+ export const tradeProposalSchema = z.object({ id: z.string(), tradeId: z.string(), applicantId: z.string(), message: z.string(), status: proposalStatusSchema, createdAt: z.string(), updatedAt: z.string(), respondedAt: z.string().nullable().optional(), applicant: userPreviewSchema.optional(), trade: tradeSchema.optional(), messages: z.array(proposalMessageSchema).optional() });
+ 
+@@ -31,6 +129,7 @@ export type TradeStatus = z.infer<typeof tradeStatusSchema>;
+ export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
+ export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
+ export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
++export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+ export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
+ export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
+ export type CreateNeedRequest = z.infer<typeof createNeedRequestSchema>;
+diff --git a/packages/trade-domain/src/statuses.ts b/packages/trade-domain/src/statuses.ts
+index 8814c7a..ccc2d79 100644
+--- a/packages/trade-domain/src/statuses.ts
++++ b/packages/trade-domain/src/statuses.ts
+@@ -4,6 +4,8 @@ export const offerStatuses = ['draft', 'active', 'accepted', 'closed', 'expired'
+ export type OfferStatus = (typeof offerStatuses)[number];
+ export const tradeStatuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'] as const;
+ export type TradeStatus = (typeof tradeStatuses)[number];
++export const tradeExchangeModes = ['remote', 'local', 'hybrid'] as const;
++export type TradeExchangeMode = (typeof tradeExchangeModes)[number];
+ export const proposalStatuses = ['pending', 'accepted', 'declined', 'withdrawn'] as const;
+ export type ProposalStatus = (typeof proposalStatuses)[number];
+ export const ledgerEntryTypes = ['starting_demo_credits', 'test_credit_grant', 'credit_purchase', 'trade_hold', 'trade_release', 'trade_refund', 'earned_pending', 'platform_fee', 'platform_fee_placeholder', 'payout_requested', 'payout_paid', 'adjustment'] as const;
+diff --git a/packages/trade-domain/src/types.ts b/packages/trade-domain/src/types.ts
+index c553214..6ef47d4 100644
+--- a/packages/trade-domain/src/types.ts
++++ b/packages/trade-domain/src/types.ts
+@@ -1,4 +1,4 @@
+-import type { NeedStatus, OfferStatus, ProposalStatus, TradeStatus } from './statuses';
++import type { NeedStatus, OfferStatus, ProposalStatus, TradeStatus, TradeExchangeMode } from './statuses';
+ 
+ export type TradeVisibility = 'public' | 'owner_private';
+ 
+@@ -7,6 +7,11 @@ export type Need = {
+   ownerId: string;
+   title: string;
+   description: string;
++  category?: string | null;
++  timing?: string | null;
++  mode?: TradeExchangeMode | null;
++  locationLabel?: string | null;
++  tags?: string[];
+   status: NeedStatus;
+   createdAt: string;
+   expiresAt?: string | null;
+@@ -17,6 +22,12 @@ export type Offer = {
+   ownerId: string;
+   title: string;
+   description: string;
++  category?: string | null;
++  availability?: string | null;
++  mode?: TradeExchangeMode | null;
++  locationLabel?: string | null;
++  includes?: string[];
++  tags?: string[];
+   status: OfferStatus;
+   createdAt: string;
+   expiresAt?: string | null;
+@@ -35,8 +46,9 @@ export type Trade = {
+   isPublic: boolean;
+   createdAt: string;
+   expiresAt?: string | null;
++  need?: Need | null;
++  offer?: Offer | null;
+ };
+ 
+-
+ export type TradeProposal = { id: string; tradeId: string; applicantId: string; message: string; status: ProposalStatus; createdAt: string; updatedAt: string; };
+ export type ProposalMessage = { id: string; proposalId: string; senderId: string; body: string; createdAt: string; };
+diff --git a/packages/trade-domain/src/rules.ts b/packages/trade-domain/src/rules.ts
+index 347fceb..c9b3bc7 100644
+--- a/packages/trade-domain/src/rules.ts
++++ b/packages/trade-domain/src/rules.ts
+@@ -1,3 +1,4 @@
++import type { Need, Offer } from './types';
+ import type { TradeStatus } from './statuses';
+ 
+ export function isPublicTradeStatus(status: TradeStatus): boolean {
+@@ -17,3 +18,17 @@ export function assertPositiveCreditAmount(creditAmount: number): void {
+     throw new Error('Credit amount must be a positive integer.');
+   }
+ }
++
++export function assertTradeHasNeedAndOffer(input: { needId?: string | null; offerId?: string | null }): void {
++  if (!input.needId || !input.offerId) {
++    throw new Error('A trade must be created from one saved Need and one saved Offer.');
++  }
++}
++
++export function buildNeedMetaSummary(need: Pick<Need, 'category' | 'timing' | 'mode' | 'locationLabel'>): string {
++  return [need.category, need.timing, need.mode, need.locationLabel].filter(Boolean).join(' · ');
++}
++
++export function buildOfferMetaSummary(offer: Pick<Offer, 'category' | 'availability' | 'mode' | 'locationLabel'>): string {
++  return [offer.category, offer.availability, offer.mode, offer.locationLabel].filter(Boolean).join(' · ');
++}

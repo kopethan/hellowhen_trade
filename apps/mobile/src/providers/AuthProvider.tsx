@@ -3,6 +3,8 @@ import type { AuthUser, ForgotPasswordResponse } from '@hellowhen/contracts';
 import { api } from '../lib/api';
 import { clearAccessToken, setAccessToken } from '../lib/tokenStore';
 
+type AuthProfilePatch = Partial<NonNullable<AuthUser['profile']>>;
+
 type AuthContextValue = {
   user: AuthUser | null;
   isAuthenticated: boolean;
@@ -10,6 +12,7 @@ type AuthContextValue = {
   register: (email: string, password: string, displayName: string, confirmPassword?: string, acceptedTerms?: boolean) => Promise<void>;
   loginWithGoogleIdToken: (idToken: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
+  updateLocalProfile: (profile: AuthProfilePatch) => void;
   logout: () => Promise<void>;
 };
 
@@ -38,6 +41,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     forgotPassword(email) {
       return api.auth.forgotPassword({ email });
+    },
+    updateLocalProfile(profile) {
+      setUser((current) => current ? { ...current, profile: { ...(current.profile ?? {}), ...profile } } : current);
     },
     async logout() {
       await clearAccessToken();

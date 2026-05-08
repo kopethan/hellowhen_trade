@@ -52,7 +52,7 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
         <AppText style={styles.description}>{truncateText(trade.description, 190)}</AppText>
       </View>
       <View style={styles.creditPanel}>
-        <CreditPill amount={trade.creditAmount} label="fake credits" />
+        <CreditPill amount={trade.creditAmount} label="credits" />
         <View style={styles.ownerPill}>
           <View style={styles.avatarPlaceholder} />
           <View style={styles.ownerCopy}>
@@ -63,7 +63,6 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
       </View>
       <View style={styles.metaRow}>
         <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
-        <SemanticBadge label="Fake credits only" tone="info" size="sm" />
       </View>
       <View style={styles.actionsRow}>
         <Pressable accessibilityRole="button" onPress={onPass} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Pass</AppText></Pressable>

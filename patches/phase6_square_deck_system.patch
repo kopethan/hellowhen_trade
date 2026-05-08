@@ -1,0 +1,560 @@
+diff --git a/apps/mobile/babel.config.js b/apps/mobile/babel.config.js
+new file mode 100644
+index 0000000..d872de3
+--- /dev/null
++++ b/apps/mobile/babel.config.js
+@@ -0,0 +1,7 @@
++module.exports = function (api) {
++  api.cache(true);
++  return {
++    presets: ['babel-preset-expo'],
++    plugins: ['react-native-reanimated/plugin'],
++  };
++};
+diff --git a/apps/mobile/package.json b/apps/mobile/package.json
+index 9b46af2..823984b 100644
+--- a/apps/mobile/package.json
++++ b/apps/mobile/package.json
+@@ -26,9 +26,12 @@
+     "expo-image-picker": "~15.0.7",
+     "expo-secure-store": "~13.0.2",
+     "expo-status-bar": "~1.12.1",
++    "react-native-gesture-handler": "~2.16.1",
++    "react-native-reanimated": "~3.10.1",
+     "react": "18.2.0",
+     "react-native": "0.74.5",
+     "react-native-safe-area-context": "4.10.5",
++    "react-native-svg": "15.2.0",
+     "react-native-screens": "3.31.1",
+     "@react-native-google-signin/google-signin": "^13.1.0"
+   },
+diff --git a/apps/mobile/src/App.tsx b/apps/mobile/src/App.tsx
+index 9b67bb0..f788a96 100644
+--- a/apps/mobile/src/App.tsx
++++ b/apps/mobile/src/App.tsx
+@@ -1,3 +1,4 @@
++import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { NavigationContainer } from '@react-navigation/native';
+ import { StatusBar } from 'expo-status-bar';
+ import { AppSettingsProvider } from './providers/AppSettingsProvider';
+@@ -7,7 +8,8 @@ import { RootNavigator } from './navigation/RootNavigator';
+ 
+ export default function App() {
+   return (
+-    <AppSettingsProvider>
++    <GestureHandlerRootView style={{ flex: 1 }}>
++      <AppSettingsProvider>
+       <ThemeProvider>
+         <AuthProvider>
+           <NavigationContainer>
+@@ -16,6 +18,7 @@ export default function App() {
+           </NavigationContainer>
+         </AuthProvider>
+       </ThemeProvider>
+-    </AppSettingsProvider>
++      </AppSettingsProvider>
++    </GestureHandlerRootView>
+   );
+ }
+diff --git a/apps/mobile/src/features/trade/components/TradeExchangeIcon.tsx b/apps/mobile/src/features/trade/components/TradeExchangeIcon.tsx
+new file mode 100644
+index 0000000..333ff50
+--- /dev/null
++++ b/apps/mobile/src/features/trade/components/TradeExchangeIcon.tsx
+@@ -0,0 +1,12 @@
++import React from 'react';
++import Svg, { Circle, Path } from 'react-native-svg';
++
++export function TradeExchangeIcon({ color = '#0F172A', size = 24, strokeWidth = 2.2 }: { color?: string; size?: number; strokeWidth?: number }) {
++  return (
++    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
++      <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth={strokeWidth * 0.72} opacity={0.16} />
++      <Path d="M7 9h9.25m0 0-2.6-2.6M16.25 9l-2.6 2.6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
++      <Path d="M17 15H7.75m0 0 2.6-2.6M7.75 15l2.6 2.6" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
++    </Svg>
++  );
++}
+diff --git a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+new file mode 100644
+index 0000000..d863f13
+--- /dev/null
++++ b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+@@ -0,0 +1,208 @@
++import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { StyleSheet, useWindowDimensions, View } from 'react-native';
++import { Gesture, GestureDetector } from 'react-native-gesture-handler';
++import Animated, { Easing, runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
++import { clamp, getCommitDuration, getSquareStackLayoutMetrics, getSquareStackShadowStyle, getSquareStackTransform, getSquareStackZIndex, getVisibleSquareStackIndexes, SQUARE_STACK_COMMIT_THRESHOLD, SQUARE_STACK_VELOCITY_THRESHOLD } from '../squareStackDeck.model';
++import type { SquareStackDeckCard, SquareStackDeckProps } from '../squareStackDeck.types';
++import { classifySquareStackPanIntent, type SquareStackGestureIntent } from '../squareStackGestureIntent';
++import { SquareStackCardShell } from './SquareStackCardShell';
++
++type LayerProps<TCard extends SquareStackDeckCard> = {
++  card: TCard;
++  index: number;
++  total: number;
++  size: number;
++  baseIndex: SharedValue<number>;
++  progress: SharedValue<number>;
++  renderCard: SquareStackDeckProps<TCard>['renderCard'];
++  depthEffect: SquareStackDeckProps<TCard>['depthEffect'];
++};
++
++function SquareStackLayerInner<TCard extends SquareStackDeckCard>({ card, index, total, size, baseIndex, progress, renderCard, depthEffect }: LayerProps<TCard>) {
++  const animatedStyle = useAnimatedStyle(() => {
++    const visualOffset = index - baseIndex.value - progress.value;
++    const pose = getSquareStackTransform(visualOffset, size, depthEffect ?? 'flat');
++    return {
++      opacity: pose.opacity,
++      zIndex: getSquareStackZIndex(visualOffset),
++      transform: [{ translateX: pose.translateX }, { translateY: pose.translateY }, { scale: pose.scale }],
++    };
++  }, [depthEffect, index, size]);
++
++  const shadowStyle = useAnimatedStyle(() => {
++    const visualOffset = index - baseIndex.value - progress.value;
++    return getSquareStackShadowStyle(visualOffset, depthEffect ?? 'flat');
++  }, [depthEffect, index]);
++
++  return (
++    <Animated.View pointerEvents="box-none" style={[styles.layer, animatedStyle]}>
++      <Animated.View style={[styles.shadowLayer, { width: size, height: size, borderRadius: Math.max(24, Math.round(size * 0.075)) }, shadowStyle]}>
++        <SquareStackCardShell size={size}>{renderCard({ card, index, total })}</SquareStackCardShell>
++      </Animated.View>
++    </Animated.View>
++  );
++}
++
++const SquareStackLayer = memo(SquareStackLayerInner) as typeof SquareStackLayerInner;
++
++export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
++  cards,
++  initialIndex = 0,
++  renderCard,
++  onIndexChange,
++  availableWidth,
++  availableHeight,
++  minCardSize,
++  maxCardSize,
++  renderWindow = 'visible',
++  showDebugBadge = false,
++  depthEffect = 'motionOnly',
++}: SquareStackDeckProps<TCard>) {
++  const { width, height } = useWindowDimensions();
++  const layoutMetrics = useMemo(() => getSquareStackLayoutMetrics({
++    availableWidth: availableWidth && availableWidth > 0 ? availableWidth : width - 36,
++    availableHeight: availableHeight && availableHeight > 0 ? availableHeight : height * 0.54,
++    minCardSize,
++    maxCardSize,
++  }), [availableHeight, availableWidth, height, maxCardSize, minCardSize, width]);
++
++  const { cardSize, stageHeight, stageWidth } = layoutMetrics;
++  const safeInitialIndex = Math.min(Math.max(initialIndex, 0), Math.max(cards.length - 1, 0));
++  const [committedIndex, setCommittedIndex] = useState(safeInitialIndex);
++  const lastNotifiedIndexRef = useRef(safeInitialIndex);
++  const baseIndex = useSharedValue(safeInitialIndex);
++  const progress = useSharedValue(0);
++  const gestureIntent = useSharedValue<SquareStackGestureIntent>('UNDECIDED');
++  const gestureStartAbsX = useSharedValue(0);
++  const gestureStartAbsY = useSharedValue(0);
++
++  useEffect(() => {
++    const nextIndex = Math.min(committedIndex, Math.max(cards.length - 1, 0));
++    if (nextIndex !== committedIndex) setCommittedIndex(nextIndex);
++    baseIndex.value = nextIndex;
++    progress.value = 0;
++  }, [baseIndex, cards.length, committedIndex, progress]);
++
++  useEffect(() => {
++    const nextCard = cards[committedIndex];
++    if (!nextCard || lastNotifiedIndexRef.current === committedIndex) return;
++    lastNotifiedIndexRef.current = committedIndex;
++    onIndexChange?.(committedIndex, nextCard);
++  }, [cards, committedIndex, onIndexChange]);
++
++  const visibleIndexes = useMemo(() => {
++    if (renderWindow === 'all') return cards.map((_, cardIndex) => cardIndex);
++    return getVisibleSquareStackIndexes(committedIndex, cards.length);
++  }, [cards, cards.length, committedIndex, renderWindow]);
++
++  const commitIndex = useCallback((direction: -1 | 1) => {
++    setCommittedIndex((current) => Math.min(Math.max(current + direction, 0), Math.max(cards.length - 1, 0)));
++  }, [cards.length]);
++
++  const gesture = useMemo(() => Gesture.Pan()
++    .manualActivation(true)
++    .onTouchesDown((event: any) => {
++      const touch = event.allTouches[0];
++      if (!touch) return;
++      gestureStartAbsX.value = touch.absoluteX;
++      gestureStartAbsY.value = touch.absoluteY;
++      gestureIntent.value = 'UNDECIDED';
++    })
++    .onTouchesMove((event: any, state: any) => {
++      if (gestureIntent.value !== 'UNDECIDED') return;
++      const touch = event.allTouches[0];
++      if (!touch) return;
++      const dx = touch.absoluteX - gestureStartAbsX.value;
++      const dy = touch.absoluteY - gestureStartAbsY.value;
++      const nextIntent = classifySquareStackPanIntent({ dx, dy, hasPrev: baseIndex.value > 0, hasNext: baseIndex.value < cards.length - 1 });
++      if (nextIntent === 'UNDECIDED') return;
++      gestureIntent.value = nextIntent;
++      if (nextIntent === 'SCROLL') {
++        progress.value = withTiming(0, { duration: 90, easing: Easing.out(Easing.quad) });
++        state.fail();
++        return;
++      }
++      state.activate();
++    })
++    .onUpdate((event) => {
++      if (gestureIntent.value !== 'SWIPE_NEXT' && gestureIntent.value !== 'SWIPE_PREV') return;
++      const diagonalDrag = event.translationX + event.translationY * 0.9;
++      const rawProgress = -diagonalDrag / (cardSize * 0.72);
++      const canGoNext = baseIndex.value < cards.length - 1;
++      const canGoPrev = baseIndex.value > 0;
++      const resisted = (rawProgress > 0 && !canGoNext) || (rawProgress < 0 && !canGoPrev) ? rawProgress * 0.18 : rawProgress;
++      progress.value = clamp(resisted, -1, 1);
++    })
++    .onEnd((event) => {
++      const endingIntent = gestureIntent.value;
++      gestureIntent.value = 'UNDECIDED';
++      if (endingIntent !== 'SWIPE_NEXT' && endingIntent !== 'SWIPE_PREV') {
++        progress.value = withTiming(0, { duration: 90, easing: Easing.out(Easing.quad) });
++        return;
++      }
++      const velocityProgress = -(event.velocityX + event.velocityY * 0.9) / (cardSize * 0.72);
++      const currentProgress = progress.value;
++      const canGoNext = baseIndex.value < cards.length - 1;
++      const canGoPrev = baseIndex.value > 0;
++      let direction: -1 | 0 | 1 = 0;
++      if (endingIntent === 'SWIPE_NEXT' && (currentProgress > SQUARE_STACK_COMMIT_THRESHOLD || velocityProgress > SQUARE_STACK_VELOCITY_THRESHOLD) && canGoNext) direction = 1;
++      if (endingIntent === 'SWIPE_PREV' && (currentProgress < -SQUARE_STACK_COMMIT_THRESHOLD || velocityProgress < -SQUARE_STACK_VELOCITY_THRESHOLD) && canGoPrev) direction = -1;
++      const targetProgress = direction === 0 ? 0 : direction;
++      progress.value = withTiming(targetProgress, { duration: getCommitDuration(currentProgress, targetProgress), easing: Easing.out(Easing.cubic) }, (finished) => {
++        if (!finished) return;
++        if (direction !== 0) {
++          baseIndex.value = baseIndex.value + direction;
++          progress.value = 0;
++          runOnJS(commitIndex)(direction);
++          return;
++        }
++        progress.value = 0;
++      });
++    })
++    .onFinalize(() => {
++      gestureIntent.value = 'UNDECIDED';
++    }), [baseIndex, cardSize, cards.length, commitIndex, gestureIntent, gestureStartAbsX, gestureStartAbsY, progress]);
++
++  if (cards.length === 0) {
++    return <View style={[styles.stage, { width: stageWidth, height: stageHeight }]} />;
++  }
++
++  return (
++    <GestureDetector gesture={gesture}>
++      <View style={[styles.stage, { width: stageWidth, height: stageHeight }]}>
++        {visibleIndexes.map((cardIndex) => {
++          const card = cards[cardIndex];
++          if (!card) return null;
++          return <SquareStackLayer key={card.id} card={card} index={cardIndex} total={cards.length} size={cardSize} baseIndex={baseIndex} progress={progress} renderCard={renderCard} depthEffect={depthEffect} />;
++        })}
++        {showDebugBadge ? <View pointerEvents="none" style={styles.debugBadge} /> : null}
++      </View>
++    </GestureDetector>
++  );
++}
++
++const styles = StyleSheet.create({
++  stage: {
++    position: 'relative',
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  layer: {
++    position: 'absolute',
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  shadowLayer: {
++    shadowColor: '#000000',
++    shadowOffset: { width: 0, height: 10 },
++  },
++  debugBadge: {
++    position: 'absolute',
++    top: 8,
++    right: 8,
++    width: 10,
++    height: 10,
++    borderRadius: 5,
++    backgroundColor: '#7C3AED',
++  },
++});
+diff --git a/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx b/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx
+new file mode 100644
+index 0000000..4e36c79
+--- /dev/null
++++ b/apps/mobile/src/features/trade/deck/components/SquareStackCardShell.tsx
+@@ -0,0 +1,34 @@
++import React from 'react';
++import { Platform, StyleSheet, View } from 'react-native';
++
++type Props = {
++  size: number;
++  children: React.ReactNode;
++};
++
++export function SquareStackCardShell({ size, children }: Props) {
++  const radius = Math.max(24, Math.round(size * 0.075));
++
++  return (
++    <View style={[styles.card, { width: size, height: size, borderRadius: radius }]}>
++      <View pointerEvents="none" style={[styles.innerFrame, { borderRadius: Math.max(0, radius - 2) }]} />
++      {children}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  card: {
++    position: 'relative',
++    overflow: 'hidden',
++    borderWidth: 1,
++    borderColor: 'rgba(15, 23, 42, 0.86)',
++    backgroundColor: '#FFFFFF',
++    ...(Platform.OS === 'web' ? ({ willChange: 'transform' } as any) : null),
++  },
++  innerFrame: {
++    ...StyleSheet.absoluteFillObject,
++    borderWidth: 1,
++    borderColor: 'rgba(15, 23, 42, 0.1)',
++  },
++});
+diff --git a/apps/mobile/src/features/trade/deck/index.ts b/apps/mobile/src/features/trade/deck/index.ts
+new file mode 100644
+index 0000000..eb6fbbc
+--- /dev/null
++++ b/apps/mobile/src/features/trade/deck/index.ts
+@@ -0,0 +1,4 @@
++export { ContinuousSquareStackDeck } from './components/ContinuousSquareStackDeck';
++export type { SquareStackDeckCard, SquareStackDeckProps, SquareStackDepthEffect } from './squareStackDeck.types';
++export { classifySquareStackPanIntent, isBackslashDiagonal } from './squareStackGestureIntent';
++export type { SquareStackGestureIntent } from './squareStackGestureIntent';
+diff --git a/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts b/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
+new file mode 100644
+index 0000000..6ad7a86
+--- /dev/null
++++ b/apps/mobile/src/features/trade/deck/squareStackDeck.model.ts
+@@ -0,0 +1,123 @@
++import { Extrapolation, interpolate } from 'react-native-reanimated';
++import type { SquareStackDepthEffect } from './squareStackDeck.types';
++
++export const SQUARE_STACK_VISIBLE_BEFORE = 1;
++export const SQUARE_STACK_VISIBLE_AFTER = 4;
++export const SQUARE_STACK_COMMIT_THRESHOLD = 0.36;
++export const SQUARE_STACK_VELOCITY_THRESHOLD = 1.05;
++export const SQUARE_STACK_DEPTH_ALLOWANCE_X = 72;
++export const SQUARE_STACK_DEPTH_ALLOWANCE_Y = 72;
++export const SQUARE_STACK_DEFAULT_MIN_CARD_SIZE = 280;
++export const SQUARE_STACK_DEFAULT_MAX_CARD_SIZE = 390;
++
++export type SquareStackLayoutInput = {
++  availableWidth: number;
++  availableHeight: number;
++  minCardSize?: number;
++  maxCardSize?: number;
++};
++
++export type SquareStackLayoutMetrics = {
++  cardSize: number;
++  stageWidth: number;
++  stageHeight: number;
++  depthAllowanceX: number;
++  depthAllowanceY: number;
++};
++
++export function clamp(value: number, min: number, max: number) {
++  'worklet';
++  return Math.min(max, Math.max(min, value));
++}
++
++export function getSquareStackLayoutMetrics({
++  availableWidth,
++  availableHeight,
++  minCardSize = SQUARE_STACK_DEFAULT_MIN_CARD_SIZE,
++  maxCardSize = SQUARE_STACK_DEFAULT_MAX_CARD_SIZE,
++}: SquareStackLayoutInput): SquareStackLayoutMetrics {
++  const safeWidth = Math.max(0, availableWidth);
++  const safeHeight = Math.max(0, availableHeight);
++  const usableWidth = Math.max(180, safeWidth - SQUARE_STACK_DEPTH_ALLOWANCE_X);
++  const usableHeight = Math.max(180, safeHeight - SQUARE_STACK_DEPTH_ALLOWANCE_Y);
++  const naturalCardSize = Math.min(usableWidth, usableHeight, maxCardSize);
++  const safeMinCardSize = Math.min(minCardSize, naturalCardSize);
++  const cardSize = Math.round(clamp(naturalCardSize, safeMinCardSize, maxCardSize));
++
++  return {
++    cardSize,
++    stageWidth: cardSize + SQUARE_STACK_DEPTH_ALLOWANCE_X,
++    stageHeight: cardSize + SQUARE_STACK_DEPTH_ALLOWANCE_Y,
++    depthAllowanceX: SQUARE_STACK_DEPTH_ALLOWANCE_X,
++    depthAllowanceY: SQUARE_STACK_DEPTH_ALLOWANCE_Y,
++  };
++}
++
++export function getVisibleSquareStackIndexes(activeIndex: number, total: number) {
++  const indexes: number[] = [];
++  const from = Math.max(0, activeIndex - SQUARE_STACK_VISIBLE_BEFORE);
++  const to = Math.min(total - 1, activeIndex + SQUARE_STACK_VISIBLE_AFTER);
++  for (let index = from; index <= to; index += 1) indexes.push(index);
++  return indexes;
++}
++
++export function getSquareStackTransform(visualOffset: number, cardSize: number, depthEffect: SquareStackDepthEffect = 'flat') {
++  'worklet';
++
++  const clampedOffset = clamp(visualOffset, -1, 4);
++
++  if (depthEffect === 'motionOnly') {
++    const motionInput = [-1, -0.72, -0.28, -0.08, 0, 1, 2, 3, 4];
++    return {
++      translateX: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 10, 20, 30, 40], Extrapolation.CLAMP),
++      translateY: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 10, 20, 30, 40], Extrapolation.CLAMP),
++      scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.984, 0.968, 0.952, 0.936], Extrapolation.CLAMP),
++      opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.72, 0.96, 1, 0.86, 0.64, 0.42, 0], Extrapolation.CLAMP),
++    };
++  }
++
++  if (depthEffect === 'flat') {
++    const flatInput = [-1, -0.08, 0, 1, 2, 3, 4];
++    return {
++      translateX: interpolate(clampedOffset, flatInput, [-cardSize * 0.22, 0, 0, 4, 8, 12, 16], Extrapolation.CLAMP),
++      translateY: interpolate(clampedOffset, flatInput, [-cardSize * 0.18, 0, 0, 4, 8, 12, 16], Extrapolation.CLAMP),
++      scale: interpolate(clampedOffset, flatInput, [0.995, 0.998, 1, 0.992, 0.986, 0.98, 0.974], Extrapolation.CLAMP),
++      opacity: interpolate(clampedOffset, flatInput, [0, 0, 1, 0.985, 0.95, 0.88, 0], Extrapolation.CLAMP),
++    };
++  }
++
++  const input = [-1, 0, 1, 2, 3, 4];
++  return {
++    translateX: interpolate(clampedOffset, input, [-cardSize * 0.62, 0, 7, 13, 19, 25], Extrapolation.CLAMP),
++    translateY: interpolate(clampedOffset, input, [-cardSize * 0.54, 0, 7, 13, 19, 25], Extrapolation.CLAMP),
++    scale: interpolate(clampedOffset, input, [0.985, 1, 0.988, 0.978, 0.97, 0.964], Extrapolation.CLAMP),
++    opacity: interpolate(clampedOffset, input, [0, 1, 0.965, 0.9, 0.78, 0], Extrapolation.CLAMP),
++  };
++}
++
++export function getSquareStackShadowStyle(visualOffset: number, depthEffect: SquareStackDepthEffect = 'flat') {
++  'worklet';
++  const clampedOffset = clamp(visualOffset, -1, 4);
++
++  if (depthEffect === 'flat' || depthEffect === 'motionOnly') {
++    return { shadowOpacity: 0, shadowRadius: 0, elevation: 0 };
++  }
++
++  const input = [-1, 0, 1, 2, 3, 4];
++  return {
++    shadowOpacity: interpolate(clampedOffset, input, [0.18, 0.2, 0.13, 0.08, 0.045, 0], Extrapolation.CLAMP),
++    shadowRadius: interpolate(clampedOffset, input, [24, 26, 18, 12, 8, 0], Extrapolation.CLAMP),
++    elevation: Math.round(interpolate(clampedOffset, input, [14, 16, 9, 5, 2, 0], Extrapolation.CLAMP)),
++  };
++}
++
++export function getSquareStackZIndex(visualOffset: number) {
++  'worklet';
++  return Math.round(1000 - visualOffset * 40);
++}
++
++export function getCommitDuration(currentProgress: number, targetProgress: number) {
++  'worklet';
++  const remaining = Math.abs(targetProgress - currentProgress);
++  return clamp(160 + remaining * 180, 120, 340);
++}
+diff --git a/apps/mobile/src/features/trade/deck/squareStackDeck.types.ts b/apps/mobile/src/features/trade/deck/squareStackDeck.types.ts
+new file mode 100644
+index 0000000..5f53d54
+--- /dev/null
++++ b/apps/mobile/src/features/trade/deck/squareStackDeck.types.ts
+@@ -0,0 +1,27 @@
++import type React from 'react';
++
++export type SquareStackDeckCard = {
++  id: string;
++};
++
++export type SquareStackDeckRenderArgs<TCard extends SquareStackDeckCard> = {
++  card: TCard;
++  index: number;
++  total: number;
++};
++
++export type SquareStackDepthEffect = 'flat' | 'stacked' | 'motionOnly';
++
++export type SquareStackDeckProps<TCard extends SquareStackDeckCard> = {
++  cards: TCard[];
++  initialIndex?: number;
++  renderCard: (args: SquareStackDeckRenderArgs<TCard>) => React.ReactNode;
++  onIndexChange?: (index: number, card: TCard) => void;
++  renderWindow?: 'visible' | 'all';
++  showDebugBadge?: boolean;
++  depthEffect?: SquareStackDepthEffect;
++  availableWidth?: number;
++  availableHeight?: number;
++  minCardSize?: number;
++  maxCardSize?: number;
++};
+diff --git a/apps/mobile/src/features/trade/deck/squareStackGestureIntent.ts b/apps/mobile/src/features/trade/deck/squareStackGestureIntent.ts
+new file mode 100644
+index 0000000..70ba0d1
+--- /dev/null
++++ b/apps/mobile/src/features/trade/deck/squareStackGestureIntent.ts
+@@ -0,0 +1,52 @@
++export type SquareStackGestureIntent = 'UNDECIDED' | 'SCROLL' | 'SWIPE_NEXT' | 'SWIPE_PREV';
++
++type SquareStackPanIntentInput = {
++  dx: number;
++  dy: number;
++  hasPrev: boolean;
++  hasNext: boolean;
++};
++
++const LOCK_DISTANCE = 10;
++const ANGLE_SWIPE_DEG = 40;
++const ANGLE_SCROLL_DEG = 72;
++const VERTICAL_DOMINANCE = 1.6;
++const ANGLE_BACKSLASH_SWIPE_DEG = 86;
++const BACKSLASH_VERTICAL_DOMINANCE = 2.25;
++
++export function isBackslashDiagonal(dx: number, dy: number) {
++  'worklet';
++  return dx * dy > 0;
++}
++
++function intentForHorizontalDirection(dx: number, hasPrev: boolean, hasNext: boolean): SquareStackGestureIntent {
++  'worklet';
++  if (dx < 0) return hasNext ? 'SWIPE_NEXT' : 'SCROLL';
++  if (dx > 0) return hasPrev ? 'SWIPE_PREV' : 'SCROLL';
++  return 'UNDECIDED';
++}
++
++export function classifySquareStackPanIntent({ dx, dy, hasPrev, hasNext }: SquareStackPanIntentInput): SquareStackGestureIntent {
++  'worklet';
++
++  const absX = Math.abs(dx);
++  const absY = Math.abs(dy);
++  const distance = Math.hypot(dx, dy);
++
++  if (distance < LOCK_DISTANCE) return 'UNDECIDED';
++  if (absX <= 0.001) return 'SCROLL';
++
++  const angleDeg = Math.atan2(absY, absX) * (180 / Math.PI);
++  const backslash = isBackslashDiagonal(dx, dy);
++
++  if (absY > absX * VERTICAL_DOMINANCE && !backslash) return 'SCROLL';
++  if (angleDeg <= ANGLE_SWIPE_DEG) return intentForHorizontalDirection(dx, hasPrev, hasNext);
++  if (!backslash) return 'SCROLL';
++
++  if (angleDeg <= ANGLE_BACKSLASH_SWIPE_DEG && absY <= absX * BACKSLASH_VERTICAL_DOMINANCE) {
++    return intentForHorizontalDirection(dx, hasPrev, hasNext);
++  }
++
++  if (angleDeg >= ANGLE_SCROLL_DEG) return 'SCROLL';
++  return intentForHorizontalDirection(dx, hasPrev, hasNext);
++}

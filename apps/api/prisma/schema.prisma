@@ -33,6 +33,12 @@ enum OfferStatus {
   expired
 }
 
+enum TradeExchangeMode {
+  remote
+  local
+  hybrid
+}
+
 enum TradeStatus {
   draft
   active
@@ -246,35 +252,50 @@ model UserSettings {
 }
 
 model Need {
-  id          String     @id @default(cuid())
-  ownerId     String
-  title       String
-  description String
-  status      NeedStatus @default(draft)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  expiresAt   DateTime?
+  id            String             @id @default(cuid())
+  ownerId       String
+  title         String
+  description   String
+  category      String?
+  timing        String?
+  mode          TradeExchangeMode?
+  locationLabel String?
+  tags          String[]           @default([])
+  status        NeedStatus         @default(draft)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  expiresAt     DateTime?
 
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   trades Trade[]
 
   @@index([ownerId, status])
+  @@index([category])
+  @@index([mode])
 }
 
 model Offer {
-  id          String      @id @default(cuid())
-  ownerId     String
-  title       String
-  description String
-  status      OfferStatus @default(draft)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  expiresAt   DateTime?
+  id            String             @id @default(cuid())
+  ownerId       String
+  title         String
+  description   String
+  category      String?
+  availability  String?
+  mode          TradeExchangeMode?
+  locationLabel String?
+  includes      String[]           @default([])
+  tags          String[]           @default([])
+  status        OfferStatus        @default(draft)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  expiresAt     DateTime?
 
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   trades Trade[]
 
   @@index([ownerId, status])
+  @@index([category])
+  @@index([mode])
 }
 
 model Trade {
@@ -305,6 +326,8 @@ model Trade {
   @@index([status, isPublic, createdAt])
   @@index([ownerId, status])
   @@index([providerId, status])
+  @@index([needId])
+  @@index([offerId])
 }
 
 model TradeProposal {
@@ -350,7 +373,7 @@ model MediaAsset {
   filename    String
   mimeType    String
   sizeBytes   Int
-  status      MediaAssetStatus @default(active)
+  status      MediaAssetStatus @default(pending_review)
   reviewNote  String?
   reviewedAt  DateTime?
   reviewerId  String?

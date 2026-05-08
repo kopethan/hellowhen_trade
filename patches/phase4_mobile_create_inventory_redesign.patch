@@ -1,0 +1,632 @@
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index 2f61baa..7f84275 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -1,6 +1,7 @@
+-import React, { useState } from 'react';
+-import { Button, ScrollView, StyleSheet, TextInput } from 'react-native';
++import React, { useMemo, useState } from 'react';
++import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { TradeExchangeMode } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+@@ -9,24 +10,170 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
++import { InventoryPreview, InventoryTextField, ModePicker, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ 
+-
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
++
+ export function CreateNeedScreen({ navigation }: Props) {
+-  const [title, setTitle] = useState('Create your need title');
+-  const [description, setDescription] = useState('Describe what you need, what good help looks like, and any timing constraints.');
++  const [title, setTitle] = useState('');
++  const [description, setDescription] = useState('');
++  const [category, setCategory] = useState('');
++  const [timing, setTiming] = useState('');
++  const [mode, setMode] = useState<TradeExchangeMode>('remote');
++  const [locationLabel, setLocationLabel] = useState('');
++  const [tagsInput, setTagsInput] = useState('');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
++
++  const meta = useMemo(() => [category.trim(), timing.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [category, locationLabel, mode, timing]);
++
+   async function handleCreate() {
+-    const cleanTitle = title.trim(); const cleanDescription = description.trim();
+-    if (cleanTitle.length < 3 || cleanDescription.length < 10) { setError('Add a title and a description with enough detail.'); return; }
+-    setSubmitting(true); setError(null);
+-    try { const mediaIds = await uploadSelectedImages(images); await api.needs.create({ title: cleanTitle, description: cleanDescription, status: 'draft', mediaIds }); navigation.goBack(); }
+-    catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); }
+-    finally { setSubmitting(false); }
++    const cleanTitle = title.trim();
++    const cleanDescription = description.trim();
++
++    if (cleanTitle.length < 3) {
++      setError('Add a clear need title.');
++      return;
++    }
++    if (cleanDescription.length < 10) {
++      setError('Describe the need with at least one useful detail.');
++      return;
++    }
++
++    setSubmitting(true);
++    setError(null);
++
++    try {
++      const mediaIds = await uploadSelectedImages(images);
++      await api.needs.create({
++        title: cleanTitle,
++        description: cleanDescription,
++        category: optionalText(category),
++        timing: optionalText(timing),
++        mode,
++        locationLabel: optionalText(locationLabel),
++        tags: parseInventoryList(tagsInput),
++        status: 'draft',
++        mediaIds,
++      });
++      navigation.goBack();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSubmitting(false);
++    }
+   }
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppCard><SemanticBadge label="Need" tone="need" /><AppText style={styles.title}>Create Need</AppText><InfoNotice tone="instruction" title="How to use this" body="Use blue for requests. Add clear instructions and reference images so providers understand the need." />{error ? <InfoNotice tone="danger" title="Could not create" body={error} /> : null}<TextInput value={title} onChangeText={setTitle} placeholder="Title" style={styles.input} editable={!submitting} /><TextInput value={description} onChangeText={setDescription} placeholder="Description" multiline style={[styles.input, styles.textarea]} textAlignVertical="top" editable={!submitting} /><ImagePickerField images={images} onChange={setImages} disabled={submitting} /><Button title={submitting ? 'Creating...' : 'Create Need'} disabled={submitting} onPress={handleCreate} /><Button title="Back" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++        <View style={styles.header}>
++          <SemanticBadge label="Need" tone="need" />
++          <AppText style={styles.title}>Save Need</AppText>
++          <AppText style={styles.subtitle}>Create a reusable request with its own images. You will choose it later when publishing a trade.</AppText>
++        </View>
++
++        {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>What do you need?</AppText>
++          <InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder="Landing page design" disabled={submitting} />
++          <InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder="Describe the result you want, useful details, and what done means." multiline disabled={submitting} />
++        </AppCard>
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Deck details</AppText>
++          <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={submitting} />
++          <InventoryTextField label="Timing" value={timing} onChangeText={setTiming} placeholder="This week, weekend, today..." disabled={submitting} />
++          <ModePicker value={mode} onChange={setMode} disabled={submitting} />
++          <InventoryTextField label="Location" hint="Optional" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, Paris, local pickup..." disabled={submitting} />
++          <InventoryTextField label="Tags" hint="Separate with commas" value={tagsInput} onChangeText={setTagsInput} placeholder="brand, figma, urgent" disabled={submitting} />
++        </AppCard>
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Need images</AppText>
++          <ImagePickerField
++            images={images}
++            onChange={setImages}
++            disabled={submitting}
++            label="Reference images"
++            hint="Add images that explain what you need."
++          />
++        </AppCard>
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Card preview</AppText>
++          <InventoryPreview eyebrow="I need" title={title.trim()} meta={meta} description={description.trim()} />
++        </AppCard>
++
++        <View style={styles.actions}>
++          <Pressable disabled={submitting} onPress={handleCreate} style={({ pressed }) => [styles.primaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
++            <AppText style={styles.primaryButtonText}>{submitting ? 'Saving...' : 'Save Need'}</AppText>
++          </Pressable>
++          <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
++            <AppText style={styles.secondaryButtonText}>Cancel</AppText>
++          </Pressable>
++        </View>
++      </ScrollView>
++    </AppScreen>
++  );
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, title: { fontSize: 30, fontWeight: '900' }, input: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 12, fontSize: 16 }, textarea: { minHeight: 120 } });
++
++const styles = StyleSheet.create({
++  content: {
++    paddingBottom: 32,
++    gap: 14,
++  },
++  header: {
++    gap: 8,
++  },
++  title: {
++    fontSize: 36,
++    fontWeight: '900',
++    letterSpacing: -1,
++  },
++  subtitle: {
++    color: '#64748B',
++    lineHeight: 21,
++    fontWeight: '600',
++  },
++  sectionTitle: {
++    fontSize: 18,
++    fontWeight: '900',
++    color: '#0F172A',
++  },
++  actions: {
++    gap: 10,
++  },
++  primaryButton: {
++    borderRadius: 18,
++    backgroundColor: '#2563EB',
++    paddingVertical: 15,
++    alignItems: 'center',
++  },
++  primaryButtonText: {
++    color: '#FFFFFF',
++    fontSize: 16,
++    fontWeight: '900',
++  },
++  secondaryButton: {
++    borderRadius: 18,
++    borderWidth: 1,
++    borderColor: '#CBD5E1',
++    backgroundColor: '#FFFFFF',
++    paddingVertical: 14,
++    alignItems: 'center',
++  },
++  secondaryButtonText: {
++    color: '#334155',
++    fontWeight: '900',
++  },
++  disabled: {
++    opacity: 0.55,
++  },
++  pressed: {
++    opacity: 0.78,
++  },
++});
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index 1cbd47f..87e53ca 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -1,6 +1,7 @@
+-import React, { useState } from 'react';
+-import { Button, ScrollView, StyleSheet, TextInput } from 'react-native';
++import React, { useMemo, useState } from 'react';
++import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { TradeExchangeMode } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+@@ -9,24 +10,173 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
++import { InventoryPreview, InventoryTextField, ModePicker, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ 
+-
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
++
+ export function CreateOfferScreen({ navigation }: Props) {
+-  const [title, setTitle] = useState('Offer a quick skill or service');
+-  const [description, setDescription] = useState('Describe what you offer, what you deliver, and how fast you can help.');
++  const [title, setTitle] = useState('');
++  const [description, setDescription] = useState('');
++  const [category, setCategory] = useState('');
++  const [availability, setAvailability] = useState('');
++  const [mode, setMode] = useState<TradeExchangeMode>('remote');
++  const [locationLabel, setLocationLabel] = useState('');
++  const [includesInput, setIncludesInput] = useState('');
++  const [tagsInput, setTagsInput] = useState('');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
++
++  const meta = useMemo(() => [category.trim(), availability.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [availability, category, locationLabel, mode]);
++
+   async function handleCreate() {
+-    const cleanTitle = title.trim(); const cleanDescription = description.trim();
+-    if (cleanTitle.length < 3 || cleanDescription.length < 10) { setError('Add a title and a description with enough detail.'); return; }
+-    setSubmitting(true); setError(null);
+-    try { const mediaIds = await uploadSelectedImages(images); await api.offers.create({ title: cleanTitle, description: cleanDescription, status: 'draft', mediaIds }); navigation.goBack(); }
+-    catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); }
+-    finally { setSubmitting(false); }
++    const cleanTitle = title.trim();
++    const cleanDescription = description.trim();
++
++    if (cleanTitle.length < 3) {
++      setError('Add a clear offer title.');
++      return;
++    }
++    if (cleanDescription.length < 10) {
++      setError('Describe the offer with at least one useful detail.');
++      return;
++    }
++
++    setSubmitting(true);
++    setError(null);
++
++    try {
++      const mediaIds = await uploadSelectedImages(images);
++      await api.offers.create({
++        title: cleanTitle,
++        description: cleanDescription,
++        category: optionalText(category),
++        availability: optionalText(availability),
++        mode,
++        locationLabel: optionalText(locationLabel),
++        includes: parseInventoryList(includesInput),
++        tags: parseInventoryList(tagsInput),
++        status: 'draft',
++        mediaIds,
++      });
++      navigation.goBack();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSubmitting(false);
++    }
+   }
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppCard><SemanticBadge label="Offer" tone="offer" /><AppText style={styles.title}>Create Offer</AppText><InfoNotice tone="instruction" title="How to use this" body="Use green for services you can provide. Add sample images to make the offer easier to trust." />{error ? <InfoNotice tone="danger" title="Could not create" body={error} /> : null}<TextInput value={title} onChangeText={setTitle} placeholder="Title" style={styles.input} editable={!submitting} /><TextInput value={description} onChangeText={setDescription} placeholder="Description" multiline style={[styles.input, styles.textarea]} textAlignVertical="top" editable={!submitting} /><ImagePickerField images={images} onChange={setImages} disabled={submitting} /><Button title={submitting ? 'Creating...' : 'Create Offer'} disabled={submitting} onPress={handleCreate} /><Button title="Back" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++        <View style={styles.header}>
++          <SemanticBadge label="Offer" tone="offer" />
++          <AppText style={styles.title}>Save Offer</AppText>
++          <AppText style={styles.subtitle}>Create a reusable service with its own images. You will pair it with a need when publishing a trade.</AppText>
++        </View>
++
++        {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>What can you offer?</AppText>
++          <InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder="Product photography" disabled={submitting} />
++          <InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder="Describe what you deliver, how it works, and any limits." multiline disabled={submitting} />
++        </AppCard>
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Deck details</AppText>
++          <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Photography, copywriting, coaching..." disabled={submitting} />
++          <InventoryTextField label="Availability" value={availability} onChangeText={setAvailability} placeholder="Weekend, this week, evenings..." disabled={submitting} />
++          <ModePicker value={mode} onChange={setMode} disabled={submitting} />
++          <InventoryTextField label="Location" hint="Optional" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, local studio, pickup only..." disabled={submitting} />
++          <InventoryTextField label="Includes" hint="Separate with commas" value={includesInput} onChangeText={setIncludesInput} placeholder="10 edited shots, 1 revision, delivery folder" disabled={submitting} />
++          <InventoryTextField label="Tags" hint="Separate with commas" value={tagsInput} onChangeText={setTagsInput} placeholder="camera, edits, ecommerce" disabled={submitting} />
++        </AppCard>
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Offer images</AppText>
++          <ImagePickerField
++            images={images}
++            onChange={setImages}
++            disabled={submitting}
++            label="Sample images"
++            hint="Add examples that help people trust the offer."
++          />
++        </AppCard>
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Card preview</AppText>
++          <InventoryPreview eyebrow="I offer" title={title.trim()} meta={meta} description={description.trim()} />
++        </AppCard>
++
++        <View style={styles.actions}>
++          <Pressable disabled={submitting} onPress={handleCreate} style={({ pressed }) => [styles.primaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
++            <AppText style={styles.primaryButtonText}>{submitting ? 'Saving...' : 'Save Offer'}</AppText>
++          </Pressable>
++          <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
++            <AppText style={styles.secondaryButtonText}>Cancel</AppText>
++          </Pressable>
++        </View>
++      </ScrollView>
++    </AppScreen>
++  );
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, title: { fontSize: 30, fontWeight: '900' }, input: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 12, fontSize: 16 }, textarea: { minHeight: 120 } });
++
++const styles = StyleSheet.create({
++  content: {
++    paddingBottom: 32,
++    gap: 14,
++  },
++  header: {
++    gap: 8,
++  },
++  title: {
++    fontSize: 36,
++    fontWeight: '900',
++    letterSpacing: -1,
++  },
++  subtitle: {
++    color: '#64748B',
++    lineHeight: 21,
++    fontWeight: '600',
++  },
++  sectionTitle: {
++    fontSize: 18,
++    fontWeight: '900',
++    color: '#0F172A',
++  },
++  actions: {
++    gap: 10,
++  },
++  primaryButton: {
++    borderRadius: 18,
++    backgroundColor: '#16A34A',
++    paddingVertical: 15,
++    alignItems: 'center',
++  },
++  primaryButtonText: {
++    color: '#FFFFFF',
++    fontSize: 16,
++    fontWeight: '900',
++  },
++  secondaryButton: {
++    borderRadius: 18,
++    borderWidth: 1,
++    borderColor: '#CBD5E1',
++    backgroundColor: '#FFFFFF',
++    paddingVertical: 14,
++    alignItems: 'center',
++  },
++  secondaryButtonText: {
++    color: '#334155',
++    fontWeight: '900',
++  },
++  disabled: {
++    opacity: 0.55,
++  },
++  pressed: {
++    opacity: 0.78,
++  },
++});
+diff --git a/apps/mobile/src/features/trade/components/ImagePickerField.tsx b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+index 1c8af47..1607f65 100644
+--- a/apps/mobile/src/features/trade/components/ImagePickerField.tsx
++++ b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+@@ -5,7 +5,7 @@ import { AppText } from '../../../components/AppText';
+ import { InfoNotice } from '../../../components/SemanticUI';
+ import type { SelectedLocalImage } from '../mediaUpload';
+ 
+-export function ImagePickerField({ images, onChange, disabled, maxImages = 5 }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number }) {
++export function ImagePickerField({ images, onChange, disabled, maxImages = 5, label = 'Images', hint, reviewBody = 'Images are reviewed before they appear in public trade decks.' }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number; label?: string; hint?: string; reviewBody?: string }) {
+   const [error, setError] = useState<string | null>(null);
+   async function pickImages() {
+     setError(null);
+@@ -19,6 +19,6 @@ export function ImagePickerField({ images, onChange, disabled, maxImages = 5 }:
+     onChange([...images, ...selected]);
+   }
+   function removeImage(uri: string) { onChange(images.filter((image) => image.uri !== uri)); }
+-  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>Images</AppText><AppText style={styles.hint}>Add up to {maxImages} JPEG, PNG, or WEBP images.</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View><InfoNotice tone="info" title="Image review" body="Images publish immediately. Admin can later approve, flag, or remove them." />{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
++  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>{label}</AppText><AppText style={styles.hint}>{hint ?? `Add up to ${maxImages} JPEG, PNG, or WEBP images.`}</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View>{reviewBody ? <InfoNotice tone="info" title="Image review" body={reviewBody} /> : null}{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
+ }
+ const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 118, gap: 7 }, image: { width: 118, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+new file mode 100644
+index 0000000..f5c6a6e
+--- /dev/null
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -0,0 +1,210 @@
++import React from 'react';
++import { Pressable, StyleSheet, TextInput, View } from 'react-native';
++import type { TradeExchangeMode } from '@hellowhen/contracts';
++import { AppText } from '../../../components/AppText';
++
++export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
++
++export function optionalText(value: string) {
++  const trimmed = value.trim();
++  return trimmed.length > 0 ? trimmed : undefined;
++}
++
++export function parseInventoryList(value: string, maxItems = 8) {
++  const seen = new Set<string>();
++  const items: string[] = [];
++
++  for (const rawItem of value.split(',')) {
++    const item = rawItem.trim();
++    const key = item.toLowerCase();
++    if (!item || seen.has(key)) continue;
++    seen.add(key);
++    items.push(item.slice(0, 80));
++    if (items.length >= maxItems) break;
++  }
++
++  return items;
++}
++
++export function modeLabel(mode: TradeExchangeMode) {
++  if (mode === 'remote') return 'Remote';
++  if (mode === 'local') return 'Local';
++  return 'Hybrid';
++}
++
++export function InventoryTextField({
++  label,
++  hint,
++  value,
++  onChangeText,
++  placeholder,
++  multiline,
++  disabled,
++}: {
++  label: string;
++  hint?: string;
++  value: string;
++  onChangeText: (value: string) => void;
++  placeholder: string;
++  multiline?: boolean;
++  disabled?: boolean;
++}) {
++  return (
++    <View style={styles.field}>
++      <View style={styles.labelRow}>
++        <AppText style={styles.label}>{label}</AppText>
++        {hint ? <AppText style={styles.hint}>{hint}</AppText> : null}
++      </View>
++      <TextInput
++        value={value}
++        onChangeText={onChangeText}
++        placeholder={placeholder}
++        placeholderTextColor="#94A3B8"
++        editable={!disabled}
++        multiline={multiline}
++        textAlignVertical={multiline ? 'top' : 'center'}
++        style={[styles.input, multiline && styles.textarea]}
++      />
++    </View>
++  );
++}
++
++export function ModePicker({ value, onChange, disabled }: { value: TradeExchangeMode; onChange: (mode: TradeExchangeMode) => void; disabled?: boolean }) {
++  return (
++    <View style={styles.field}>
++      <AppText style={styles.label}>Mode</AppText>
++      <View style={styles.modeRow}>
++        {exchangeModes.map((mode) => {
++          const selected = value === mode;
++          return (
++            <Pressable
++              key={mode}
++              disabled={disabled}
++              onPress={() => onChange(mode)}
++              style={({ pressed }) => [styles.modeButton, selected && styles.modeButtonSelected, disabled && styles.disabled, pressed && styles.pressed]}
++            >
++              <AppText style={[styles.modeButtonText, selected && styles.modeButtonTextSelected]}>{modeLabel(mode)}</AppText>
++            </Pressable>
++          );
++        })}
++      </View>
++    </View>
++  );
++}
++
++export function InventoryPreview({
++  eyebrow,
++  title,
++  meta,
++  description,
++}: {
++  eyebrow: string;
++  title: string;
++  meta: string;
++  description: string;
++}) {
++  return (
++    <View style={styles.preview}>
++      <AppText style={styles.previewEyebrow}>{eyebrow}</AppText>
++      <AppText style={styles.previewTitle}>{title || 'Title appears here'}</AppText>
++      <AppText style={styles.previewMeta}>{meta || 'Category · Timing · Mode · Location'}</AppText>
++      <AppText style={styles.previewDescription} numberOfLines={3}>{description || 'A short summary will appear here while you write.'}</AppText>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  field: {
++    gap: 8,
++  },
++  labelRow: {
++    gap: 3,
++  },
++  label: {
++    fontSize: 14,
++    fontWeight: '900',
++    color: '#0F172A',
++  },
++  hint: {
++    color: '#64748B',
++    fontSize: 12,
++    lineHeight: 17,
++    fontWeight: '700',
++  },
++  input: {
++    borderRadius: 16,
++    borderWidth: 1,
++    borderColor: '#CBD5E1',
++    backgroundColor: '#FFFFFF',
++    paddingHorizontal: 13,
++    paddingVertical: 12,
++    color: '#0F172A',
++    fontSize: 16,
++    fontWeight: '600',
++  },
++  textarea: {
++    minHeight: 128,
++    lineHeight: 22,
++  },
++  modeRow: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: 8,
++  },
++  modeButton: {
++    borderRadius: 999,
++    borderWidth: 1,
++    borderColor: '#CBD5E1',
++    backgroundColor: '#FFFFFF',
++    paddingHorizontal: 13,
++    paddingVertical: 9,
++  },
++  modeButtonSelected: {
++    borderColor: '#0F766E',
++    backgroundColor: '#CCFBF1',
++  },
++  modeButtonText: {
++    color: '#475569',
++    fontWeight: '900',
++  },
++  modeButtonTextSelected: {
++    color: '#0F766E',
++  },
++  preview: {
++    borderRadius: 22,
++    borderWidth: 1,
++    borderColor: '#E2E8F0',
++    backgroundColor: '#F8FAFC',
++    padding: 16,
++    gap: 7,
++  },
++  previewEyebrow: {
++    color: '#64748B',
++    fontSize: 11,
++    fontWeight: '900',
++    letterSpacing: 0.8,
++    textTransform: 'uppercase',
++  },
++  previewTitle: {
++    color: '#0F172A',
++    fontSize: 22,
++    fontWeight: '900',
++    letterSpacing: -0.4,
++  },
++  previewMeta: {
++    color: '#475569',
++    fontSize: 13,
++    fontWeight: '800',
++  },
++  previewDescription: {
++    color: '#64748B',
++    lineHeight: 20,
++    fontWeight: '600',
++  },
++  disabled: {
++    opacity: 0.55,
++  },
++  pressed: {
++    opacity: 0.76,
++  },
++});

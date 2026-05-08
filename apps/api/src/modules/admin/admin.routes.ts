@@ -1,10 +1,35 @@
 import { Router } from 'express';
-import { adminCreateSupportMessageRequestSchema, adminUpdateSupportTicketRequestSchema, mediaAssetStatusSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 
 export const adminRoutes = Router();
+const mediaUserSelect = { id: true, email: true, profile: true } as const;
+
+async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | null; entityId: string | null }>(media: T[]) {
+  const needIds = media.filter((item) => item.entityType === 'need' && item.entityId).map((item) => item.entityId!);
+  const offerIds = media.filter((item) => item.entityType === 'offer' && item.entityId).map((item) => item.entityId!);
+  const tradeIds = media.filter((item) => item.entityType === 'trade' && item.entityId).map((item) => item.entityId!);
+
+  const [needs, offers, trades] = await Promise.all([
+    needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, mode: true, locationLabel: true } }) : [],
+    offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, mode: true, locationLabel: true } }) : [],
+    tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : []
+  ]);
+
+  const needsById = new Map(needs.map((need) => [need.id, need]));
+  const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+  const tradesById = new Map(trades.map((trade) => [trade.id, trade]));
+
+  return media.map((item) => {
+    if (item.entityType === 'need' && item.entityId) return { ...item, entity: needsById.get(item.entityId) ?? null };
+    if (item.entityType === 'offer' && item.entityId) return { ...item, entity: offersById.get(item.entityId) ?? null };
+    if (item.entityType === 'trade' && item.entityId) return { ...item, entity: tradesById.get(item.entityId) ?? null };
+    return { ...item, entity: null };
+  });
+}
+
 adminRoutes.use(requireAuth);
 
 adminRoutes.use(asyncRoute(async (req, res, next) => {
@@ -14,19 +39,47 @@ adminRoutes.use(asyncRoute(async (req, res, next) => {
 }));
 
 adminRoutes.get('/media', asyncRoute(async (req, res) => {
-  const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
-  const parsedStatus = rawStatus ? mediaAssetStatusSchema.safeParse(rawStatus) : null;
-  const where = parsedStatus?.success ? { status: parsedStatus.data } : {};
+  const input = adminListMediaQuerySchema.parse(req.query);
+  const where = {
+    ...(input.status ? { status: input.status } : {}),
+    ...(input.entityType ? { entityType: input.entityType } : {}),
+    ...(input.entityId ? { entityId: input.entityId } : {}),
+    ...(input.ownerId ? { ownerId: input.ownerId } : {})
+  };
   const media = await prisma.mediaAsset.findMany({
     where,
     include: {
-      owner: { select: { id: true, email: true, profile: true } },
-      reviewer: { select: { id: true, email: true, profile: true } }
+      owner: { select: mediaUserSelect },
+      reviewer: { select: mediaUserSelect }
     },
     orderBy: { createdAt: 'desc' },
-    take: 100
+    take: input.take ?? 100
   });
-  res.json({ media });
+  res.json({ media: await withMediaEntityContext(media) });
+}));
+
+adminRoutes.get('/media/summary', asyncRoute(async (_req, res) => {
+  const [byStatus, byEntityType] = await Promise.all([
+    prisma.mediaAsset.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.mediaAsset.groupBy({ by: ['entityType'], _count: { _all: true } })
+  ]);
+
+  res.json({
+    byStatus: Object.fromEntries(byStatus.map((row) => [row.status, row._count._all])),
+    byEntityType: Object.fromEntries(byEntityType.map((row) => [row.entityType ?? 'unattached', row._count._all]))
+  });
+}));
+
+adminRoutes.get('/media/:mediaId', asyncRoute(async (req, res) => {
+  const media = await prisma.mediaAsset.findUnique({
+    where: { id: req.params.mediaId },
+    include: {
+      owner: { select: mediaUserSelect },
+      reviewer: { select: mediaUserSelect }
+    }
+  });
+  if (!media) return res.status(404).json({ error: 'not_found' });
+  res.json({ media: (await withMediaEntityContext([media]))[0] });
 }));
 
 adminRoutes.patch('/media/:mediaId/status', asyncRoute(async (req, res) => {
@@ -38,7 +91,7 @@ adminRoutes.patch('/media/:mediaId/status', asyncRoute(async (req, res) => {
     data: { status: input.status, reviewNote: input.reviewNote ?? null, reviewerId: req.user!.id, reviewedAt: new Date() },
     include: { owner: { select: { id: true, email: true, profile: true } }, reviewer: { select: { id: true, email: true, profile: true } } }
   });
-  res.json({ media: updated });
+  res.json({ media: (await withMediaEntityContext([updated]))[0] });
 }));
 
 adminRoutes.get('/credits/purchases', asyncRoute(async (req, res) => {

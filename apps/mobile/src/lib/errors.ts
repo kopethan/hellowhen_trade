@@ -1,5 +1,5 @@
 export const API_CONNECTION_ERROR_MESSAGE =
-  'Could not connect to Hellowhen API. Check EXPO_PUBLIC_API_URL and make sure the API is running.';
+  'Could not connect to Hellowhen. Check your connection and try again.';
 
 type ApiLikeError = {
   code?: string;
@@ -50,7 +50,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   }
 
   if (apiError.body?.error === 'insufficient_fake_credits') {
-    return apiError.body.message ?? 'Not enough fake/test credits to start this trade.';
+    return apiError.body.message ?? 'Not enough credits to start this trade.';
   }
 
   if (apiError.body?.error === 'invalid_trade_status_transition') {

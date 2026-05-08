@@ -1,52 +1,34 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
-import { TradeDeckCard } from './components/TradeDeckCard';
+import { ContinuousSquareStackDeck } from './deck';
+import { buildTradeSquareDeckCards, renderTradeSquareDeckCard, TradeDeckMiniMeta } from './components/TradeSquareDeckCards';
 import type { TradeDeckItem } from './types';
-
-const now = () => new Date().toISOString();
-const mockTrades: TradeDeckItem[] = [
-  { id: 'mock-trade-1', ownerId: 'mock-owner-1', needId: 'mock-need-video', offerId: null, title: 'Need help editing a short launch video', description: 'Polish a 45-second launch video for social. I have the clips and copy, but need pacing, captions, and a clean export.', creditAmount: 25, status: 'active', isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 36).toISOString(), closedAt: null, owner: { id: 'mock-owner-1', profile: { displayName: 'Mina' } } },
-  { id: 'mock-trade-2', ownerId: 'mock-owner-2', needId: null, offerId: 'mock-offer-copy', title: 'Offer: landing page copy review', description: 'I can review your hero section, headline, CTA, and first fold. You will get quick notes and 3 rewrite directions.', creditAmount: 15, status: 'active', isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 72).toISOString(), closedAt: null, owner: { id: 'mock-owner-2', profile: { displayName: 'Noah' } } },
-  { id: 'mock-trade-3', ownerId: 'mock-owner-3', needId: null, offerId: null, title: 'Trade: database cleanup for brand feedback', description: 'Looking for someone to clean a small Airtable base. In return I can do brand naming feedback or pay fake test credits.', creditAmount: 40, status: 'active', isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: null, closedAt: null, owner: { id: 'mock-owner-3', profile: { displayName: 'Ari' } } },
-];
 
 type FeedResponse = { trades: TradeDeckItem[] };
 
 export function TradeDeckFeedScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const [trades, setTrades] = useState<TradeDeckItem[]>(mockTrades);
-  const [source, setSource] = useState<'api' | 'mock'>('mock');
+  const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [passedIds, setPassedIds] = useState<Set<string>>(() => new Set());
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set());
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const result = await api.trades.feed() as FeedResponse;
-      const apiTrades = Array.isArray(result.trades) ? result.trades : [];
-      if (apiTrades.length > 0) {
-        setTrades(apiTrades);
-        setSource('api');
-        setPassedIds(new Set());
-      } else {
-        setTrades(mockTrades);
-        setSource('mock');
-        setError('No active public trades yet. Showing mock trades so the deck stays usable.');
-      }
+      setTrades(Array.isArray(result.trades) ? result.trades : []);
     } catch (caughtError) {
-      setTrades(mockTrades);
-      setSource('mock');
+      setTrades([]);
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
       setLoading(false);
@@ -55,57 +37,89 @@ export function TradeDeckFeedScreen() {
 
   useFocusEffect(useCallback(() => { void loadFeed(); }, [loadFeed]));
 
-  useEffect(() => {
-    if (trades.length > 0 && passedIds.size >= trades.length) setPassedIds(new Set());
-  }, [passedIds.size, trades.length]);
-
-  const visibleTrades = useMemo(() => trades.filter((trade) => !passedIds.has(trade.id)), [passedIds, trades]);
-  const activeTrade = visibleTrades[0];
-  const activeIndex = activeTrade ? trades.findIndex((trade) => trade.id === activeTrade.id) : 0;
-
+  const hasTrades = trades.length > 0;
   const openTrade = useCallback((trade: TradeDeckItem) => {
     navigation.navigate('TradeDetail', { tradeId: trade.id, title: trade.title, description: trade.description, creditAmount: trade.creditAmount, status: trade.status, expiresAt: trade.expiresAt ?? null });
   }, [navigation]);
-  const passTrade = useCallback((tradeId: string) => setPassedIds((current) => new Set(current).add(tradeId)), []);
-  const saveTrade = useCallback((tradeId: string) => setSavedIds((current) => { const next = new Set(current); next.has(tradeId) ? next.delete(tradeId) : next.add(tradeId); return next; }), []);
+  const createTrade = useCallback(() => navigation.navigate('CreateTrade'), [navigation]);
 
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadFeed(); }} />}>
         <View style={styles.headerRow}>
           <View style={styles.headerCopy}>
-            <SemanticBadge label="Patch 6 semantic colors" tone="instruction" />
+            <SemanticBadge label="Trades" tone="trade" />
             <AppText style={styles.title}>Trades</AppText>
-            <AppText style={styles.subtitle}>Browse public active trades with semantic colors: purple for trades, blue for needs, green for offers, gold for credits, and orange for time.</AppText>
+            <AppText style={styles.subtitle}>Browse one trade at a time. Swipe inside a square deck to see the need, offer, and approved images.</AppText>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateTrade')} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable>
+          <Pressable accessibilityRole="button" onPress={createTrade} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable>
         </View>
-        {error ? <InfoNotice tone="warning" title="Feed fallback" body={error} /> : null}
-        <AppText style={styles.sourceLabel}>{source === 'api' ? 'Live API feed' : 'Mock fallback feed'}{loading ? ' · refreshing' : ''}</AppText>
-        <View style={styles.deckStage}>
-          {visibleTrades.slice(1, 4).reverse().map((trade, layerIndex) => <View key={trade.id} pointerEvents="none" style={[styles.backCard, { top: 24 - layerIndex * 8, left: 18 - layerIndex * 6, right: 18 - layerIndex * 6, opacity: 0.36 + layerIndex * 0.14, transform: [{ scale: 0.93 + layerIndex * 0.025 }] }]} />)}
-          {activeTrade ? <TradeDeckCard trade={activeTrade} index={Math.max(0, activeIndex)} total={trades.length} saved={savedIds.has(activeTrade.id)} onOpen={() => openTrade(activeTrade)} onPass={() => passTrade(activeTrade.id)} onSave={() => saveTrade(activeTrade.id)} /> : <View style={styles.emptyCard}><AppText style={styles.emptyTitle}>All caught up</AppText><AppText style={styles.emptyText}>You passed every trade in this local deck.</AppText><Button title="Reset passed trades" onPress={() => setPassedIds(new Set())} /></View>}
-        </View>
+        {error ? <InfoNotice tone="danger" title="Could not load trades" body={error} /> : null}
+        {hasTrades ? <View style={styles.feedList}>{trades.map((trade, index) => <TradeDeckSection key={trade.id} trade={trade} index={index} total={trades.length} onOpen={() => openTrade(trade)} />)}</View> : <EmptyTradesState loading={loading} onCreate={createTrade} onRefresh={loadFeed} />}
       </ScrollView>
     </AppScreen>
   );
 }
 
+function TradeDeckSection({ trade, index, total, onOpen }: { trade: TradeDeckItem; index: number; total: number; onOpen: () => void }) {
+  const cards = useMemo(() => buildTradeSquareDeckCards(trade), [trade]);
+  return (
+    <View style={styles.tradeSection}>
+      <View style={styles.sectionTopRow}>
+        <View style={styles.sectionCopy}>
+          <AppText style={styles.sectionEyebrow}>Trade {String(index + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}</AppText>
+          <AppText style={styles.sectionTitle} numberOfLines={1}>{trade.title}</AppText>
+        </View>
+        <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.sectionOpenButton, pressed && styles.pressed]}><AppText style={styles.sectionOpenButtonText}>Open</AppText></Pressable>
+      </View>
+      <TradeDeckMiniMeta trade={trade} />
+      <View style={styles.deckWrap}>
+        <ContinuousSquareStackDeck cards={cards} renderCard={({ card, index: cardIndex, total: cardTotal }) => renderTradeSquareDeckCard(card, cardIndex, cardTotal, onOpen)} renderWindow="all" showDebugBadge={false} depthEffect="motionOnly" availableHeight={456} maxCardSize={374} />
+      </View>
+    </View>
+  );
+}
+
+function EmptyTradesState({ loading, onCreate, onRefresh }: { loading: boolean; onCreate: () => void; onRefresh: () => void }) {
+  return (
+    <AppCard>
+      <View style={styles.emptyBox}>
+        <SemanticBadge label="No active trades" tone="info" />
+        <AppText style={styles.emptyTitle}>{loading ? 'Loading trades...' : 'No trades yet'}</AppText>
+        <AppText style={styles.emptyText}>Publish a trade from one saved Need and one saved Offer. Approved Need and Offer images will appear as extra cards in the deck.</AppText>
+        <View style={styles.emptyActions}>
+          <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, pressed && styles.pressed]}><AppText style={styles.emptyPrimaryButtonText}>Create Trade</AppText></Pressable>
+          <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.emptySecondaryButton, pressed && styles.pressed]}><AppText style={styles.emptySecondaryButtonText}>Refresh</AppText></Pressable>
+        </View>
+      </View>
+    </AppCard>
+  );
+}
+
 const styles = StyleSheet.create({
-  content: { paddingBottom: 28, gap: 16 },
+  content: { paddingBottom: 34, gap: 18 },
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 },
-  headerCopy: { flex: 1 },
-  kicker: { color: '#0F766E', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' },
-  title: { marginTop: 4, fontSize: 36, fontWeight: '900', letterSpacing: -1 },
-  subtitle: { marginTop: 8, color: '#64748B', lineHeight: 20, fontWeight: '600' },
+  headerCopy: { flex: 1, gap: 8 },
+  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
   createButton: { borderRadius: 18, backgroundColor: '#7C3AED', paddingHorizontal: 16, paddingVertical: 12 },
   createButtonText: { color: '#FFFFFF', fontWeight: '900' },
-  notice: { color: '#92400E', backgroundColor: '#FEF3C7', borderColor: '#FCD34D', borderWidth: 1, borderRadius: 16, padding: 12, fontWeight: '700' },
-  sourceLabel: { color: '#64748B', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
-  deckStage: { position: 'relative', minHeight: 520, justifyContent: 'center' },
-  backCard: { position: 'absolute', height: 444, borderRadius: 34, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#F8FAFC' },
-  emptyCard: { minHeight: 420, borderRadius: 34, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  emptyTitle: { fontSize: 26, fontWeight: '900' },
-  emptyText: { color: '#64748B', textAlign: 'center', marginBottom: 10 },
-  pressed: { opacity: 0.78 },
+  feedList: { gap: 24 },
+  tradeSection: { gap: 12 },
+  sectionTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  sectionCopy: { flex: 1, gap: 4 },
+  sectionEyebrow: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.9, textTransform: 'uppercase' },
+  sectionTitle: { color: '#0F172A', fontSize: 20, fontWeight: '900', letterSpacing: -0.3 },
+  sectionOpenButton: { borderRadius: 999, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 13, paddingVertical: 9 },
+  sectionOpenButtonText: { color: '#334155', fontWeight: '900' },
+  deckWrap: { alignItems: 'center', justifyContent: 'center', minHeight: 456 },
+  emptyBox: { minHeight: 380, alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 18 },
+  emptyTitle: { color: '#0F172A', fontSize: 28, fontWeight: '900', letterSpacing: -0.6, textAlign: 'center' },
+  emptyText: { color: '#64748B', lineHeight: 21, fontWeight: '600', textAlign: 'center' },
+  emptyActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  emptyPrimaryButton: { borderRadius: 16, backgroundColor: '#7C3AED', paddingHorizontal: 16, paddingVertical: 12 },
+  emptyPrimaryButtonText: { color: '#FFFFFF', fontWeight: '900' },
+  emptySecondaryButton: { borderRadius: 16, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 12 },
+  emptySecondaryButtonText: { color: '#334155', fontWeight: '900' },
+  pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

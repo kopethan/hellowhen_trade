@@ -3,10 +3,39 @@ import { prisma } from '../../lib/prisma.js';
 
 export type EntityWithId = { id: string };
 export type EntityWithMedia<T extends EntityWithId> = T & { media: MediaAsset[] };
+export type MediaVisibility = 'owner' | 'public' | 'admin';
+
+function createMediaRequestError(code: string, publicMessage: string, statusCode = 400) {
+  return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
+}
 
 export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: string[] | undefined, entityType: MediaEntityType, entityId: string) {
-  const ids = Array.from(new Set(mediaIds ?? [])).slice(0, 5);
+  const ids = Array.from(new Set(mediaIds ?? []));
   if (ids.length === 0) return;
+  if (ids.length > 5) {
+    throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
+  }
+
+  const [selectedMedia, existingEntityMedia] = await Promise.all([
+    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: { not: 'removed' } } }),
+    prisma.mediaAsset.findMany({ where: { entityType, entityId, status: { not: 'removed' } }, select: { id: true } })
+  ]);
+
+  if (selectedMedia.length !== ids.length) {
+    throw createMediaRequestError('invalid_media_ids', 'One or more selected images could not be attached. Upload the images again and retry.');
+  }
+
+  const alreadyAttachedElsewhere = selectedMedia.find((item) => item.entityType && item.entityId && (item.entityType !== entityType || item.entityId !== entityId));
+  if (alreadyAttachedElsewhere) {
+    throw createMediaRequestError('media_already_attached', 'One or more selected images already belong to another need or offer. Upload a new copy if you want to reuse it.');
+  }
+
+  const existingIds = new Set(existingEntityMedia.map((item) => item.id));
+  const newIds = ids.filter((id) => !existingIds.has(id));
+  if (existingEntityMedia.length + newIds.length > 5) {
+    throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
+  }
+
 
   await prisma.mediaAsset.updateMany({
     where: {
@@ -19,11 +48,17 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
   });
 }
 
-export async function loadMediaByEntityIds(entityType: MediaEntityType, entityIds: string[]) {
+export async function loadMediaByEntityIds(entityType: MediaEntityType, entityIds: string[], visibility: MediaVisibility = 'owner') {
   const ids = Array.from(new Set(entityIds.filter(Boolean)));
   if (ids.length === 0) return new Map<string, MediaAsset[]>();
+  const statusWhere = visibility === 'admin'
+    ? {}
+    : visibility === 'public'
+      ? { status: 'active' as const }
+      : { status: { not: 'removed' as const } };
+
   const media = await prisma.mediaAsset.findMany({
-    where: { entityType, entityId: { in: ids }, status: { not: 'removed' } },
+    where: { entityType, entityId: { in: ids }, ...statusWhere },
     orderBy: { createdAt: 'asc' }
   });
   const byEntity = new Map<string, MediaAsset[]>();
@@ -36,12 +71,12 @@ export async function loadMediaByEntityIds(entityType: MediaEntityType, entityId
   return byEntity;
 }
 
-export async function withMedia<T extends EntityWithId>(entityType: MediaEntityType, items: T[]): Promise<Array<EntityWithMedia<T>>> {
-  const map = await loadMediaByEntityIds(entityType, items.map((item) => item.id));
+export async function withMedia<T extends EntityWithId>(entityType: MediaEntityType, items: T[], visibility: MediaVisibility = 'owner'): Promise<Array<EntityWithMedia<T>>> {
+  const map = await loadMediaByEntityIds(entityType, items.map((item) => item.id), visibility);
   return items.map((item) => ({ ...item, media: map.get(item.id) ?? [] }));
 }
 
-export async function withOneMedia<T extends EntityWithId>(entityType: MediaEntityType, item: T): Promise<EntityWithMedia<T>> {
-  const [result] = await withMedia(entityType, [item]);
+export async function withOneMedia<T extends EntityWithId>(entityType: MediaEntityType, item: T, visibility: MediaVisibility = 'owner'): Promise<EntityWithMedia<T>> {
+  const [result] = await withMedia(entityType, [item], visibility);
   return result ?? { ...item, media: [] };
 }

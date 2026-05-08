@@ -1,3 +1,4 @@
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { AppSettingsProvider } from './providers/AppSettingsProvider';
@@ -7,7 +8,8 @@ import { RootNavigator } from './navigation/RootNavigator';
 
 export default function App() {
   return (
-    <AppSettingsProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppSettingsProvider>
       <ThemeProvider>
         <AuthProvider>
           <NavigationContainer>
@@ -16,6 +18,7 @@ export default function App() {
           </NavigationContainer>
         </AuthProvider>
       </ThemeProvider>
-    </AppSettingsProvider>
+      </AppSettingsProvider>
+    </GestureHandlerRootView>
   );
 }

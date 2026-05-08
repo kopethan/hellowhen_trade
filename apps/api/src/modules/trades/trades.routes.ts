@@ -1,14 +1,55 @@
 import { Router } from 'express';
+import type { MediaAsset } from '@prisma/client';
 import { createTradeProposalRequestSchema, createTradeRequestSchema, updateTradeStatusRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
-import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 
 export const tradesRoutes = Router();
 const userPreviewSelect = { id: true, profile: true } as const;
-export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, payment: true, escrow: true } as const;
+export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
 export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+
+type DeckRelatedEntity = { id: string } | null | undefined;
+type TradeWithDeckRelations = { id: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'offer'> & {
+  media: MediaAsset[];
+  need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
+  offer: (NonNullable<T['offer']> & { media: MediaAsset[] }) | null;
+};
+type ProposalWithTrade = { trade?: TradeWithDeckRelations | null };
+
+export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trades: T[], visibility: MediaVisibility = 'owner'): Promise<Array<TradeDeckHydrated<T>>> {
+  const tradeIds = trades.map((trade) => trade.id);
+  const needIds = trades.map((trade) => trade.need?.id).filter((id): id is string => Boolean(id));
+  const offerIds = trades.map((trade) => trade.offer?.id).filter((id): id is string => Boolean(id));
+
+  const [tradeMedia, needMedia, offerMedia] = await Promise.all([
+    loadMediaByEntityIds('trade', tradeIds, visibility),
+    loadMediaByEntityIds('need', needIds, visibility),
+    loadMediaByEntityIds('offer', offerIds, visibility)
+  ]);
+
+  return trades.map((trade) => ({
+    ...trade,
+    media: tradeMedia.get(trade.id) ?? [],
+    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [] } : null,
+    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [] } : null
+  })) as Array<TradeDeckHydrated<T>>;
+}
+
+export async function withOneTradeDeckMedia<T extends TradeWithDeckRelations>(trade: T, visibility: MediaVisibility = 'owner'): Promise<TradeDeckHydrated<T>> {
+  const [result] = await withTradeDeckMedia([trade], visibility);
+  return result ?? ({ ...trade, media: [], need: null, offer: null } as TradeDeckHydrated<T>);
+}
+
+export async function withProposalTradeMedia<T extends ProposalWithTrade>(proposals: T[], visibility: MediaVisibility = 'owner'): Promise<T[]> {
+  const trades = proposals.map((proposal) => proposal.trade).filter((trade): trade is TradeWithDeckRelations => Boolean(trade));
+  const hydratedTrades = await withTradeDeckMedia(trades, visibility);
+  const byTradeId = new Map(hydratedTrades.map((trade) => [trade.id, trade]));
+  return proposals.map((proposal) => proposal.trade ? { ...proposal, trade: byTradeId.get(proposal.trade.id) ?? proposal.trade } : proposal) as T[];
+}
 
 export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
   return prisma.$transaction(async (tx) => {
@@ -34,32 +75,64 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
 }
 
 tradesRoutes.get('/feed', asyncRoute(async (_req, res) => {
-  const trades = await prisma.trade.findMany({ where: { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, include: { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect } }, orderBy: { createdAt: 'desc' }, take: 50 });
-  res.json({ trades: await withMedia('trade', trades) });
+  const trades = await prisma.trade.findMany({ where: { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, include: tradeInclude, orderBy: { createdAt: 'desc' }, take: 50 });
+  res.json({ trades: await withTradeDeckMedia(trades, 'public') });
 }));
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const trades = await prisma.trade.findMany({ where: { OR: [{ ownerId: actorId }, { providerId: actorId }] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });
-  res.json({ trades: await withMedia('trade', trades) });
+  res.json({ trades: await withTradeDeckMedia(trades, 'owner') });
 }));
 tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
   const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, OR: [{ isPublic: true }, ...(actorId ? [{ ownerId: actorId }, { providerId: actorId }, { proposals: { some: { applicantId: actorId } } }] : [])] }, include: tradeInclude });
   if (!trade) return res.status(404).json({ error: 'not_found' });
-  res.json({ trade: await withOneMedia('trade', trade) });
+  const visibility: MediaVisibility = actorId && (trade.ownerId === actorId || trade.providerId === actorId) ? 'owner' : 'public';
+  res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
 }));
 tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   const input = createTradeRequestSchema.parse(req.body);
-  const trade = await prisma.trade.create({ data: { ownerId: req.user!.id, title: input.title, description: input.description, creditAmount: input.creditAmount, needId: input.needId ?? null, offerId: input.offerId ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null }, include: tradeInclude });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'trade', trade.id);
-  res.status(201).json({ trade: await withOneMedia('trade', trade) });
+  const actorId = req.user!.id;
+
+  const [need, offer] = await Promise.all([
+    prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
+    prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } })
+  ]);
+
+  if (!need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
+  if (!offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
+  if (['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
+  if (['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
+
+  const title = input.title?.trim() || `${need.title} <-> ${offer.title}`;
+  const description = input.description?.trim() || `I need: ${need.description}\n\nI offer: ${offer.description}`;
+
+  const trade = await prisma.trade.create({
+    data: {
+      ownerId: actorId,
+      title,
+      description,
+      creditAmount: input.creditAmount,
+      needId: need.id,
+      offerId: offer.id,
+      status: 'active',
+      isPublic: true,
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+    },
+    include: tradeInclude
+  });
+
+  // Trade-level media is intentionally no longer attached here. The new deck design
+  // renders media from the selected Need and Offer, which keeps admin review scoped
+  // to reusable user inventory instead of one-off public trades.
+  res.status(201).json({ trade: await withOneTradeDeckMedia(trade, 'owner') });
 }));
 tradesRoutes.get('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const trade = await prisma.trade.findUnique({ where: { id: req.params.tradeId } });
   if (!trade) return res.status(404).json({ error: 'not_found' });
   const proposals = await prisma.tradeProposal.findMany({ where: trade.ownerId === actorId ? { tradeId: trade.id } : { tradeId: trade.id, applicantId: actorId }, include: proposalInclude, orderBy: { createdAt: 'desc' } });
-  res.json({ proposals });
+  res.json({ proposals: await withProposalTradeMedia(proposals, 'owner') });
 }));
 tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res) => {
   const input = createTradeProposalRequestSchema.parse(req.body);
@@ -75,7 +148,7 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res
     await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
   });
-  res.status(existing ? 200 : 201).json({ proposal });
+  res.status(existing ? 200 : 201).json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
 }));
 tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) => {
   const input = updateTradeStatusRequestSchema.parse(req.body);
@@ -85,7 +158,7 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
   const isOwner = trade.ownerId === actorId;
   const isProvider = trade.providerId === actorId;
   if (!isOwner && !isProvider) return res.status(403).json({ error: 'forbidden' });
-  if (input.status === trade.status) return res.json({ trade });
+  if (input.status === trade.status) return res.json({ trade: await withOneTradeDeckMedia(trade, 'owner') });
   if (input.status === 'completed') {
     if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete and release fake credits.' });
     if (!['in_progress', 'submitted'].includes(trade.status) || trade.payment?.status !== 'held') return res.status(409).json({ error: 'invalid_trade_status_transition' });
@@ -105,7 +178,7 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
       await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
     });
-    return res.json({ trade: updated });
+    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
   if (input.status === 'cancelled') {
     if (!isOwner && !(isProvider && trade.status === 'in_progress')) return res.status(403).json({ error: 'forbidden' });
@@ -125,7 +198,7 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
       await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: new Date() }, include: tradeInclude });
     });
-    return res.json({ trade: updated });
+    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
   return res.status(409).json({ error: 'invalid_trade_status_transition' });
 }));
@@ -133,5 +206,5 @@ tradesRoutes.post('/:tradeId/close', requireAuth, asyncRoute(async (req, res) =>
   const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: req.user!.id } });
   if (!trade) return res.status(404).json({ error: 'not_found' });
   const closed = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'closed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
-  res.json({ trade: closed });
+  res.json({ trade: await withOneTradeDeckMedia(closed, 'owner') });
 }));

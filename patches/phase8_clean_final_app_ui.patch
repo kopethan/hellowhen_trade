@@ -1,0 +1,577 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index 8df4038..258ac48 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -42,15 +42,16 @@ export function AccountScreen() {
+ 
+   const displayName = auth.user?.profile?.displayName || auth.user?.email || 'Hellowhen member';
+   const totalCredits = wallet ? wallet.purchasedAvailableCredits + wallet.earnedPendingCredits + wallet.earnedAvailableCredits + wallet.heldCredits : 0;
++  const availableCredits = wallet ? wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits : 0;
+   const recentEntries = wallet?.entries?.slice(0, 5) ?? [];
+ 
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { void loadWallet(); }} />}>
+-    <View><AppText style={styles.title}>Account</AppText><AppText style={styles.subtitle}>Profile, semantic fake credits, settings, support, and logout live here.</AppText></View>
++    <View><AppText style={styles.title}>Account</AppText><AppText style={styles.subtitle}>Profile, credits, settings, and support.</AppText></View>
+     <AppCard><AppText style={styles.sectionTitle}>Profile</AppText><View style={styles.profileRow}><View style={styles.avatar} /><View style={styles.profileCopy}><AppText style={styles.profileName}>{displayName}</AppText><AppText style={styles.cardText}>{auth.user?.email ?? 'Signed in user'}</AppText></View></View></AppCard>
+-    <AppCard><View style={styles.sectionHeaderRow}><AppText style={styles.sectionTitle}>Wallet / Credits</AppText><SemanticBadge label="Fake test only" tone="info" size="sm" /></View><CreditPill amount={totalCredits} label="total fake credits" /><InfoNotice tone="info" title="Credit meaning" body="Gold marks credit values. Orange marks held/time-sensitive credits. Green marks earned or successful credit movement. Stripe test-mode purchases can add non-withdrawable credits. No real payouts or Stripe Connect are enabled." />{wallet ? <View style={styles.walletGrid}><WalletMetric label="Available" value={wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits} tone="credits" /><WalletMetric label="Held" value={wallet.heldCredits} tone="time" /><WalletMetric label="Pending earned" value={wallet.earnedPendingCredits} tone="success" /><WalletMetric label="Payout eligible" value={wallet.earnedAvailableCredits} tone="instruction" /></View> : null}<Button title="Buy Test Credits" onPress={() => navigation.navigate('BuyCredits')} />{walletError ? <InfoNotice tone="warning" title="Wallet fallback" body={walletError} /> : null}{loadingWallet ? <AppText style={styles.muted}>Refreshing wallet...</AppText> : null}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Recent ledger entries</AppText>{recentEntries.length === 0 ? <AppText style={styles.cardText}>No ledger entries yet. Starting, completing, or cancelling trades will add fake/test credit entries here.</AppText> : recentEntries.map((entry) => <View key={entry.id} style={styles.ledgerRow}><View style={styles.ledgerCopy}><SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amount)} size="sm" /><AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, entry.amount < 0 && styles.ledgerAmountNegative]}>{formatLedgerAmount(entry.amount)}</AppText></View>)}</AppCard>
+-    <AppCard><SemanticBadge label="Instruction" tone="instruction" size="sm" /><AppText style={styles.sectionTitle}>Settings</AppText><AppText style={styles.cardText}>Appearance, language, account, and notification controls stay here instead of becoming separate tabs.</AppText></AppCard>
+-    <AppCard><SemanticBadge label="Information" tone="info" size="sm" /><AppText style={styles.sectionTitle}>Support</AppText><AppText style={styles.cardText}>Send feedback, report a problem, ask for help, or follow up with admin support about trades, credits, images, bugs, and safety concerns.</AppText><Button title="Open Support Center" onPress={() => navigation.navigate('SupportCenter')} /></AppCard>
++    <AppCard><View style={styles.sectionHeaderRow}><AppText style={styles.sectionTitle}>Credits</AppText><CreditPill amount={totalCredits} label="total" /></View>{wallet ? <View style={styles.walletGrid}><WalletMetric label="Available" value={availableCredits} tone="credits" /><WalletMetric label="Held" value={wallet.heldCredits} tone="time" /><WalletMetric label="Pending" value={wallet.earnedPendingCredits} tone="success" /><WalletMetric label="Eligible" value={wallet.earnedAvailableCredits} tone="instruction" /></View> : null}<Button title="Add Credits" onPress={() => navigation.navigate('BuyCredits')} />{walletError ? <InfoNotice tone="warning" title="Credits unavailable" body={walletError} /> : null}{loadingWallet ? <AppText style={styles.muted}>Refreshing credits...</AppText> : null}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Recent activity</AppText>{recentEntries.length === 0 ? <AppText style={styles.cardText}>Credit activity will appear here after trades start moving.</AppText> : recentEntries.map((entry) => <View key={entry.id} style={styles.ledgerRow}><View style={styles.ledgerCopy}><SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amount)} size="sm" /><AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, entry.amount < 0 && styles.ledgerAmountNegative]}>{formatLedgerAmount(entry.amount)}</AppText></View>)}</AppCard>
++    <AppCard><SemanticBadge label="Settings" tone="instruction" size="sm" /><AppText style={styles.sectionTitle}>Preferences</AppText><AppText style={styles.cardText}>Manage account details, appearance, notifications, and privacy.</AppText></AppCard>
++    <AppCard><SemanticBadge label="Support" tone="info" size="sm" /><AppText style={styles.sectionTitle}>Help</AppText><AppText style={styles.cardText}>Contact support about trades, credits, images, safety, or account issues.</AppText><Button title="Open Support" onPress={() => navigation.navigate('SupportCenter')} /></AppCard>
+     <Button title="Logout" color="#B91C1C" onPress={() => { void auth.logout(); }} />
+   </ScrollView></AppScreen>;
+ }
+diff --git a/apps/mobile/src/features/account/BuyCreditsScreen.tsx b/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+index 6fb3cc6..0f04410 100644
+--- a/apps/mobile/src/features/account/BuyCreditsScreen.tsx
++++ b/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+@@ -56,18 +56,18 @@ export function BuyCreditsScreen({ navigation }: Props) {
+       const result = await api.credits.createCheckoutSession({ packageId }) as CheckoutResponse;
+       if (!result.checkoutUrl) throw new Error('Stripe did not return a checkout URL.');
+       await Linking.openURL(result.checkoutUrl);
+-      setMessage('Stripe Checkout opened. Complete the test payment, then return here and pull to refresh your wallet.');
++      setMessage('Checkout opened. Complete the payment, then return here and pull to refresh your wallet.');
+     } catch (caughtError) {
+       setMessage(getFriendlyApiErrorMessage(caughtError));
+     } finally { setBuyingPackageId(null); }
+   }
+ 
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Stripe test mode" tone="credits" /><AppText style={styles.title}>Buy Test Credits</AppText><AppText style={styles.subtitle}>Purchased credits are non-withdrawable and only used for testing Hellowhen trade flows.</AppText></View></View>
+-    {!stripeConfigured ? <InfoNotice tone="warning" title="Stripe not configured" body="Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to the API env before testing checkout. The rest of the app still works with fake credits." /> : <InfoNotice tone="info" title="Test mode only" body="Use Stripe test cards only. No real money, payouts, or Stripe Connect onboarding are enabled in this patch." />}
++    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Credits" tone="credits" /><AppText style={styles.title}>Add Credits</AppText><AppText style={styles.subtitle}>Credits help fund trades and keep commitments clear.</AppText></View></View>
++    {!stripeConfigured ? <InfoNotice tone="warning" title="Checkout unavailable" body="Credit checkout is not available right now. You can still browse trades and manage saved needs and offers." /> : null}
+     {message ? <InfoNotice tone={message.includes('opened') ? 'success' : 'warning'} title="Credit purchase" body={message} /> : null}
+-    <AppCard><AppText style={styles.sectionTitle}>Credit packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><CreditPill amount={item.creditAmount} label="non-withdrawable credits" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No Stripe test purchases yet. Completed checkout sessions will become credit_purchase ledger entries after the webhook runs.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatCredits(purchase.creditAmount)} · {formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Credit packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><CreditPill amount={item.creditAmount} label="credits" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No purchases yet. Completed checkout sessions will appear here.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatCredits(purchase.creditAmount)} · {formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
+     <Button title="Back to Account" onPress={() => navigation.goBack()} />
+   </ScrollView></AppScreen>;
+ }
+diff --git a/apps/mobile/src/features/auth/LoginScreen.tsx b/apps/mobile/src/features/auth/LoginScreen.tsx
+index fceabb9..5829ff4 100644
+--- a/apps/mobile/src/features/auth/LoginScreen.tsx
++++ b/apps/mobile/src/features/auth/LoginScreen.tsx
+@@ -4,7 +4,6 @@ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+-import { API_URL } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
+ 
+@@ -17,10 +16,10 @@ const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.
+ export function LoginScreen() {
+   const auth = useAuth();
+   const [mode, setMode] = useState<AuthMode>('login');
+-  const [displayName, setDisplayName] = useState('Demo User');
+-  const [email, setEmail] = useState('demo@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [confirmPassword, setConfirmPassword] = useState('password123');
++  const [displayName, setDisplayName] = useState('');
++  const [email, setEmail] = useState('');
++  const [password, setPassword] = useState('');
++  const [confirmPassword, setConfirmPassword] = useState('');
+   const [acceptedTerms, setAcceptedTerms] = useState(false);
+   const [showPassword, setShowPassword] = useState(false);
+   const [submitting, setSubmitting] = useState(false);
+@@ -33,8 +32,9 @@ export function LoginScreen() {
+   function validateLocalForm() {
+     if (!email.trim()) return 'Enter your email.';
+     if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
++    if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
+     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
+-    if (mode === 'register' && !acceptedTerms) return 'Please accept the terms placeholder to continue.';
++    if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
+     return null;
+   }
+ 
+@@ -49,7 +49,7 @@ export function LoginScreen() {
+       else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms);
+       else {
+         const result = await auth.forgotPassword(email);
+-        setMessage(result.devResetUrl ? `${result.message} Dev reset link: ${result.devResetUrl}` : result.message);
++        setMessage(result.message);
+       }
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -59,7 +59,7 @@ export function LoginScreen() {
+   }
+ 
+   async function handleGoogle() {
+-    if (!googleConfigured) { setError('Google sign-in needs EXPO_PUBLIC_GOOGLE_* client IDs and API GOOGLE_* client IDs.'); return; }
++    if (!googleConfigured) { setError('Google sign-in is not available in this build.'); return; }
+     setGoogleSubmitting(true);
+     setError(null);
+     setMessage(null);
+@@ -73,7 +73,7 @@ export function LoginScreen() {
+       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+       const result = await GoogleSignin.signIn();
+       const idToken = (result as { idToken?: string; data?: { idToken?: string } }).idToken ?? (result as { data?: { idToken?: string } }).data?.idToken;
+-      if (!idToken) throw new Error('Google did not return an identity token. Check Google client ID configuration.');
++      if (!idToken) throw new Error('Google sign-in could not be completed.');
+       await auth.loginWithGoogleIdToken(idToken);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, caughtError instanceof Error ? caughtError.message : 'Google sign-in failed.'));
+@@ -82,19 +82,10 @@ export function LoginScreen() {
+     }
+   }
+ 
+-  function fillDemo(nextEmail: string) {
+-    setMode('login');
+-    setEmail(nextEmail);
+-    setPassword('password123');
+-    setConfirmPassword('password123');
+-    setError(null);
+-    setMessage(null);
+-  }
+-
+   return <AppScreen><ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled"><AppCard>
+-    <SemanticBadge label="Perfect Auth" tone="trade" />
++    <SemanticBadge label="Trade" tone="trade" />
+     <AppText style={styles.logo}>Hellowhen</AppText>
+-    <InfoNotice tone="info" title="Trade-first account" body="Create an account, sign in with Google, or reset your password. Google sign-in requires a development build, not Expo Go." />
++    <AppText style={styles.subtitle}>Sign in to create needs, offers, and trades.</AppText>
+ 
+     <View style={styles.toggleRow}><ModeButton label="Login" active={mode === 'login'} onPress={() => setMode('login')} /><ModeButton label="Register" active={mode === 'register'} onPress={() => setMode('register')} /><ModeButton label="Reset" active={mode === 'forgot'} onPress={() => setMode('forgot')} /></View>
+ 
+@@ -102,18 +93,14 @@ export function LoginScreen() {
+     <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" style={styles.input} />
+     {mode !== 'forgot' ? <View style={styles.passwordRow}><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry={!showPassword} style={[styles.input, styles.passwordInput]} /><Pressable onPress={() => setShowPassword((value) => !value)} style={styles.showButton}><AppText style={styles.showButtonText}>{showPassword ? 'Hide' : 'Show'}</AppText></Pressable></View> : null}
+     {mode === 'register' ? <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} style={styles.input} /> : null}
+-    {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I understand this is a test MVP with fake credits and placeholder terms.</AppText></Pressable> : null}
++    {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
+ 
+-    {mode === 'forgot' ? <InfoNotice tone="instruction" title="Password reset" body="Enter your account email. If it exists, Hellowhen will send a reset link through Resend when email is configured." /> : <InfoNotice tone="instruction" title="Password hint" body="Use at least 8 characters. Keep fake test accounts separate from real passwords." />}
+-    {error ? <InfoNotice tone="danger" title="Auth error" body={error} /> : null}
++    {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
++    {error ? <InfoNotice tone="danger" title="Sign-in error" body={error} /> : null}
+     {message ? <InfoNotice tone="success" title="Done" body={message} /> : null}
+ 
+     <Button title={submitting ? 'Working...' : mode === 'login' ? 'Login' : mode === 'register' ? 'Create account' : 'Send reset link'} disabled={submitting || googleSubmitting} onPress={handleSubmit} />
+-    <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting} style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={styles.googleButtonText}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
+-
+-    <View style={styles.demoRow}><Pressable onPress={() => fillDemo('demo@hellowhen.app')}><AppText style={styles.demoLink}>Demo</AppText></Pressable><Pressable onPress={() => fillDemo('helper@hellowhen.app')}><AppText style={styles.demoLink}>Helper</AppText></Pressable><Pressable onPress={() => fillDemo('admin@hellowhen.app')}><AppText style={styles.demoLink}>Admin</AppText></Pressable></View>
+-    <AppText style={styles.apiHint}>Password for demo users: password123</AppText>
+-    <AppText style={styles.apiHint}>API URL: {API_URL}</AppText>
++    <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={styles.googleButtonText}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
+   </AppCard></ScrollView></AppScreen>;
+ }
+ 
+@@ -124,6 +111,7 @@ function ModeButton({ label, active, onPress }: { label: string; active: boolean
+ const styles = StyleSheet.create({
+   shell: { flexGrow: 1, justifyContent: 'center', paddingVertical: 24 },
+   logo: { fontSize: 38, fontWeight: '900', letterSpacing: -1 },
++  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
+   toggleRow: { flexDirection: 'row', gap: 8, padding: 4, borderRadius: 18, backgroundColor: '#F1F5F9' },
+   modeButton: { flex: 1, borderRadius: 14, paddingVertical: 10, alignItems: 'center' },
+   modeButtonActive: { backgroundColor: '#111827' },
+@@ -141,8 +129,5 @@ const styles = StyleSheet.create({
+   googleButton: { borderRadius: 16, borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 13, alignItems: 'center', backgroundColor: '#FFFFFF' },
+   googleButtonText: { color: '#0F172A', fontWeight: '900' },
+   disabledButton: { opacity: 0.55 },
+-  demoRow: { flexDirection: 'row', justifyContent: 'center', gap: 18 },
+-  demoLink: { color: '#0F766E', fontWeight: '900' },
+-  apiHint: { color: '#64748B', fontSize: 12, fontWeight: '700', textAlign: 'center' },
+   pressed: { opacity: 0.78 },
+ });
+diff --git a/apps/mobile/src/features/settings/SettingsScreen.tsx b/apps/mobile/src/features/settings/SettingsScreen.tsx
+index 467968c..82f4453 100644
+--- a/apps/mobile/src/features/settings/SettingsScreen.tsx
++++ b/apps/mobile/src/features/settings/SettingsScreen.tsx
+@@ -1,15 +1,42 @@
+ import React from 'react';
++import { ScrollView, StyleSheet, View } from 'react-native';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
++import { SemanticBadge } from '../../components/SemanticUI';
++
++const settingsSections = [
++  { label: 'Account', body: 'Profile, email, password, and sign-in methods.' },
++  { label: 'Notifications', body: 'Trade updates, proposal messages, image review, and credit activity.' },
++  { label: 'Appearance', body: 'Theme, display preferences, and accessibility settings.' },
++  { label: 'Privacy', body: 'Public profile visibility and safety preferences.' },
++];
+ 
+ export function SettingsScreen() {
+   return (
+     <AppScreen>
+-      <AppCard>
+-        <AppText style={{ fontSize: 28, fontWeight: '800' }}>Settings</AppText>
+-        <AppText>Patch 1 placeholder for general, account, appearance, notifications, password, and support.</AppText>
+-      </AppCard>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
++        <View style={styles.header}>
++          <SemanticBadge label="Settings" tone="instruction" />
++          <AppText style={styles.title}>Settings</AppText>
++          <AppText style={styles.subtitle}>Manage your account and trade preferences.</AppText>
++        </View>
++        {settingsSections.map((section) => (
++          <AppCard key={section.label}>
++            <AppText style={styles.sectionTitle}>{section.label}</AppText>
++            <AppText style={styles.body}>{section.body}</AppText>
++          </AppCard>
++        ))}
++      </ScrollView>
+     </AppScreen>
+   );
+ }
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 30, gap: 14 },
++  header: { gap: 8 },
++  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
++  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  sectionTitle: { fontSize: 22, fontWeight: '900' },
++  body: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++});
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index eb1162f..829c6e3 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -12,27 +12,24 @@ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/Semanti
+ import { MediaStrip } from './components/MediaStrip';
+ import type { NeedItem } from './types';
+ 
+-const fallbackItems: NeedItem[] = [{ id: 'mock-needs-1', ownerId: 'mock-owner', title: 'Need a quick logo cleanup', description: 'Private mock need. Replace this with your own API-created needs when the server is running.', status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, media: [] }];
+ type ApiResponse = { needs: NeedItem[] };
+ 
+ export function MyNeedsScreen() {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+-  const [items, setItems] = useState<NeedItem[]>(fallbackItems);
++  const [items, setItems] = useState<NeedItem[]>([]);
+   const [error, setError] = useState<string | null>(null);
+-  const [source, setSource] = useState<'api' | 'fallback'>('fallback');
+   const [loading, setLoading] = useState(false);
+   const loadItems = useCallback(async () => {
+     setLoading(true); setError(null);
+-    try { const result = await api.needs.mine() as ApiResponse; setItems(Array.isArray(result.needs) ? result.needs : []); setSource('api'); }
+-    catch (caughtError) { setItems(fallbackItems); setSource('fallback'); setError(getFriendlyApiErrorMessage(caughtError)); }
++    try { const result = await api.needs.mine() as ApiResponse; setItems(Array.isArray(result.needs) ? result.needs : []); }
++    catch (caughtError) { setItems([]); setError(getFriendlyApiErrorMessage(caughtError)); }
+     finally { setLoading(false); }
+   }, []);
+   useFocusEffect(useCallback(() => { void loadItems(); }, [loadItems]));
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItems(); }} />}>
+-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Need" tone="need" /><AppText style={styles.title}>Needs</AppText><AppText style={styles.subtitle}>Private owner-managed requests. Blue means the user needs help.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable></View>
+-    {error ? <InfoNotice tone="warning" title="API fallback" body={error} /> : null}
+-    <AppText style={styles.sourceLabel}>{source === 'api' ? 'API needs' : 'Fallback needs'}{loading ? ' · refreshing' : ''}</AppText>
+-    {items.length === 0 ? <AppCard><AppText style={styles.cardTitle}>No needs yet</AppText><AppText style={styles.cardText}>Create your first private need with images, then later convert it into a public trade.</AppText><Button title="Create Need" onPress={() => navigation.navigate('CreateNeed')} /></AppCard> : items.map((item) => <AppCard key={item.id}><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={styles.cardText}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard>)}
++    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Need" tone="need" /><AppText style={styles.title}>Needs</AppText><AppText style={styles.subtitle}>Save reusable requests and pair them with offers when publishing trades.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable></View>
++    {error ? <InfoNotice tone="danger" title="Could not load needs" body={error} /> : null}
++    {items.length === 0 ? <AppCard><AppText style={styles.cardTitle}>No needs yet</AppText><AppText style={styles.cardText}>Create a need with details and reference images, then choose it when publishing a trade.</AppText><Button title="Create Need" onPress={() => navigation.navigate('CreateNeed')} /></AppCard> : items.map((item) => <AppCard key={item.id}><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={styles.cardText}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard>)}
+   </ScrollView></AppScreen>;
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, backgroundColor: '#2563EB', paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceLabel: { color: '#64748B', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, backgroundColor: '#2563EB', paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index 40498c7..22e8896 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -12,27 +12,24 @@ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/Semanti
+ import { MediaStrip } from './components/MediaStrip';
+ import type { OfferItem } from './types';
+ 
+-const fallbackItems: OfferItem[] = [{ id: 'mock-offers-1', ownerId: 'mock-owner', title: 'Offer a 20-minute copy review', description: 'Private mock offer. API-created offers will appear here when the server is reachable.', status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, media: [] }];
+ type ApiResponse = { offers: OfferItem[] };
+ 
+ export function MyOffersScreen() {
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+-  const [items, setItems] = useState<OfferItem[]>(fallbackItems);
++  const [items, setItems] = useState<OfferItem[]>([]);
+   const [error, setError] = useState<string | null>(null);
+-  const [source, setSource] = useState<'api' | 'fallback'>('fallback');
+   const [loading, setLoading] = useState(false);
+   const loadItems = useCallback(async () => {
+     setLoading(true); setError(null);
+-    try { const result = await api.offers.mine() as ApiResponse; setItems(Array.isArray(result.offers) ? result.offers : []); setSource('api'); }
+-    catch (caughtError) { setItems(fallbackItems); setSource('fallback'); setError(getFriendlyApiErrorMessage(caughtError)); }
++    try { const result = await api.offers.mine() as ApiResponse; setItems(Array.isArray(result.offers) ? result.offers : []); }
++    catch (caughtError) { setItems([]); setError(getFriendlyApiErrorMessage(caughtError)); }
+     finally { setLoading(false); }
+   }, []);
+   useFocusEffect(useCallback(() => { void loadItems(); }, [loadItems]));
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItems(); }} />}>
+-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Offer" tone="offer" /><AppText style={styles.title}>Offers</AppText><AppText style={styles.subtitle}>Private owner-managed services. Green means someone can provide help.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable></View>
+-    {error ? <InfoNotice tone="warning" title="API fallback" body={error} /> : null}
+-    <AppText style={styles.sourceLabel}>{source === 'api' ? 'API offers' : 'Fallback offers'}{loading ? ' · refreshing' : ''}</AppText>
+-    {items.length === 0 ? <AppCard><AppText style={styles.cardTitle}>No offers yet</AppText><AppText style={styles.cardText}>Create your first private offer with images, then later convert it into a public trade.</AppText><Button title="Create Offer" onPress={() => navigation.navigate('CreateOffer')} /></AppCard> : items.map((item) => <AppCard key={item.id}><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={styles.cardText}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard>)}
++    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Offer" tone="offer" /><AppText style={styles.title}>Offers</AppText><AppText style={styles.subtitle}>Save reusable services and pair them with needs when publishing trades.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, pressed && styles.pressed]}><AppText style={styles.createButtonText}>Create</AppText></Pressable></View>
++    {error ? <InfoNotice tone="danger" title="Could not load offers" body={error} /> : null}
++    {items.length === 0 ? <AppCard><AppText style={styles.cardTitle}>No offers yet</AppText><AppText style={styles.cardText}>Create an offer with details and sample images, then choose it when publishing a trade.</AppText><Button title="Create Offer" onPress={() => navigation.navigate('CreateOffer')} /></AppCard> : items.map((item) => <AppCard key={item.id}><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={styles.cardText}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard>)}
+   </ScrollView></AppScreen>;
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, backgroundColor: '#16A34A', paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceLabel: { color: '#64748B', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, backgroundColor: '#16A34A', paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index e7a4af7..c894cb2 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -32,16 +32,16 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const isApplicant = proposal?.applicantId === auth.user?.id;
+   const isAcceptedProvider = proposal?.trade?.providerId === auth.user?.id;
+   const canMessage = proposal ? !['declined', 'withdrawn'].includes(proposal.status) : false;
+-  const statusHint = useMemo(() => { if (!proposal) return ''; if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.'; if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and fake credits were held.'; if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.'; return 'Withdrawn. This proposal conversation is now closed.'; }, [proposal, isOwner]);
++  const statusHint = useMemo(() => { if (!proposal) return ''; if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.'; if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and credits were held.'; if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.'; return 'Withdrawn. This proposal conversation is now closed.'; }, [proposal, isOwner]);
+   async function sendMessage() { const trimmed = body.trim(); if (!trimmed) return; setSubmitting(true); setError(null); setNotice(null); try { await api.proposals.sendMessage(route.params.proposalId, { body: trimmed }); setBody(''); const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse; setMessages(messageResult.messages ?? []); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this message.')); } finally { setSubmitting(false); } }
+-  async function updateStatus(status: ProposalActionStatus) { setActionLoading(status); setError(null); setNotice(null); try { const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse; setProposal(result.proposal); setMessages(result.proposal.messages ?? messages); setNotice(status === 'accepted' ? 'Proposal accepted. Fake credits are now held and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.'); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); } finally { setActionLoading(null); } }
++  async function updateStatus(status: ProposalActionStatus) { setActionLoading(status); setError(null); setNotice(null); try { const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse; setProposal(result.proposal); setMessages(result.proposal.messages ?? messages); setNotice(status === 'accepted' ? 'Proposal accepted. Credits are now held and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.'); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); } finally { setActionLoading(null); } }
+   if (!proposal) return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}><AppCard><SemanticBadge label="Proposal" tone="proposal" /><AppText style={styles.title}>Proposal</AppText>{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : <AppText style={styles.muted}>Loading proposal...</AppText>}<Button title="Back" onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />} keyboardShouldPersistTaps="handled"><AppCard>
+     <View style={styles.headerRow}><StatusBadge status={proposal.status} /><SemanticBadge label="Proposal thread" tone="proposal" size="sm" /></View>
+     <AppText style={styles.title}>{proposal.trade?.title ?? 'Proposal'}</AppText>
+     {proposal.trade ? <CreditPill amount={proposal.trade.creditAmount} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={styles.subtitle}>Private proposal conversation</AppText>}
+     <View style={styles.peopleRow}><MiniPerson label="Owner" name={personLabel(proposal.trade?.owner)} tone="need" /><MiniPerson label="Applicant" name={personLabel(proposal.applicant)} tone="offer" /></View>
+-    <InfoNotice tone="instruction" title="Proposal next step" body={statusHint} />
++    <InfoNotice tone="info" title="Next step" body={statusHint} />
+     {error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}
+     {notice ? <InfoNotice tone="success" title="Proposal updated" body={notice} /> : null}
+     <View style={styles.messagesBox}>{messages.length === 0 ? <AppText style={styles.muted}>No messages yet.</AppText> : messages.map((message) => { const mine = message.senderId === auth.user?.id; return <View key={message.id} style={[styles.messageBubble, mine && styles.myMessageBubble]}><SemanticBadge label={mine ? 'You' : personLabel(message.sender)} tone={mine ? 'proposal' : 'info'} size="sm" /><AppText style={styles.messageBody}>{message.body}</AppText></View>; })}</View>
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index a8412af..64247ab 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -18,12 +18,12 @@ import type { TradeDeckItem, TradeProposalItem } from './types';
+ type Props = NativeStackScreenProps<RootStackParamList, 'TradeDetail'>;
+ type TradeResponse = { trade: TradeDeckItem };
+ type ProposalsResponse = { proposals: TradeProposalItem[] };
+-const now = () => new Date().toISOString();
++
+ function normalizeStatus(status?: string): TradeStatus { const statuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']; return statuses.includes(status ?? '') ? status as TradeStatus : 'active'; }
+-function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? 'Start the API to load full details.', creditAmount: params.creditAmount ?? 0, status: normalizeStatus(params.status), isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: params.expiresAt ?? null, closedAt: null }; }
++function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? '', creditAmount: params.creditAmount ?? 0, status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: params.expiresAt ?? null, closedAt: null }; }
+ function personLabel(person?: { profile?: { displayName?: string | null; handle?: string | null } | null } | null) { return person?.profile?.displayName || person?.profile?.handle || 'Hellowhen member'; }
+ function expiryLabel(expiresAt?: string | null) { if (!expiresAt) return 'No expiry set'; const ms = new Date(expiresAt).getTime(); if (!Number.isFinite(ms)) return 'No expiry set'; const diff = ms - Date.now(); if (diff <= 0) return 'Expired'; const hours = Math.ceil(diff / 1000 / 60 / 60); return hours < 24 ? `${hours}h left` : `${Math.ceil(hours / 24)}d left`; }
+-function statusHint(trade: TradeDeckItem, role: string) { if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review proposal conversations before accepting a provider.' : 'Send a proposal to start a private conversation with the owner.'; if (trade.status === 'in_progress') return role === 'owner' ? 'In progress. Complete the trade when the provider delivers, or cancel to refund held fake credits.' : 'In progress. Use the accepted proposal conversation to coordinate delivery.'; if (trade.status === 'completed') return 'Completed. Fake earned credits are pending and can become payout-eligible later.'; if (trade.status === 'cancelled') return 'Cancelled. Held fake credits were refunded if there was an active hold.'; return 'This trade is outside the main Patch 4 proposal happy path.'; }
++function statusHint(trade: TradeDeckItem, role: string) { if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review conversations before accepting a provider.' : 'Send a proposal to start a private conversation with the owner.'; if (trade.status === 'in_progress') return role === 'owner' ? 'In progress. Complete the trade when the provider delivers, or cancel to release held credits.' : 'In progress. Use the accepted proposal conversation to coordinate delivery.'; if (trade.status === 'completed') return 'Completed. Earned credits will move through the wallet ledger.'; if (trade.status === 'cancelled') return 'Cancelled. Any active credit hold was released.'; return 'Review the current trade status before taking action.'; }
+ 
+ export function TradeDetailScreen({ route, navigation }: Props) {
+   const auth = useAuth(); const params = route.params;
+@@ -33,28 +33,26 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+   const [actionLoading, setActionLoading] = useState<TradeActionStatus | null>(null);
+-  const [saved, setSaved] = useState(false);
+-  const isMock = trade.id.startsWith('mock-');
+   const role = useMemo(() => { if (trade.ownerId === auth.user?.id) return 'owner'; if (trade.providerId && trade.providerId === auth.user?.id) return 'provider'; if (proposals.some((proposal) => proposal.applicantId === auth.user?.id && proposal.status === 'accepted')) return 'provider'; if (proposals.some((proposal) => proposal.applicantId === auth.user?.id)) return 'applicant'; return 'viewer'; }, [auth.user?.id, proposals, trade.ownerId, trade.providerId]);
+   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
+-  const loadTrade = useCallback(async () => { if (!params.tradeId || params.tradeId.startsWith('mock-')) { setTrade(fallback(params)); setProposals([]); return; } setLoading(true); setError(null); try { const result = await api.trades.get(params.tradeId) as TradeResponse; setTrade(result.trade); try { const proposalResult = await api.trades.proposals(params.tradeId) as ProposalsResponse; setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []); } catch { setProposals([]); } } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); setTrade((current) => current.id === params.tradeId ? current : fallback(params)); } finally { setLoading(false); } }, [params]);
++  const media = useMemo(() => [...(trade.need?.media ?? []), ...(trade.offer?.media ?? []), ...(trade.media ?? [])], [trade.media, trade.need?.media, trade.offer?.media]);
++  const loadTrade = useCallback(async () => { setLoading(true); setError(null); try { const result = await api.trades.get(params.tradeId) as TradeResponse; setTrade(result.trade); try { const proposalResult = await api.trades.proposals(params.tradeId) as ProposalsResponse; setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []); } catch { setProposals([]); } } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); setTrade((current) => current.id === params.tradeId ? current : fallback(params)); } finally { setLoading(false); } }, [params]);
+   useEffect(() => { void loadTrade(); }, [loadTrade]);
+-  const actions = useMemo(() => { if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark Completed' }, { status: 'cancelled' as const, label: 'Cancel / Refund' }]; if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel Trade' }]; if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel / Request refund' }]; return []; }, [role, trade.status]);
+-  const updateStatus = useCallback(async (status: TradeActionStatus) => { setActionLoading(status); setError(null); setMessage(null); if (isMock) { setTrade((current) => ({ ...current, status, isPublic: status === 'active' || status === 'in_progress', closedAt: status === 'completed' || status === 'cancelled' ? now() : current.closedAt })); setMessage('Mock trade updated locally. Start the API to test ledger-backed status changes.'); setActionLoading(null); return; } try { const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse; setTrade(result.trade); setMessage(status === 'completed' ? 'Trade completed. Held fake credits moved into pending earned credits.' : status === 'cancelled' ? 'Trade cancelled. Held fake credits were refunded when applicable.' : 'Trade updated.'); await loadTrade(); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); } finally { setActionLoading(null); } }, [isMock, loadTrade, trade.id]);
+-  const openOrCreateProposal = useCallback(() => { if (isMock) { setMessage('Mock trade only. Start the API to send real proposal conversations.'); return; } if (myProposal) navigation.navigate('ProposalDetail', { proposalId: myProposal.id }); else navigation.navigate('CreateProposal', { tradeId: trade.id, title: trade.title }); }, [isMock, myProposal, navigation, trade.id, trade.title]);
++  const actions = useMemo(() => { if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark Completed' }, { status: 'cancelled' as const, label: 'Cancel / Refund' }]; if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel Trade' }]; if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel Trade' }]; return []; }, [role, trade.status]);
++  const updateStatus = useCallback(async (status: TradeActionStatus) => { setActionLoading(status); setError(null); setMessage(null); try { const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse; setTrade(result.trade); setMessage(status === 'completed' ? 'Trade completed.' : status === 'cancelled' ? 'Trade cancelled.' : 'Trade updated.'); await loadTrade(); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); } finally { setActionLoading(null); } }, [loadTrade, trade.id]);
++  const openOrCreateProposal = useCallback(() => { if (myProposal) navigation.navigate('ProposalDetail', { proposalId: myProposal.id }); else navigation.navigate('CreateProposal', { tradeId: trade.id, title: trade.title }); }, [myProposal, navigation, trade.id, trade.title]);
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+     <AppCard>
+-      <View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label="Fake credits only" tone="info" size="sm" /></View>
++      <View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label="Trade" tone="trade" size="sm" /></View>
+       <AppText style={styles.title}>{trade.title}</AppText>
+-      <MediaStrip media={trade.media} size="large" />
++      <MediaStrip media={media} size="large" />
+       <AppText style={styles.description}>{trade.description}</AppText>
+-      <View style={styles.creditBox}><CreditPill amount={trade.creditAmount} label="credit amount" /><View style={styles.ownerPill}><View style={styles.avatar} /><View style={styles.ownerCopy}><AppText style={styles.metaLabel}>Owner</AppText><AppText style={styles.ownerName}>{personLabel(trade.owner)}</AppText></View></View></View>
++      <View style={styles.creditBox}><CreditPill amount={trade.creditAmount} label="credits" /><View style={styles.ownerPill}><View style={styles.avatar} /><View style={styles.ownerCopy}><AppText style={styles.metaLabel}>Owner</AppText><AppText style={styles.ownerName}>{personLabel(trade.owner)}</AppText></View></View></View>
+       <View style={styles.metaGrid}><MetaBox label="Your role" value={role} tone="proposal" /><MetaBox label="Provider" value={trade.provider ? personLabel(trade.provider) : 'Not accepted yet'} tone="offer" /><MetaBox label="Expiry" value={expiryLabel(trade.expiresAt)} tone="time" /><MetaBox label="Visibility" value={trade.isPublic ? 'Public' : 'Private/closed'} tone="trade" /><MetaBox label="Payment" value={trade.payment?.status ?? 'Not held yet'} tone="credits" /><MetaBox label="Escrow" value={trade.escrow ? formatCredits(trade.escrow.heldCredits) : 'No hold yet'} tone="time" /></View>
+-      <InfoNotice tone="instruction" title="Next step" body={statusHint(trade, role)} />
++      <InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />
+       {error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}
+       {message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}
+       {loading ? <AppText style={styles.muted}>Refreshing trade detail...</AppText> : null}
+-      <View style={styles.actionRow}><ActionButton label={saved ? 'Saved' : 'Save'} variant="secondary" onPress={() => { setSaved((current) => !current); setMessage(saved ? 'Removed from local saved list.' : 'Saved locally for now.'); }} /><ActionButton label="Pass" variant="secondary" onPress={() => setMessage('Passed locally for now.')} /></View>
+       {role !== 'owner' && trade.status === 'active' ? <ActionButton label={myProposal ? 'Open Proposal Thread' : 'Send Proposal'} variant="primary" onPress={openOrCreateProposal} /> : null}
+       {(role === 'owner' || role === 'provider' || role === 'applicant') && proposals.length > 0 ? <View style={styles.proposalsBox}><AppText style={styles.sectionTitle}>{role === 'owner' ? 'Proposal conversations' : 'Your proposal'}</AppText>{proposals.map((proposal) => <Pressable key={proposal.id} accessibilityRole="button" onPress={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} style={({ pressed }) => [styles.proposalRow, pressed && styles.pressed]}><View style={styles.proposalCopy}><AppText style={styles.proposalTitle}>{personLabel(proposal.applicant)}</AppText><AppText style={styles.proposalMessage}>{proposal.message}</AppText></View><StatusBadge status={proposal.status} size="sm" /></Pressable>)}</View> : null}
+       {actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status ? 'Updating...' : action.label} variant={action.status === 'cancelled' ? 'danger' : 'primary'} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} />)}
+@@ -63,5 +61,5 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   </ScrollView></AppScreen>;
+ }
+ function MetaBox({ label, value, tone }: { label: string; value: string; tone: SemanticColorName }) { return <View style={styles.metaBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metaValue}>{value}</AppText></View>; }
+-function ActionButton({ label, variant, disabled, onPress }: { label: string; variant: 'primary' | 'secondary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' && styles.primaryButton, variant === 'secondary' && styles.secondaryButton, variant === 'danger' && styles.dangerButton, variant === 'ghost' && styles.ghostButton, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, variant === 'primary' && styles.primaryButtonText, variant === 'danger' && styles.dangerButtonText, variant === 'ghost' && styles.ghostButtonText]}>{label}</AppText></Pressable>; }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, description: { color: '#475569', fontSize: 16, lineHeight: 24, fontWeight: '600' }, creditBox: { borderRadius: 22, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 16, gap: 14 }, ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' }, ownerCopy: { flex: 1 }, ownerName: { marginTop: 2, fontWeight: '900' }, metaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metaBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12, gap: 8 }, metaLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 }, metaValue: { fontWeight: '900' }, proposalsBox: { gap: 10 }, sectionTitle: { fontSize: 18, fontWeight: '900' }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12 }, proposalCopy: { flex: 1 }, proposalTitle: { fontWeight: '900' }, proposalMessage: { marginTop: 3, color: '#64748B', fontWeight: '700' }, muted: { color: '#64748B', fontWeight: '700' }, actionRow: { flexDirection: 'row', gap: 10 }, actionButton: { minHeight: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, primaryButton: { backgroundColor: '#7C3AED' }, primaryButtonText: { color: '#FFFFFF' }, secondaryButton: { flex: 1, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, dangerButtonText: { color: '#991B1B' }, ghostButton: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1' }, ghostButtonText: { color: '#334155' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++function ActionButton({ label, variant, disabled, onPress }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' && styles.primaryButton, variant === 'danger' && styles.dangerButton, variant === 'ghost' && styles.ghostButton, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, variant === 'primary' && styles.primaryButtonText, variant === 'danger' && styles.dangerButtonText, variant === 'ghost' && styles.ghostButtonText]}>{label}</AppText></Pressable>; }
++const styles = StyleSheet.create({ content: { paddingBottom: 28 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, description: { color: '#475569', fontSize: 16, lineHeight: 24, fontWeight: '600' }, creditBox: { borderRadius: 22, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 16, gap: 14 }, ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' }, ownerCopy: { flex: 1 }, ownerName: { marginTop: 2, fontWeight: '900' }, metaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metaBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12, gap: 8 }, metaLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 }, metaValue: { fontWeight: '900' }, proposalsBox: { gap: 10 }, sectionTitle: { fontSize: 18, fontWeight: '900' }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12 }, proposalCopy: { flex: 1 }, proposalTitle: { fontWeight: '900' }, proposalMessage: { marginTop: 3, color: '#64748B', fontWeight: '700' }, muted: { color: '#64748B', fontWeight: '700' }, actionButton: { minHeight: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, primaryButton: { backgroundColor: '#7C3AED' }, primaryButtonText: { color: '#FFFFFF' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, dangerButtonText: { color: '#991B1B' }, ghostButton: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1' }, ghostButtonText: { color: '#334155' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/TradeFeedScreen.tsx b/apps/mobile/src/features/trade/TradeFeedScreen.tsx
+index ed8ba49..6aa0f8c 100644
+--- a/apps/mobile/src/features/trade/TradeFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeFeedScreen.tsx
+@@ -1,28 +1,28 @@
+ import React from 'react';
+-import { ScrollView } from 'react-native';
+-import { formatCredits } from '@hellowhen/shared';
++import { ScrollView, StyleSheet } from 'react-native';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-
+-const demoTrades = [
+-  { id: '1', title: 'Need help editing a short launch video', description: 'Polish a 45-second launch video for social.', credits: 25 },
+-  { id: '2', title: 'Offer: landing page copy review', description: 'Quick copy feedback and structure notes.', credits: 15 },
+-];
++import { SemanticBadge } from '../../components/SemanticUI';
+ 
+ export function TradeFeedScreen() {
+   return (
+     <AppScreen>
+-      <ScrollView>
+-        <AppText style={{ fontSize: 32, fontWeight: '800', marginBottom: 12 }}>Trade Feed</AppText>
+-        {demoTrades.map((trade) => (
+-          <AppCard key={trade.id}>
+-            <AppText style={{ fontSize: 20, fontWeight: '800' }}>{trade.title}</AppText>
+-            <AppText style={{ marginTop: 8 }}>{trade.description}</AppText>
+-            <AppText style={{ marginTop: 12, fontWeight: '700' }}>{formatCredits(trade.credits)}</AppText>
+-          </AppCard>
+-        ))}
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
++        <SemanticBadge label="Trades" tone="trade" />
++        <AppText style={styles.title}>Trades</AppText>
++        <AppCard>
++          <AppText style={styles.cardTitle}>Open the Trades tab</AppText>
++          <AppText style={styles.cardText}>Browse the square trade decks from the main Trades screen.</AppText>
++        </AppCard>
+       </ScrollView>
+     </AppScreen>
+   );
+ }
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 30, gap: 14 },
++  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
++  cardTitle: { fontSize: 22, fontWeight: '900' },
++  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++});
+diff --git a/apps/mobile/src/features/trade/components/TradeDeckCard.tsx b/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+index 1abfc4a..e1f7042 100644
+--- a/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+@@ -52,7 +52,7 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
+         <AppText style={styles.description}>{truncateText(trade.description, 190)}</AppText>
+       </View>
+       <View style={styles.creditPanel}>
+-        <CreditPill amount={trade.creditAmount} label="fake credits" />
++        <CreditPill amount={trade.creditAmount} label="credits" />
+         <View style={styles.ownerPill}>
+           <View style={styles.avatarPlaceholder} />
+           <View style={styles.ownerCopy}>
+@@ -63,7 +63,6 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
+       </View>
+       <View style={styles.metaRow}>
+         <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
+-        <SemanticBadge label="Fake credits only" tone="info" size="sm" />
+       </View>
+       <View style={styles.actionsRow}>
+         <Pressable accessibilityRole="button" onPress={onPass} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Pass</AppText></Pressable>
+diff --git a/apps/mobile/src/features/wallet/WalletScreen.tsx b/apps/mobile/src/features/wallet/WalletScreen.tsx
+index 11c0fdf..964b41d 100644
+--- a/apps/mobile/src/features/wallet/WalletScreen.tsx
++++ b/apps/mobile/src/features/wallet/WalletScreen.tsx
+@@ -1,15 +1,77 @@
+-import React from 'react';
++import React, { useCallback, useState } from 'react';
++import { Button, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { useFocusEffect, useNavigation } from '@react-navigation/native';
++import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
++import type { LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
++import { formatCredits } from '@hellowhen/shared';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
++import { CreditPill, InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++
++type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+ 
+ export function WalletScreen() {
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++
++  const loadWallet = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const result = await api.wallet.me() as WalletResponse;
++      setWallet(result.wallet);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
++  useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
++
++  const totalCredits = wallet ? wallet.purchasedAvailableCredits + wallet.earnedPendingCredits + wallet.earnedAvailableCredits + wallet.heldCredits : 0;
++
+   return (
+     <AppScreen>
+-      <AppCard>
+-        <AppText style={{ fontSize: 28, fontWeight: '800' }}>Wallet / Credits</AppText>
+-        <AppText>Fake credits only in Patch 1. Purchased credits are not withdrawable. Earned credits become payout-eligible later.</AppText>
+-      </AppCard>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadWallet(); }} />}>
++        <View style={styles.header}>
++          <SemanticBadge label="Credits" tone="credits" />
++          <AppText style={styles.title}>Wallet</AppText>
++          <AppText style={styles.subtitle}>Track credits used across your trades.</AppText>
++        </View>
++        {error ? <InfoNotice tone="danger" title="Wallet unavailable" body={error} /> : null}
++        <AppCard>
++          <CreditPill amount={totalCredits} label="total" />
++          {wallet ? <View style={styles.grid}>
++            <Metric label="Available" value={wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits} />
++            <Metric label="Held" value={wallet.heldCredits} />
++            <Metric label="Pending" value={wallet.earnedPendingCredits} />
++            <Metric label="Eligible" value={wallet.earnedAvailableCredits} />
++          </View> : null}
++          <Button title="Add Credits" onPress={() => navigation.navigate('BuyCredits')} />
++        </AppCard>
++      </ScrollView>
+     </AppScreen>
+   );
+ }
++
++function Metric({ label, value }: { label: string; value: number }) {
++  return <View style={styles.metric}><AppText style={styles.metricLabel}>{label}</AppText><AppText style={styles.metricValue}>{formatCredits(value)}</AppText></View>;
++}
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 30, gap: 14 },
++  header: { gap: 8 },
++  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
++  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
++  metric: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 6 },
++  metricLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 },
++  metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
++});
+diff --git a/apps/mobile/src/lib/errors.ts b/apps/mobile/src/lib/errors.ts
+index 8576880..84c3d01 100644
+--- a/apps/mobile/src/lib/errors.ts
++++ b/apps/mobile/src/lib/errors.ts
+@@ -1,5 +1,5 @@
+ export const API_CONNECTION_ERROR_MESSAGE =
+-  'Could not connect to Hellowhen API. Check EXPO_PUBLIC_API_URL and make sure the API is running.';
++  'Could not connect to Hellowhen. Check your connection and try again.';
+ 
+ type ApiLikeError = {
+   code?: string;
+@@ -50,7 +50,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
+   }
+ 
+   if (apiError.body?.error === 'insufficient_fake_credits') {
+-    return apiError.body.message ?? 'Not enough fake/test credits to start this trade.';
++    return apiError.body.message ?? 'Not enough credits to start this trade.';
+   }
+ 
+   if (apiError.body?.error === 'invalid_trade_status_transition') {

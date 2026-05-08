@@ -20,6 +20,11 @@ needsRoutes.post('/', asyncRoute(async (req, res) => {
       ownerId: req.user!.id,
       title: input.title,
       description: input.description,
+      category: input.category ?? null,
+      timing: input.timing ?? null,
+      mode: input.mode ?? null,
+      locationLabel: input.locationLabel ?? null,
+      tags: input.tags ?? [],
       status: input.status ?? 'draft',
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
     }
