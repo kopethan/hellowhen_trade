@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { truncateText } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
-import { CreditPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
+import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
 import type { TradeDeckItem } from '../types';
 import { resolveMediaUrl } from '../mediaUrls';
 
@@ -52,7 +52,7 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
         <AppText style={styles.description}>{truncateText(trade.description, 190)}</AppText>
       </View>
       <View style={styles.creditPanel}>
-        <CreditPill amount={trade.creditAmount} label="credits" />
+        {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}
         <View style={styles.ownerPill}>
           <View style={styles.avatarPlaceholder} />
           <View style={styles.ownerCopy}>
@@ -63,6 +63,7 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
       </View>
       <View style={styles.metaRow}>
         <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
+        <SemanticBadge label="Optional money" tone="info" size="sm" />
       </View>
       <View style={styles.actionsRow}>
         <Pressable accessibilityRole="button" onPress={onPass} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Pass</AppText></Pressable>

@@ -45,7 +45,9 @@ export const createOfferRequestSchema = z.object({
 export const createTradeRequestSchema = z.object({
   title: z.string().min(3).max(120).optional(),
   description: z.string().min(10).max(2000).optional(),
-  creditAmount: z.number().int().positive().max(100000),
+  creditAmount: z.number().int().min(0).max(100000).optional().default(0),
+  amountCents: z.number().int().min(0).max(10000000).optional().default(0),
+  currency: z.string().trim().length(3).optional().default('eur'),
   needId: z.string().min(1).optional(),
   offerId: z.string().min(1).optional(),
   expiresAt: z.string().datetime().optional(),
@@ -54,6 +56,32 @@ export const createTradeRequestSchema = z.object({
 }).refine((value) => Boolean(value.needId && value.offerId), {
   message: 'A trade must be created from one saved Need and one saved Offer.',
   path: ['needId']
+});
+
+const inventoryUpdateBaseSchema = z.object({
+  title: z.string().min(3).max(120).optional(),
+  description: z.string().min(10).max(2000).optional(),
+  status: z.string().optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+  category: z.string().trim().min(1).max(80).nullable().optional(),
+  timing: z.string().trim().min(1).max(80).nullable().optional(),
+  availability: z.string().trim().min(1).max(80).nullable().optional(),
+  mode: tradeExchangeModeSchema.nullable().optional(),
+  locationLabel: z.string().trim().min(1).max(120).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
+  includes: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
+  mediaIds: z.array(z.string()).max(5).optional(),
+});
+
+export const updateNeedRequestSchema = inventoryUpdateBaseSchema.extend({ status: needStatusSchema.optional() });
+export const updateOfferRequestSchema = inventoryUpdateBaseSchema.extend({ status: offerStatusSchema.optional() });
+export const listTradesFeedQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  mode: tradeExchangeModeSchema.optional(),
+  category: z.string().trim().min(1).max(80).optional(),
+  hasImages: z.coerce.boolean().optional(),
+  hasMoney: z.coerce.boolean().optional(),
+  take: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
 export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
@@ -107,6 +135,8 @@ export const tradeSchema = z.object({
   title: z.string(),
   description: z.string(),
   creditAmount: z.number().int(),
+  amountCents: z.number().int().optional().default(0),
+  currency: z.string().optional().default('eur'),
   status: tradeStatusSchema,
   isPublic: z.boolean(),
   createdAt: z.string(),
@@ -136,6 +166,9 @@ export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
 export type CreateNeedRequest = z.infer<typeof createNeedRequestSchema>;
 export type CreateOfferRequest = z.infer<typeof createOfferRequestSchema>;
 export type CreateTradeRequest = z.infer<typeof createTradeRequestSchema>;
+export type UpdateNeedRequest = z.infer<typeof updateNeedRequestSchema>;
+export type UpdateOfferRequest = z.infer<typeof updateOfferRequestSchema>;
+export type ListTradesFeedQuery = z.infer<typeof listTradesFeedQuerySchema>;
 export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSchema>;
 export type CreateTradeProposalRequest = z.infer<typeof createTradeProposalRequestSchema>;
 export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;

@@ -57,6 +57,7 @@ export type AuthUser = {
     handle?: string | null;
     avatarUrl?: string | null;
     bio?: string | null;
+    avatarMediaId?: string | null;
   } | null;
 };
 

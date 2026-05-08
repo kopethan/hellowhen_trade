@@ -13,7 +13,9 @@ import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
 import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
 import { CreateTradeScreen } from '../features/trade/CreateTradeScreen';
 import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
+import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
 import { MyOffersScreen } from '../features/trade/MyOffersScreen';
+import { OfferDetailScreen } from '../features/trade/OfferDetailScreen';
 import { ProposalDetailScreen } from '../features/trade/ProposalDetailScreen';
 import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
@@ -29,11 +31,13 @@ export type RootStackParamList = {
   SupportCenter: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
   CreateNeed: undefined;
+  NeedDetail: { needId: string; title?: string };
   CreateOffer: undefined;
+  OfferDetail: { offerId: string; title?: string };
   CreateTrade: undefined;
   CreateProposal: { tradeId: string; title?: string };
   ProposalDetail: { proposalId: string };
-  TradeDetail: { tradeId: string; title?: string; description?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
+  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
   Login: undefined;
 };
 
@@ -44,7 +48,19 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function TradeTabs() {
   return (
-    <Tabs.Navigator screenOptions={{ headerShown: false, tabBarLabelStyle: { fontWeight: '800' }, tabBarActiveTintColor: '#0F766E', tabBarInactiveTintColor: '#64748B' }}>
+    <Tabs.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarShowLabel: true,
+        tabBarIcon: () => null,
+        tabBarIconStyle: { display: 'none' },
+        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 10 },
+        tabBarItemStyle: { paddingTop: 10 },
+        tabBarStyle: { height: 58, borderTopColor: '#E5E7EB' },
+        tabBarActiveTintColor: '#0F766E',
+        tabBarInactiveTintColor: '#64748B',
+      }}
+    >
       <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} />
       <Tabs.Screen name="Needs" component={MyNeedsScreen} />
       <Tabs.Screen name="Offers" component={MyOffersScreen} />
@@ -68,7 +84,9 @@ export function RootNavigator() {
           <Stack.Screen name="SupportCenter" component={SupportCenterScreen} />
           <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
           <Stack.Screen name="CreateNeed" component={CreateNeedScreen} />
+          <Stack.Screen name="NeedDetail" component={NeedDetailScreen} />
           <Stack.Screen name="CreateOffer" component={CreateOfferScreen} />
+          <Stack.Screen name="OfferDetail" component={OfferDetailScreen} />
           <Stack.Screen name="CreateTrade" component={CreateTradeScreen} />
           <Stack.Screen name="CreateProposal" component={CreateProposalScreen} />
           <Stack.Screen name="ProposalDetail" component={ProposalDetailScreen} />

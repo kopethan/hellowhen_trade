@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import type { MediaAsset } from '@prisma/client';
-import { createTradeProposalRequestSchema, createTradeRequestSchema, updateTradeStatusRequestSchema } from '@hellowhen/contracts';
+import type { MediaAsset, Prisma } from '@prisma/client';
+import { createTradeProposalRequestSchema, createTradeRequestSchema, listTradesFeedQuerySchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
@@ -51,6 +51,51 @@ export async function withProposalTradeMedia<T extends ProposalWithTrade>(propos
   return proposals.map((proposal) => proposal.trade ? { ...proposal, trade: byTradeId.get(proposal.trade.id) ?? proposal.trade } : proposal) as T[];
 }
 
+function containsText(value: string) {
+  return { contains: value, mode: 'insensitive' as const };
+}
+
+function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
+  const and: Prisma.TradeWhereInput[] = [
+    { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
+  ];
+
+  const q = input.q?.trim();
+  if (q) {
+    const text = containsText(q);
+    and.push({
+      OR: [
+        { title: text },
+        { description: text },
+        { need: { is: { title: text } } },
+        { need: { is: { description: text } } },
+        { need: { is: { category: text } } },
+        { need: { is: { timing: text } } },
+        { need: { is: { locationLabel: text } } },
+        { offer: { is: { title: text } } },
+        { offer: { is: { description: text } } },
+        { offer: { is: { category: text } } },
+        { offer: { is: { availability: text } } },
+        { offer: { is: { locationLabel: text } } }
+      ]
+    });
+  }
+
+  if (input.mode) {
+    and.push({ OR: [{ need: { is: { mode: input.mode } } }, { offer: { is: { mode: input.mode } } }] });
+  }
+
+  const category = input.category?.trim();
+  if (category) {
+    const text = containsText(category);
+    and.push({ OR: [{ need: { is: { category: text } } }, { offer: { is: { category: text } } }] });
+  }
+
+  if (input.hasMoney) and.push({ amountCents: { gt: 0 } });
+
+  return { AND: and };
+}
+
 export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
   return prisma.$transaction(async (tx) => {
     const trade = await tx.trade.findUnique({ where: { id: tradeId }, include: { payment: true } });
@@ -58,25 +103,35 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
     if (trade.ownerId !== ownerId) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' });
     if (trade.status !== 'active') throw Object.assign(new Error('invalid_trade_status_transition'), { code: 'INVALID_TRADE_STATUS_TRANSITION' });
     if (trade.providerId || trade.payment?.status === 'held') throw Object.assign(new Error('trade_already_has_provider'), { code: 'TRADE_ALREADY_HAS_PROVIDER' });
-    let wallet = await tx.wallet.findUnique({ where: { userId: ownerId } });
-    if (!wallet) wallet = await tx.wallet.create({ data: { userId: ownerId } });
-    const available = wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits;
-    if (available < trade.creditAmount) throw Object.assign(new Error('insufficient_fake_credits'), { code: 'INSUFFICIENT_FAKE_CREDITS' });
-    const fromPurchased = Math.min(wallet.purchasedAvailableCredits, trade.creditAmount);
-    const fromEarnedAvailable = trade.creditAmount - fromPurchased;
-    const updatedWallet = await tx.wallet.update({ where: { id: wallet.id }, data: { purchasedAvailableCredits: { decrement: fromPurchased }, earnedAvailableCredits: { decrement: fromEarnedAvailable }, heldCredits: { increment: trade.creditAmount } } });
-    await tx.creditLedgerEntry.create({ data: { userId: ownerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: trade.creditAmount, description: `Fake credits held after accepting proposal for trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, proposalId, applicantId, fromPurchased, fromEarnedAvailable } } });
-    await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId: ownerId, sellerId: applicantId, creditAmount: trade.creditAmount, status: 'held' }, create: { tradeId: trade.id, buyerId: ownerId, sellerId: applicantId, creditAmount: trade.creditAmount, status: 'held' } });
-    await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: trade.creditAmount, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: trade.creditAmount } });
+
+    const amountCents = trade.amountCents ?? 0;
+    const currency = trade.currency || 'eur';
+
+    if (amountCents > 0) {
+      let wallet = await tx.wallet.findUnique({ where: { userId: ownerId } });
+      if (!wallet) wallet = await tx.wallet.create({ data: { userId: ownerId, currency } });
+      if (wallet.availableBalanceCents < amountCents) throw Object.assign(new Error('insufficient_wallet_balance'), { code: 'INSUFFICIENT_WALLET_BALANCE' });
+
+      const updatedWallet = await tx.wallet.update({ where: { id: wallet.id }, data: { availableBalanceCents: { decrement: amountCents }, heldBalanceCents: { increment: amountCents }, currency } });
+      await tx.creditLedgerEntry.create({ data: { userId: ownerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, walletMoney: true } } });
+      await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' } });
+      await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: 0, heldAmountCents: amountCents, currency, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: 0, heldAmountCents: amountCents, currency } });
+    }
+
     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
     return tx.trade.update({ where: { id: trade.id }, data: { providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
   });
 }
 
-tradesRoutes.get('/feed', asyncRoute(async (_req, res) => {
-  const trades = await prisma.trade.findMany({ where: { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, include: tradeInclude, orderBy: { createdAt: 'desc' }, take: 50 });
-  res.json({ trades: await withTradeDeckMedia(trades, 'public') });
+tradesRoutes.get('/feed', asyncRoute(async (req, res) => {
+  const input = listTradesFeedQuerySchema.parse(req.query);
+  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: tradeInclude, orderBy: { createdAt: 'desc' }, take: input.take ?? 50 });
+  const hydratedTrades = await withTradeDeckMedia(trades, 'public');
+  const filteredTrades = input.hasImages
+    ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
+    : hydratedTrades;
+  res.json({ trades: filteredTrades });
 }));
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
@@ -113,6 +168,8 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
       title,
       description,
       creditAmount: input.creditAmount,
+      amountCents: input.amountCents,
+      currency: input.currency,
       needId: need.id,
       offerId: offer.id,
       status: 'active',
@@ -160,22 +217,23 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
   if (!isOwner && !isProvider) return res.status(403).json({ error: 'forbidden' });
   if (input.status === trade.status) return res.json({ trade: await withOneTradeDeckMedia(trade, 'owner') });
   if (input.status === 'completed') {
-    if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete and release fake credits.' });
-    if (!['in_progress', 'submitted'].includes(trade.status) || trade.payment?.status !== 'held') return res.status(409).json({ error: 'invalid_trade_status_transition' });
+    if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete this trade.' });
+    if (!['in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
     const updated = await prisma.$transaction(async (tx) => {
       const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
-      if (!payment || payment.status !== 'held') throw new Error('missing_held_payment');
-      const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
-      if (!buyerWallet) throw new Error('missing_buyer_wallet');
-      const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
-      let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
-      if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId } });
-      await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldCredits: { decrement: payment.creditAmount } } });
-      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: -payment.creditAmount, description: `Fake held credits released for completed trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, providerId: sellerId } } });
-      await tx.wallet.update({ where: { id: sellerWallet.id }, data: { earnedPendingCredits: { increment: payment.creditAmount } } });
-      await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: payment.creditAmount, description: `Fake earned credits pending for completed trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, payoutEligibleLater: true } } });
-      await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
-      await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+      if (payment?.status === 'held' && payment.amountCents > 0) {
+        const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+        if (!buyerWallet) throw new Error('missing_buyer_wallet');
+        const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
+        let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
+        if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId, currency: payment.currency } });
+        await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents } } });
+        await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold released for completed trade: ${trade.title}`, metadata: { providerId: sellerId, walletMoney: true } } });
+        await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { increment: payment.amountCents }, currency: payment.currency } });
+        await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money pending payout for completed trade: ${trade.title}`, metadata: { payoutEligibleLater: true, walletMoney: true } } });
+        await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
+        await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+      }
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
     });
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
@@ -185,12 +243,12 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
     const updated = await prisma.$transaction(async (tx) => {
       const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
-      if (payment?.status === 'held') {
+      if (payment?.status === 'held' && payment.amountCents > 0) {
         const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
         if (buyerWallet) {
-          const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldCredits: { decrement: payment.creditAmount }, purchasedAvailableCredits: { increment: payment.creditAmount } } });
-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: -payment.creditAmount, description: `Fake held credits refunded for cancelled trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, cancelledBy: actorId } } });
-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: payment.creditAmount, description: `Fake credits returned after cancelled trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, cancelledBy: actorId } } });
+          const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents }, availableBalanceCents: { increment: payment.amountCents } } });
+          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold refunded for cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
+          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
         }
         await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
         await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });

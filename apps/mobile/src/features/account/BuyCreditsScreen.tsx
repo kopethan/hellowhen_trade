@@ -3,12 +3,12 @@ import { Button, Linking, RefreshControl, ScrollView, StyleSheet, View } from 'r
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { CreditPackageDto, CreditPurchaseDto } from '@hellowhen/contracts';
-import { formatCredits } from '@hellowhen/shared';
+
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { CreditPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 
@@ -63,11 +63,11 @@ export function BuyCreditsScreen({ navigation }: Props) {
   }
 
   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Credits" tone="credits" /><AppText style={styles.title}>Add Credits</AppText><AppText style={styles.subtitle}>Credits help fund trades and keep commitments clear.</AppText></View></View>
-    {!stripeConfigured ? <InfoNotice tone="warning" title="Checkout unavailable" body="Credit checkout is not available right now. You can still browse trades and manage saved needs and offers." /> : null}
-    {message ? <InfoNotice tone={message.includes('opened') ? 'success' : 'warning'} title="Credit purchase" body={message} /> : null}
-    <AppCard><AppText style={styles.sectionTitle}>Credit packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><CreditPill amount={item.creditAmount} label="credits" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No purchases yet. Completed checkout sessions will appear here.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatCredits(purchase.creditAmount)} · {formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
+    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Add Money</AppText><AppText style={styles.subtitle}>Wallet money is optional and can be used when a trade includes an amount.</AppText></View></View>
+    {!stripeConfigured ? <InfoNotice tone="warning" title="Checkout unavailable" body="Wallet checkout is not available right now. You can still browse trades and manage saved needs and offers." /> : null}
+    {message ? <InfoNotice tone={message.includes('opened') ? 'success' : 'warning'} title="Wallet top-up" body={message} /> : null}
+    <AppCard><AppText style={styles.sectionTitle}>Money packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><MoneyPill amountCents={item.amountCents} currency={item.currency} label="wallet" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
+    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No wallet top-ups yet. Completed checkout sessions will appear here.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
     <Button title="Back to Account" onPress={() => navigation.goBack()} />
   </ScrollView></AppScreen>;
 }

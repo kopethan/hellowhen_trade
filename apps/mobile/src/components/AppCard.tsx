@@ -1,17 +1,17 @@
 import type { PropsWithChildren } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, type ViewStyle } from 'react-native';
+import { useThemeTokens } from '../providers/ThemeProvider';
 
-export function AppCard({ children }: PropsWithChildren) {
-  return <View style={styles.card}>{children}</View>;
+export function AppCard({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
+  const theme = useThemeTokens();
+  return <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, style]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
   card: {
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
     padding: 18,
-    gap: 10
-  }
+    gap: 10,
+  },
 });

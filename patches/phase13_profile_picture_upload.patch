@@ -1,0 +1,419 @@
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 801be7b..f21b7cf 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -56,6 +56,7 @@ enum MediaEntityType {
+   need
+   offer
+   trade
++  profile
+ }
+ 
+ enum MediaAssetStatus {
+@@ -223,14 +224,17 @@ model Profile {
+   displayName String?
+   handle      String?  @unique
+   bio         String?
+   avatarUrl   String?
++  avatarMediaId String?
+   createdAt   DateTime @default(now())
+   updatedAt   DateTime @updatedAt
+ 
+   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
++
++  @@index([avatarMediaId])
+ }
+ 
+ model UserSettings {
+diff --git a/apps/api/prisma/migrations/20260508160000_profile_picture_media/migration.sql b/apps/api/prisma/migrations/20260508160000_profile_picture_media/migration.sql
+new file mode 100644
+index 0000000..a6ed913
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260508160000_profile_picture_media/migration.sql
+@@ -0,0 +1,11 @@
++-- Phase 13: profile pictures use the same media pipeline as Need/Offer images.
++-- Existing string avatar URLs are kept for Google/imported avatars. New mobile uploads
++-- store avatarMediaId so admin moderation can clear the profile picture if needed.
++
++ALTER TYPE "MediaEntityType" ADD VALUE IF NOT EXISTS 'profile';
++
++ALTER TABLE "Profile"
++  ADD COLUMN "avatarMediaId" TEXT;
++
++CREATE INDEX "Profile_avatarMediaId_idx" ON "Profile"("avatarMediaId");
+diff --git a/packages/contracts/src/media.ts b/packages/contracts/src/media.ts
+index 4f8a908..d27c03b 100644
+--- a/packages/contracts/src/media.ts
++++ b/packages/contracts/src/media.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ 
+-export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade']);
++export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'profile']);
+ export const mediaAssetStatusSchema = z.enum(['active', 'flagged', 'removed', 'pending_review']);
+ 
+ export const mediaAssetSchema = z.object({
+diff --git a/packages/contracts/src/profile.ts b/packages/contracts/src/profile.ts
+index 4718a4a..7bb5b0c 100644
+--- a/packages/contracts/src/profile.ts
++++ b/packages/contracts/src/profile.ts
+@@ -4,7 +4,9 @@ export const updateProfileRequestSchema = z.object({
+   displayName: z.string().min(1).max(80).optional(),
+   handle: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/).optional(),
+   bio: z.string().max(280).optional(),
+-  avatarUrl: z.string().url().optional()
++  avatarUrl: z.string().max(2000).optional(),
++  avatarMediaId: z.string().min(1).optional(),
++  removeAvatar: z.boolean().optional()
+ });
+ 
+ export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
+@@ -16,6 +18,7 @@ export type ProfileDto = {
+   handle?: string | null;
+   bio?: string | null;
+   avatarUrl?: string | null;
++  avatarMediaId?: string | null;
+   createdAt: string;
+   updatedAt: string;
+ };
+diff --git a/packages/contracts/src/auth.ts b/packages/contracts/src/auth.ts
+index f19ee4b..17ce4d1 100644
+--- a/packages/contracts/src/auth.ts
++++ b/packages/contracts/src/auth.ts
+@@ -57,6 +57,7 @@ export type AuthUser = {
+     handle?: string | null;
+     avatarUrl?: string | null;
+     bio?: string | null;
++    avatarMediaId?: string | null;
+   } | null;
+ };
+diff --git a/apps/api/src/modules/profile/profile.routes.ts b/apps/api/src/modules/profile/profile.routes.ts
+index 6b5d7a1..e851f3a 100644
+--- a/apps/api/src/modules/profile/profile.routes.ts
++++ b/apps/api/src/modules/profile/profile.routes.ts
+@@ -7,21 +7,91 @@ import { requireAuth } from '../../middleware/auth.js';
+ 
+ export const profileRoutes = Router();
+ 
+ profileRoutes.use(requireAuth);
++
++function createProfileError(error: string, message: string, status = 400) {
++  return { error, message, status };
++}
++
++function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.parse>) {
++  return {
++    ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
++    ...(input.handle !== undefined ? { handle: input.handle } : {}),
++    ...(input.bio !== undefined ? { bio: input.bio } : {}),
++    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {})
++  };
++}
++
++async function getOrCreateProfile(userId: string, data: ReturnType<typeof getProfilePatch>) {
++  return prisma.profile.upsert({
++    where: { userId },
++    create: { userId, ...data },
++    update: data
++  });
++}
++
++async function attachAvatarMedia(userId: string, profileId: string, mediaId: string) {
++  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: { not: 'removed' } } });
++  if (!media) throw createProfileError('invalid_avatar_media', 'Upload a profile image again and retry.');
++
++  if (media.entityType && media.entityType !== 'profile') {
++    throw createProfileError('avatar_media_already_attached', 'This image already belongs to another item. Upload a new copy for your profile picture.');
++  }
++
++  if (media.entityId && media.entityId !== profileId) {
++    throw createProfileError('avatar_media_already_attached', 'This image already belongs to another profile. Upload a new copy for your profile picture.');
++  }
++
++  return prisma.mediaAsset.update({ where: { id: media.id }, data: { entityType: 'profile', entityId: profileId } });
++}
+ 
+ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
+   const input = updateProfileRequestSchema.parse(req.body);
+-  const profile = await prisma.profile.upsert({
+-    where: { userId: req.user!.id },
+-    create: {
+-      userId: req.user!.id,
+-      ...input
+-    },
+-    update: input
+-  });
++  const userId = req.user!.id;
++
++  let profile = await getOrCreateProfile(userId, getProfilePatch(input));
++
++  if (input.removeAvatar) {
++    if (profile.avatarMediaId) {
++      await prisma.mediaAsset.updateMany({
++        where: { id: profile.avatarMediaId, ownerId: userId, entityType: 'profile', entityId: profile.id, status: { not: 'removed' } },
++        data: { status: 'removed', reviewNote: 'Removed by profile owner.', reviewedAt: new Date() }
++      });
++    }
++
++    profile = await prisma.profile.update({ where: { id: profile.id }, data: { avatarUrl: null, avatarMediaId: null } });
++  }
++
++  if (input.avatarMediaId) {
++    try {
++      const avatarMedia = await attachAvatarMedia(userId, profile.id, input.avatarMediaId);
++      profile = await prisma.profile.update({ where: { id: profile.id }, data: { avatarUrl: avatarMedia.url, avatarMediaId: avatarMedia.id } });
++    } catch (error) {
++      if (error && typeof error === 'object' && 'status' in error) {
++        const payload = error as { error: string; message: string; status: number };
++        return res.status(payload.status).json({ error: payload.error, message: payload.message });
++      }
++      throw error;
++    }
++  }
+ 
+   res.json({ profile });
+ }));
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 2e8fe10..0b9143c 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -10,21 +10,27 @@ export const adminRoutes = Router();
+ const mediaUserSelect = { id: true, email: true, profile: true } as const;
+ 
+ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'profile' | null; entityId: string | null }>(media: T[]) {
+   const needIds = media.filter((item) => item.entityType === 'need' && item.entityId).map((item) => item.entityId!);
+   const offerIds = media.filter((item) => item.entityType === 'offer' && item.entityId).map((item) => item.entityId!);
+   const tradeIds = media.filter((item) => item.entityType === 'trade' && item.entityId).map((item) => item.entityId!);
++  const profileIds = media.filter((item) => item.entityType === 'profile' && item.entityId).map((item) => item.entityId!);
+ 
+-  const [needs, offers, trades] = await Promise.all([
++  const [needs, offers, trades, profiles] = await Promise.all([
+     needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, mode: true, locationLabel: true } }) : [],
+     offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, mode: true, locationLabel: true } }) : [],
+-    tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : []
++    tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : [],
++    profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, userId: true, displayName: true, handle: true, avatarUrl: true, avatarMediaId: true } }) : []
+   ]);
+ 
+   const needsById = new Map(needs.map((need) => [need.id, need]));
+   const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+   const tradesById = new Map(trades.map((trade) => [trade.id, trade]));
++  const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+ 
+   return media.map((item) => {
+     if (item.entityType === 'need' && item.entityId) return { ...item, entity: needsById.get(item.entityId) ?? null };
+     if (item.entityType === 'offer' && item.entityId) return { ...item, entity: offersById.get(item.entityId) ?? null };
+     if (item.entityType === 'trade' && item.entityId) return { ...item, entity: tradesById.get(item.entityId) ?? null };
++    if (item.entityType === 'profile' && item.entityId) return { ...item, entity: profilesById.get(item.entityId) ?? null };
+     return { ...item, entity: null };
+   });
+ }
+@@ -91,6 +97,10 @@ adminRoutes.patch('/media/:mediaId/status', asyncRoute(async (req, res) => {
+     data: { status: input.status, reviewNote: input.reviewNote ?? null, reviewerId: req.user!.id, reviewedAt: new Date() },
+     include: { owner: { select: mediaUserSelect }, reviewer: { select: mediaUserSelect } }
+   });
++  if (updated.entityType === 'profile' && updated.entityId && input.status === 'removed') {
++    await prisma.profile.updateMany({ where: { id: updated.entityId, avatarMediaId: updated.id }, data: { avatarUrl: null, avatarMediaId: null } });
++  }
+   res.json({ media: (await withMediaEntityContext([updated]))[0] });
+ }));
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index d4a68ce..e8a0d28 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useState } from 'react';
+-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { AuthUser, WalletDto, LedgerEntryDto } from '@hellowhen/contracts';
+@@ -12,6 +12,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
++import { resolveMediaUrl } from '../trade/mediaUrls';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+@@ -55,6 +56,11 @@ function getDisplayName(user: AuthUser | null) {
+   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Hellowhen member';
+ }
++
++function getAvatarUri(user: AuthUser | null) {
++  const url = user?.profile?.avatarUrl;
++  return url ? resolveMediaUrl(url) : null;
++}
+ 
+ export function AccountScreen() {
+   const auth = useAuth();
+@@ -64,6 +70,7 @@ export function AccountScreen() {
+ 
+   const displayName = getDisplayName(auth.user);
+   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle';
++  const avatarUri = getAvatarUri(auth.user);
+@@ -126,7 +133,13 @@ export function AccountScreen() {
+ 
+         <AppCard>
+           <View style={styles.profileHero}>
+-            <View style={styles.avatar}><AppText style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</AppText></View>
++            <View style={styles.avatar}>
++              {avatarUri ? (
++                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
++              ) : (
++                <AppText style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</AppText>
++              )}
++            </View>
+             <View style={styles.profileCopy}>
+               <AppText style={styles.profileName}>{displayName}</AppText>
+               <AppText style={styles.profileMeta}>{handle}</AppText>
+@@ -238,6 +251,7 @@ const styles = StyleSheet.create({
+   profileHero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+   avatar: { width: 66, height: 66, borderRadius: 33, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
++  avatarImage: { width: '100%', height: '100%', borderRadius: 33 },
+   avatarText: { color: '#0F766E', fontSize: 25, fontWeight: '900' },
+   profileCopy: { flex: 1 },
+diff --git a/apps/mobile/src/features/me/MeScreen.tsx b/apps/mobile/src/features/me/MeScreen.tsx
+index c827a24..7dd09ac 100644
+--- a/apps/mobile/src/features/me/MeScreen.tsx
++++ b/apps/mobile/src/features/me/MeScreen.tsx
+@@ -1,5 +1,6 @@
+ import React, { useState } from 'react';
+-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import * as ImagePicker from 'expo-image-picker';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { ProfileDto } from '@hellowhen/contracts';
+ import { AppCard } from '../../components/AppCard';
+@@ -9,6 +10,8 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { resolveMediaUrl } from '../trade/mediaUrls';
++import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
+ import { useAuth } from '../../providers/AuthProvider';
+@@ -24,13 +27,29 @@ function optionalText(value: string) {
+   return trimmed.length > 0 ? trimmed : undefined;
+ }
++
++function getAvatarSource(url?: string | null) {
++  if (!url) return null;
++  if (/^(file|content|data|https?):/i.test(url)) return url;
++  return resolveMediaUrl(url);
++}
+ 
+ export function ProfileScreen({ navigation }: Props) {
+   const auth = useAuth();
+   const [displayName, setDisplayName] = useState(auth.user?.profile?.displayName ?? '');
+   const [handle, setHandle] = useState(auth.user?.profile?.handle ?? '');
+   const [bio, setBio] = useState(auth.user?.profile?.bio ?? '');
++  const [avatarUrl, setAvatarUrl] = useState<string | null>(auth.user?.profile?.avatarUrl ?? null);
++  const [avatarImage, setAvatarImage] = useState<SelectedLocalImage | null>(null);
++  const [removingAvatar, setRemovingAvatar] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [saved, setSaved] = useState(false);
++
++  const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
++
++  async function pickAvatar() {
++    setError(null);
++    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
++    if (!permission.granted) { setError('Allow photo library access to choose a profile picture.'); return; }
++    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: false, quality: 0.85 });
++    if (result.canceled || !result.assets[0]) return;
++    const asset = result.assets[0];
++    setAvatarImage({ uri: asset.uri, name: asset.fileName ?? `profile-avatar-${Date.now()}.jpg`, type: asset.mimeType ?? 'image/jpeg' });
++    setSaved(false);
++  }
+ 
+   async function handleSave() {
+     if (displayName.trim().length < 1) {
+@@ -48,8 +67,14 @@ export function ProfileScreen({ navigation }: Props) {
+     setError(null);
+ 
+     try {
+-      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio) }) as ProfileResponse;
+-      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio });
++      const avatarMediaIds = avatarImage ? await uploadSelectedImages([avatarImage]) : [];
++      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
++      setAvatarImage(null);
++      setAvatarUrl(result.profile.avatarUrl ?? null);
++      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId });
+       setSaved(true);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -59,6 +84,24 @@ export function ProfileScreen({ navigation }: Props) {
+     }
+   }
++
++  async function handleRemoveAvatar() {
++    setRemovingAvatar(true);
++    setSaved(false);
++    setError(null);
++
++    try {
++      const result = await api.profile.updateMe({ removeAvatar: true }) as ProfileResponse;
++      setAvatarImage(null);
++      setAvatarUrl(null);
++      auth.updateLocalProfile({ avatarUrl: null, avatarMediaId: null, displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio });
++      setSaved(true);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setRemovingAvatar(false);
++    }
++  }
+ 
+   return (
+     <AppScreen>
+@@ -72,13 +115,30 @@ export function ProfileScreen({ navigation }: Props) {
+         {saved ? <InfoNotice tone="success" title="Saved" body="Your profile has been updated." /> : null}
+ 
+         <AppCard>
+-          <View style={styles.previewRow}>
+-            <View style={styles.avatar}><AppText style={styles.avatarText}>{(displayName || auth.user?.email || 'H').slice(0, 1).toUpperCase()}</AppText></View>
++          <View style={styles.avatarPanel}>
++            <View style={styles.avatar}>
++              {avatarSource ? <Image source={{ uri: avatarSource }} style={styles.avatarImage} /> : <AppText style={styles.avatarText}>{(displayName || auth.user?.email || 'H').slice(0, 1).toUpperCase()}</AppText>}
++            </View>
+             <View style={styles.previewCopy}>
+               <AppText style={styles.previewName}>{displayName.trim() || 'Display name'}</AppText>
+               <AppText style={styles.previewHandle}>{handle.trim() ? `@${handle.trim()}` : 'Add a handle'}</AppText>
+               <AppText style={styles.previewEmail}>{auth.user?.email ?? 'Signed in'}</AppText>
+             </View>
+           </View>
++          <View style={styles.avatarActions}>
++            <Pressable accessibilityRole="button" disabled={saving || removingAvatar} onPress={pickAvatar} style={({ pressed }) => [styles.avatarButton, (saving || removingAvatar) && styles.disabled, pressed && styles.pressed]}>
++              <AppText style={styles.avatarButtonText}>{avatarSource ? 'Change photo' : 'Add photo'}</AppText>
++            </Pressable>
++            {avatarSource ? (
++              <Pressable accessibilityRole="button" disabled={saving || removingAvatar} onPress={handleRemoveAvatar} style={({ pressed }) => [styles.avatarRemoveButton, (saving || removingAvatar) && styles.disabled, pressed && styles.pressed]}>
++                <AppText style={styles.avatarRemoveButtonText}>{removingAvatar ? 'Removing...' : 'Remove'}</AppText>
++              </Pressable>
++            ) : null}
++          </View>
++          <InfoNotice tone="info" body="Profile pictures are reviewed like other images. If a picture is removed during review, it disappears from your public profile." />
+         </AppCard>
+@@ -137,8 +197,11 @@ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 14 },
+   header: { gap: 8 },
+   title: { color: '#0F172A', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+   subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+-  previewRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+-  avatar: { width: 66, height: 66, borderRadius: 33, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
++  avatarPanel: { flexDirection: 'row', alignItems: 'center', gap: 14 },
++  avatarActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
++  avatar: { width: 76, height: 76, borderRadius: 38, overflow: 'hidden', backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
++  avatarImage: { width: '100%', height: '100%', borderRadius: 38 },
+   avatarText: { color: '#0F766E', fontSize: 25, fontWeight: '900' },
+   previewCopy: { flex: 1 },
+   previewName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+@@ -156,6 +219,10 @@ const styles = StyleSheet.create({
+   textarea: { minHeight: 118, lineHeight: 22 },
+   actions: { gap: 10 },
++  avatarButton: { borderRadius: 999, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 },
++  avatarButtonText: { color: '#FFFFFF', fontWeight: '900' },
++  avatarRemoveButton: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingHorizontal: 14, paddingVertical: 10 },
++  avatarRemoveButtonText: { color: '#991B1B', fontWeight: '900' },
+   primaryButton: { borderRadius: 18, backgroundColor: '#0F766E', paddingVertical: 15, alignItems: 'center' },
+   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+   secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' },

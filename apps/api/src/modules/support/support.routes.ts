@@ -7,6 +7,7 @@ import {
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { attachUploadedMediaToEntity, loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 
 export const supportRoutes = Router();
 supportRoutes.use(requireAuth);
@@ -20,13 +21,47 @@ const ticketIncludeForUser = {
   },
 } as const;
 
+type SupportMessageWithId = { id: string };
+type SupportTicketWithMessages = { id: string; messages?: SupportMessageWithId[] };
+
+export async function withSupportTicketMedia<T extends SupportTicketWithMessages>(tickets: T[], visibility: MediaVisibility = 'owner') {
+  const ticketIds = tickets.map((ticket) => ticket.id);
+  const messageIds = tickets.flatMap((ticket) => ticket.messages?.map((message) => message.id) ?? []);
+
+  const [ticketMedia, messageMedia] = await Promise.all([
+    loadMediaByEntityIds('support_ticket', ticketIds, visibility),
+    loadMediaByEntityIds('support_message', messageIds, visibility),
+  ]);
+
+  return tickets.map((ticket) => ({
+    ...ticket,
+    media: ticketMedia.get(ticket.id) ?? [],
+    messages: ticket.messages?.map((message) => ({ ...message, media: messageMedia.get(message.id) ?? [] })) ?? [],
+  }));
+}
+
+export async function withOneSupportTicketMedia<T extends SupportTicketWithMessages>(ticket: T, visibility: MediaVisibility = 'owner') {
+  const [result] = await withSupportTicketMedia([ticket], visibility);
+  return result;
+}
+
+export async function withSupportMessageMedia<T extends SupportMessageWithId>(messages: T[], visibility: MediaVisibility = 'owner') {
+  const messageMedia = await loadMediaByEntityIds('support_message', messages.map((message) => message.id), visibility);
+  return messages.map((message) => ({ ...message, media: messageMedia.get(message.id) ?? [] }));
+}
+
+export async function withOneSupportMessageMedia<T extends SupportMessageWithId>(message: T, visibility: MediaVisibility = 'owner') {
+  const [result] = await withSupportMessageMedia([message], visibility);
+  return result;
+}
+
 supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
   const tickets = await prisma.supportTicket.findMany({
     where: { userId: req.user!.id },
     orderBy: { updatedAt: 'desc' },
     take: 100,
   });
-  res.json({ tickets });
+  res.json({ tickets: await withSupportTicketMedia(tickets, 'owner') });
 }));
 
 supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
@@ -51,7 +86,8 @@ supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
     },
     include: ticketIncludeForUser,
   });
-  res.status(201).json({ ticket });
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_ticket', ticket.id);
+  res.status(201).json({ ticket: await withOneSupportTicketMedia(ticket, 'owner') });
 }));
 
 supportRoutes.get('/tickets/:ticketId', asyncRoute(async (req, res) => {
@@ -60,7 +96,7 @@ supportRoutes.get('/tickets/:ticketId', asyncRoute(async (req, res) => {
     include: ticketIncludeForUser,
   });
   if (!ticket) return res.status(404).json({ error: 'not_found' });
-  res.json({ ticket });
+  res.json({ ticket: await withOneSupportTicketMedia(ticket, 'owner') });
 }));
 
 supportRoutes.post('/tickets/:ticketId/messages', asyncRoute(async (req, res) => {
@@ -77,11 +113,12 @@ supportRoutes.post('/tickets/:ticketId/messages', asyncRoute(async (req, res) =>
     },
     include: { sender: { select: supportUserSelect } },
   });
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_message', message.id);
   await prisma.supportTicket.update({
     where: { id: ticket.id },
     data: { status: ticket.status === 'waiting_for_user' || ticket.status === 'resolved' ? 'open' : ticket.status },
   });
-  res.status(201).json({ message });
+  res.status(201).json({ message: await withOneSupportMessageMedia(message, 'owner') });
 }));
 
 supportRoutes.patch('/tickets/:ticketId/status', asyncRoute(async (req, res) => {
@@ -94,5 +131,5 @@ supportRoutes.patch('/tickets/:ticketId/status', asyncRoute(async (req, res) => 
     data: { status: input.status, resolvedAt: input.status === 'closed' ? new Date() : null },
     include: ticketIncludeForUser,
   });
-  res.json({ ticket: updated });
+  res.json({ ticket: await withOneSupportTicketMedia(updated, 'owner') });
 }));

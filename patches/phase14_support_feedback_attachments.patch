@@ -1,0 +1,382 @@
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index f21b7cf..4fca2aa 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -56,6 +56,8 @@ enum MediaEntityType {
+   offer
+   trade
+   profile
++  support_ticket
++  support_message
+ }
+ 
+ enum MediaAssetStatus {
+diff --git a/apps/api/prisma/migrations/20260508170000_support_feedback_attachments/migration.sql b/apps/api/prisma/migrations/20260508170000_support_feedback_attachments/migration.sql
+new file mode 100644
+index 0000000..0e734c9
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260508170000_support_feedback_attachments/migration.sql
+@@ -0,0 +1,7 @@
++-- Phase 14: Support/feedback screenshots use the same MediaAsset pipeline.
++-- Ticket-level attachments belong to support_ticket.
++-- Reply-level attachments belong to support_message.
++
++ALTER TYPE "MediaEntityType" ADD VALUE IF NOT EXISTS 'support_ticket';
++ALTER TYPE "MediaEntityType" ADD VALUE IF NOT EXISTS 'support_message';
++
+diff --git a/packages/contracts/src/media.ts b/packages/contracts/src/media.ts
+index d27c03b..18fefac 100644
+--- a/packages/contracts/src/media.ts
++++ b/packages/contracts/src/media.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ 
+-export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'profile']);
++export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'profile', 'support_ticket', 'support_message']);
+ export const mediaAssetStatusSchema = z.enum(['active', 'flagged', 'removed', 'pending_review']);
+ 
+ export const mediaAssetSchema = z.object({
+diff --git a/packages/contracts/src/support.ts b/packages/contracts/src/support.ts
+index 3526ed1..79d14d4 100644
+--- a/packages/contracts/src/support.ts
++++ b/packages/contracts/src/support.ts
+@@ -1,4 +1,5 @@
+ import { z } from 'zod';
++import { mediaAssetSchema } from './media';
+ 
+ export const supportTicketCategorySchema = z.enum([
+   'general_feedback',
+@@ -26,10 +27,12 @@ export const createSupportTicketRequestSchema = z.object({
+   relatedTradeId: z.string().min(1).optional(),
+   relatedProposalId: z.string().min(1).optional(),
+   relatedMediaId: z.string().min(1).optional(),
++  mediaIds: z.array(z.string()).max(5).optional(),
+ });
+ 
+ export const createSupportMessageRequestSchema = z.object({
+   body: z.string().min(1).max(4000),
++  mediaIds: z.array(z.string()).max(5).optional(),
+ });
+ 
+ export const updateSupportTicketStatusRequestSchema = z.object({
+@@ -44,6 +47,7 @@ export const adminCreateSupportMessageRequestSchema = z.object({
+   body: z.string().min(1).max(4000),
+   internal: z.boolean().optional(),
+   status: supportTicketStatusSchema.optional(),
++  mediaIds: z.array(z.string()).max(5).optional(),
+ });
+ 
+ export const supportUserPreviewSchema = z.object({
+@@ -61,6 +65,7 @@ export const supportTicketMessageSchema = z.object({
+   internal: z.boolean(),
+   createdAt: z.string(),
+   sender: supportUserPreviewSchema.optional(),
++  media: z.array(mediaAssetSchema).optional(),
+ });
+ 
+ export const supportTicketSchema = z.object({
+@@ -82,6 +87,7 @@ export const supportTicketSchema = z.object({
+   user: supportUserPreviewSchema.optional(),
+   assignedAdmin: supportUserPreviewSchema.optional(),
+   messages: z.array(supportTicketMessageSchema).optional(),
++  media: z.array(mediaAssetSchema).optional(),
+ });
+ 
+ export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
+diff --git a/apps/api/src/modules/support/support.routes.ts b/apps/api/src/modules/support/support.routes.ts
+index 91b3f83..2d4a7de 100644
+--- a/apps/api/src/modules/support/support.routes.ts
++++ b/apps/api/src/modules/support/support.routes.ts
+@@ -5,10 +5,12 @@ import {
+   updateSupportTicketStatusRequestSchema,
+ } from '@hellowhen/contracts';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { attachUploadedMediaToEntity, loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+ 
+ export const supportRoutes = Router();
+ supportRoutes.use(requireAuth);
+ 
+ const supportUserSelect = { id: true, email: true, profile: true } as const;
+@@ -22,6 +24,42 @@ const ticketIncludeForUser = {
+   },
+ } as const;
+ 
++type SupportMessageWithId = { id: string };
++type SupportTicketWithMessages = { id: string; messages?: SupportMessageWithId[] };
++
++export async function withSupportTicketMedia<T extends SupportTicketWithMessages>(tickets: T[], visibility: MediaVisibility = 'owner') {
++  const ticketIds = tickets.map((ticket) => ticket.id);
++  const messageIds = tickets.flatMap((ticket) => ticket.messages?.map((message) => message.id) ?? []);
++
++  const [ticketMedia, messageMedia] = await Promise.all([
++    loadMediaByEntityIds('support_ticket', ticketIds, visibility),
++    loadMediaByEntityIds('support_message', messageIds, visibility),
++  ]);
++
++  return tickets.map((ticket) => ({
++    ...ticket,
++    media: ticketMedia.get(ticket.id) ?? [],
++    messages: ticket.messages?.map((message) => ({ ...message, media: messageMedia.get(message.id) ?? [] })) ?? [],
++  }));
++}
++
++export async function withOneSupportTicketMedia<T extends SupportTicketWithMessages>(ticket: T, visibility: MediaVisibility = 'owner') {
++  const [result] = await withSupportTicketMedia([ticket], visibility);
++  return result;
++}
++
++export async function withSupportMessageMedia<T extends SupportMessageWithId>(messages: T[], visibility: MediaVisibility = 'owner') {
++  const messageMedia = await loadMediaByEntityIds('support_message', messages.map((message) => message.id), visibility);
++  return messages.map((message) => ({ ...message, media: messageMedia.get(message.id) ?? [] }));
++}
++
++export async function withOneSupportMessageMedia<T extends SupportMessageWithId>(message: T, visibility: MediaVisibility = 'owner') {
++  const [result] = await withSupportMessageMedia([message], visibility);
++  return result;
++}
++
+ supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
+   const tickets = await prisma.supportTicket.findMany({
+     where: { userId: req.user!.id },
+@@ -29,7 +67,7 @@ supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
+     orderBy: { updatedAt: 'desc' },
+     take: 100,
+   });
+-  res.json({ tickets });
++  res.json({ tickets: await withSupportTicketMedia(tickets, 'owner') });
+ }));
+ 
+ supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
+@@ -55,8 +93,9 @@ supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
+     },
+     include: ticketIncludeForUser,
+   });
+-  res.status(201).json({ ticket });
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_ticket', ticket.id);
++  res.status(201).json({ ticket: await withOneSupportTicketMedia(ticket, 'owner') });
+ }));
+ 
+ supportRoutes.get('/tickets/:ticketId', asyncRoute(async (req, res) => {
+@@ -66,7 +105,7 @@ supportRoutes.get('/tickets/:ticketId', asyncRoute(async (req, res) => {
+     include: ticketIncludeForUser,
+   });
+   if (!ticket) return res.status(404).json({ error: 'not_found' });
+-  res.json({ ticket });
++  res.json({ ticket: await withOneSupportTicketMedia(ticket, 'owner') });
+ }));
+ 
+ supportRoutes.post('/tickets/:ticketId/messages', asyncRoute(async (req, res) => {
+@@ -86,12 +125,13 @@ supportRoutes.post('/tickets/:ticketId/messages', asyncRoute(async (req, res) => {
+     },
+     include: { sender: { select: supportUserSelect } },
+   });
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_message', message.id);
+   await prisma.supportTicket.update({
+     where: { id: ticket.id },
+     data: { status: ticket.status === 'waiting_for_user' || ticket.status === 'resolved' ? 'open' : ticket.status },
+   });
+-  res.status(201).json({ message });
++  res.status(201).json({ message: await withOneSupportMessageMedia(message, 'owner') });
+ }));
+ 
+ supportRoutes.patch('/tickets/:ticketId/status', asyncRoute(async (req, res) => {
+@@ -107,5 +147,5 @@ supportRoutes.patch('/tickets/:ticketId/status', asyncRoute(async (req, res) => {
+     data: { status: input.status, resolvedAt: input.status === 'closed' ? new Date() : null },
+     include: ticketIncludeForUser,
+   });
+-  res.json({ ticket: updated });
++  res.json({ ticket: await withOneSupportTicketMedia(updated, 'owner') });
+ }));
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 0b9143c..5dcd42a 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -3,10 +3,11 @@ import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, admi
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
++import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
+ 
+ export const adminRoutes = Router();
+ const mediaUserSelect = { id: true, email: true, profile: true } as const;
+ 
+-async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'profile' | null; entityId: string | null }>(media: T[]) {
++async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'profile' | 'support_ticket' | 'support_message' | null; entityId: string | null }>(media: T[]) {
+   const needIds = media.filter((item) => item.entityType === 'need' && item.entityId).map((item) => item.entityId!);
+   const offerIds = media.filter((item) => item.entityType === 'offer' && item.entityId).map((item) => item.entityId!);
+   const tradeIds = media.filter((item) => item.entityType === 'trade' && item.entityId).map((item) => item.entityId!);
+   const profileIds = media.filter((item) => item.entityType === 'profile' && item.entityId).map((item) => item.entityId!);
++  const supportTicketIds = media.filter((item) => item.entityType === 'support_ticket' && item.entityId).map((item) => item.entityId!);
++  const supportMessageIds = media.filter((item) => item.entityType === 'support_message' && item.entityId).map((item) => item.entityId!);
+ 
+-  const [needs, offers, trades, profiles] = await Promise.all([
++  const [needs, offers, trades, profiles, supportTickets, supportMessages] = await Promise.all([
+     needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, mode: true, locationLabel: true } }) : [],
+     offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, mode: true, locationLabel: true } }) : [],
+     tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : [],
+-    profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, userId: true, displayName: true, handle: true, avatarUrl: true, avatarMediaId: true } }) : []
++    profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, userId: true, displayName: true, handle: true, avatarUrl: true, avatarMediaId: true } }) : [],
++    supportTicketIds.length ? prisma.supportTicket.findMany({ where: { id: { in: supportTicketIds } }, select: { id: true, userId: true, subject: true, status: true, priority: true, category: true } }) : [],
++    supportMessageIds.length ? prisma.supportTicketMessage.findMany({ where: { id: { in: supportMessageIds } }, select: { id: true, ticketId: true, senderId: true, senderRole: true, body: true, createdAt: true } }) : []
+   ]);
+ 
+   const needsById = new Map(needs.map((need) => [need.id, need]));
+   const offersById = new Map(offers.map((offer) => [offer.id, offer]));
+   const tradesById = new Map(trades.map((trade) => [trade.id, trade]));
+   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
++  const supportTicketsById = new Map(supportTickets.map((ticket) => [ticket.id, ticket]));
++  const supportMessagesById = new Map(supportMessages.map((message) => [message.id, message]));
+ 
+   return media.map((item) => {
+     if (item.entityType === 'need' && item.entityId) return { ...item, entity: needsById.get(item.entityId) ?? null };
+     if (item.entityType === 'offer' && item.entityId) return { ...item, entity: offersById.get(item.entityId) ?? null };
+     if (item.entityType === 'trade' && item.entityId) return { ...item, entity: tradesById.get(item.entityId) ?? null };
+     if (item.entityType === 'profile' && item.entityId) return { ...item, entity: profilesById.get(item.entityId) ?? null };
++    if (item.entityType === 'support_ticket' && item.entityId) return { ...item, entity: supportTicketsById.get(item.entityId) ?? null };
++    if (item.entityType === 'support_message' && item.entityId) return { ...item, entity: supportMessagesById.get(item.entityId) ?? null };
+     return { ...item, entity: null };
+   });
+ }
+@@ -151,7 +168,7 @@ adminRoutes.get('/support/tickets', asyncRoute(async (req, res) => {
+     orderBy: { updatedAt: 'desc' },
+     take: 100,
+   });
+-  res.json({ tickets });
++  res.json({ tickets: await withSupportTicketMedia(tickets, 'admin') });
+ }));
+ 
+ adminRoutes.get('/support/tickets/:ticketId', asyncRoute(async (req, res) => {
+   const ticket = await prisma.supportTicket.findUnique({ where: { id: req.params.ticketId }, include: supportTicketIncludeForAdmin });
+   if (!ticket) return res.status(404).json({ error: 'not_found' });
+-  res.json({ ticket });
++  res.json({ ticket: await withOneSupportTicketMedia(ticket, 'admin') });
+ }));
+@@ -173,7 +190,7 @@ adminRoutes.patch('/support/tickets/:ticketId', asyncRoute(async (req, res) => {
+     },
+     include: supportTicketIncludeForAdmin,
+   });
+-  res.json({ ticket: updated });
++  res.json({ ticket: await withOneSupportTicketMedia(updated, 'admin') });
+ }));
+ 
+ adminRoutes.post('/support/tickets/:ticketId/messages', asyncRoute(async (req, res) => {
+@@ -192,10 +209,11 @@ adminRoutes.post('/support/tickets/:ticketId/messages', asyncRoute(async (req, r
+     },
+     include: { sender: { select: supportUserSelect } },
+   });
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_message', message.id);
+   const nextStatus = input.status ?? (input.internal ? ticket.status : 'waiting_for_user');
+   await prisma.supportTicket.update({
+     where: { id: ticket.id },
+     data: { status: nextStatus, assignedAdminId: ticket.assignedAdminId ?? req.user!.id, resolvedAt: nextStatus === 'resolved' || nextStatus === 'closed' ? new Date() : null },
+   });
+-  res.status(201).json({ message });
++  res.status(201).json({ message: await withOneSupportMessageMedia(message, 'admin') });
+ }));
+diff --git a/apps/mobile/src/features/account/SupportCenterScreen.tsx b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+index af77216..deaf9f1 100644
+--- a/apps/mobile/src/features/account/SupportCenterScreen.tsx
++++ b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useState } from 'react';
+-import { Button, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
++import { Button, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority } from '@hellowhen/contracts';
+@@ -10,6 +10,9 @@ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/Semanti
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { ImagePickerField } from '../trade/components/ImagePickerField';
++import { MediaStrip } from '../trade/components/MediaStrip';
++import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
+ 
+ type TicketsResponse = { tickets: SupportTicketDto[] };
+ type CreateTicketResponse = { ticket: SupportTicketDto };
+@@ -44,6 +47,7 @@ export function SupportCenterScreen() {
+   const [priority, setPriority] = useState<SupportTicketPriority>('normal');
+   const [subject, setSubject] = useState('');
+   const [message, setMessage] = useState('');
++  const [images, setImages] = useState<SelectedLocalImage[]>([]);
+ 
+   const loadTickets = useCallback(async () => {
+     setLoading(true); setError(null);
+@@ -61,8 +65,9 @@ export function SupportCenterScreen() {
+   async function createTicket() {
+     setSubmitting(true); setError(null);
+     try {
+-      const result = await api.support.createTicket({ category, priority, subject: subject.trim(), message: message.trim() }) as CreateTicketResponse;
+-      setSubject(''); setMessage(''); setCategory('general_feedback'); setPriority('normal');
++      const mediaIds = await uploadSelectedImages(images);
++      const result = await api.support.createTicket({ category, priority, subject: subject.trim(), message: message.trim(), mediaIds }) as CreateTicketResponse;
++      setSubject(''); setMessage(''); setImages([]); setCategory('general_feedback'); setPriority('normal');
+       await loadTickets();
+       navigation.navigate('SupportTicketDetail', { ticketId: result.ticket.id, subject: result.ticket.subject });
+     } catch (caughtError) {
+@@ -77,12 +82,13 @@ export function SupportCenterScreen() {
+     <InfoNotice tone="info" title="What support is for" body="Use support for product feedback, safety concerns, bugs, image/content issues, credits questions, and trade problems that need admin attention." />
+     {error ? <InfoNotice tone="warning" title="Support message" body={error} /> : null}
+     <AppCard><AppText style={styles.sectionTitle}>Create a ticket</AppText>
+       <AppText style={styles.label}>Category</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={labelize(item)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+       <AppText style={styles.label}>Priority</AppText><View style={styles.wrap}>{priorities.map((item) => <TouchableOpacity key={item} onPress={() => setPriority(item)}><SemanticBadge label={item} tone={priority === item ? priorityTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+       <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={styles.input} />
+       <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea]} multiline textAlignVertical="top" />
++      <ImagePickerField images={images} onChange={setImages} disabled={submitting} label="Screenshots" hint="Attach screenshots or images that explain the issue." />
+       <Button title={submitting ? 'Submitting...' : 'Submit ticket'} disabled={submitting} onPress={() => { void createTicket(); }} />
+     </AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={styles.cardText}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={styles.ticketCard}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={styles.cardText} numberOfLines={2}>{ticket.message}</AppText><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={styles.cardText}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={styles.ticketCard}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={styles.cardText} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
+     <Button title="Back to Account" onPress={() => navigation.goBack()} />
+   </ScrollView></AppScreen>;
+ }
+diff --git a/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx b/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx
+index e78b6b0..640d8dd 100644
+--- a/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx
++++ b/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx
+@@ -11,6 +11,9 @@ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/Semanti
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { ImagePickerField } from '../trade/components/ImagePickerField';
++import { MediaStrip } from '../trade/components/MediaStrip';
++import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
+ 
+ type TicketResponse = { ticket: SupportTicketDto };
+ function labelize(value: string) { return value.replaceAll('_', ' '); }
+@@ -26,6 +29,7 @@ export function SupportTicketDetailScreen() {
+   const [sending, setSending] = useState(false);
+   const [body, setBody] = useState('');
+   const [message, setMessage] = useState<string | null>(null);
++  const [images, setImages] = useState<SelectedLocalImage[]>([]);
+ 
+   const loadTicket = useCallback(async () => {
+     setLoading(true); setMessage(null);
+@@ -39,7 +43,12 @@ export function SupportTicketDetailScreen() {
+     if (!body.trim()) return;
+     setSending(true); setMessage(null);
+-    try { await api.support.sendMessage(route.params.ticketId, { body: body.trim() }); setBody(''); await loadTicket(); }
++    try {
++      const mediaIds = await uploadSelectedImages(images);
++      await api.support.sendMessage(route.params.ticketId, { body: body.trim(), mediaIds });
++      setBody(''); setImages([]);
++      await loadTicket();
++    }
+     catch (caughtError) { setMessage(getFriendlyApiErrorMessage(caughtError)); }
+     finally { setSending(false); }
+   }
+@@ -57,8 +66,8 @@ export function SupportTicketDetailScreen() {
+     <View style={styles.header}><SemanticBadge label="Support ticket" tone="instruction" /><AppText style={styles.title}>{ticket?.subject ?? route.params.subject ?? 'Support ticket'}</AppText><AppText style={styles.subtitle}>Support messages are for admin help and feedback. Proposal conversations stay inside proposals.</AppText></View>
+     {message ? <InfoNotice tone="warning" title="Support message" body={message} /> : null}
+-    {ticket ? <><AppCard><View style={styles.badgeRow}><StatusBadge status={ticket.status} /><SemanticBadge label={labelize(ticket.category)} tone="info" /><SemanticBadge label={ticket.priority} tone={ticket.priority === 'urgent' ? 'danger' : ticket.priority === 'high' ? 'warning' : 'muted'} /></View><AppText style={styles.cardText}>{ticket.message}</AppText>{ticket.relatedTradeId ? <SemanticBadge label={`trade ${ticket.relatedTradeId}`} tone="trade" size="sm" /> : null}{ticket.relatedProposalId ? <SemanticBadge label={`proposal ${ticket.relatedProposalId}`} tone="proposal" size="sm" /> : null}{ticket.relatedMediaId ? <SemanticBadge label={`media ${ticket.relatedMediaId}`} tone="warning" size="sm" /> : null}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Conversation</AppText>{ticket.messages?.map((item) => <View key={item.id} style={[styles.messageBubble, item.senderRole === 'admin' ? styles.adminBubble : styles.userBubble]}><View style={styles.badgeRow}><SemanticBadge label={senderLabel(item.senderRole, item.sender?.profile?.displayName ?? item.sender?.email)} tone={item.senderRole === 'admin' ? 'admin' : 'info'} size="sm" />{item.internal ? <SemanticBadge label="internal" tone="warning" size="sm" /> : null}</View><AppText style={styles.messageText}>{item.body}</AppText><AppText style={styles.dateText}>{new Date(item.createdAt).toLocaleString()}</AppText></View>)}{ticket.messages?.length === 0 ? <AppText style={styles.cardText}>No messages yet.</AppText> : null}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>{isClosed ? 'Ticket closed' : 'Reply to support'}</AppText>{isClosed ? <InfoNotice tone="admin" title="Closed" body="This ticket is closed. Reopen it if you need to continue the conversation." /> : <><TextInput value={body} onChangeText={setBody} placeholder="Write a reply..." style={[styles.input, styles.textArea]} multiline textAlignVertical="top" /><Button title={sending ? 'Sending...' : 'Send reply'} disabled={sending} onPress={() => { void sendMessage(); }} /></>}<Button title={isClosed ? 'Reopen ticket' : 'Close ticket'} color={isClosed ? '#0F766E' : '#B91C1C'} disabled={sending} onPress={() => { void setStatus(isClosed ? 'open' : 'closed'); }} /></AppCard></> : <AppCard><AppText style={styles.cardText}>Ticket could not be loaded.</AppText></AppCard>}
++    {ticket ? <><AppCard><View style={styles.badgeRow}><StatusBadge status={ticket.status} /><SemanticBadge label={labelize(ticket.category)} tone="info" /><SemanticBadge label={ticket.priority} tone={ticket.priority === 'urgent' ? 'danger' : ticket.priority === 'high' ? 'warning' : 'muted'} /></View><AppText style={styles.cardText}>{ticket.message}</AppText><MediaStrip media={ticket.media} size="large" />{ticket.relatedTradeId ? <SemanticBadge label={`trade ${ticket.relatedTradeId}`} tone="trade" size="sm" /> : null}{ticket.relatedProposalId ? <SemanticBadge label={`proposal ${ticket.relatedProposalId}`} tone="proposal" size="sm" /> : null}{ticket.relatedMediaId ? <SemanticBadge label={`media ${ticket.relatedMediaId}`} tone="warning" size="sm" /> : null}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Conversation</AppText>{ticket.messages?.map((item) => <View key={item.id} style={[styles.messageBubble, item.senderRole === 'admin' ? styles.adminBubble : styles.userBubble]}><View style={styles.badgeRow}><SemanticBadge label={senderLabel(item.senderRole, item.sender?.profile?.displayName ?? item.sender?.email)} tone={item.senderRole === 'admin' ? 'admin' : 'info'} size="sm" />{item.internal ? <SemanticBadge label="internal" tone="warning" size="sm" /> : null}</View><AppText style={styles.messageText}>{item.body}</AppText><MediaStrip media={item.media} /><AppText style={styles.dateText}>{new Date(item.createdAt).toLocaleString()}</AppText></View>)}{ticket.messages?.length === 0 ? <AppText style={styles.cardText}>No messages yet.</AppText> : null}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>{isClosed ? 'Ticket closed' : 'Reply to support'}</AppText>{isClosed ? <InfoNotice tone="admin" title="Closed" body="This ticket is closed. Reopen it if you need to continue the conversation." /> : <><TextInput value={body} onChangeText={setBody} placeholder="Write a reply..." style={[styles.input, styles.textArea]} multiline textAlignVertical="top" /><ImagePickerField images={images} onChange={setImages} disabled={sending} label="Attach images" hint="Attach screenshots or photos that help support understand your reply." /><Button title={sending ? 'Sending...' : 'Send reply'} disabled={sending} onPress={() => { void sendMessage(); }} /></>}<Button title={isClosed ? 'Reopen ticket' : 'Close ticket'} color={isClosed ? '#0F766E' : '#B91C1C'} disabled={sending} onPress={() => { void setStatus(isClosed ? 'open' : 'closed'); }} /></AppCard></> : <AppCard><AppText style={styles.cardText}>Ticket could not be loaded.</AppText></AppCard>}
+     <Button title="Back to Support" onPress={() => navigation.goBack()} />
+   </ScrollView></AppScreen>;
+ }

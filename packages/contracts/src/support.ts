@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { mediaAssetSchema } from './media.js';
 
 export const supportTicketCategorySchema = z.enum([
   'general_feedback',
@@ -22,10 +23,12 @@ export const createSupportTicketRequestSchema = z.object({
   relatedTradeId: z.string().min(1).optional(),
   relatedProposalId: z.string().min(1).optional(),
   relatedMediaId: z.string().min(1).optional(),
+  mediaIds: z.array(z.string()).max(5).optional(),
 });
 
 export const createSupportMessageRequestSchema = z.object({
   body: z.string().min(1).max(4000),
+  mediaIds: z.array(z.string()).max(5).optional(),
 });
 
 export const updateSupportTicketStatusRequestSchema = z.object({
@@ -42,6 +45,7 @@ export const adminCreateSupportMessageRequestSchema = z.object({
   body: z.string().min(1).max(4000),
   internal: z.boolean().optional(),
   status: supportTicketStatusSchema.optional(),
+  mediaIds: z.array(z.string()).max(5).optional(),
 });
 
 export const supportUserPreviewSchema = z.object({
@@ -59,6 +63,7 @@ export const supportTicketMessageSchema = z.object({
   internal: z.boolean(),
   createdAt: z.string(),
   sender: supportUserPreviewSchema.optional(),
+  media: z.array(mediaAssetSchema).optional(),
 });
 
 export const supportTicketSchema = z.object({
@@ -79,6 +84,7 @@ export const supportTicketSchema = z.object({
   user: supportUserPreviewSchema.optional(),
   assignedAdmin: supportUserPreviewSchema.optional(),
   messages: z.array(supportTicketMessageSchema).optional(),
+  media: z.array(mediaAssetSchema).optional(),
 });
 
 export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;

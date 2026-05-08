@@ -11,7 +11,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { CreditPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { modeLabel } from './components/InventoryFormFields';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
 
@@ -64,12 +64,19 @@ function buildExpiresAt(days: number | null) {
   return expiresAt.toISOString();
 }
 
+function parseMoneyAmount(value: string) {
+  const normalized = value.trim().replace(',', '.');
+  const amount = normalized.length === 0 ? 0 : Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || amount < 0) return Number.NaN;
+  return Math.round(amount * 100);
+}
+
 export function CreateTradeScreen({ navigation }: Props) {
   const [needs, setNeeds] = useState<NeedItem[]>([]);
   const [offers, setOffers] = useState<OfferItem[]>([]);
   const [selectedNeedId, setSelectedNeedId] = useState<string | null>(null);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
-  const [creditAmount, setCreditAmount] = useState('25');
+  const [walletAmount, setWalletAmount] = useState('0');
   const [expiryDays, setExpiryDays] = useState<number | null>(14);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -79,7 +86,7 @@ export function CreateTradeScreen({ navigation }: Props) {
   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
   const selectedNeed = useMemo(() => usableNeeds.find((need) => need.id === selectedNeedId) ?? null, [selectedNeedId, usableNeeds]);
   const selectedOffer = useMemo(() => usableOffers.find((offer) => offer.id === selectedOfferId) ?? null, [selectedOfferId, usableOffers]);
-  const previewCredits = Number.parseInt(creditAmount, 10);
+  const previewAmountCents = parseMoneyAmount(walletAmount);
 
   const loadInventory = useCallback(async () => {
     setLoading(true);
@@ -116,7 +123,7 @@ export function CreateTradeScreen({ navigation }: Props) {
   }, [loadInventory]));
 
   async function handlePublish() {
-    const parsedCredits = Number.parseInt(creditAmount, 10);
+    const amountCents = parseMoneyAmount(walletAmount);
 
     if (!selectedNeed) {
       setError('Choose one saved need before publishing.');
@@ -126,8 +133,8 @@ export function CreateTradeScreen({ navigation }: Props) {
       setError('Choose one saved offer before publishing.');
       return;
     }
-    if (!Number.isFinite(parsedCredits) || parsedCredits <= 0) {
-      setError('Credit amount must be a positive whole number.');
+    if (!Number.isFinite(amountCents)) {
+      setError('Wallet amount must be zero or a valid money amount.');
       return;
     }
 
@@ -138,7 +145,9 @@ export function CreateTradeScreen({ navigation }: Props) {
       const result = await api.trades.create({
         needId: selectedNeed.id,
         offerId: selectedOffer.id,
-        creditAmount: parsedCredits,
+        creditAmount: 0,
+        amountCents,
+        currency: 'eur',
         expiresAt: buildExpiresAt(expiryDays),
       }) as CreateTradeResponse;
 
@@ -146,7 +155,9 @@ export function CreateTradeScreen({ navigation }: Props) {
         tradeId: result.trade.id,
         title: result.trade.title,
         description: result.trade.description,
-        creditAmount: result.trade.creditAmount,
+        amountCents: result.trade.amountCents ?? 0,
+        currency: result.trade.currency ?? 'eur',
+        creditAmount: result.trade.creditAmount ?? 0,
         status: result.trade.status,
         expiresAt: result.trade.expiresAt ?? null,
       });
@@ -198,20 +209,20 @@ export function CreateTradeScreen({ navigation }: Props) {
         />
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Credits and expiry</AppText>
+          <AppText style={styles.sectionTitle}>Wallet and expiry</AppText>
           <View style={styles.field}>
-            <AppText style={styles.label}>Credit amount</AppText>
+            <AppText style={styles.label}>Optional wallet amount</AppText>
             <TextInput
-              value={creditAmount}
-              onChangeText={setCreditAmount}
-              placeholder="25"
+              value={walletAmount}
+              onChangeText={setWalletAmount}
+              placeholder="0"
               placeholderTextColor="#94A3B8"
-              keyboardType="number-pad"
+              keyboardType="decimal-pad"
               editable={!submitting}
               style={styles.input}
             />
           </View>
-          {Number.isFinite(previewCredits) && previewCredits > 0 ? <CreditPill amount={previewCredits} label="credits" /> : null}
+          {Number.isFinite(previewAmountCents) && previewAmountCents > 0 ? <MoneyPill amountCents={previewAmountCents} currency="eur" label="optional" /> : null}
 
           <View style={styles.field}>
             <AppText style={styles.label}>Expiry</AppText>
@@ -235,7 +246,7 @@ export function CreateTradeScreen({ navigation }: Props) {
 
         <AppCard>
           <AppText style={styles.sectionTitle}>Deck preview</AppText>
-          <TradeSummaryPreview need={selectedNeed} offer={selectedOffer} credits={previewCredits} />
+          <TradeSummaryPreview need={selectedNeed} offer={selectedOffer} amountCents={previewAmountCents} />
           <InfoNotice tone="info" body="Only approved Need and Offer images appear in public decks. Pending images stay visible to you while admin reviews them." />
         </AppCard>
 
@@ -316,7 +327,7 @@ function InventorySection({
   );
 }
 
-function TradeSummaryPreview({ need, offer, credits }: { need: NeedItem | null; offer: OfferItem | null; credits: number }) {
+function TradeSummaryPreview({ need, offer, amountCents }: { need: NeedItem | null; offer: OfferItem | null; amountCents: number }) {
   return (
     <View style={styles.previewCard}>
       <View style={styles.previewHeaderRow}>
@@ -342,7 +353,7 @@ function TradeSummaryPreview({ need, offer, credits }: { need: NeedItem | null; 
         <AppText style={styles.previewMeta}>{offer ? offerMeta(offer) || 'Offer details' : 'Category · Availability · Mode'}</AppText>
       </View>
 
-      {Number.isFinite(credits) && credits > 0 ? <AppText style={styles.previewCredits}>{credits} credits</AppText> : null}
+      {Number.isFinite(amountCents) && amountCents > 0 ? <MoneyPill amountCents={amountCents} currency="eur" label="optional" /> : null}
     </View>
   );
 }

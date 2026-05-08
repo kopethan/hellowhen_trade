@@ -1,0 +1,789 @@
+diff -ruN ./apps/api/prisma/migrations/20260508130000_wallet_money_fields/migration.sql ../phase12_edit/apps/api/prisma/migrations/20260508130000_wallet_money_fields/migration.sql
+--- ./apps/api/prisma/migrations/20260508130000_wallet_money_fields/migration.sql	1970-01-01 00:00:00.000000000 +0000
++++ ../phase12_edit/apps/api/prisma/migrations/20260508130000_wallet_money_fields/migration.sql	2026-05-08 11:53:17.320902949 +0000
+@@ -0,0 +1,34 @@
++-- Phase 12: optional wallet money alongside legacy credits.
++-- Existing credit columns are kept for compatibility, but new mobile/API paths use amountCents + currency.
++
++ALTER TABLE "Trade"
++  ADD COLUMN "amountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'eur',
++  ALTER COLUMN "creditAmount" SET DEFAULT 0;
++
++ALTER TABLE "Wallet"
++  ADD COLUMN "availableBalanceCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "heldBalanceCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "pendingPayoutCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'eur';
++
++ALTER TABLE "CreditLedgerEntry"
++  ADD COLUMN "amountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'eur';
++
++ALTER TABLE "TradePayment"
++  ADD COLUMN "amountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'eur',
++  ADD COLUMN "platformFeeCents" INTEGER NOT NULL DEFAULT 0,
++  ALTER COLUMN "creditAmount" SET DEFAULT 0;
++
++ALTER TABLE "TradeEscrow"
++  ADD COLUMN "heldAmountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'eur',
++  ALTER COLUMN "heldCredits" SET DEFAULT 0;
++
++ALTER TABLE "PayoutRequest"
++  ADD COLUMN "amountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'eur';
++
++CREATE INDEX "Trade_amountCents_idx" ON "Trade"("amountCents");
+diff -ruN ./apps/api/prisma/schema.prisma ../phase12_edit/apps/api/prisma/schema.prisma
+--- ./apps/api/prisma/schema.prisma	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/prisma/schema.prisma	2026-05-08 11:53:17.320441551 +0000
+@@ -285,7 +285,9 @@
+   offerId      String?
+   title        String
+   description  String
+-  creditAmount Int
++  creditAmount Int         @default(0)
++  amountCents  Int         @default(0)
++  currency     String      @default("eur")
+   status       TradeStatus @default(draft)
+   isPublic     Boolean     @default(false)
+   createdAt    DateTime    @default(now())
+@@ -434,6 +436,10 @@
+   earnedPendingCredits       Int      @default(0)
+   earnedAvailableCredits     Int      @default(0)
+   heldCredits                Int      @default(0)
++  availableBalanceCents      Int      @default(0)
++  heldBalanceCents           Int      @default(0)
++  pendingPayoutCents         Int      @default(0)
++  currency                   String   @default("eur")
+   createdAt                  DateTime @default(now())
+   updatedAt                  DateTime @updatedAt
+ 
+@@ -449,6 +455,8 @@
+   type        LedgerEntryType
+   balanceType LedgerBalanceType
+   amount      Int
++  amountCents Int               @default(0)
++  currency    String            @default("eur")
+   description String?
+   metadata    Json?
+   createdAt   DateTime          @default(now())
+@@ -467,8 +475,11 @@
+   tradeId        String             @unique
+   buyerId        String
+   sellerId       String?
+-  creditAmount   Int
++  creditAmount   Int                @default(0)
++  amountCents    Int                @default(0)
++  currency       String             @default("eur")
+   platformFee    Int                @default(0)
++  platformFeeCents Int              @default(0)
+   status         TradePaymentStatus @default(draft)
+   createdAt      DateTime           @default(now())
+   updatedAt      DateTime           @updatedAt
+@@ -479,7 +490,9 @@
+ model TradeEscrow {
+   id              String   @id @default(cuid())
+   tradeId         String   @unique
+-  heldCredits     Int
++  heldCredits     Int      @default(0)
++  heldAmountCents Int      @default(0)
++  currency        String   @default("eur")
+   holdReleasedAt  DateTime?
+   createdAt       DateTime @default(now())
+   updatedAt       DateTime @updatedAt
+@@ -491,6 +504,8 @@
+   id          String              @id @default(cuid())
+   userId      String
+   amount      Int
++  amountCents Int                 @default(0)
++  currency    String              @default("eur")
+   status      PayoutRequestStatus @default(draft)
+   requestedAt DateTime            @default(now())
+   reviewedAt  DateTime?
+diff -ruN ./apps/api/src/modules/credits/creditPackages.ts ../phase12_edit/apps/api/src/modules/credits/creditPackages.ts
+--- ./apps/api/src/modules/credits/creditPackages.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/src/modules/credits/creditPackages.ts	2026-05-08 11:56:54.921309841 +0000
+@@ -12,10 +12,10 @@
+ export function getCreditPackages(): CreditPackage[] {
+   const currency = env.stripeCurrency;
+   return [
+-    { id: 'credits_50', label: '50 credits', creditAmount: 50, amountCents: 500, currency, description: 'Small test top-up for trying the trade flow.' },
+-    { id: 'credits_100', label: '100 credits', creditAmount: 100, amountCents: 1000, currency, description: 'Starter test balance for a few trades.' },
+-    { id: 'credits_250', label: '250 credits', creditAmount: 250, amountCents: 2500, currency, description: 'More room to test proposal accept and escrow flows.' },
+-    { id: 'credits_500', label: '500 credits', creditAmount: 500, amountCents: 5000, currency, description: 'Large fake/test credit pack for demos.' },
++    { id: 'money_50', label: '€5 wallet', creditAmount: 50, amountCents: 500, currency, description: 'Small wallet top-up for trying the trade flow.' },
++    { id: 'money_100', label: '€10 wallet', creditAmount: 100, amountCents: 1000, currency, description: 'Starter test balance for a few trades.' },
++    { id: 'money_250', label: '€25 wallet', creditAmount: 250, amountCents: 2500, currency, description: 'More room to test proposal accept and escrow flows.' },
++    { id: 'money_500', label: '€50 wallet', creditAmount: 500, amountCents: 5000, currency, description: 'Large wallet money pack for demos.' },
+   ];
+ }
+ 
+diff -ruN ./apps/api/src/modules/credits/credits.routes.ts ../phase12_edit/apps/api/src/modules/credits/credits.routes.ts
+--- ./apps/api/src/modules/credits/credits.routes.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/src/modules/credits/credits.routes.ts	2026-05-08 11:56:06.307548234 +0000
+@@ -42,8 +42,8 @@
+     mode: 'payment',
+     payment_method_types: ['card'],
+     client_reference_id: purchase.id,
+-    success_url: `${env.webAppUrl.replace(/\/$/, '')}/credits/success?session_id={CHECKOUT_SESSION_ID}`,
+-    cancel_url: `${env.webAppUrl.replace(/\/$/, '')}/credits/cancel`,
++    success_url: `${env.webAppUrl.replace(/\/$/, '')}/wallet/success?session_id={CHECKOUT_SESSION_ID}`,
++    cancel_url: `${env.webAppUrl.replace(/\/$/, '')}/wallet/cancel`,
+     line_items: [
+       {
+         quantity: 1,
+@@ -52,7 +52,7 @@
+           unit_amount: creditPackage.amountCents,
+           product_data: {
+             name: `Hellowhen ${creditPackage.label}`,
+-            description: 'Fake/test credits only. Purchased credits are non-withdrawable.'
++            description: 'Wallet top-up for optional trade amounts. Payouts are enabled separately.'
+           }
+         }
+       }
+@@ -62,7 +62,7 @@
+       userId: req.user!.id,
+       creditAmount: String(creditPackage.creditAmount),
+       nonWithdrawable: 'true',
+-      creditsMode: 'test'
++      walletMoney: 'optional'
+     }
+   });
+ 
+diff -ruN ./apps/api/src/modules/proposals/proposals.routes.ts ../phase12_edit/apps/api/src/modules/proposals/proposals.routes.ts
+--- ./apps/api/src/modules/proposals/proposals.routes.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/src/modules/proposals/proposals.routes.ts	2026-05-08 11:56:06.305821369 +0000
+@@ -46,7 +46,7 @@
+       return res.json({ proposal: updated, trade });
+     } catch (error) {
+       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
+-      if (code === 'INSUFFICIENT_FAKE_CREDITS') return res.status(400).json({ error: 'insufficient_fake_credits', message: 'Not enough fake/test credits to accept this proposal.' });
++      if (code === 'INSUFFICIENT_WALLET_BALANCE') return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'Not enough wallet balance to accept this proposal.' });
+       if (code === 'INVALID_TRADE_STATUS_TRANSITION') return res.status(409).json({ error: 'invalid_trade_status_transition' });
+       if (code === 'TRADE_ALREADY_HAS_PROVIDER') return res.status(409).json({ error: 'trade_already_has_provider', message: 'This trade already has an accepted provider.' });
+       if (code === 'FORBIDDEN') return res.status(403).json({ error: 'forbidden' });
+diff -ruN ./apps/api/src/modules/stripe/stripeWebhook.routes.ts ../phase12_edit/apps/api/src/modules/stripe/stripeWebhook.routes.ts
+--- ./apps/api/src/modules/stripe/stripeWebhook.routes.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/src/modules/stripe/stripeWebhook.routes.ts	2026-05-08 11:53:17.332358899 +0000
+@@ -25,7 +25,7 @@
+ 
+     await tx.wallet.update({
+       where: { id: wallet.id },
+-      data: { purchasedAvailableCredits: { increment: purchase.creditAmount } }
++      data: { availableBalanceCents: { increment: purchase.amountCents }, currency: purchase.currency }
+     });
+ 
+     await tx.creditLedgerEntry.create({
+@@ -34,8 +34,10 @@
+         walletId: wallet.id,
+         type: 'credit_purchase',
+         balanceType: 'purchased',
+-        amount: purchase.creditAmount,
+-        description: `Stripe test purchase: ${purchase.creditAmount} non-withdrawable credits`,
++        amount: 0,
++        amountCents: purchase.amountCents,
++        currency: purchase.currency,
++        description: `Wallet top-up: ${(purchase.amountCents / 100).toFixed(2)} ${purchase.currency.toUpperCase()}`,
+         metadata: {
+           purchaseId: purchase.id,
+           stripeCheckoutSessionId: session.id,
+diff -ruN ./apps/api/src/modules/trades/trades.routes.ts ../phase12_edit/apps/api/src/modules/trades/trades.routes.ts
+--- ./apps/api/src/modules/trades/trades.routes.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/src/modules/trades/trades.routes.ts	2026-05-08 11:53:17.331576580 +0000
+@@ -17,16 +17,21 @@
+     if (trade.ownerId !== ownerId) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' });
+     if (trade.status !== 'active') throw Object.assign(new Error('invalid_trade_status_transition'), { code: 'INVALID_TRADE_STATUS_TRANSITION' });
+     if (trade.providerId || trade.payment?.status === 'held') throw Object.assign(new Error('trade_already_has_provider'), { code: 'TRADE_ALREADY_HAS_PROVIDER' });
+-    let wallet = await tx.wallet.findUnique({ where: { userId: ownerId } });
+-    if (!wallet) wallet = await tx.wallet.create({ data: { userId: ownerId } });
+-    const available = wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits;
+-    if (available < trade.creditAmount) throw Object.assign(new Error('insufficient_fake_credits'), { code: 'INSUFFICIENT_FAKE_CREDITS' });
+-    const fromPurchased = Math.min(wallet.purchasedAvailableCredits, trade.creditAmount);
+-    const fromEarnedAvailable = trade.creditAmount - fromPurchased;
+-    const updatedWallet = await tx.wallet.update({ where: { id: wallet.id }, data: { purchasedAvailableCredits: { decrement: fromPurchased }, earnedAvailableCredits: { decrement: fromEarnedAvailable }, heldCredits: { increment: trade.creditAmount } } });
+-    await tx.creditLedgerEntry.create({ data: { userId: ownerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: trade.creditAmount, description: `Fake credits held after accepting proposal for trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, proposalId, applicantId, fromPurchased, fromEarnedAvailable } } });
+-    await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId: ownerId, sellerId: applicantId, creditAmount: trade.creditAmount, status: 'held' }, create: { tradeId: trade.id, buyerId: ownerId, sellerId: applicantId, creditAmount: trade.creditAmount, status: 'held' } });
+-    await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: trade.creditAmount, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: trade.creditAmount } });
++
++    const amountCents = trade.amountCents ?? 0;
++    const currency = trade.currency || 'eur';
++
++    if (amountCents > 0) {
++      let wallet = await tx.wallet.findUnique({ where: { userId: ownerId } });
++      if (!wallet) wallet = await tx.wallet.create({ data: { userId: ownerId, currency } });
++      if (wallet.availableBalanceCents < amountCents) throw Object.assign(new Error('insufficient_wallet_balance'), { code: 'INSUFFICIENT_WALLET_BALANCE' });
++
++      const updatedWallet = await tx.wallet.update({ where: { id: wallet.id }, data: { availableBalanceCents: { decrement: amountCents }, heldBalanceCents: { increment: amountCents }, currency } });
++      await tx.creditLedgerEntry.create({ data: { userId: ownerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, walletMoney: true } } });
++      await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' } });
++      await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: 0, heldAmountCents: amountCents, currency, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: 0, heldAmountCents: amountCents, currency } });
++    }
++
+     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
+     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+     return tx.trade.update({ where: { id: trade.id }, data: { providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
+@@ -87,37 +92,38 @@
+   if (!isOwner && !isProvider) return res.status(403).json({ error: 'forbidden' });
+   if (input.status === trade.status) return res.json({ trade });
+   if (input.status === 'completed') {
+-    if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete and release fake credits.' });
+-    if (!['in_progress', 'submitted'].includes(trade.status) || trade.payment?.status !== 'held') return res.status(409).json({ error: 'invalid_trade_status_transition' });
++    if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete this trade.' });
++    if (!['in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+     const updated = await prisma.$transaction(async (tx) => {
+       const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
+-      if (!payment || payment.status !== 'held') throw new Error('missing_held_payment');
+-      const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+-      if (!buyerWallet) throw new Error('missing_buyer_wallet');
+-      const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
+-      let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
+-      if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId } });
+-      await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldCredits: { decrement: payment.creditAmount } } });
+-      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: -payment.creditAmount, description: `Fake held credits released for completed trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, providerId: sellerId } } });
+-      await tx.wallet.update({ where: { id: sellerWallet.id }, data: { earnedPendingCredits: { increment: payment.creditAmount } } });
+-      await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: payment.creditAmount, description: `Fake earned credits pending for completed trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, payoutEligibleLater: true } } });
+-      await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
+-      await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
++      if (payment?.status === 'held' && payment.amountCents > 0) {
++        const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
++        if (!buyerWallet) throw new Error('missing_buyer_wallet');
++        const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
++        let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
++        if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId, currency: payment.currency } });
++        await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents } } });
++        await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold released for completed trade: ${trade.title}`, metadata: { providerId: sellerId, walletMoney: true } } });
++        await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { increment: payment.amountCents }, currency: payment.currency } });
++        await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money pending payout for completed trade: ${trade.title}`, metadata: { payoutEligibleLater: true, walletMoney: true } } });
++        await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
++        await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
++      }
+       return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
+     });
+-    return res.json({ trade: updated });
++    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
+   }
+   if (input.status === 'cancelled') {
+     if (!isOwner && !(isProvider && trade.status === 'in_progress')) return res.status(403).json({ error: 'forbidden' });
+     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+     const updated = await prisma.$transaction(async (tx) => {
+       const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
+-      if (payment?.status === 'held') {
++      if (payment?.status === 'held' && payment.amountCents > 0) {
+         const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+         if (buyerWallet) {
+-          const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldCredits: { decrement: payment.creditAmount }, purchasedAvailableCredits: { increment: payment.creditAmount } } });
+-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: -payment.creditAmount, description: `Fake held credits refunded for cancelled trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, cancelledBy: actorId } } });
+-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: payment.creditAmount, description: `Fake credits returned after cancelled trade: ${trade.title}`, metadata: { fakeCreditsOnly: true, cancelledBy: actorId } } });
++          const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents }, availableBalanceCents: { increment: payment.amountCents } } });
++          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold refunded for cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
++          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
+         }
+         await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
+         await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+diff -ruN ./apps/api/src/modules/wallet/wallet.routes.ts ../phase12_edit/apps/api/src/modules/wallet/wallet.routes.ts
+--- ./apps/api/src/modules/wallet/wallet.routes.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/api/src/modules/wallet/wallet.routes.ts	2026-05-08 11:53:17.331905146 +0000
+@@ -6,7 +6,12 @@
+ export const walletRoutes = Router();
+ walletRoutes.use(requireAuth);
+ walletRoutes.get('/me', asyncRoute(async (req, res) => {
+-  const wallet = await prisma.wallet.findUnique({ where: { userId: req.user!.id }, include: { entries: { orderBy: { createdAt: 'desc' }, take: 25 } } });
++  const wallet = await prisma.wallet.upsert({
++    where: { userId: req.user!.id },
++    update: {},
++    create: { userId: req.user!.id },
++    include: { entries: { orderBy: { createdAt: 'desc' }, take: 25 } }
++  });
+   res.json({ wallet });
+ }));
+ walletRoutes.get('/ledger', asyncRoute(async (req, res) => {
+diff -ruN ./apps/mobile/src/components/SemanticUI.tsx ../phase12_edit/apps/mobile/src/components/SemanticUI.tsx
+--- ./apps/mobile/src/components/SemanticUI.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/components/SemanticUI.tsx	2026-05-08 11:54:36.373837032 +0000
+@@ -1,7 +1,7 @@
+ import React from 'react';
+ import { StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
+ import { semanticColors, semanticStatusTone, type SemanticColorName } from '@hellowhen/theme';
+-import { formatCredits } from '@hellowhen/shared';
++import { formatCredits, formatMoney } from '@hellowhen/shared';
+ import { AppText } from './AppText';
+ 
+ type BadgeSize = 'sm' | 'md';
+@@ -43,6 +43,16 @@
+       <AppText style={[styles.creditLabel, { color: color.text }]}>{label}</AppText>
+     </View>
+   );
++}
++
++export function MoneyPill({ amountCents, currency = 'eur', label = 'wallet', tone = 'credits' }: { amountCents: number; currency?: string; label?: string; tone?: SemanticColorName }) {
++  const color = semanticColors[tone];
++  return (
++    <View style={[styles.creditPill, { backgroundColor: color.softBg, borderColor: color.border }]}>
++      <AppText style={[styles.creditAmount, { color: color.text }]}>{formatMoney(amountCents, currency)}</AppText>
++      <AppText style={[styles.creditLabel, { color: color.text }]}>{label}</AppText>
++    </View>
++  );
+ }
+ 
+ export function InfoNotice({ title, body, tone = 'info' }: { title?: string; body: string; tone?: SemanticColorName }) {
+diff -ruN ./apps/mobile/src/features/account/AccountScreen.tsx ../phase12_edit/apps/mobile/src/features/account/AccountScreen.tsx
+--- ./apps/mobile/src/features/account/AccountScreen.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-08 11:54:27.676127892 +0000
+@@ -3,27 +3,21 @@
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { WalletDto, LedgerEntryDto } from '@hellowhen/contracts';
+-import { formatCredits } from '@hellowhen/shared';
++import { formatMoney } from '@hellowhen/shared';
+ import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { CreditPill, InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+-const formatLedgerType = (type: string) => type.replaceAll('_', ' ');
+-const formatLedgerAmount = (amount: number) => `${amount > 0 ? '+' : ''}${amount}`;
+-function ledgerTone(type: string, amount: number): SemanticColorName {
+-  if (type.includes('hold')) return 'time';
+-  if (type.includes('refund')) return 'warning';
+-  if (type.includes('release') || type.includes('earned')) return 'success';
+-  if (amount < 0) return 'danger';
+-  return 'credits';
+-}
++function formatLedgerType(type: string) { return type.replaceAll('_', ' '); }
++function entryAmount(entry: LedgerEntryDto) { if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}`; return entry.amount ? `${entry.amount > 0 ? '+' : ''}${entry.amount} legacy credits` : formatMoney(0, entry.currency ?? 'eur'); }
++function ledgerTone(type: string, amount: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amount < 0) return 'danger'; return 'credits'; }
+ 
+ export function AccountScreen() {
+   const auth = useAuth();
+@@ -41,18 +35,19 @@
+   useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
+ 
+   const displayName = auth.user?.profile?.displayName || auth.user?.email || 'Hellowhen member';
+-  const totalCredits = wallet ? wallet.purchasedAvailableCredits + wallet.earnedPendingCredits + wallet.earnedAvailableCredits + wallet.heldCredits : 0;
+-  const recentEntries = wallet?.entries?.slice(0, 5) ?? [];
++  const currency = wallet?.currency ?? 'eur';
++  const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
++  const recentEntries = wallet?.entries?.slice(0, 4) ?? [];
+ 
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { void loadWallet(); }} />}>
+-    <View><AppText style={styles.title}>Account</AppText><AppText style={styles.subtitle}>Profile, semantic fake credits, settings, support, and logout live here.</AppText></View>
++    <View><AppText style={styles.title}>Account</AppText><AppText style={styles.subtitle}>Profile, wallet, settings, support, and logout live here.</AppText></View>
+     <AppCard><AppText style={styles.sectionTitle}>Profile</AppText><View style={styles.profileRow}><View style={styles.avatar} /><View style={styles.profileCopy}><AppText style={styles.profileName}>{displayName}</AppText><AppText style={styles.cardText}>{auth.user?.email ?? 'Signed in user'}</AppText></View></View></AppCard>
+-    <AppCard><View style={styles.sectionHeaderRow}><AppText style={styles.sectionTitle}>Wallet / Credits</AppText><SemanticBadge label="Fake test only" tone="info" size="sm" /></View><CreditPill amount={totalCredits} label="total fake credits" /><InfoNotice tone="info" title="Credit meaning" body="Gold marks credit values. Orange marks held/time-sensitive credits. Green marks earned or successful credit movement. Stripe test-mode purchases can add non-withdrawable credits. No real payouts or Stripe Connect are enabled." />{wallet ? <View style={styles.walletGrid}><WalletMetric label="Available" value={wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits} tone="credits" /><WalletMetric label="Held" value={wallet.heldCredits} tone="time" /><WalletMetric label="Pending earned" value={wallet.earnedPendingCredits} tone="success" /><WalletMetric label="Payout eligible" value={wallet.earnedAvailableCredits} tone="instruction" /></View> : null}<Button title="Buy Test Credits" onPress={() => navigation.navigate('BuyCredits')} />{walletError ? <InfoNotice tone="warning" title="Wallet fallback" body={walletError} /> : null}{loadingWallet ? <AppText style={styles.muted}>Refreshing wallet...</AppText> : null}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Recent ledger entries</AppText>{recentEntries.length === 0 ? <AppText style={styles.cardText}>No ledger entries yet. Starting, completing, or cancelling trades will add fake/test credit entries here.</AppText> : recentEntries.map((entry) => <View key={entry.id} style={styles.ledgerRow}><View style={styles.ledgerCopy}><SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amount)} size="sm" /><AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, entry.amount < 0 && styles.ledgerAmountNegative]}>{formatLedgerAmount(entry.amount)}</AppText></View>)}</AppCard>
+-    <AppCard><SemanticBadge label="Instruction" tone="instruction" size="sm" /><AppText style={styles.sectionTitle}>Settings</AppText><AppText style={styles.cardText}>Appearance, language, account, and notification controls stay here instead of becoming separate tabs.</AppText></AppCard>
+-    <AppCard><SemanticBadge label="Information" tone="info" size="sm" /><AppText style={styles.sectionTitle}>Support</AppText><AppText style={styles.cardText}>Send feedback, report a problem, ask for help, or follow up with admin support about trades, credits, images, bugs, and safety concerns.</AppText><Button title="Open Support Center" onPress={() => navigation.navigate('SupportCenter')} /></AppCard>
++    <AppCard><View style={styles.sectionHeaderRow}><AppText style={styles.sectionTitle}>Wallet</AppText><SemanticBadge label="Optional money" tone="info" size="sm" /></View><MoneyPill amountCents={total} currency={currency} label="total" /><InfoNotice tone="info" title="Money in trades" body="Trades are service-for-service by default. Wallet money is optional and can be held only when a trade includes an amount." />{wallet ? <View style={styles.walletGrid}><WalletMetric label="Available" value={wallet.availableBalanceCents} currency={currency} tone="credits" /><WalletMetric label="Held" value={wallet.heldBalanceCents} currency={currency} tone="time" /><WalletMetric label="Pending payout" value={wallet.pendingPayoutCents} currency={currency} tone="success" /></View> : null}<Button title="Open Wallet" onPress={() => navigation.navigate('Wallet')} />{walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Recent activity</AppText>{recentEntries.length === 0 ? <AppText style={styles.cardText}>No wallet activity yet.</AppText> : recentEntries.map((entry) => <View key={entry.id} style={styles.ledgerRow}><View style={styles.ledgerCopy}><SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" /><AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText></View>)}</AppCard>
++    <AppCard><SemanticBadge label="Settings" tone="instruction" size="sm" /><AppText style={styles.sectionTitle}>Settings</AppText><AppText style={styles.cardText}>Appearance, language, account, and notification controls.</AppText></AppCard>
++    <AppCard><SemanticBadge label="Support" tone="info" size="sm" /><AppText style={styles.sectionTitle}>Support</AppText><AppText style={styles.cardText}>Send feedback, report a problem, ask for help, or follow up with admin support about trades, wallet, images, bugs, and safety concerns.</AppText><Button title="Open Support Center" onPress={() => navigation.navigate('SupportCenter')} /></AppCard>
+     <Button title="Logout" color="#B91C1C" onPress={() => { void auth.logout(); }} />
+   </ScrollView></AppScreen>;
+ }
+-function WalletMetric({ label, value, tone }: { label: string; value: number; tone: SemanticColorName }) { return <View style={styles.metricBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatCredits(value)}</AppText></View>; }
+-const styles = StyleSheet.create({ content: { paddingBottom: 30, gap: 14 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { marginTop: 8, color: '#64748B', lineHeight: 20, fontWeight: '600' }, sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, sectionTitle: { fontSize: 22, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, muted: { color: '#64748B', fontWeight: '700' }, profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' }, profileCopy: { flex: 1 }, profileName: { fontSize: 20, fontWeight: '900' }, walletGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 8 }, metricValue: { fontSize: 18, fontWeight: '900' }, ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10 }, ledgerCopy: { flex: 1, gap: 6 }, ledgerDescription: { color: '#64748B', fontSize: 12, fontWeight: '700' }, ledgerAmount: { color: '#047857', fontSize: 18, fontWeight: '900' }, ledgerAmountNegative: { color: '#B91C1C' } });
++function WalletMetric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) { return <View style={styles.metricBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>; }
++const styles = StyleSheet.create({ content: { paddingBottom: 30, gap: 14 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { marginTop: 8, color: '#64748B', lineHeight: 20, fontWeight: '600' }, sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, sectionTitle: { fontSize: 22, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, profileRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' }, profileCopy: { flex: 1 }, profileName: { fontSize: 20, fontWeight: '900' }, walletGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 8 }, metricValue: { fontSize: 18, fontWeight: '900' }, ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10 }, ledgerCopy: { flex: 1, gap: 6 }, ledgerDescription: { color: '#64748B', fontSize: 12, fontWeight: '700' }, ledgerAmount: { color: '#047857', fontSize: 18, fontWeight: '900' }, ledgerAmountNegative: { color: '#B91C1C' } });
+diff -ruN ./apps/mobile/src/features/account/BuyCreditsScreen.tsx ../phase12_edit/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+--- ./apps/mobile/src/features/account/BuyCreditsScreen.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/account/BuyCreditsScreen.tsx	2026-05-08 11:55:45.468243459 +0000
+@@ -3,12 +3,12 @@
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { CreditPackageDto, CreditPurchaseDto } from '@hellowhen/contracts';
+-import { formatCredits } from '@hellowhen/shared';
++
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { CreditPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ 
+@@ -63,11 +63,11 @@
+   }
+ 
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Stripe test mode" tone="credits" /><AppText style={styles.title}>Buy Test Credits</AppText><AppText style={styles.subtitle}>Purchased credits are non-withdrawable and only used for testing Hellowhen trade flows.</AppText></View></View>
+-    {!stripeConfigured ? <InfoNotice tone="warning" title="Stripe not configured" body="Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to the API env before testing checkout. The rest of the app still works with fake credits." /> : <InfoNotice tone="info" title="Test mode only" body="Use Stripe test cards only. No real money, payouts, or Stripe Connect onboarding are enabled in this patch." />}
++    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Add Money</AppText><AppText style={styles.subtitle}>Wallet money is optional and can be used when a trade includes an amount.</AppText></View></View>
++    {!stripeConfigured ? <InfoNotice tone="warning" title="Stripe not configured" body="Add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET to the API env before testing checkout. The rest of the app still works for service-for-service trades." /> : <InfoNotice tone="info" title="Test mode only" body="Use Stripe test cards only until production payments and payouts are fully enabled." />}
+     {message ? <InfoNotice tone={message.includes('opened') ? 'success' : 'warning'} title="Credit purchase" body={message} /> : null}
+-    <AppCard><AppText style={styles.sectionTitle}>Credit packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><CreditPill amount={item.creditAmount} label="non-withdrawable credits" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No Stripe test purchases yet. Completed checkout sessions will become credit_purchase ledger entries after the webhook runs.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatCredits(purchase.creditAmount)} · {formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Money packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><MoneyPill amountCents={item.amountCents} currency={item.currency} label="wallet" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No wallet top-ups yet. Completed checkout sessions will appear here.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
+     <Button title="Back to Account" onPress={() => navigation.goBack()} />
+   </ScrollView></AppScreen>;
+ }
+diff -ruN ./apps/mobile/src/features/trade/CreateTradeScreen.tsx ../phase12_edit/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+--- ./apps/mobile/src/features/trade/CreateTradeScreen.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/trade/CreateTradeScreen.tsx	2026-05-08 11:54:04.707542933 +0000
+@@ -7,29 +7,57 @@
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { CreditPill, InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateTrade'>;
+-type CreateTradeResponse = { trade: { id: string; title: string; description: string; creditAmount: number; status: string; expiresAt?: string | null } };
++type CreateTradeResponse = { trade: { id: string; title: string; description: string; amountCents?: number; currency?: string; creditAmount?: number; status: string; expiresAt?: string | null } };
++
++function parseMoneyAmount(value: string) {
++  const normalized = value.trim().replace(',', '.');
++  const amount = normalized.length === 0 ? 0 : Number.parseFloat(normalized);
++  if (!Number.isFinite(amount) || amount < 0) return Number.NaN;
++  return Math.round(amount * 100);
++}
++
+ export function CreateTradeScreen({ navigation }: Props) {
+   const [title, setTitle] = useState('Need help editing a short launch video');
+   const [description, setDescription] = useState('Polish a 45-second launch video for social. Clips and copy are ready.');
+-  const [creditAmount, setCreditAmount] = useState('25');
++  const [walletAmount, setWalletAmount] = useState('0');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
++
+   async function handleCreate() {
+-    const cleanTitle = title.trim(); const cleanDescription = description.trim(); const parsedCredits = Number.parseInt(creditAmount, 10);
+-    if (cleanTitle.length < 3 || cleanDescription.length < 10) { setError('Add a title and a useful description before publishing.'); return; }
+-    if (!Number.isFinite(parsedCredits) || parsedCredits <= 0) { setError('Credit amount must be a positive whole number.'); return; }
+-    setSubmitting(true); setError(null);
+-    try { const mediaIds = await uploadSelectedImages(images); const result = await api.trades.create({ title: cleanTitle, description: cleanDescription, creditAmount: parsedCredits, mediaIds }) as CreateTradeResponse; navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, creditAmount: result.trade.creditAmount, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null }); }
+-    catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); }
+-    finally { setSubmitting(false); }
++    const cleanTitle = title.trim();
++    const cleanDescription = description.trim();
++    const amountCents = parseMoneyAmount(walletAmount);
++
++    if (cleanTitle.length < 3 || cleanDescription.length < 10) {
++      setError('Add a title and a useful description before publishing.');
++      return;
++    }
++    if (!Number.isFinite(amountCents)) {
++      setError('Wallet amount must be zero or a valid money amount.');
++      return;
++    }
++
++    setSubmitting(true);
++    setError(null);
++    try {
++      const mediaIds = await uploadSelectedImages(images);
++      const result = await api.trades.create({ title: cleanTitle, description: cleanDescription, amountCents, currency: 'eur', mediaIds }) as CreateTradeResponse;
++      navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null });
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSubmitting(false);
++    }
+   }
+-  const previewCredits = Number.parseInt(creditAmount, 10);
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppCard><SemanticBadge label="Trade" tone="trade" /><AppText style={styles.title}>Create Trade</AppText><InfoNotice tone="info" title="Public trade" body="Purple marks public trade discovery. Orange time labels are for deadlines; gold labels are fake/test credits only." />{error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}<TextInput value={title} onChangeText={setTitle} placeholder="Title" style={styles.input} editable={!submitting} /><TextInput value={description} onChangeText={setDescription} placeholder="Description" multiline style={[styles.input, styles.textarea]} textAlignVertical="top" editable={!submitting} /><TextInput value={creditAmount} onChangeText={setCreditAmount} placeholder="Credits" keyboardType="number-pad" style={styles.input} editable={!submitting} />{Number.isFinite(previewCredits) && previewCredits > 0 ? <CreditPill amount={previewCredits} label="fake test credits" /> : null}<ImagePickerField images={images} onChange={setImages} disabled={submitting} /><Button title={submitting ? 'Publishing...' : 'Create Public Trade'} disabled={submitting} onPress={handleCreate} /><Button title="Back" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
++
++  const previewAmountCents = parseMoneyAmount(walletAmount);
++
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppCard><SemanticBadge label="Trade" tone="trade" /><AppText style={styles.title}>Create Trade</AppText><InfoNotice tone="info" title="Optional wallet money" body="Most trades are service-for-service. Add a wallet amount only when you want money to be held after you accept a proposal." />{error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}<TextInput value={title} onChangeText={setTitle} placeholder="Title" style={styles.input} editable={!submitting} /><TextInput value={description} onChangeText={setDescription} placeholder="Description" multiline style={[styles.input, styles.textarea]} textAlignVertical="top" editable={!submitting} /><TextInput value={walletAmount} onChangeText={setWalletAmount} placeholder="Optional wallet amount" keyboardType="decimal-pad" style={styles.input} editable={!submitting} />{Number.isFinite(previewAmountCents) && previewAmountCents > 0 ? <MoneyPill amountCents={previewAmountCents} currency="eur" label="optional" /> : null}<ImagePickerField images={images} onChange={setImages} disabled={submitting} /><Button title={submitting ? 'Publishing...' : 'Create Public Trade'} disabled={submitting} onPress={handleCreate} /><Button title="Back" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
+ }
+ const styles = StyleSheet.create({ content: { paddingBottom: 28 }, title: { fontSize: 30, fontWeight: '900' }, input: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 12, fontSize: 16 }, textarea: { minHeight: 120 } });
+diff -ruN ./apps/mobile/src/features/trade/ProposalDetailScreen.tsx ../phase12_edit/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+--- ./apps/mobile/src/features/trade/ProposalDetailScreen.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/trade/ProposalDetailScreen.tsx	2026-05-08 11:56:33.920021288 +0000
+@@ -8,7 +8,7 @@
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { CreditPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useAuth } from '../../providers/AuthProvider';
+ import type { ProposalMessageItem, TradeProposalItem } from './types';
+ 
+@@ -32,14 +32,14 @@
+   const isApplicant = proposal?.applicantId === auth.user?.id;
+   const isAcceptedProvider = proposal?.trade?.providerId === auth.user?.id;
+   const canMessage = proposal ? !['declined', 'withdrawn'].includes(proposal.status) : false;
+-  const statusHint = useMemo(() => { if (!proposal) return ''; if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.'; if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and fake credits were held.'; if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.'; return 'Withdrawn. This proposal conversation is now closed.'; }, [proposal, isOwner]);
++  const statusHint = useMemo(() => { if (!proposal) return ''; if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.'; if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and wallet money was held when applicable.'; if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.'; return 'Withdrawn. This proposal conversation is now closed.'; }, [proposal, isOwner]);
+   async function sendMessage() { const trimmed = body.trim(); if (!trimmed) return; setSubmitting(true); setError(null); setNotice(null); try { await api.proposals.sendMessage(route.params.proposalId, { body: trimmed }); setBody(''); const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse; setMessages(messageResult.messages ?? []); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this message.')); } finally { setSubmitting(false); } }
+-  async function updateStatus(status: ProposalActionStatus) { setActionLoading(status); setError(null); setNotice(null); try { const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse; setProposal(result.proposal); setMessages(result.proposal.messages ?? messages); setNotice(status === 'accepted' ? 'Proposal accepted. Fake credits are now held and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.'); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); } finally { setActionLoading(null); } }
++  async function updateStatus(status: ProposalActionStatus) { setActionLoading(status); setError(null); setNotice(null); try { const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse; setProposal(result.proposal); setMessages(result.proposal.messages ?? messages); setNotice(status === 'accepted' ? 'Proposal accepted. Wallet money is now held when this trade includes an amount and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.'); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); } finally { setActionLoading(null); } }
+   if (!proposal) return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}><AppCard><SemanticBadge label="Proposal" tone="proposal" /><AppText style={styles.title}>Proposal</AppText>{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : <AppText style={styles.muted}>Loading proposal...</AppText>}<Button title="Back" onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />} keyboardShouldPersistTaps="handled"><AppCard>
+     <View style={styles.headerRow}><StatusBadge status={proposal.status} /><SemanticBadge label="Proposal thread" tone="proposal" size="sm" /></View>
+     <AppText style={styles.title}>{proposal.trade?.title ?? 'Proposal'}</AppText>
+-    {proposal.trade ? <CreditPill amount={proposal.trade.creditAmount} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={styles.subtitle}>Private proposal conversation</AppText>}
++    {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={styles.subtitle}>Service-for-service trade</AppText>) : <AppText style={styles.subtitle}>Private proposal conversation</AppText>}
+     <View style={styles.peopleRow}><MiniPerson label="Owner" name={personLabel(proposal.trade?.owner)} tone="need" /><MiniPerson label="Applicant" name={personLabel(proposal.applicant)} tone="offer" /></View>
+     <InfoNotice tone="instruction" title="Proposal next step" body={statusHint} />
+     {error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}
+@@ -48,7 +48,7 @@
+     {canMessage ? <View style={styles.composer}><TextInput value={body} onChangeText={setBody} multiline placeholder="Write a message..." style={styles.input} /><Button title={submitting ? 'Sending...' : 'Send'} disabled={submitting || body.trim().length === 0} onPress={() => { void sendMessage(); }} /></View> : null}
+     {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? 'Accepting...' : 'Accept'} variant="primary" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('accepted'); }} /><ProposalActionButton label={actionLoading === 'declined' ? 'Declining...' : 'Decline'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('declined'); }} /></View> : null}
+     {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? 'Withdrawing...' : 'Withdraw proposal'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('withdrawn'); }} /> : null}
+-    {proposal.trade?.id ? <Button title="Open trade detail" onPress={() => navigation.navigate('TradeDetail', { tradeId: proposal.trade!.id, title: proposal.trade!.title, description: proposal.trade!.description, creditAmount: proposal.trade!.creditAmount, status: proposal.trade!.status, expiresAt: proposal.trade!.expiresAt ?? null })} /> : null}
++    {proposal.trade?.id ? <Button title="Open trade detail" onPress={() => navigation.navigate('TradeDetail', { tradeId: proposal.trade!.id, title: proposal.trade!.title, description: proposal.trade!.description, amountCents: proposal.trade!.amountCents ?? 0, currency: proposal.trade!.currency ?? 'eur', creditAmount: proposal.trade!.creditAmount, status: proposal.trade!.status, expiresAt: proposal.trade!.expiresAt ?? null })} /> : null}
+     {isAcceptedProvider ? <InfoNotice tone="success" title="Accepted provider" body="You are the accepted provider for this trade." /> : null}
+     <Button title="Back" color="#64748B" onPress={() => navigation.goBack()} />
+   </AppCard></ScrollView></AppScreen>;
+diff -ruN ./apps/mobile/src/features/trade/TradeDetailScreen.tsx ../phase12_edit/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+--- ./apps/mobile/src/features/trade/TradeDetailScreen.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/trade/TradeDetailScreen.tsx	2026-05-08 11:55:45.468741172 +0000
+@@ -2,7 +2,7 @@
+ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { TradeActionStatus, TradeStatus } from '@hellowhen/contracts';
+-import { formatCredits } from '@hellowhen/shared';
++import { formatMoney } from '@hellowhen/shared';
+ import type { SemanticColorName } from '@hellowhen/theme';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+@@ -10,7 +10,7 @@
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { CreditPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { MediaStrip } from './components/MediaStrip';
+ import type { TradeDeckItem, TradeProposalItem } from './types';
+@@ -20,10 +20,10 @@
+ type ProposalsResponse = { proposals: TradeProposalItem[] };
+ const now = () => new Date().toISOString();
+ function normalizeStatus(status?: string): TradeStatus { const statuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']; return statuses.includes(status ?? '') ? status as TradeStatus : 'active'; }
+-function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? 'Start the API to load full details.', creditAmount: params.creditAmount ?? 0, status: normalizeStatus(params.status), isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: params.expiresAt ?? null, closedAt: null }; }
++function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? 'Start the API to load full details.', creditAmount: params.creditAmount ?? 0, amountCents: params.amountCents ?? 0, currency: params.currency ?? 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: now(), updatedAt: now(), expiresAt: params.expiresAt ?? null, closedAt: null }; }
+ function personLabel(person?: { profile?: { displayName?: string | null; handle?: string | null } | null } | null) { return person?.profile?.displayName || person?.profile?.handle || 'Hellowhen member'; }
+ function expiryLabel(expiresAt?: string | null) { if (!expiresAt) return 'No expiry set'; const ms = new Date(expiresAt).getTime(); if (!Number.isFinite(ms)) return 'No expiry set'; const diff = ms - Date.now(); if (diff <= 0) return 'Expired'; const hours = Math.ceil(diff / 1000 / 60 / 60); return hours < 24 ? `${hours}h left` : `${Math.ceil(hours / 24)}d left`; }
+-function statusHint(trade: TradeDeckItem, role: string) { if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review proposal conversations before accepting a provider.' : 'Send a proposal to start a private conversation with the owner.'; if (trade.status === 'in_progress') return role === 'owner' ? 'In progress. Complete the trade when the provider delivers, or cancel to refund held fake credits.' : 'In progress. Use the accepted proposal conversation to coordinate delivery.'; if (trade.status === 'completed') return 'Completed. Fake earned credits are pending and can become payout-eligible later.'; if (trade.status === 'cancelled') return 'Cancelled. Held fake credits were refunded if there was an active hold.'; return 'This trade is outside the main Patch 4 proposal happy path.'; }
++function statusHint(trade: TradeDeckItem, role: string) { if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review proposal conversations before accepting a provider.' : 'Send a proposal to start a private conversation with the owner.'; if (trade.status === 'in_progress') return role === 'owner' ? 'In progress. Complete the trade when the provider delivers, or cancel to refund held wallet money.' : 'In progress. Use the accepted proposal conversation to coordinate delivery.'; if (trade.status === 'completed') return 'Completed. Wallet money is pending payout when this trade included an amount.'; if (trade.status === 'cancelled') return 'Cancelled. Held wallet money was refunded if there was an active hold.'; return 'This trade is outside the main Patch 4 proposal happy path.'; }
+ 
+ export function TradeDetailScreen({ route, navigation }: Props) {
+   const auth = useAuth(); const params = route.params;
+@@ -40,16 +40,16 @@
+   const loadTrade = useCallback(async () => { if (!params.tradeId || params.tradeId.startsWith('mock-')) { setTrade(fallback(params)); setProposals([]); return; } setLoading(true); setError(null); try { const result = await api.trades.get(params.tradeId) as TradeResponse; setTrade(result.trade); try { const proposalResult = await api.trades.proposals(params.tradeId) as ProposalsResponse; setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []); } catch { setProposals([]); } } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); setTrade((current) => current.id === params.tradeId ? current : fallback(params)); } finally { setLoading(false); } }, [params]);
+   useEffect(() => { void loadTrade(); }, [loadTrade]);
+   const actions = useMemo(() => { if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark Completed' }, { status: 'cancelled' as const, label: 'Cancel / Refund' }]; if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel Trade' }]; if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel / Request refund' }]; return []; }, [role, trade.status]);
+-  const updateStatus = useCallback(async (status: TradeActionStatus) => { setActionLoading(status); setError(null); setMessage(null); if (isMock) { setTrade((current) => ({ ...current, status, isPublic: status === 'active' || status === 'in_progress', closedAt: status === 'completed' || status === 'cancelled' ? now() : current.closedAt })); setMessage('Mock trade updated locally. Start the API to test ledger-backed status changes.'); setActionLoading(null); return; } try { const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse; setTrade(result.trade); setMessage(status === 'completed' ? 'Trade completed. Held fake credits moved into pending earned credits.' : status === 'cancelled' ? 'Trade cancelled. Held fake credits were refunded when applicable.' : 'Trade updated.'); await loadTrade(); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); } finally { setActionLoading(null); } }, [isMock, loadTrade, trade.id]);
++  const updateStatus = useCallback(async (status: TradeActionStatus) => { setActionLoading(status); setError(null); setMessage(null); if (isMock) { setTrade((current) => ({ ...current, status, isPublic: status === 'active' || status === 'in_progress', closedAt: status === 'completed' || status === 'cancelled' ? now() : current.closedAt })); setMessage('Mock trade updated locally. Start the API to test ledger-backed status changes.'); setActionLoading(null); return; } try { const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse; setTrade(result.trade); setMessage(status === 'completed' ? 'Trade completed. Held wallet money moved into pending payout when applicable.' : status === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.'); await loadTrade(); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); } finally { setActionLoading(null); } }, [isMock, loadTrade, trade.id]);
+   const openOrCreateProposal = useCallback(() => { if (isMock) { setMessage('Mock trade only. Start the API to send real proposal conversations.'); return; } if (myProposal) navigation.navigate('ProposalDetail', { proposalId: myProposal.id }); else navigation.navigate('CreateProposal', { tradeId: trade.id, title: trade.title }); }, [isMock, myProposal, navigation, trade.id, trade.title]);
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+     <AppCard>
+-      <View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label="Fake credits only" tone="info" size="sm" /></View>
++      <View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label="Optional wallet money" tone="info" size="sm" /></View>
+       <AppText style={styles.title}>{trade.title}</AppText>
+       <MediaStrip media={trade.media} size="large" />
+       <AppText style={styles.description}>{trade.description}</AppText>
+-      <View style={styles.creditBox}><CreditPill amount={trade.creditAmount} label="credit amount" /><View style={styles.ownerPill}><View style={styles.avatar} /><View style={styles.ownerCopy}><AppText style={styles.metaLabel}>Owner</AppText><AppText style={styles.ownerName}>{personLabel(trade.owner)}</AppText></View></View></View>
+-      <View style={styles.metaGrid}><MetaBox label="Your role" value={role} tone="proposal" /><MetaBox label="Provider" value={trade.provider ? personLabel(trade.provider) : 'Not accepted yet'} tone="offer" /><MetaBox label="Expiry" value={expiryLabel(trade.expiresAt)} tone="time" /><MetaBox label="Visibility" value={trade.isPublic ? 'Public' : 'Private/closed'} tone="trade" /><MetaBox label="Payment" value={trade.payment?.status ?? 'Not held yet'} tone="credits" /><MetaBox label="Escrow" value={trade.escrow ? formatCredits(trade.escrow.heldCredits) : 'No hold yet'} tone="time" /></View>
++      <View style={styles.creditBox}>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}<View style={styles.ownerPill}><View style={styles.avatar} /><View style={styles.ownerCopy}><AppText style={styles.metaLabel}>Owner</AppText><AppText style={styles.ownerName}>{personLabel(trade.owner)}</AppText></View></View></View>
++      <View style={styles.metaGrid}><MetaBox label="Your role" value={role} tone="proposal" /><MetaBox label="Provider" value={trade.provider ? personLabel(trade.provider) : 'Not accepted yet'} tone="offer" /><MetaBox label="Expiry" value={expiryLabel(trade.expiresAt)} tone="time" /><MetaBox label="Visibility" value={trade.isPublic ? 'Public' : 'Private/closed'} tone="trade" /><MetaBox label="Payment" value={trade.payment?.status ?? 'Not held yet'} tone="credits" /><MetaBox label="Escrow" value={trade.escrow ? formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur') : 'No hold yet'} tone="time" /></View>
+       <InfoNotice tone="instruction" title="Next step" body={statusHint(trade, role)} />
+       {error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}
+       {message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}
+diff -ruN ./apps/mobile/src/features/trade/components/TradeDeckCard.tsx ../phase12_edit/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+--- ./apps/mobile/src/features/trade/components/TradeDeckCard.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/trade/components/TradeDeckCard.tsx	2026-05-08 11:55:45.469431262 +0000
+@@ -2,7 +2,7 @@
+ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import { truncateText } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
+-import { CreditPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
++import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
+ import type { TradeDeckItem } from '../types';
+ import { resolveMediaUrl } from '../mediaUrls';
+ 
+@@ -52,7 +52,7 @@
+         <AppText style={styles.description}>{truncateText(trade.description, 190)}</AppText>
+       </View>
+       <View style={styles.creditPanel}>
+-        <CreditPill amount={trade.creditAmount} label="fake credits" />
++        {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}
+         <View style={styles.ownerPill}>
+           <View style={styles.avatarPlaceholder} />
+           <View style={styles.ownerCopy}>
+@@ -63,7 +63,7 @@
+       </View>
+       <View style={styles.metaRow}>
+         <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
+-        <SemanticBadge label="Fake credits only" tone="info" size="sm" />
++        <SemanticBadge label="Optional money" tone="info" size="sm" />
+       </View>
+       <View style={styles.actionsRow}>
+         <Pressable accessibilityRole="button" onPress={onPass} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Pass</AppText></Pressable>
+diff -ruN ./apps/mobile/src/features/trade/types.ts ../phase12_edit/apps/mobile/src/features/trade/types.ts
+--- ./apps/mobile/src/features/trade/types.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/trade/types.ts	2026-05-08 11:55:20.026726856 +0000
+@@ -1,8 +1,8 @@
+ import type { MediaAssetDto, NeedDto, OfferDto, ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
+ export type TradeOwnerPreview = { id?: string; profile?: { displayName?: string | null; handle?: string | null; avatarUrl?: string | null } | null };
+-export type TradePaymentPreview = { id: string; buyerId: string; sellerId?: string | null; creditAmount: number; platformFee?: number; status: string };
+-export type TradeEscrowPreview = { id: string; heldCredits: number; holdReleasedAt?: string | null };
+-export type TradeDeckItem = TradeDto & { owner?: TradeOwnerPreview | null; provider?: TradeOwnerPreview | null; payment?: TradePaymentPreview | null; escrow?: TradeEscrowPreview | null; media?: MediaAssetDto[] };
++export type TradePaymentPreview = { id: string; buyerId: string; sellerId?: string | null; creditAmount: number; amountCents?: number; currency?: string; platformFee?: number; platformFeeCents?: number; status: string };
++export type TradeEscrowPreview = { id: string; heldCredits: number; heldAmountCents?: number; currency?: string; holdReleasedAt?: string | null };
++export type TradeDeckItem = TradeDto & { owner?: TradeOwnerPreview | null; provider?: TradeOwnerPreview | null; payment?: TradePaymentPreview | null; escrow?: TradeEscrowPreview | null; media?: MediaAssetDto[]; amountCents?: number; currency?: string };
+ export type ProposalMessageItem = ProposalMessageDto & { sender?: TradeOwnerPreview | null };
+ export type TradeProposalItem = TradeProposalDto & { applicant?: TradeOwnerPreview | null; trade?: TradeDeckItem; messages?: ProposalMessageItem[] };
+ export type NeedItem = NeedDto & { media?: MediaAssetDto[] };
+diff -ruN ./apps/mobile/src/features/wallet/WalletScreen.tsx ../phase12_edit/apps/mobile/src/features/wallet/WalletScreen.tsx
+--- ./apps/mobile/src/features/wallet/WalletScreen.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/features/wallet/WalletScreen.tsx	2026-05-08 11:54:04.901747990 +0000
+@@ -1,15 +1,50 @@
+-import React from 'react';
++import React, { useCallback, useState } from 'react';
++import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { useFocusEffect } from '@react-navigation/native';
++import type { LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
++import { formatMoney } from '@hellowhen/shared';
++import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
++import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++
++type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
++
++function formatLedgerType(type: string) { return type.replaceAll('_', ' '); }
++function ledgerTone(type: string, amountCents: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amountCents < 0) return 'danger'; return 'credits'; }
++function entryAmount(entry: LedgerEntryDto) { if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}`; return entry.amount ? `${entry.amount > 0 ? '+' : ''}${entry.amount} legacy credits` : formatMoney(0, entry.currency ?? 'eur'); }
+ 
+ export function WalletScreen() {
++  const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++
++  const loadWallet = useCallback(async () => {
++    setLoading(true); setError(null);
++    try { const result = await api.wallet.me() as WalletResponse; setWallet(result.wallet); }
++    catch (caughtError) { setWallet(null); setError(getFriendlyApiErrorMessage(caughtError)); }
++    finally { setLoading(false); }
++  }, []);
++
++  useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
++
++  const currency = wallet?.currency ?? 'eur';
++  const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
++  const entries = wallet?.entries ?? [];
++
+   return (
+     <AppScreen>
+-      <AppCard>
+-        <AppText style={{ fontSize: 28, fontWeight: '800' }}>Wallet / Credits</AppText>
+-        <AppText>Fake credits only in Patch 1. Purchased credits are not withdrawable. Earned credits become payout-eligible later.</AppText>
+-      </AppCard>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadWallet(); }} />}>
++        <View style={styles.header}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Wallet</AppText><AppText style={styles.subtitle}>Track optional money used in trades, holds, refunds, and pending payouts.</AppText></View>
++        {error ? <InfoNotice tone="danger" title="Wallet unavailable" body={error} /> : null}
++        <AppCard><View style={styles.balanceRow}><View style={styles.balanceCopy}><AppText style={styles.balanceLabel}>Total</AppText><AppText style={styles.balanceValue}>{formatMoney(total, currency)}</AppText></View><MoneyPill amountCents={wallet?.availableBalanceCents ?? 0} currency={currency} label="available" /></View><View style={styles.grid}><Metric label="Available" value={wallet?.availableBalanceCents ?? 0} currency={currency} tone="credits" /><Metric label="Held" value={wallet?.heldBalanceCents ?? 0} currency={currency} tone="time" /><Metric label="Pending payout" value={wallet?.pendingPayoutCents ?? 0} currency={currency} tone="success" /></View></AppCard>
++        <AppCard><AppText style={styles.sectionTitle}>Activity</AppText>{entries.length === 0 ? <AppText style={styles.cardText}>Wallet activity appears here after a trade with an optional money amount is held, refunded, or released.</AppText> : entries.map((entry) => <View key={entry.id} style={styles.ledgerRow}><View style={styles.ledgerCopy}><SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" /><AppText style={styles.cardText}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText></View>)}</AppCard>
++      </ScrollView>
+     </AppScreen>
+   );
+ }
++function Metric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) { return <View style={styles.metric}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>; }
++const styles = StyleSheet.create({ content: { paddingBottom: 34, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, balanceRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, balanceCopy: { flex: 1 }, balanceLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' }, balanceValue: { marginTop: 4, color: '#0F172A', fontSize: 42, fontWeight: '900', letterSpacing: -1.2 }, grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metric: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 8 }, metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' }, sectionTitle: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 12 }, ledgerCopy: { flex: 1, gap: 7 }, ledgerAmount: { color: '#047857', fontSize: 18, fontWeight: '900' }, ledgerAmountNegative: { color: '#B91C1C' } });
+diff -ruN ./apps/mobile/src/lib/errors.ts ../phase12_edit/apps/mobile/src/lib/errors.ts
+--- ./apps/mobile/src/lib/errors.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/lib/errors.ts	2026-05-08 11:56:06.306500150 +0000
+@@ -49,8 +49,8 @@
+     return apiError.body.message ?? 'Please check the form fields and try again.';
+   }
+ 
+-  if (apiError.body?.error === 'insufficient_fake_credits') {
+-    return apiError.body.message ?? 'Not enough fake/test credits to start this trade.';
++  if (apiError.body?.error === 'insufficient_wallet_balance') {
++    return apiError.body.message ?? 'Not enough wallet balance to start this trade.';
+   }
+ 
+   if (apiError.body?.error === 'invalid_trade_status_transition') {
+diff -ruN ./apps/mobile/src/navigation/RootNavigator.tsx ../phase12_edit/apps/mobile/src/navigation/RootNavigator.tsx
+--- ./apps/mobile/src/navigation/RootNavigator.tsx	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/apps/mobile/src/navigation/RootNavigator.tsx	2026-05-08 11:55:00.614933997 +0000
+@@ -17,7 +17,7 @@
+ import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
+ import { useAuth } from '../providers/AuthProvider';
+ 
+-export type RootStackParamList = { TradeTabs: undefined; BuyCredits: undefined; SupportCenter: undefined; SupportTicketDetail: { ticketId: string; subject?: string }; CreateNeed: undefined; CreateOffer: undefined; CreateTrade: undefined; CreateProposal: { tradeId: string; title?: string }; ProposalDetail: { proposalId: string }; TradeDetail: { tradeId: string; title?: string; description?: string; creditAmount?: number; status?: string; expiresAt?: string | null }; Login: undefined; };
++export type RootStackParamList = { TradeTabs: undefined; BuyCredits: undefined; SupportCenter: undefined; SupportTicketDetail: { ticketId: string; subject?: string }; CreateNeed: undefined; CreateOffer: undefined; CreateTrade: undefined; CreateProposal: { tradeId: string; title?: string }; ProposalDetail: { proposalId: string }; TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null }; Login: undefined; };
+ type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined; Account: undefined };
+ const Tabs = createBottomTabNavigator<MainTabParamList>();
+ const Stack = createNativeStackNavigator<RootStackParamList>();
+diff -ruN ./packages/contracts/src/trade.ts ../phase12_edit/packages/contracts/src/trade.ts
+--- ./packages/contracts/src/trade.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/packages/contracts/src/trade.ts	2026-05-08 11:54:58.372254109 +0000
+@@ -10,7 +10,7 @@
+ 
+ export const createNeedRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), status: needStatusSchema.optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
+ export const createOfferRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), status: offerStatusSchema.optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
+-export const createTradeRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), creditAmount: z.number().int().positive().max(100000), needId: z.string().optional(), offerId: z.string().optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
++export const createTradeRequestSchema = z.object({ title: z.string().min(3).max(120), description: z.string().min(10).max(2000), creditAmount: z.number().int().min(0).max(100000).optional().default(0), amountCents: z.number().int().min(0).max(10000000).optional().default(0), currency: z.string().trim().length(3).optional().default('eur'), needId: z.string().optional(), offerId: z.string().optional(), expiresAt: z.string().datetime().optional(), mediaIds: z.array(z.string()).max(5).optional() });
+ export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
+ export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
+ export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
+@@ -20,7 +20,7 @@
+ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
+ export const needSchema = z.object({ id: z.string(), ownerId: z.string(), title: z.string(), description: z.string(), status: needStatusSchema, createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), media: z.array(mediaAssetSchema).optional() });
+ export const offerSchema = z.object({ id: z.string(), ownerId: z.string(), title: z.string(), description: z.string(), status: offerStatusSchema, createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), media: z.array(mediaAssetSchema).optional() });
+-export const tradeSchema = z.object({ id: z.string(), ownerId: z.string(), providerId: z.string().nullable().optional(), needId: z.string().nullable().optional(), offerId: z.string().nullable().optional(), title: z.string(), description: z.string(), creditAmount: z.number().int(), status: tradeStatusSchema, isPublic: z.boolean(), createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), closedAt: z.string().nullable().optional(), owner: userPreviewSchema.optional(), provider: userPreviewSchema.nullable().optional(), media: z.array(mediaAssetSchema).optional() });
++export const tradeSchema = z.object({ id: z.string(), ownerId: z.string(), providerId: z.string().nullable().optional(), needId: z.string().nullable().optional(), offerId: z.string().nullable().optional(), title: z.string(), description: z.string(), creditAmount: z.number().int(), amountCents: z.number().int().optional().default(0), currency: z.string().optional().default('eur'), status: tradeStatusSchema, isPublic: z.boolean(), createdAt: z.string(), updatedAt: z.string(), expiresAt: z.string().nullable().optional(), closedAt: z.string().nullable().optional(), owner: userPreviewSchema.optional(), provider: userPreviewSchema.nullable().optional(), media: z.array(mediaAssetSchema).optional() });
+ export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
+ export const tradeProposalSchema = z.object({ id: z.string(), tradeId: z.string(), applicantId: z.string(), message: z.string(), status: proposalStatusSchema, createdAt: z.string(), updatedAt: z.string(), respondedAt: z.string().nullable().optional(), applicant: userPreviewSchema.optional(), trade: tradeSchema.optional(), messages: z.array(proposalMessageSchema).optional() });
+ 
+diff -ruN ./packages/contracts/src/wallet.ts ../phase12_edit/packages/contracts/src/wallet.ts
+--- ./packages/contracts/src/wallet.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/packages/contracts/src/wallet.ts	2026-05-08 11:53:17.322964409 +0000
+@@ -1,14 +1,19 @@
+ import { z } from 'zod';
+ 
+ export const walletSchema = z.object({
+-  id: z.string(), userId: z.string(), purchasedAvailableCredits: z.number().int(), earnedPendingCredits: z.number().int(), earnedAvailableCredits: z.number().int(), heldCredits: z.number().int(), updatedAt: z.string(),
++  id: z.string(), userId: z.string(),
++  // Legacy credit fields are kept for old clients/admin history.
++  purchasedAvailableCredits: z.number().int(), earnedPendingCredits: z.number().int(), earnedAvailableCredits: z.number().int(), heldCredits: z.number().int(),
++  // Money wallet fields used by the current mobile app.
++  availableBalanceCents: z.number().int().default(0), heldBalanceCents: z.number().int().default(0), pendingPayoutCents: z.number().int().default(0), currency: z.string().default('eur'),
++  updatedAt: z.string(),
+ });
+ 
+ export const ledgerEntrySchema = z.object({
+   id: z.string(), userId: z.string(), walletId: z.string(), tradeId: z.string().nullable().optional(),
+   type: z.enum(['starting_demo_credits', 'test_credit_grant', 'credit_purchase', 'trade_hold', 'trade_release', 'trade_refund', 'earned_pending', 'platform_fee', 'platform_fee_placeholder', 'payout_requested', 'payout_paid', 'adjustment']),
+   balanceType: z.enum(['purchased', 'earned_pending', 'earned_available', 'held']),
+-  amount: z.number().int(), description: z.string().nullable().optional(), createdAt: z.string(),
++  amount: z.number().int(), amountCents: z.number().int().default(0), currency: z.string().default('eur'), description: z.string().nullable().optional(), createdAt: z.string(),
+ });
+ 
+ export type WalletDto = z.infer<typeof walletSchema>;
+diff -ruN ./packages/shared/src/format.ts ../phase12_edit/packages/shared/src/format.ts
+--- ./packages/shared/src/format.ts	2026-05-08 07:17:58.000000000 +0000
++++ ../phase12_edit/packages/shared/src/format.ts	2026-05-08 11:53:17.321321911 +0000
+@@ -6,3 +6,12 @@
+   if (value.length <= max) return value;
+   return `${value.slice(0, Math.max(0, max - 3)).trim()}...`;
+ }
++
++
++export function formatMoney(amountCents: number, currency = 'eur'): string {
++  try {
++    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100);
++  } catch {
++    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
++  }
++}

@@ -42,8 +42,8 @@ creditsRoutes.post('/checkout-session', asyncRoute(async (req, res) => {
     mode: 'payment',
     payment_method_types: ['card'],
     client_reference_id: purchase.id,
-    success_url: `${env.webAppUrl.replace(/\/$/, '')}/credits/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.webAppUrl.replace(/\/$/, '')}/credits/cancel`,
+    success_url: `${env.webAppUrl.replace(/\/$/, '')}/wallet/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${env.webAppUrl.replace(/\/$/, '')}/wallet/cancel`,
     line_items: [
       {
         quantity: 1,
@@ -52,7 +52,7 @@ creditsRoutes.post('/checkout-session', asyncRoute(async (req, res) => {
           unit_amount: creditPackage.amountCents,
           product_data: {
             name: `Hellowhen ${creditPackage.label}`,
-            description: 'Fake/test credits only. Purchased credits are non-withdrawable.'
+            description: 'Wallet top-up for optional trade amounts. Payouts are enabled separately.'
           }
         }
       }
@@ -62,7 +62,7 @@ creditsRoutes.post('/checkout-session', asyncRoute(async (req, res) => {
       userId: req.user!.id,
       creditAmount: String(creditPackage.creditAmount),
       nonWithdrawable: 'true',
-      creditsMode: 'test'
+      walletMoney: 'optional'
     }
   });
 

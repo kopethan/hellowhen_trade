@@ -1,0 +1,448 @@
+diff --git a/apps/mobile/src/components/AppCard.tsx b/apps/mobile/src/components/AppCard.tsx
+index 2dc0d50..2412936 100644
+--- a/apps/mobile/src/components/AppCard.tsx
++++ b/apps/mobile/src/components/AppCard.tsx
+@@ -1,17 +1,17 @@
+ import type { PropsWithChildren } from 'react';
+-import { View, StyleSheet } from 'react-native';
++import { View, StyleSheet, type ViewStyle } from 'react-native';
++import { useThemeTokens } from '../providers/ThemeProvider';
+ 
+-export function AppCard({ children }: PropsWithChildren) {
+-  return <View style={styles.card}>{children}</View>;
++export function AppCard({ children, style }: PropsWithChildren<{ style?: ViewStyle }>) {
++  const theme = useThemeTokens();
++  return <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, style]}>{children}</View>;
+ }
+ 
+ const styles = StyleSheet.create({
+   card: {
+     borderRadius: 24,
+     borderWidth: 1,
+-    borderColor: '#E2E8F0',
+-    backgroundColor: '#FFFFFF',
+     padding: 18,
+-    gap: 10
+-  }
++    gap: 10,
++  },
+ });
+diff --git a/apps/mobile/src/components/SemanticUI.tsx b/apps/mobile/src/components/SemanticUI.tsx
+index 85aaf85..2daa4f7 100644
+--- a/apps/mobile/src/components/SemanticUI.tsx
++++ b/apps/mobile/src/components/SemanticUI.tsx
+@@ -1,8 +1,9 @@
+ import React from 'react';
+ import { StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
+-import { semanticColors, semanticStatusTone, type SemanticColorName } from '@hellowhen/theme';
++import { semanticStatusTone, type SemanticColorName } from '@hellowhen/theme';
+ import { formatCredits } from '@hellowhen/shared';
+ import { AppText } from './AppText';
++import { useThemeTokens } from '../providers/ThemeProvider';
+ 
+ type BadgeSize = 'sm' | 'md';
+ 
+@@ -23,7 +24,8 @@ function toneForStatus(status: string): SemanticColorName {
+ }
+ 
+ export function SemanticBadge({ label, tone = 'muted', size = 'md', style, textStyle }: SemanticBadgeProps) {
+-  const color = semanticColors[tone];
++  const theme = useThemeTokens();
++  const color = theme.semantic[tone];
+   return (
+     <View style={[styles.badge, size === 'sm' && styles.badgeSmall, { backgroundColor: color.softBg, borderColor: color.border }, style]}>
+       <AppText style={[styles.badgeText, size === 'sm' && styles.badgeTextSmall, { color: color.text }, textStyle]}>{labelize(label)}</AppText>
+@@ -36,7 +38,8 @@ export function StatusBadge({ status, tone, size = 'md' }: { status: string; ton
+ }
+ 
+ export function CreditPill({ amount, label = 'credits', tone = 'credits' }: { amount: number; label?: string; tone?: SemanticColorName }) {
+-  const color = semanticColors[tone];
++  const theme = useThemeTokens();
++  const color = theme.semantic[tone];
+   return (
+     <View style={[styles.creditPill, { backgroundColor: color.softBg, borderColor: color.border }]}>
+       <AppText style={[styles.creditAmount, { color: color.text }]}>{formatCredits(amount)}</AppText>
+@@ -46,7 +49,8 @@ export function CreditPill({ amount, label = 'credits', tone = 'credits' }: { am
+ }
+ 
+ export function InfoNotice({ title, body, tone = 'info' }: { title?: string; body: string; tone?: SemanticColorName }) {
+-  const color = semanticColors[tone];
++  const theme = useThemeTokens();
++  const color = theme.semantic[tone];
+   return (
+     <View style={[styles.notice, { backgroundColor: color.softBg, borderColor: color.border }]}>
+       {title ? <AppText style={[styles.noticeTitle, { color: color.text }]}>{title}</AppText> : null}
+diff --git a/apps/mobile/src/features/settings/SettingsScreen.tsx b/apps/mobile/src/features/settings/SettingsScreen.tsx
+index 190de2b..2788867 100644
+--- a/apps/mobile/src/features/settings/SettingsScreen.tsx
++++ b/apps/mobile/src/features/settings/SettingsScreen.tsx
+@@ -9,10 +9,10 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAppSettings } from '../../providers/AppSettingsProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ 
+ type SettingsResponse = { settings: AppSettings };
+ type AppearanceValue = AppSettings['appearance'];
+-type AccentValue = AppSettings['accent'];
+ 
+ const appearanceOptions: Array<{ label: string; value: AppearanceValue }> = [
+   { label: 'System', value: 'system' },
+@@ -20,15 +20,9 @@ const appearanceOptions: Array<{ label: string; value: AppearanceValue }> = [
+   { label: 'Dark', value: 'dark' },
+ ];
+ 
+-const accentOptions: Array<{ label: string; value: AccentValue }> = [
+-  { label: 'Teal', value: 'teal' },
+-  { label: 'Blue', value: 'blue' },
+-  { label: 'Purple', value: 'purple' },
+-  { label: 'Orange', value: 'orange' },
+-];
+-
+ export function SettingsScreen() {
+   const { settings, setSettings } = useAppSettings();
++  const theme = useThemeTokens();
+   const [loading, setLoading] = useState(false);
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+@@ -75,7 +69,7 @@ export function SettingsScreen() {
+         <View style={styles.header}>
+           <SemanticBadge label="Settings" tone="instruction" />
+           <AppText style={styles.title}>Settings</AppText>
+-          <AppText style={styles.subtitle}>Manage notifications, appearance, and privacy preferences.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Manage notifications, appearance, and privacy preferences.</AppText>
+         </View>
+ 
+         {error ? <InfoNotice tone="danger" title="Settings unavailable" body={error} /> : null}
+@@ -85,7 +79,7 @@ export function SettingsScreen() {
+           <View style={styles.switchRow}>
+             <View style={styles.switchCopy}>
+               <AppText style={styles.sectionTitle}>Notifications</AppText>
+-              <AppText style={styles.body}>Trade updates, proposal messages, image review, and credit activity.</AppText>
++              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image review, and wallet activity.</AppText>
+             </View>
+             <Switch value={settings.notificationsEnabled} disabled={saving} onValueChange={(value) => { void updateSettings({ notificationsEnabled: value }); }} />
+           </View>
+@@ -93,24 +87,24 @@ export function SettingsScreen() {
+ 
+         <AppCard>
+           <AppText style={styles.sectionTitle}>Appearance</AppText>
+-          <AppText style={styles.body}>Choose how Hellowhen should look on this device.</AppText>
+-          <View style={styles.optionRow}>
+-            {appearanceOptions.map((option) => <ChoiceButton key={option.value} label={option.label} selected={settings.appearance === option.value} disabled={saving} onPress={() => { void updateSettings({ appearance: option.value }); }} />)}
+-          </View>
+-        </AppCard>
+-
+-        <AppCard>
+-          <AppText style={styles.sectionTitle}>Accent color</AppText>
+-          <AppText style={styles.body}>Use a color that feels right for your trade workflow.</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>Use your system theme, or choose light or dark mode for this device.</AppText>
+           <View style={styles.optionRow}>
+-            {accentOptions.map((option) => <ChoiceButton key={option.value} label={option.label} selected={settings.accent === option.value} disabled={saving} onPress={() => { void updateSettings({ accent: option.value }); }} />)}
++            {appearanceOptions.map((option) => (
++              <ChoiceButton
++                key={option.value}
++                label={option.label}
++                selected={settings.appearance === option.value}
++                disabled={saving}
++                onPress={() => { void updateSettings({ appearance: option.value }); }}
++              />
++            ))}
+           </View>
+         </AppCard>
+ 
+         <AppCard>
+           <SemanticBadge label="Privacy" tone="info" size="sm" />
+           <AppText style={styles.sectionTitle}>Profile visibility</AppText>
+-          <AppText style={styles.body}>Only your public profile, active trades, and approved need/offer images appear in public trade decks.</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>Only your public profile, active trades, and approved need/offer images appear in public trade decks.</AppText>
+         </AppCard>
+       </ScrollView>
+     </AppScreen>
+@@ -118,9 +112,22 @@ export function SettingsScreen() {
+ }
+ 
+ function ChoiceButton({ label, selected, disabled, onPress }: { label: string; selected: boolean; disabled?: boolean; onPress: () => void }) {
++  const theme = useThemeTokens();
++
+   return (
+-    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.choiceButton, selected && styles.choiceButtonSelected, disabled && styles.disabled, pressed && styles.pressed]}>
+-      <AppText style={[styles.choiceButtonText, selected && styles.choiceButtonTextSelected]}>{label}</AppText>
++    <Pressable
++      accessibilityRole="button"
++      disabled={disabled}
++      onPress={onPress}
++      style={({ pressed }) => [
++        styles.choiceButton,
++        { backgroundColor: theme.color.surface, borderColor: theme.color.border },
++        selected && { backgroundColor: theme.color.text, borderColor: theme.color.text },
++        disabled && styles.disabled,
++        pressed && styles.pressed,
++      ]}
++    >
++      <AppText style={[styles.choiceButtonText, { color: selected ? theme.color.background : theme.color.text }]}>{label}</AppText>
+     </Pressable>
+   );
+ }
+@@ -129,16 +136,14 @@ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 14 },
+   header: { gap: 8 },
+   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+-  sectionTitle: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+-  body: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  subtitle: { lineHeight: 20, fontWeight: '600' },
++  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
++  body: { lineHeight: 20, fontWeight: '600' },
+   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+   switchCopy: { flex: 1, gap: 5 },
+   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+-  choiceButton: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, paddingVertical: 9 },
+-  choiceButtonSelected: { borderColor: '#0F766E', backgroundColor: '#CCFBF1' },
+-  choiceButtonText: { color: '#475569', fontWeight: '900' },
+-  choiceButtonTextSelected: { color: '#0F766E' },
++  choiceButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
++  choiceButtonText: { fontWeight: '900' },
+   disabled: { opacity: 0.55 },
+   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
+ });
+diff --git a/apps/mobile/src/providers/AppSettingsProvider.tsx b/apps/mobile/src/providers/AppSettingsProvider.tsx
+index af80f8e..60e4b32 100644
+--- a/apps/mobile/src/providers/AppSettingsProvider.tsx
++++ b/apps/mobile/src/providers/AppSettingsProvider.tsx
+@@ -3,7 +3,6 @@ import type { AppSettings } from '@hellowhen/contracts';
+ 
+ const defaultSettings: AppSettings = {
+   appearance: 'system',
+-  accent: 'teal',
+   language: 'en',
+   notificationsEnabled: true,
+ };
+diff --git a/apps/mobile/src/providers/ThemeProvider.tsx b/apps/mobile/src/providers/ThemeProvider.tsx
+index efaba60..a306422 100644
+--- a/apps/mobile/src/providers/ThemeProvider.tsx
++++ b/apps/mobile/src/providers/ThemeProvider.tsx
+@@ -1,10 +1,22 @@
+-import React, { createContext, useContext } from 'react';
+-import { themeTokens } from '@hellowhen/theme';
++import React, { createContext, useContext, useMemo } from 'react';
++import { useColorScheme } from 'react-native';
++import { getThemeTokens, themeTokens, type ThemeMode, type ThemeTokens } from '@hellowhen/theme';
++import { useAppSettings } from './AppSettingsProvider';
+ 
+-const ThemeContext = createContext(themeTokens);
++const ThemeContext = createContext<ThemeTokens>(themeTokens);
++
++function resolveThemeMode(appearance: string | undefined, systemScheme: 'light' | 'dark' | null | undefined): ThemeMode {
++  if (appearance === 'light' || appearance === 'dark') return appearance;
++  return systemScheme === 'dark' ? 'dark' : 'light';
++}
+ 
+ export function ThemeProvider({ children }: { children: React.ReactNode }) {
+-  return <ThemeContext.Provider value={themeTokens}>{children}</ThemeContext.Provider>;
++  const { settings } = useAppSettings();
++  const systemScheme = useColorScheme();
++  const mode = resolveThemeMode(settings.appearance, systemScheme);
++  const tokens = useMemo(() => getThemeTokens(mode), [mode]);
++
++  return <ThemeContext.Provider value={tokens}>{children}</ThemeContext.Provider>;
+ }
+ 
+ export function useThemeTokens() {
+diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
+index 73addc6..7aa70bd 100644
+--- a/packages/contracts/src/settings.ts
++++ b/packages/contracts/src/settings.ts
+@@ -2,7 +2,6 @@ import { z } from 'zod';
+ 
+ export const updateSettingsRequestSchema = z.object({
+   appearance: z.enum(['system', 'light', 'dark']).optional(),
+-  accent: z.enum(['teal', 'blue', 'purple', 'orange']).optional(),
+   language: z.string().min(2).max(12).optional(),
+   notificationsEnabled: z.boolean().optional()
+ });
+@@ -11,7 +10,6 @@ export type UpdateSettingsRequest = z.infer<typeof updateSettingsRequestSchema>;
+ 
+ export type AppSettings = {
+   appearance: 'system' | 'light' | 'dark';
+-  accent: 'teal' | 'blue' | 'purple' | 'orange';
+   language: string;
+   notificationsEnabled: boolean;
+ };
+diff --git a/packages/theme/src/tokens.ts b/packages/theme/src/tokens.ts
+index 9901aa6..1ba03e8 100644
+--- a/packages/theme/src/tokens.ts
++++ b/packages/theme/src/tokens.ts
+@@ -1,13 +1,3 @@
+-export const accentColors = {
+-  rose: '#f43f5e',
+-  sky: '#0ea5e9',
+-  sun: '#f59e0b',
+-  teal: '#14b8a6',
+-  violet: '#8b5cf6',
+-} as const;
+-
+-export type AccentColorName = keyof typeof accentColors;
+-
+ export const semanticColors = {
+   need: {
+     bg: '#2563EB',
+@@ -22,10 +12,10 @@ export const semanticColors = {
+     border: '#86EFAC',
+   },
+   trade: {
+-    bg: '#7C3AED',
+-    text: '#5B21B6',
+-    softBg: '#EDE9FE',
+-    border: '#C4B5FD',
++    bg: '#111827',
++    text: '#111827',
++    softBg: '#F1F5F9',
++    border: '#CBD5E1',
+   },
+   proposal: {
+     bg: '#0F766E',
+@@ -46,10 +36,10 @@ export const semanticColors = {
+     border: '#FCA5A5',
+   },
+   instruction: {
+-    bg: '#4F46E5',
+-    text: '#3730A3',
+-    softBg: '#EEF2FF',
+-    border: '#A5B4FC',
++    bg: '#334155',
++    text: '#334155',
++    softBg: '#F1F5F9',
++    border: '#CBD5E1',
+   },
+   info: {
+     bg: '#0284C7',
+@@ -90,6 +80,24 @@ export const semanticColors = {
+ } as const;
+ 
+ export type SemanticColorName = keyof typeof semanticColors;
++export type SemanticTone = { bg: string; text: string; softBg: string; border: string };
++export type SemanticPalette = Record<SemanticColorName, SemanticTone>;
++
++export const semanticColorsDark: SemanticPalette = {
++  need: { bg: '#60A5FA', text: '#BFDBFE', softBg: '#172554', border: '#1D4ED8' },
++  offer: { bg: '#4ADE80', text: '#BBF7D0', softBg: '#052E16', border: '#15803D' },
++  trade: { bg: '#F8FAFC', text: '#F8FAFC', softBg: '#1F2937', border: '#475569' },
++  proposal: { bg: '#2DD4BF', text: '#CCFBF1', softBg: '#042F2E', border: '#0F766E' },
++  time: { bg: '#FB923C', text: '#FED7AA', softBg: '#431407', border: '#C2410C' },
++  danger: { bg: '#F87171', text: '#FECACA', softBg: '#450A0A', border: '#B91C1C' },
++  instruction: { bg: '#CBD5E1', text: '#E2E8F0', softBg: '#1E293B', border: '#475569' },
++  info: { bg: '#38BDF8', text: '#BAE6FD', softBg: '#082F49', border: '#0369A1' },
++  success: { bg: '#34D399', text: '#A7F3D0', softBg: '#022C22', border: '#047857' },
++  warning: { bg: '#FBBF24', text: '#FDE68A', softBg: '#451A03', border: '#B45309' },
++  credits: { bg: '#FBBF24', text: '#FDE68A', softBg: '#451A03', border: '#B45309' },
++  admin: { bg: '#E2E8F0', text: '#E2E8F0', softBg: '#1E293B', border: '#64748B' },
++  muted: { bg: '#94A3B8', text: '#CBD5E1', softBg: '#1F2937', border: '#475569' },
++};
+ 
+ export const semanticStatusTone = {
+   draft: 'muted',
+@@ -112,29 +120,81 @@ export const semanticStatusTone = {
+   removed: 'admin',
+ } as const satisfies Record<string, SemanticColorName>;
+ 
+-export const themeTokens = {
+-  radius: {
+-    sm: 8,
+-    md: 14,
+-    lg: 22,
+-    xl: 28,
+-  },
+-  spacing: {
+-    xs: 4,
+-    sm: 8,
+-    md: 16,
+-    lg: 24,
+-    xl: 32,
+-  },
++const radiusTokens = {
++  sm: 8,
++  md: 14,
++  lg: 22,
++  xl: 28,
++} as const;
++
++const spacingTokens = {
++  xs: 4,
++  sm: 8,
++  md: 16,
++  lg: 24,
++  xl: 32,
++} as const;
++
++export type ThemeMode = 'light' | 'dark';
++export type ThemeColorTokens = {
++  background: string;
++  surface: string;
++  elevated: string;
++  subtleSurface: string;
++  text: string;
++  muted: string;
++  border: string;
++  inverseBackground: string;
++  inverseSurface: string;
++  inverseText: string;
++};
++
++export type ThemeTokens = {
++  mode: ThemeMode;
++  radius: typeof radiusTokens;
++  spacing: typeof spacingTokens;
++  color: ThemeColorTokens;
++  semantic: SemanticPalette;
++};
++
++export const themeTokens: ThemeTokens = {
++  mode: 'light',
++  radius: radiusTokens,
++  spacing: spacingTokens,
+   color: {
+-    background: '#f7f7f4',
+-    surface: '#ffffff',
+-    text: '#171717',
+-    muted: '#6b7280',
+-    border: '#e5e7eb',
++    background: '#F7F7F4',
++    surface: '#FFFFFF',
++    elevated: '#FFFFFF',
++    subtleSurface: '#F8FAFC',
++    text: '#0F172A',
++    muted: '#64748B',
++    border: '#E2E8F0',
+     inverseBackground: '#101011',
+     inverseSurface: '#171719',
+-    inverseText: '#f8fafc',
++    inverseText: '#F8FAFC',
+   },
+-  semantic: semanticColors,
+-} as const;
++  semantic: semanticColors as SemanticPalette,
++};
++
++export const darkThemeTokens: ThemeTokens = {
++  mode: 'dark',
++  radius: radiusTokens,
++  spacing: spacingTokens,
++  color: {
++    background: '#09090B',
++    surface: '#111113',
++    elevated: '#18181B',
++    subtleSurface: '#1F2937',
++    text: '#F8FAFC',
++    muted: '#A1A1AA',
++    border: '#27272A',
++    inverseBackground: '#F7F7F4',
++    inverseSurface: '#FFFFFF',
++    inverseText: '#0F172A',
++  },
++  semantic: semanticColorsDark,
++};
++
++export function getThemeTokens(mode: ThemeMode): ThemeTokens {
++  return mode === 'dark' ? darkThemeTokens : themeTokens;
++}

@@ -49,8 +49,8 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
     return apiError.body.message ?? 'Please check the form fields and try again.';
   }
 
-  if (apiError.body?.error === 'insufficient_fake_credits') {
-    return apiError.body.message ?? 'Not enough credits to start this trade.';
+  if (apiError.body?.error === 'insufficient_wallet_balance') {
+    return apiError.body.message ?? 'Not enough wallet balance to start this trade.';
   }
 
   if (apiError.body?.error === 'invalid_trade_status_transition') {

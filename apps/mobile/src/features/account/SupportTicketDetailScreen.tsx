@@ -11,6 +11,9 @@ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/Semanti
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { ImagePickerField } from '../trade/components/ImagePickerField';
+import { MediaStrip } from '../trade/components/MediaStrip';
+import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
 
 type TicketResponse = { ticket: SupportTicketDto };
 function labelize(value: string) { return value.replaceAll('_', ' '); }
@@ -24,6 +27,7 @@ export function SupportTicketDetailScreen() {
   const [sending, setSending] = useState(false);
   const [body, setBody] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [images, setImages] = useState<SelectedLocalImage[]>([]);
 
   const loadTicket = useCallback(async () => {
     setLoading(true); setMessage(null);
@@ -36,7 +40,12 @@ export function SupportTicketDetailScreen() {
   async function sendMessage() {
     if (!body.trim()) return;
     setSending(true); setMessage(null);
-    try { await api.support.sendMessage(route.params.ticketId, { body: body.trim() }); setBody(''); await loadTicket(); }
+    try {
+      const mediaIds = await uploadSelectedImages(images);
+      await api.support.sendMessage(route.params.ticketId, { body: body.trim(), mediaIds });
+      setBody(''); setImages([]);
+      await loadTicket();
+    }
     catch (caughtError) { setMessage(getFriendlyApiErrorMessage(caughtError)); }
     finally { setSending(false); }
   }
@@ -52,9 +61,9 @@ export function SupportTicketDetailScreen() {
   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTicket(); }} />}>
     <View style={styles.header}><SemanticBadge label="Support ticket" tone="instruction" /><AppText style={styles.title}>{ticket?.subject ?? route.params.subject ?? 'Support ticket'}</AppText><AppText style={styles.subtitle}>Support messages are for admin help and feedback. Proposal conversations stay inside proposals.</AppText></View>
     {message ? <InfoNotice tone="warning" title="Support message" body={message} /> : null}
-    {ticket ? <><AppCard><View style={styles.badgeRow}><StatusBadge status={ticket.status} /><SemanticBadge label={labelize(ticket.category)} tone="info" /><SemanticBadge label={ticket.priority} tone={ticket.priority === 'urgent' ? 'danger' : ticket.priority === 'high' ? 'warning' : 'muted'} /></View><AppText style={styles.cardText}>{ticket.message}</AppText>{ticket.relatedTradeId ? <SemanticBadge label={`trade ${ticket.relatedTradeId}`} tone="trade" size="sm" /> : null}{ticket.relatedProposalId ? <SemanticBadge label={`proposal ${ticket.relatedProposalId}`} tone="proposal" size="sm" /> : null}{ticket.relatedMediaId ? <SemanticBadge label={`media ${ticket.relatedMediaId}`} tone="warning" size="sm" /> : null}</AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>Conversation</AppText>{ticket.messages?.map((item) => <View key={item.id} style={[styles.messageBubble, item.senderRole === 'admin' ? styles.adminBubble : styles.userBubble]}><View style={styles.badgeRow}><SemanticBadge label={senderLabel(item.senderRole, item.sender?.profile?.displayName ?? item.sender?.email)} tone={item.senderRole === 'admin' ? 'admin' : 'info'} size="sm" />{item.internal ? <SemanticBadge label="internal" tone="warning" size="sm" /> : null}</View><AppText style={styles.messageText}>{item.body}</AppText><AppText style={styles.dateText}>{new Date(item.createdAt).toLocaleString()}</AppText></View>)}{ticket.messages?.length === 0 ? <AppText style={styles.cardText}>No messages yet.</AppText> : null}</AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>{isClosed ? 'Ticket closed' : 'Reply to support'}</AppText>{isClosed ? <InfoNotice tone="admin" title="Closed" body="This ticket is closed. Reopen it if you need to continue the conversation." /> : <><TextInput value={body} onChangeText={setBody} placeholder="Write a reply..." style={[styles.input, styles.textArea]} multiline textAlignVertical="top" /><Button title={sending ? 'Sending...' : 'Send reply'} disabled={sending} onPress={() => { void sendMessage(); }} /></>}<Button title={isClosed ? 'Reopen ticket' : 'Close ticket'} color={isClosed ? '#0F766E' : '#B91C1C'} disabled={sending} onPress={() => { void setStatus(isClosed ? 'open' : 'closed'); }} /></AppCard></> : <AppCard><AppText style={styles.cardText}>Ticket could not be loaded.</AppText></AppCard>}
+    {ticket ? <><AppCard><View style={styles.badgeRow}><StatusBadge status={ticket.status} /><SemanticBadge label={labelize(ticket.category)} tone="info" /><SemanticBadge label={ticket.priority} tone={ticket.priority === 'urgent' ? 'danger' : ticket.priority === 'high' ? 'warning' : 'muted'} /></View><AppText style={styles.cardText}>{ticket.message}</AppText><MediaStrip media={ticket.media} size="large" />{ticket.relatedTradeId ? <SemanticBadge label={`trade ${ticket.relatedTradeId}`} tone="trade" size="sm" /> : null}{ticket.relatedProposalId ? <SemanticBadge label={`proposal ${ticket.relatedProposalId}`} tone="proposal" size="sm" /> : null}{ticket.relatedMediaId ? <SemanticBadge label={`media ${ticket.relatedMediaId}`} tone="warning" size="sm" /> : null}</AppCard>
+    <AppCard><AppText style={styles.sectionTitle}>Conversation</AppText>{ticket.messages?.map((item) => <View key={item.id} style={[styles.messageBubble, item.senderRole === 'admin' ? styles.adminBubble : styles.userBubble]}><View style={styles.badgeRow}><SemanticBadge label={senderLabel(item.senderRole, item.sender?.profile?.displayName ?? item.sender?.email)} tone={item.senderRole === 'admin' ? 'admin' : 'info'} size="sm" />{item.internal ? <SemanticBadge label="internal" tone="warning" size="sm" /> : null}</View><AppText style={styles.messageText}>{item.body}</AppText><MediaStrip media={item.media} /><AppText style={styles.dateText}>{new Date(item.createdAt).toLocaleString()}</AppText></View>)}{ticket.messages?.length === 0 ? <AppText style={styles.cardText}>No messages yet.</AppText> : null}</AppCard>
+    <AppCard><AppText style={styles.sectionTitle}>{isClosed ? 'Ticket closed' : 'Reply to support'}</AppText>{isClosed ? <InfoNotice tone="admin" title="Closed" body="This ticket is closed. Reopen it if you need to continue the conversation." /> : <><TextInput value={body} onChangeText={setBody} placeholder="Write a reply..." style={[styles.input, styles.textArea]} multiline textAlignVertical="top" /><ImagePickerField images={images} onChange={setImages} disabled={sending} label="Attach images" hint="Attach screenshots or photos that help support understand your reply." /><Button title={sending ? 'Sending...' : 'Send reply'} disabled={sending} onPress={() => { void sendMessage(); }} /></>}<Button title={isClosed ? 'Reopen ticket' : 'Close ticket'} color={isClosed ? '#0F766E' : '#B91C1C'} disabled={sending} onPress={() => { void setStatus(isClosed ? 'open' : 'closed'); }} /></AppCard></> : <AppCard><AppText style={styles.cardText}>Ticket could not be loaded.</AppText></AppCard>}
     <Button title="Back to Support" onPress={() => navigation.goBack()} />
   </ScrollView></AppScreen>;
 }

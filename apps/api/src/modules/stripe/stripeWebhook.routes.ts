@@ -25,7 +25,7 @@ async function markPurchasePaid(session: Stripe.Checkout.Session) {
 
     await tx.wallet.update({
       where: { id: wallet.id },
-      data: { purchasedAvailableCredits: { increment: purchase.creditAmount } }
+      data: { availableBalanceCents: { increment: purchase.amountCents }, currency: purchase.currency }
     });
 
     await tx.creditLedgerEntry.create({
@@ -34,8 +34,10 @@ async function markPurchasePaid(session: Stripe.Checkout.Session) {
         walletId: wallet.id,
         type: 'credit_purchase',
         balanceType: 'purchased',
-        amount: purchase.creditAmount,
-        description: `Stripe test purchase: ${purchase.creditAmount} non-withdrawable credits`,
+        amount: 0,
+        amountCents: purchase.amountCents,
+        currency: purchase.currency,
+        description: `Wallet top-up: ${(purchase.amountCents / 100).toFixed(2)} ${purchase.currency.toUpperCase()}`,
         metadata: {
           purchaseId: purchase.id,
           stripeCheckoutSessionId: session.id,

@@ -1,18 +1,19 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AuthUser, WalletDto, LedgerEntryDto } from '@hellowhen/contracts';
-import { formatCredits } from '@hellowhen/shared';
+import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { CreditPill, InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
 type AccountRoute = 'AccountProfile' | 'Wallet' | 'Settings' | 'SupportCenter' | 'BuyCredits';
@@ -27,17 +28,18 @@ type AccountAction = {
 
 const accountActions: AccountAction[] = [
   { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile' },
-  { title: 'Wallet', description: 'Credit balance, holds, earnings, and activity.', badge: 'Credits', tone: 'credits', route: 'Wallet' },
+  { title: 'Wallet', description: 'Optional money, holds, pending payouts, and activity.', badge: 'Wallet', tone: 'credits', route: 'Wallet' },
   { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings' },
-  { title: 'Support', description: 'Get help with trades, images, credits, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter' },
+  { title: 'Support', description: 'Get help with trades, images, wallet, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter' },
 ];
 
 function formatLedgerType(type: string) {
   return type.replaceAll('_', ' ');
 }
 
-function formatLedgerAmount(amount: number) {
-  return `${amount > 0 ? '+' : ''}${amount}`;
+function entryAmount(entry: LedgerEntryDto) {
+  if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}`;
+  return entry.amount ? `${entry.amount > 0 ? '+' : ''}${entry.amount} legacy credits` : formatMoney(0, entry.currency ?? 'eur');
 }
 
 function ledgerTone(type: string, amount: number): SemanticColorName {
@@ -50,6 +52,11 @@ function ledgerTone(type: string, amount: number): SemanticColorName {
 
 function getDisplayName(user: AuthUser | null) {
   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Hellowhen member';
+}
+
+function getAvatarUri(user: AuthUser | null) {
+  const url = user?.profile?.avatarUrl;
+  return url ? resolveMediaUrl(url) : null;
 }
 
 export function AccountScreen() {
@@ -78,8 +85,9 @@ export function AccountScreen() {
 
   const displayName = getDisplayName(auth.user);
   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle';
-  const totalCredits = wallet ? wallet.purchasedAvailableCredits + wallet.earnedPendingCredits + wallet.earnedAvailableCredits + wallet.heldCredits : 0;
-  const availableCredits = wallet ? wallet.purchasedAvailableCredits + wallet.earnedAvailableCredits : 0;
+  const avatarUri = getAvatarUri(auth.user);
+  const currency = wallet?.currency ?? 'eur';
+  const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
   const recentEntries = wallet?.entries?.slice(0, 3) ?? [];
 
   function navigate(route: AccountRoute) {
@@ -101,7 +109,13 @@ export function AccountScreen() {
 
         <AppCard>
           <View style={styles.profileHero}>
-            <View style={styles.avatar}><AppText style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</AppText></View>
+            <View style={styles.avatar}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              ) : (
+                <AppText style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</AppText>
+              )}
+            </View>
             <View style={styles.profileCopy}>
               <AppText style={styles.profileName}>{displayName}</AppText>
               <AppText style={styles.profileMeta}>{handle}</AppText>
@@ -117,17 +131,16 @@ export function AccountScreen() {
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
               <AppText style={styles.sectionTitle}>Wallet</AppText>
-              <AppText style={styles.cardText}>Credits available for trades and earnings.</AppText>
+              <AppText style={styles.cardText}>Optional money available for trades, holds, and payouts.</AppText>
             </View>
-            <CreditPill amount={totalCredits} label="total" />
+            <MoneyPill amountCents={total} currency={currency} label="total" />
           </View>
 
           {wallet ? (
             <View style={styles.walletGrid}>
-              <WalletMetric label="Available" value={availableCredits} tone="credits" />
-              <WalletMetric label="Held" value={wallet.heldCredits} tone="time" />
-              <WalletMetric label="Pending" value={wallet.earnedPendingCredits} tone="success" />
-              <WalletMetric label="Eligible" value={wallet.earnedAvailableCredits} tone="instruction" />
+              <WalletMetric label="Available" value={wallet.availableBalanceCents} currency={currency} tone="credits" />
+              <WalletMetric label="Held" value={wallet.heldBalanceCents} currency={currency} tone="time" />
+              <WalletMetric label="Pending" value={wallet.pendingPayoutCents} currency={currency} tone="success" />
             </View>
           ) : null}
 
@@ -136,7 +149,7 @@ export function AccountScreen() {
               <AppText style={styles.inlinePrimaryText}>Open Wallet</AppText>
             </Pressable>
             <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, pressed && styles.pressed]}>
-              <AppText style={styles.inlineSecondaryText}>Add Credits</AppText>
+              <AppText style={styles.inlineSecondaryText}>Add Money</AppText>
             </Pressable>
           </View>
 
@@ -182,18 +195,18 @@ function AccountActionRow({ action, onPress }: { action: AccountAction; onPress:
   );
 }
 
-function WalletMetric({ label, value, tone }: { label: string; value: number; tone: SemanticColorName }) {
-  return <View style={styles.metricBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatCredits(value)}</AppText></View>;
+function WalletMetric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) {
+  return <View style={styles.metricBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>;
 }
 
 function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
   return (
     <View style={styles.ledgerRow}>
       <View style={styles.ledgerCopy}>
-        <SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amount)} size="sm" />
+        <SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" />
         <AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText>
       </View>
-      <AppText style={[styles.ledgerAmount, entry.amount < 0 && styles.ledgerAmountNegative]}>{formatLedgerAmount(entry.amount)}</AppText>
+      <AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText>
     </View>
   );
 }
@@ -205,6 +218,7 @@ const styles = StyleSheet.create({
   subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
   profileHero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 32 },
   avatarText: { color: '#0F766E', fontSize: 24, fontWeight: '900' },
   profileCopy: { flex: 1 },
   profileName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },

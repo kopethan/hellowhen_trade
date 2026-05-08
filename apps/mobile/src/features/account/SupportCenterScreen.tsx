@@ -10,6 +10,9 @@ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/Semanti
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { ImagePickerField } from '../trade/components/ImagePickerField';
+import { MediaStrip } from '../trade/components/MediaStrip';
+import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
 
 type TicketsResponse = { tickets: SupportTicketDto[] };
 type CreateTicketResponse = { ticket: SupportTicketDto };
@@ -43,6 +46,7 @@ export function SupportCenterScreen() {
   const [priority, setPriority] = useState<SupportTicketPriority>('normal');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [images, setImages] = useState<SelectedLocalImage[]>([]);
 
   const loadTickets = useCallback(async () => {
     setLoading(true); setError(null);
@@ -60,8 +64,9 @@ export function SupportCenterScreen() {
   async function createTicket() {
     setSubmitting(true); setError(null);
     try {
-      const result = await api.support.createTicket({ category, priority, subject: subject.trim(), message: message.trim() }) as CreateTicketResponse;
-      setSubject(''); setMessage(''); setCategory('general_feedback'); setPriority('normal');
+      const mediaIds = await uploadSelectedImages(images);
+      const result = await api.support.createTicket({ category, priority, subject: subject.trim(), message: message.trim(), mediaIds }) as CreateTicketResponse;
+      setSubject(''); setMessage(''); setImages([]); setCategory('general_feedback'); setPriority('normal');
       await loadTickets();
       navigation.navigate('SupportTicketDetail', { ticketId: result.ticket.id, subject: result.ticket.subject });
     } catch (caughtError) {
@@ -78,9 +83,10 @@ export function SupportCenterScreen() {
       <AppText style={styles.label}>Priority</AppText><View style={styles.wrap}>{priorities.map((item) => <TouchableOpacity key={item} onPress={() => setPriority(item)}><SemanticBadge label={item} tone={priority === item ? priorityTone(item) : 'muted'} /></TouchableOpacity>)}</View>
       <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={styles.input} />
       <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea]} multiline textAlignVertical="top" />
+      <ImagePickerField images={images} onChange={setImages} disabled={submitting} label="Screenshots" hint="Attach screenshots or images that explain the issue." />
       <Button title={submitting ? 'Submitting...' : 'Submit ticket'} disabled={submitting} onPress={() => { void createTicket(); }} />
     </AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={styles.cardText}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={styles.ticketCard}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={styles.cardText} numberOfLines={2}>{ticket.message}</AppText><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
+    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={styles.cardText}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={styles.ticketCard}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={styles.cardText} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
     <Button title="Back to Account" onPress={() => navigation.goBack()} />
   </ScrollView></AppScreen>;
 }

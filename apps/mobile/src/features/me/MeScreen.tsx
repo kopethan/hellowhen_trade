@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileDto } from '@hellowhen/contracts';
 import { AppCard } from '../../components/AppCard';
@@ -10,6 +11,8 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
+import { resolveMediaUrl } from '../trade/mediaUrls';
+import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
 type ProfileResponse = { profile: ProfileDto };
@@ -19,14 +22,35 @@ function optionalText(value: string) {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function getAvatarSource(url?: string | null) {
+  if (!url) return null;
+  if (/^(file|content|data|https?):/i.test(url)) return url;
+  return resolveMediaUrl(url);
+}
+
 export function ProfileScreen({ navigation }: Props) {
   const auth = useAuth();
   const [displayName, setDisplayName] = useState(auth.user?.profile?.displayName ?? '');
   const [handle, setHandle] = useState(auth.user?.profile?.handle ?? '');
   const [bio, setBio] = useState(auth.user?.profile?.bio ?? '');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(auth.user?.profile?.avatarUrl ?? null);
+  const [avatarImage, setAvatarImage] = useState<SelectedLocalImage | null>(null);
+  const [removingAvatar, setRemovingAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
+
+  async function pickAvatar() {
+    setError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { setError('Allow photo library access to choose a profile picture.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: false, quality: 0.85 });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    setAvatarImage({ uri: asset.uri, name: asset.fileName ?? `profile-avatar-${Date.now()}.jpg`, type: asset.mimeType ?? 'image/jpeg' });
+    setSaved(false);
+  }
 
   async function handleSave() {
     if (displayName.trim().length < 1) {
@@ -43,13 +67,34 @@ export function ProfileScreen({ navigation }: Props) {
     setError(null);
 
     try {
-      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio) }) as ProfileResponse;
-      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio });
+      const avatarMediaIds = avatarImage ? await uploadSelectedImages([avatarImage]) : [];
+      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
+      setAvatarImage(null);
+      setAvatarUrl(result.profile.avatarUrl ?? null);
+      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId });
       setSaved(true);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRemoveAvatar() {
+    setRemovingAvatar(true);
+    setSaved(false);
+    setError(null);
+
+    try {
+      const result = await api.profile.updateMe({ removeAvatar: true }) as ProfileResponse;
+      setAvatarImage(null);
+      setAvatarUrl(null);
+      auth.updateLocalProfile({ avatarUrl: null, avatarMediaId: null, displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio });
+      setSaved(true);
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setRemovingAvatar(false);
     }
   }
 
@@ -66,14 +111,27 @@ export function ProfileScreen({ navigation }: Props) {
         {saved ? <InfoNotice tone="success" title="Saved" body="Your profile has been updated." /> : null}
 
         <AppCard>
-          <View style={styles.previewRow}>
-            <View style={styles.avatar}><AppText style={styles.avatarText}>{(displayName || auth.user?.email || 'H').slice(0, 1).toUpperCase()}</AppText></View>
+          <View style={styles.avatarPanel}>
+            <View style={styles.avatar}>
+              {avatarSource ? <Image source={{ uri: avatarSource }} style={styles.avatarImage} /> : <AppText style={styles.avatarText}>{(displayName || auth.user?.email || 'H').slice(0, 1).toUpperCase()}</AppText>}
+            </View>
             <View style={styles.previewCopy}>
               <AppText style={styles.previewName}>{displayName.trim() || 'Display name'}</AppText>
               <AppText style={styles.previewHandle}>{handle.trim() ? `@${handle.trim()}` : 'Add a handle'}</AppText>
               <AppText style={styles.previewEmail}>{auth.user?.email ?? 'Signed in'}</AppText>
             </View>
           </View>
+          <View style={styles.avatarActions}>
+            <Pressable accessibilityRole="button" disabled={saving || removingAvatar} onPress={pickAvatar} style={({ pressed }) => [styles.avatarButton, (saving || removingAvatar) && styles.disabled, pressed && styles.pressed]}>
+              <AppText style={styles.avatarButtonText}>{avatarSource ? 'Change photo' : 'Add photo'}</AppText>
+            </Pressable>
+            {avatarSource ? (
+              <Pressable accessibilityRole="button" disabled={saving || removingAvatar} onPress={handleRemoveAvatar} style={({ pressed }) => [styles.avatarRemoveButton, (saving || removingAvatar) && styles.disabled, pressed && styles.pressed]}>
+                <AppText style={styles.avatarRemoveButtonText}>{removingAvatar ? 'Removing...' : 'Remove'}</AppText>
+              </Pressable>
+            ) : null}
+          </View>
+          <InfoNotice tone="info" body="Profile pictures are reviewed like other images. If a picture is removed during review, it disappears from your public profile." />
         </AppCard>
 
         <AppCard>
@@ -126,8 +184,10 @@ const styles = StyleSheet.create({
   header: { gap: 8 },
   title: { color: '#0F172A', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
-  previewRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: { width: 66, height: 66, borderRadius: 33, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
+  avatarPanel: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  avatarActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  avatar: { width: 76, height: 76, borderRadius: 38, overflow: 'hidden', backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 38 },
   avatarText: { color: '#0F766E', fontSize: 25, fontWeight: '900' },
   previewCopy: { flex: 1 },
   previewName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
@@ -140,6 +200,10 @@ const styles = StyleSheet.create({
   input: { borderRadius: 16, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, paddingVertical: 12, color: '#0F172A', fontSize: 16, fontWeight: '600' },
   textarea: { minHeight: 118, lineHeight: 22 },
   actions: { gap: 10 },
+  avatarButton: { borderRadius: 999, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 },
+  avatarButtonText: { color: '#FFFFFF', fontWeight: '900' },
+  avatarRemoveButton: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingHorizontal: 14, paddingVertical: 10 },
+  avatarRemoveButtonText: { color: '#991B1B', fontWeight: '900' },
   primaryButton: { borderRadius: 18, backgroundColor: '#0F766E', paddingVertical: 15, alignItems: 'center' },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
   secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' },

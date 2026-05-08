@@ -3,7 +3,6 @@ import type { AppSettings } from '@hellowhen/contracts';
 
 const defaultSettings: AppSettings = {
   appearance: 'system',
-  accent: 'teal',
   language: 'en',
   notificationsEnabled: true,
 };

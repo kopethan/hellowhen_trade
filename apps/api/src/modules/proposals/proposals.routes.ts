@@ -46,7 +46,7 @@ proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
       return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0], trade });
     } catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
-      if (code === 'INSUFFICIENT_FAKE_CREDITS') return res.status(400).json({ error: 'insufficient_fake_credits', message: 'Not enough fake/test credits to accept this proposal.' });
+      if (code === 'INSUFFICIENT_WALLET_BALANCE') return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'Not enough wallet balance to accept this proposal.' });
       if (code === 'INVALID_TRADE_STATUS_TRANSITION') return res.status(409).json({ error: 'invalid_trade_status_transition' });
       if (code === 'TRADE_ALREADY_HAS_PROVIDER') return res.status(409).json({ error: 'trade_already_has_provider', message: 'This trade already has an accepted provider.' });
       if (code === 'FORBIDDEN') return res.status(403).json({ error: 'forbidden' });

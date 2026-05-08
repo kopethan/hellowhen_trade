@@ -1,8 +1,9 @@
 import React from 'react';
 import { StyleSheet, TextStyle, View, ViewStyle } from 'react-native';
-import { semanticColors, semanticStatusTone, type SemanticColorName } from '@hellowhen/theme';
-import { formatCredits } from '@hellowhen/shared';
+import { semanticStatusTone, type SemanticColorName } from '@hellowhen/theme';
+import { formatCredits, formatMoney } from '@hellowhen/shared';
 import { AppText } from './AppText';
+import { useThemeTokens } from '../providers/ThemeProvider';
 
 type BadgeSize = 'sm' | 'md';
 
@@ -23,7 +24,8 @@ function toneForStatus(status: string): SemanticColorName {
 }
 
 export function SemanticBadge({ label, tone = 'muted', size = 'md', style, textStyle }: SemanticBadgeProps) {
-  const color = semanticColors[tone];
+  const theme = useThemeTokens();
+  const color = theme.semantic[tone];
   return (
     <View style={[styles.badge, size === 'sm' && styles.badgeSmall, { backgroundColor: color.softBg, borderColor: color.border }, style]}>
       <AppText style={[styles.badgeText, size === 'sm' && styles.badgeTextSmall, { color: color.text }, textStyle]}>{labelize(label)}</AppText>
@@ -36,7 +38,8 @@ export function StatusBadge({ status, tone, size = 'md' }: { status: string; ton
 }
 
 export function CreditPill({ amount, label = 'credits', tone = 'credits' }: { amount: number; label?: string; tone?: SemanticColorName }) {
-  const color = semanticColors[tone];
+  const theme = useThemeTokens();
+  const color = theme.semantic[tone];
   return (
     <View style={[styles.creditPill, { backgroundColor: color.softBg, borderColor: color.border }]}>
       <AppText style={[styles.creditAmount, { color: color.text }]}>{formatCredits(amount)}</AppText>
@@ -45,8 +48,20 @@ export function CreditPill({ amount, label = 'credits', tone = 'credits' }: { am
   );
 }
 
+export function MoneyPill({ amountCents, currency = 'eur', label = 'wallet', tone = 'credits' }: { amountCents: number; currency?: string; label?: string; tone?: SemanticColorName }) {
+  const theme = useThemeTokens();
+  const color = theme.semantic[tone];
+  return (
+    <View style={[styles.creditPill, { backgroundColor: color.softBg, borderColor: color.border }]}>
+      <AppText style={[styles.creditAmount, { color: color.text }]}>{formatMoney(amountCents, currency)}</AppText>
+      <AppText style={[styles.creditLabel, { color: color.text }]}>{label}</AppText>
+    </View>
+  );
+}
+
 export function InfoNotice({ title, body, tone = 'info' }: { title?: string; body: string; tone?: SemanticColorName }) {
-  const color = semanticColors[tone];
+  const theme = useThemeTokens();
+  const color = theme.semantic[tone];
   return (
     <View style={[styles.notice, { backgroundColor: color.softBg, borderColor: color.border }]}>
       {title ? <AppText style={[styles.noticeTitle, { color: color.text }]}>{title}</AppText> : null}
