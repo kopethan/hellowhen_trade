@@ -22,6 +22,7 @@ import { ProposalDetailScreen } from '../features/trade/ProposalDetailScreen';
 import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { WalletScreen } from '../features/wallet/WalletScreen';
+import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
 import { useThemeTokens } from '../providers/ThemeProvider';
 
@@ -29,6 +30,7 @@ export type RootStackParamList = {
   TradeTabs: undefined;
   AccountProfile: undefined;
   Wallet: undefined;
+  Payouts: undefined;
   Settings: undefined;
   BuyCredits: undefined;
   SupportCenter: undefined;
@@ -87,6 +89,7 @@ export function RootNavigator() {
           <Stack.Screen name="TradeTabs" component={TradeTabs} />
           <Stack.Screen name="AccountProfile" component={ProfileScreen} />
           <Stack.Screen name="Wallet" component={WalletScreen} />
+          <Stack.Screen name="Payouts" component={PayoutsScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="BuyCredits" component={BuyCreditsScreen} />
           <Stack.Screen name="SupportCenter" component={SupportCenterScreen} />

@@ -17,7 +17,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'Wallet' | 'Settings' | 'SupportCenter' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
 
 type AccountAction = {
   title: string;
@@ -29,7 +29,8 @@ type AccountAction = {
 
 const accountActions: AccountAction[] = [
   { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile' },
-  { title: 'Wallet', description: 'Optional money, holds, pending payouts, and activity.', badge: 'Wallet', tone: 'credits', route: 'Wallet' },
+  { title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits', route: 'Wallet' },
+  { title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success', route: 'Payouts' },
   { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings' },
   { title: 'Support', description: 'Get help with trades, images, wallet, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter' },
 ];
@@ -95,6 +96,7 @@ export function AccountScreen() {
   function navigate(route: AccountRoute) {
     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
     else if (route === 'Wallet') navigation.navigate('Wallet');
+    else if (route === 'Payouts') navigation.navigate('Payouts');
     else if (route === 'Settings') navigation.navigate('Settings');
     else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
     else navigation.navigate('BuyCredits');
@@ -129,7 +131,7 @@ export function AccountScreen() {
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
               <AppText style={styles.sectionTitle}>Wallet</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Optional money available for trades, holds, and payouts.</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Spendable wallet money plus earnings from completed trades.</AppText>
             </View>
             <MoneyPill amountCents={total} currency={currency} label="total" />
           </View>
@@ -138,7 +140,7 @@ export function AccountScreen() {
             <View style={styles.walletGrid}>
               <WalletMetric label="Available" value={wallet.availableBalanceCents} currency={currency} tone="credits" />
               <WalletMetric label="Held" value={wallet.heldBalanceCents} currency={currency} tone="time" />
-              <WalletMetric label="Pending" value={wallet.pendingPayoutCents} currency={currency} tone="success" />
+              <WalletMetric label="Earnings" value={wallet.pendingPayoutCents} currency={currency} tone="success" />
             </View>
           ) : null}
 
@@ -148,6 +150,9 @@ export function AccountScreen() {
             </Pressable>
             <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
               <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>Add Money</AppText>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => navigate('Payouts')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>Payouts</AppText>
             </Pressable>
           </View>
 
@@ -240,7 +245,7 @@ const styles = StyleSheet.create({
   walletGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
   metricValue: { fontSize: 18, fontWeight: '900' },
-  inlineActions: { flexDirection: 'row', gap: 10 },
+  inlineActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   inlinePrimary: { flex: 1, borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
   inlinePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
   inlineSecondary: { flex: 1, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
