@@ -1,0 +1,360 @@
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index d331c24..0d8da32 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -1,65 +1,226 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { TradeActionStatus, TradeStatus } from '@hellowhen/contracts';
++import type { MediaAssetDto, ProposalActionStatus, TradeActionStatus, TradeStatus } from '@hellowhen/contracts';
+ import { formatMoney } from '@hellowhen/shared';
+-import type { SemanticColorName } from '@hellowhen/theme';
++import type { ThemeTokens } from '@hellowhen/theme';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+-import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useAuth } from '../../providers/AuthProvider';
+-import { MediaStrip } from './components/MediaStrip';
+-import type { TradeDeckItem, TradeProposalItem } from './types';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { resolveMediaUrl } from './mediaUrls';
++import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProposalItem } from './types';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'TradeDetail'>;
+ type TradeResponse = { trade: TradeDeckItem };
+ type ProposalsResponse = { proposals: TradeProposalItem[] };
++type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
++type ProposalMessageResponse = { message?: ProposalMessageItem; proposal?: TradeProposalItem };
++type DetailRole = 'owner' | 'provider' | 'applicant' | 'viewer';
+ 
+-function normalizeStatus(status?: string): TradeStatus { const statuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']; return statuses.includes(status ?? '') ? status as TradeStatus : 'active'; }
+-function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? '', creditAmount: params.creditAmount ?? 0, amountCents: params.amountCents ?? 0, currency: params.currency ?? 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: params.expiresAt ?? null, closedAt: null }; }
+-function personLabel(person?: { profile?: { displayName?: string | null; handle?: string | null } | null } | null) { return person?.profile?.displayName || person?.profile?.handle || 'Hellowhen member'; }
+-function expiryLabel(expiresAt?: string | null) { if (!expiresAt) return 'No expiry set'; const ms = new Date(expiresAt).getTime(); if (!Number.isFinite(ms)) return 'No expiry set'; const diff = ms - Date.now(); if (diff <= 0) return 'Expired'; const hours = Math.ceil(diff / 1000 / 60 / 60); return hours < 24 ? `${hours}h left` : `${Math.ceil(hours / 24)}d left`; }
+-function statusHint(trade: TradeDeckItem, role: string) { if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review conversations before accepting a provider.' : 'Send a proposal to start a private conversation with the owner.'; if (trade.status === 'in_progress') return role === 'owner' ? 'In progress. Complete the trade when the provider delivers, or cancel to refund held wallet money.' : 'In progress. Use the accepted proposal conversation to coordinate delivery.'; if (trade.status === 'completed') return 'Completed. Wallet money is pending payout when this trade included an amount.'; if (trade.status === 'cancelled') return 'Cancelled. Held wallet money was refunded if there was an active hold.'; return 'Review the current trade status before taking action.'; }
++const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
++
++function normalizeStatus(status?: string): TradeStatus {
++  return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active';
++}
++
++function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem {
++  return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? '', creditAmount: params.creditAmount ?? 0, amountCents: params.amountCents ?? 0, currency: params.currency ?? 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: params.expiresAt ?? null, closedAt: null };
++}
++
++function personLabel(person?: { profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
++  return person?.profile?.displayName || person?.profile?.handle || 'Hellowhen member';
++}
++
++function modeLabel(mode?: string | null) {
++  if (mode === 'remote') return 'Remote';
++  if (mode === 'local') return 'Local';
++  if (mode === 'hybrid') return 'Hybrid';
++  return null;
++}
++
++function compactList(values: Array<string | null | undefined>) {
++  return values.map((value) => value?.trim()).filter(Boolean).join(' · ');
++}
++
++function needTitle(trade: TradeDeckItem) { return trade.need?.title || trade.title || 'Open request'; }
++function offerTitle(trade: TradeDeckItem) { return trade.offer?.title || 'Open offer'; }
++function needMeta(need?: NeedItem | null) { return compactList([need?.category, need?.timing, modeLabel(need?.mode), need?.locationLabel]) || 'Need details not set yet'; }
++function offerMeta(offer?: OfferItem | null) { return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode), offer?.locationLabel]) || 'Offer details not set yet'; }
++
++function expiryLabel(expiresAt?: string | null) {
++  if (!expiresAt) return 'No expiry set';
++  const ms = new Date(expiresAt).getTime();
++  if (!Number.isFinite(ms)) return 'No expiry set';
++  const diff = ms - Date.now();
++  if (diff <= 0) return 'Expired';
++  const hours = Math.ceil(diff / 1000 / 60 / 60);
++  return hours < 24 ? `${hours}h left` : `${Math.ceil(hours / 24)}d left`;
++}
++
++function formatDate(value?: string | null) {
++  if (!value) return null;
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return null;
++  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
++}
++
++function formatStatus(status: string) { return status.replace(/_/g, ' '); }
++
++function statusHint(trade: TradeDeckItem, role: DetailRole) {
++  if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review each private proposal thread before accepting someone.' : 'Send a private proposal to ask for this trade.';
++  if (trade.status === 'in_progress') return 'In progress. Coordinate in the accepted proposal conversation below.';
++  if (trade.status === 'completed') return 'Completed. Wallet money is pending payout when this trade included an amount.';
++  if (trade.status === 'cancelled') return 'Cancelled. Held wallet money was refunded when applicable.';
++  return 'Review the current trade status before taking action.';
++}
++
++function canMessageProposal(proposal: TradeProposalItem) { return !['declined', 'withdrawn'].includes(proposal.status); }
++function canShowConversation(proposal: TradeProposalItem, role: DetailRole, userId?: string) { return role === 'owner' ? proposal.status === 'accepted' : proposal.applicantId === userId; }
++function upsertProposal(proposals: TradeProposalItem[], next: TradeProposalItem) { return proposals.some((proposal) => proposal.id === next.id) ? proposals.map((proposal) => proposal.id === next.id ? { ...proposal, ...next } : proposal) : [next, ...proposals]; }
+ 
+ export function TradeDetailScreen({ route, navigation }: Props) {
+-  const auth = useAuth(); const params = route.params;
++  const auth = useAuth();
++  const theme = useThemeTokens();
++  const params = route.params;
+   const [trade, setTrade] = useState<TradeDeckItem>(() => fallback(params));
+   const [proposals, setProposals] = useState<TradeProposalItem[]>([]);
++  const [proposalDraft, setProposalDraft] = useState('');
++  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+   const [error, setError] = useState<string | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
++  const [creatingProposal, setCreatingProposal] = useState(false);
++  const [replyingProposalId, setReplyingProposalId] = useState<string | null>(null);
+   const [actionLoading, setActionLoading] = useState<TradeActionStatus | null>(null);
+-  const role = useMemo(() => { if (trade.ownerId === auth.user?.id) return 'owner'; if (trade.providerId && trade.providerId === auth.user?.id) return 'provider'; if (proposals.some((proposal) => proposal.applicantId === auth.user?.id && proposal.status === 'accepted')) return 'provider'; if (proposals.some((proposal) => proposal.applicantId === auth.user?.id)) return 'applicant'; return 'viewer'; }, [auth.user?.id, proposals, trade.ownerId, trade.providerId]);
++  const [proposalActionLoading, setProposalActionLoading] = useState<{ proposalId: string; status: ProposalActionStatus } | null>(null);
++
++  const role = useMemo<DetailRole>(() => {
++    if (trade.ownerId === auth.user?.id) return 'owner';
++    if (trade.providerId && trade.providerId === auth.user?.id) return 'provider';
++    if (proposals.some((proposal) => proposal.applicantId === auth.user?.id && proposal.status === 'accepted')) return 'provider';
++    if (proposals.some((proposal) => proposal.applicantId === auth.user?.id)) return 'applicant';
++    return 'viewer';
++  }, [auth.user?.id, proposals, trade.ownerId, trade.providerId]);
++
+   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
+-  const media = useMemo(() => [...(trade.need?.media ?? []), ...(trade.offer?.media ?? []), ...(trade.media ?? [])], [trade.media, trade.need?.media, trade.offer?.media]);
+-  const loadTrade = useCallback(async () => { setLoading(true); setError(null); try { const result = await api.trades.get(params.tradeId) as TradeResponse; setTrade(result.trade); try { const proposalResult = await api.trades.proposals(params.tradeId) as ProposalsResponse; setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []); } catch { setProposals([]); } } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); setTrade((current) => current.id === params.tradeId ? current : fallback(params)); } finally { setLoading(false); } }, [params]);
++  const acceptedProposal = useMemo(() => proposals.find((proposal) => proposal.status === 'accepted') ?? null, [proposals]);
++  const title = compactList([needTitle(trade), offerTitle(trade)]).replace(' · ', ' ↔ ');
++  const paymentLabel = (trade.amountCents ?? 0) > 0 ? formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur') : 'Service-for-service';
++  const createdLabel = formatDate(trade.createdAt);
++
++  const loadTrade = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const result = await api.trades.get(params.tradeId) as TradeResponse;
++      setTrade(result.trade);
++      try {
++        const proposalResult = await api.trades.proposals(params.tradeId) as ProposalsResponse;
++        setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []);
++      } catch { setProposals([]); }
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++      setTrade((current) => current.id === params.tradeId ? current : fallback(params));
++    } finally { setLoading(false); }
++  }, [params]);
++
+   useEffect(() => { void loadTrade(); }, [loadTrade]);
+-  const actions = useMemo(() => { if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark Completed' }, { status: 'cancelled' as const, label: 'Cancel / Refund' }]; if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel Trade' }]; if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel Trade' }]; return []; }, [role, trade.status]);
+-  const updateStatus = useCallback(async (status: TradeActionStatus) => { setActionLoading(status); setError(null); setMessage(null); try { const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse; setTrade(result.trade); setMessage(status === 'completed' ? 'Trade completed. Held wallet money moved into pending payout when applicable.' : status === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.'); await loadTrade(); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); } finally { setActionLoading(null); } }, [loadTrade, trade.id]);
+-  const openOrCreateProposal = useCallback(() => { if (myProposal) navigation.navigate('ProposalDetail', { proposalId: myProposal.id }); else navigation.navigate('CreateProposal', { tradeId: trade.id, title: trade.title }); }, [myProposal, navigation, trade.id, trade.title]);
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+-    <AppCard>
+-      <View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label="Optional wallet money" tone="info" size="sm" /></View>
+-      <AppText style={styles.title}>{trade.title}</AppText>
+-      <MediaStrip media={media} size="large" />
+-      <AppText style={styles.description}>{trade.description}</AppText>
+-      <View style={styles.creditBox}>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}<View style={styles.ownerPill}><View style={styles.avatar} /><View style={styles.ownerCopy}><AppText style={styles.metaLabel}>Owner</AppText><AppText style={styles.ownerName}>{personLabel(trade.owner)}</AppText></View></View></View>
+-      <View style={styles.metaGrid}><MetaBox label="Your role" value={role} tone="proposal" /><MetaBox label="Provider" value={trade.provider ? personLabel(trade.provider) : 'Not accepted yet'} tone="offer" /><MetaBox label="Expiry" value={expiryLabel(trade.expiresAt)} tone="time" /><MetaBox label="Visibility" value={trade.isPublic ? 'Public' : 'Private/closed'} tone="trade" /><MetaBox label="Payment" value={trade.payment?.status ?? 'Not held yet'} tone="credits" /><MetaBox label="Escrow" value={trade.escrow ? formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur') : 'No hold yet'} tone="time" /></View>
+-      <InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />
+-      {error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}
+-      {message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}
+-      {loading ? <AppText style={styles.muted}>Refreshing trade detail...</AppText> : null}
+-      {role !== 'owner' && trade.status === 'active' ? <ActionButton label={myProposal ? 'Open Proposal Thread' : 'Send Proposal'} variant="primary" onPress={openOrCreateProposal} /> : null}
+-      {(role === 'owner' || role === 'provider' || role === 'applicant') && proposals.length > 0 ? <View style={styles.proposalsBox}><AppText style={styles.sectionTitle}>{role === 'owner' ? 'Proposal conversations' : 'Your proposal'}</AppText>{proposals.map((proposal) => <Pressable key={proposal.id} accessibilityRole="button" onPress={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} style={({ pressed }) => [styles.proposalRow, pressed && styles.pressed]}><View style={styles.proposalCopy}><AppText style={styles.proposalTitle}>{personLabel(proposal.applicant)}</AppText><AppText style={styles.proposalMessage}>{proposal.message}</AppText></View><StatusBadge status={proposal.status} size="sm" /></Pressable>)}</View> : null}
+-      {actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status ? 'Updating...' : action.label} variant={action.status === 'cancelled' ? 'danger' : 'primary'} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} />)}
+-      <ActionButton label="Back to Trades" variant="ghost" onPress={() => navigation.goBack()} />
+-    </AppCard>
++
++  const actions = useMemo(() => {
++    if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark completed' }, { status: 'cancelled' as const, label: 'Cancel / refund' }];
++    if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel trade' }];
++    if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel trade' }];
++    return [];
++  }, [role, trade.status]);
++
++  const updateStatus = useCallback(async (status: TradeActionStatus) => {
++    setActionLoading(status); setError(null); setMessage(null);
++    try {
++      const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse;
++      setTrade(result.trade);
++      setMessage(status === 'completed' ? 'Trade completed. Held wallet money moved into pending payout when applicable.' : status === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.');
++      await loadTrade();
++    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); }
++    finally { setActionLoading(null); }
++  }, [loadTrade, trade.id]);
++
++  const createProposal = useCallback(async () => {
++    const trimmed = proposalDraft.trim();
++    if (trimmed.length < 3) return;
++    setCreatingProposal(true); setError(null); setMessage(null);
++    try {
++      const result = await api.trades.createProposal(trade.id, { message: trimmed }) as ProposalResponse;
++      setProposals((current) => upsertProposal(current, result.proposal));
++      setProposalDraft('');
++      setMessage('Proposal sent. This conversation is private to you and the trade owner.');
++      await loadTrade();
++    } catch (caughtError) {
++      const body = caughtError && typeof caughtError === 'object' && 'body' in caughtError ? (caughtError as { body?: { proposal?: TradeProposalItem } }).body : undefined;
++      if (body?.proposal) setProposals((current) => upsertProposal(current, body.proposal!));
++      setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this proposal.'));
++    } finally { setCreatingProposal(false); }
++  }, [loadTrade, proposalDraft, trade.id]);
++
++  const updateProposalStatus = useCallback(async (proposalId: string, status: ProposalActionStatus) => {
++    setProposalActionLoading({ proposalId, status }); setError(null); setMessage(null);
++    try {
++      const result = await api.proposals.updateStatus(proposalId, { status }) as ProposalResponse;
++      setProposals((current) => upsertProposal(current, result.proposal));
++      if (result.trade) setTrade(result.trade);
++      setMessage(status === 'accepted' ? 'Proposal accepted. The trade moved in progress and the accepted conversation is now below.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.');
++      await loadTrade();
++    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); }
++    finally { setProposalActionLoading(null); }
++  }, [loadTrade]);
++
++  const sendProposalMessage = useCallback(async (proposalId: string) => {
++    const trimmed = (replyDrafts[proposalId] ?? '').trim();
++    if (!trimmed) return;
++    setReplyingProposalId(proposalId); setError(null); setMessage(null);
++    try {
++      const result = await api.proposals.sendMessage(proposalId, { body: trimmed }) as ProposalMessageResponse;
++      setReplyDrafts((current) => ({ ...current, [proposalId]: '' }));
++      if (result.proposal) setProposals((current) => upsertProposal(current, result.proposal!));
++      else if (result.message) setProposals((current) => current.map((proposal) => proposal.id === proposalId ? { ...proposal, messages: [...(proposal.messages ?? []), result.message!] } : proposal));
++    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this message.')); }
++    finally { setReplyingProposalId(null); }
++  }, [replyDrafts]);
++
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
++    <View style={styles.topBar}><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}><AppText style={styles.backText}>←</AppText></Pressable><AppText style={styles.topBarTitle}>Trade</AppText><View style={styles.topBarSpacer} /></View>
++
++    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? 'Wallet optional' : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
++
++    <Separator theme={theme} />
++    <InventorySection eyebrow="I need" title={trade.need?.title ?? needTitle(trade)} description={trade.need?.description ?? trade.description} meta={needMeta(trade.need)} images={trade.need?.media ?? []} emptyImageLabel="No need reference images yet." theme={theme} />
++    <Separator theme={theme} />
++    <InventorySection eyebrow="I offer" title={trade.offer?.title ?? offerTitle(trade)} description={trade.offer?.description ?? ''} meta={offerMeta(trade.offer)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." theme={theme} />
++
++    <Separator theme={theme} />
++    <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{(trade.amountCents ?? 0) > 0 ? <DetailRow label="Payment" value={trade.payment?.status ? formatStatus(trade.payment.status) : 'Not held yet'} theme={theme} /> : null}{(trade.amountCents ?? 0) > 0 && trade.escrow ? <DetailRow label="Escrow" value={formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur')} theme={theme} /> : null}{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status ? 'Updating...' : action.label} variant={action.status === 'cancelled' ? 'danger' : 'primary'} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
++
++    <Separator theme={theme} />
++    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? 'Proposals' : myProposal ? 'Your proposal' : 'Ask to trade'}</AppText>{error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}{message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>Refreshing trade detail...</AppText> : null}{role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} theme={theme} /> : null}{role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>This trade is not accepting new proposals.</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No proposals yet. New private proposals will appear here.</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title="Accepted conversation" body="Only you and the accepted applicant can see this thread." /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} />)}</View></View>
+   </ScrollView></AppScreen>;
+ }
+-function MetaBox({ label, value, tone }: { label: string; value: string; tone: SemanticColorName }) { return <View style={styles.metaBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metaValue}>{value}</AppText></View>; }
+-function ActionButton({ label, variant, disabled, onPress }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' && styles.primaryButton, variant === 'danger' && styles.dangerButton, variant === 'ghost' && styles.ghostButton, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, variant === 'primary' && styles.primaryButtonText, variant === 'danger' && styles.dangerButtonText, variant === 'ghost' && styles.ghostButtonText]}>{label}</AppText></Pressable>; }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, description: { color: '#475569', fontSize: 16, lineHeight: 24, fontWeight: '600' }, creditBox: { borderRadius: 22, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 16, gap: 14 }, ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' }, ownerCopy: { flex: 1 }, ownerName: { marginTop: 2, fontWeight: '900' }, metaGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metaBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12, gap: 8 }, metaLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.7 }, metaValue: { fontWeight: '900' }, proposalsBox: { gap: 10 }, sectionTitle: { fontSize: 18, fontWeight: '900' }, proposalRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12 }, proposalCopy: { flex: 1 }, proposalTitle: { fontWeight: '900' }, proposalMessage: { marginTop: 3, color: '#64748B', fontWeight: '700' }, muted: { color: '#64748B', fontWeight: '700' }, actionButton: { minHeight: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, primaryButton: { backgroundColor: '#7C3AED' }, primaryButtonText: { color: '#FFFFFF' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, dangerButtonText: { color: '#991B1B' }, ghostButton: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1' }, ghostButtonText: { color: '#334155' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++
++function Separator({ theme }: { theme: ThemeTokens }) { return <View style={[styles.separator, { backgroundColor: theme.color.border }]} />; }
++function InventorySection({ eyebrow, title, description, meta, images, emptyImageLabel, theme }: { eyebrow: string; title: string; description: string; meta: string; images: MediaAssetDto[]; emptyImageLabel: string; theme: ThemeTokens }) { return <View style={styles.section}><AppText style={styles.sectionEyebrow}>{eyebrow}</AppText><AppText style={styles.sectionTitle}>{title}</AppText>{description ? <AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>{description}</AppText> : null}<AppText style={[styles.metaLine, { color: theme.color.muted }]}>{meta}</AppText><TradeDetailImageGrid media={images} emptyLabel={emptyImageLabel} theme={theme} /></View>; }
++function TradeDetailImageGrid({ media, emptyLabel, theme }: { media: MediaAssetDto[]; emptyLabel: string; theme: ThemeTokens }) { const visible = media.slice(0, 4); if (visible.length === 0) return <AppText style={[styles.emptyImages, { color: theme.color.muted, borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }]}>{emptyLabel}</AppText>; const first = visible[0]; if (visible.length === 1 && first) return <Image source={{ uri: resolveMediaUrl(first.url) }} style={styles.singleImage} resizeMode="cover" />; return <View style={styles.imageGrid}>{visible.map((item, index) => { const isLargeFirst = visible.length === 3 && index === 0; return <View key={item.id} style={[styles.gridImageWrap, isLargeFirst && styles.gridImageLargeFirst]}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.gridImage} resizeMode="cover" />{index === 3 && media.length > 4 ? <View style={styles.moreOverlay}><AppText style={styles.moreOverlayText}>+{media.length - 4}</AppText></View> : null}</View>; })}</View>; }
++function DetailRow({ label, value, theme }: { label: string; value: string; theme: ThemeTokens }) { return <View style={[styles.detailRow, { borderColor: theme.color.border }]}><AppText style={[styles.detailLabel, { color: theme.color.muted }]}>{label}</AppText><AppText style={styles.detailValue}>{value}</AppText></View>; }
++function ProposalComposer({ value, onChange, onSubmit, loading, theme }: { value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; theme: ThemeTokens }) { return <View style={styles.composerBox}><AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>Write a short private proposal. The owner can accept, decline, or continue the conversation here.</AppText><TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder="I can help with this. My timing is..." placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} /><ActionButton label={loading ? 'Sending...' : 'Send proposal'} variant="primary" disabled={loading || value.trim().length < 3} onPress={onSubmit} theme={theme} /></View>; }
++
++function ProposalBlock({ proposal, role, currentUserId, replyDraft, onReplyDraftChange, onSendMessage, replying, proposalActionLoading, onUpdateStatus, onOpenThread, theme }: { proposal: TradeProposalItem; role: DetailRole; currentUserId?: string; replyDraft: string; onReplyDraftChange: (value: string) => void; onSendMessage: () => void; replying: boolean; proposalActionLoading: { proposalId: string; status: ProposalActionStatus } | null; onUpdateStatus: (proposalId: string, status: ProposalActionStatus) => void; onOpenThread: () => void; theme: ThemeTokens }) {
++  const isOwner = role === 'owner'; const isApplicant = proposal.applicantId === currentUserId; const showConversation = canShowConversation(proposal, role, currentUserId); const canMessage = canMessageProposal(proposal); const messages = proposal.messages ?? [];
++  return <View style={[styles.proposalBlock, { borderColor: theme.color.border }]}><View style={styles.proposalHeader}><View style={styles.proposalIdentity}><View style={[styles.avatar, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]} /><View style={styles.proposalCopy}><AppText style={styles.proposalTitle}>{isApplicant ? 'You' : personLabel(proposal.applicant)}</AppText><AppText style={[styles.proposalMessage, { color: theme.color.muted }]}>{proposal.message}</AppText></View></View><StatusBadge status={proposal.status} size="sm" /></View>{isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ActionButton label={proposalActionLoading?.proposalId === proposal.id && proposalActionLoading.status === 'accepted' ? 'Accepting...' : 'Accept'} variant="primary" disabled={Boolean(proposalActionLoading)} onPress={() => onUpdateStatus(proposal.id, 'accepted')} theme={theme} /><ActionButton label={proposalActionLoading?.proposalId === proposal.id && proposalActionLoading.status === 'declined' ? 'Declining...' : 'Decline'} variant="danger" disabled={Boolean(proposalActionLoading)} onPress={() => onUpdateStatus(proposal.id, 'declined')} theme={theme} /></View> : null}{isApplicant && proposal.status === 'pending' ? <ActionButton label={proposalActionLoading?.proposalId === proposal.id && proposalActionLoading.status === 'withdrawn' ? 'Withdrawing...' : 'Withdraw proposal'} variant="danger" disabled={Boolean(proposalActionLoading)} onPress={() => onUpdateStatus(proposal.id, 'withdrawn')} theme={theme} /> : null}{showConversation ? <View style={styles.inlineThread}><AppText style={styles.threadLabel}>{proposal.status === 'accepted' ? 'Accepted conversation' : 'Private proposal conversation'}</AppText>{messages.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No messages yet.</AppText> : messages.map((item) => <MessageBubble key={item.id} message={item} mine={item.senderId === currentUserId} theme={theme} />)}{canMessage ? <View style={styles.replyBox}><TextInput value={replyDraft} onChangeText={onReplyDraftChange} multiline textAlignVertical="top" placeholder="Write a private reply..." placeholderTextColor={theme.color.muted} style={[styles.replyInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} /><ActionButton label={replying ? 'Sending...' : 'Send reply'} variant="ghost" disabled={replying || replyDraft.trim().length === 0} onPress={onSendMessage} theme={theme} /></View> : null}</View> : <Pressable accessibilityRole="button" onPress={onOpenThread} style={({ pressed }) => [styles.openThreadButton, { borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.openThreadText, { color: theme.color.muted }]}>Open private thread</AppText></Pressable>}</View>;
++}
++
++function MessageBubble({ message, mine, theme }: { message: ProposalMessageItem; mine: boolean; theme: ThemeTokens }) { return <View style={[styles.messageBubble, mine ? styles.myMessageBubble : styles.theirMessageBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }]}><AppText style={[styles.messageAuthor, { color: theme.color.muted }]}>{mine ? 'You' : personLabel(message.sender)}</AppText><AppText style={styles.messageBody}>{message.body}</AppText></View>; }
++function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) { const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }; const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text; return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>; }
++
++const styles = StyleSheet.create({ content: { paddingBottom: 32, gap: 18 }, topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, backButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, backText: { fontSize: 24, lineHeight: 26, fontWeight: '800' }, topBarTitle: { fontSize: 18, fontWeight: '900' }, topBarSpacer: { width: 42 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: StyleSheet.hairlineWidth, opacity: 0.9 }, section: { gap: 12 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 10 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1 }, proposalCopy: { flex: 1, gap: 4 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 514cbf5..48f2389 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -2,7 +2,6 @@ import React from 'react';
+ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import type { MediaAssetDto } from '@hellowhen/contracts';
+ import { AppText } from '../../../components/AppText';
+-import { SemanticBadge } from '../../../components/SemanticUI';
+ import { TradeExchangeIcon } from './TradeExchangeIcon';
+ import { resolveMediaUrl } from '../mediaUrls';
+ import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
+@@ -21,10 +20,8 @@ type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerIma
+ 
+ export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, tradeTotal = 1): TradeSquareDeckCard[] {
+   const cards: TradeSquareDeckCard[] = [{ id: `${trade.id}:summary`, kind: 'summary', trade, tradeIndex, tradeTotal }];
+-  const needImage = trade.need?.media?.[0];
+-  const offerImage = trade.offer?.media?.[0];
+-  if (needImage) cards.push({ id: `${trade.id}:need:${needImage.id}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media: needImage });
+-  if (offerImage) cards.push({ id: `${trade.id}:offer:${offerImage.id}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media: offerImage });
++  for (const [index, media] of (trade.need?.media ?? []).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
++  for (const [index, media] of (trade.offer?.media ?? []).entries()) cards.push({ id: `${trade.id}:offer:${media.id}:${index}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media });
+   return cards;
+ }
+ 
+@@ -45,8 +42,6 @@ function needTitle(trade: TradeDeckItem) { return trade.need?.title || trade.tit
+ function offerTitle(trade: TradeDeckItem) { return trade.offer?.title || 'Open offer'; }
+ export function needMeta(need?: NeedItem | null) { return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
+ export function offerMeta(offer?: OfferItem | null) { return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
+-function getMediaCountLabel(item?: { media?: MediaAssetDto[] } | null) { const count = item?.media?.length ?? 0; return count <= 0 ? null : `${count} image${count === 1 ? '' : 's'}`; }
+-
+ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
+   return (
+     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, pressed && styles.pressed]}>
+@@ -78,30 +73,14 @@ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Trad
+   );
+ }
+ 
+-export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardProps) {
++export function TradeImageCard({ kind, media, onOpen }: TradeImageCardProps) {
+   const isNeed = kind === 'needImage';
+-  const entity = isNeed ? trade.need : trade.offer;
+-  const title = isNeed ? needTitle(trade) : offerTitle(trade);
+-  const meta = isNeed ? needMeta(trade.need) : offerMeta(trade.offer);
+   const label = isNeed ? 'Need reference' : 'Offer sample';
+-  const countLabel = getMediaCountLabel(entity);
+ 
+   return (
+     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, pressed && styles.pressed]}>
+-      <View style={styles.imageHeaderRow}>
+-        <SemanticBadge label={label} tone={isNeed ? 'need' : 'offer'} size="sm" />
+-        {countLabel ? <AppText style={styles.imageCount}>{countLabel}</AppText> : null}
+-      </View>
+-
+-      <View style={styles.imageFrame}>
+-        {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.image} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>No approved image</AppText></View>}
+-      </View>
+-
+-      <View style={styles.imageCopy}>
+-        <AppText style={styles.imageEyebrow}>{isNeed ? 'I need' : 'I offer'}</AppText>
+-        <AppText style={styles.imageTitle} numberOfLines={2}>{title}</AppText>
+-        <AppText style={styles.imageMeta} numberOfLines={2}>{meta}</AppText>
+-      </View>
++      {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>No approved image</AppText></View>}
++      <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{label}</AppText></View>
+     </Pressable>
+   );
+ }
+@@ -119,16 +98,11 @@ const styles = StyleSheet.create({
+   exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 13, marginVertical: 2 },
+   exchangeLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
+   exchangeCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+-  imageCard: { flex: 1, padding: 18, gap: 12, backgroundColor: '#FFFFFF' },
+-  imageHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
+-  imageCount: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+-  imageFrame: { flex: 1, minHeight: 204, borderRadius: 23, overflow: 'hidden', backgroundColor: '#E2E8F0' },
+-  image: { width: '100%', height: '100%' },
+-  imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18 },
++  imageCard: { flex: 1, overflow: 'hidden', backgroundColor: '#0F172A' },
++  fullBleedImage: { width: '100%', height: '100%' },
++  imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18, backgroundColor: '#E2E8F0' },
+   imagePlaceholderText: { color: '#64748B', fontWeight: '900' },
+-  imageCopy: { gap: 5 },
+-  imageEyebrow: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
+-  imageTitle: { color: '#020617', fontSize: 24, lineHeight: 28, fontWeight: '900', letterSpacing: -0.55 },
+-  imageMeta: { color: '#64748B', fontWeight: '800', lineHeight: 19 },
++  floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
++  floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
+   pressed: { opacity: 0.82 },
+ });
