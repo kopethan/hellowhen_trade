@@ -10,6 +10,7 @@
     "dev:api": "npm run dev -w @hellowhen/api",
     "dev:web": "npm run dev -w @hellowhen/web",
     "dev:mobile": "npm run start -w @hellowhen/mobile",
+    "stop:dev": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "prisma:generate": "prisma generate --schema apps/api/prisma/schema.prisma",

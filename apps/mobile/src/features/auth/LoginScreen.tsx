@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Button, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
@@ -30,15 +29,6 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const googleConfigured = useMemo(() => Boolean(googleWebClientId || googleIosClientId || googleAndroidClientId), []);
-
-  useEffect(() => {
-    if (!googleConfigured) return;
-    GoogleSignin.configure({
-      webClientId: googleWebClientId || undefined,
-      iosClientId: googleIosClientId || undefined,
-      scopes: ['profile', 'email']
-    });
-  }, [googleConfigured]);
 
   function validateLocalForm() {
     if (!email.trim()) return 'Enter your email.';
@@ -74,6 +64,12 @@ export function LoginScreen() {
     setError(null);
     setMessage(null);
     try {
+      const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
+      GoogleSignin.configure({
+        webClientId: googleWebClientId || undefined,
+        iosClientId: googleIosClientId || undefined,
+        scopes: ['profile', 'email']
+      });
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const result = await GoogleSignin.signIn();
       const idToken = (result as { idToken?: string; data?: { idToken?: string } }).idToken ?? (result as { data?: { idToken?: string } }).data?.idToken;
