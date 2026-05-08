@@ -12,6 +12,7 @@ import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticU
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
+import { useThemeTokens } from '../../providers/ThemeProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
@@ -60,6 +61,7 @@ function getAvatarUri(user: AuthUser | null) {
 }
 
 export function AccountScreen() {
+  const theme = useThemeTokens();
   const auth = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
@@ -104,7 +106,7 @@ export function AccountScreen() {
         <View style={styles.header}>
           <SemanticBadge label="Account" tone="info" />
           <AppText style={styles.title}>Account</AppText>
-          <AppText style={styles.subtitle}>Profile, wallet, settings, and support.</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, wallet, settings, and support.</AppText>
         </View>
 
         <AppCard>
@@ -118,12 +120,12 @@ export function AccountScreen() {
             </View>
             <View style={styles.profileCopy}>
               <AppText style={styles.profileName}>{displayName}</AppText>
-              <AppText style={styles.profileMeta}>{handle}</AppText>
-              <AppText style={styles.profileEmail}>{auth.user?.email ?? 'Signed in'}</AppText>
+              <AppText style={[styles.profileMeta, { color: theme.semantic.proposal.bg }]}>{handle}</AppText>
+              <AppText style={[styles.profileEmail, { color: theme.color.muted }]}>{auth.user?.email ?? 'Signed in'}</AppText>
             </View>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => navigate('AccountProfile')} style={({ pressed }) => [styles.fullWidthButton, pressed && styles.pressed]}>
-            <AppText style={styles.fullWidthButtonText}>Edit Profile</AppText>
+          <Pressable accessibilityRole="button" onPress={() => navigate('AccountProfile')} style={({ pressed }) => [styles.fullWidthButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+            <AppText style={[styles.fullWidthButtonText, { color: theme.color.background }]}>Edit Profile</AppText>
           </Pressable>
         </AppCard>
 
@@ -131,7 +133,7 @@ export function AccountScreen() {
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
               <AppText style={styles.sectionTitle}>Wallet</AppText>
-              <AppText style={styles.cardText}>Optional money available for trades, holds, and payouts.</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Optional money available for trades, holds, and payouts.</AppText>
             </View>
             <MoneyPill amountCents={total} currency={currency} label="total" />
           </View>
@@ -145,11 +147,11 @@ export function AccountScreen() {
           ) : null}
 
           <View style={styles.inlineActions}>
-            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.semantic.proposal.bg }, pressed && styles.pressed]}>
               <AppText style={styles.inlinePrimaryText}>Open Wallet</AppText>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, pressed && styles.pressed]}>
-              <AppText style={styles.inlineSecondaryText}>Add Money</AppText>
+            <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>Add Money</AppText>
             </Pressable>
           </View>
 
@@ -160,7 +162,7 @@ export function AccountScreen() {
           <AppCard>
             <View style={styles.sectionHeaderRow}>
               <AppText style={styles.sectionTitle}>Recent activity</AppText>
-              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
                 <AppText style={styles.textButtonText}>View all</AppText>
               </Pressable>
             </View>
@@ -181,30 +183,39 @@ export function AccountScreen() {
 }
 
 function AccountActionRow({ action, onPress }: { action: AccountAction; onPress: () => void }) {
+  const theme = useThemeTokens();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.actionContent}>
         <SemanticBadge label={action.badge} tone={action.tone} size="sm" />
         <View style={styles.actionTextWrap}>
           <AppText style={styles.actionTitle}>{action.title}</AppText>
-          <AppText style={styles.actionDescription}>{action.description}</AppText>
+          <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{action.description}</AppText>
         </View>
       </View>
-      <AppText style={styles.chevron}>›</AppText>
+      <AppText style={[styles.chevron, { color: theme.color.muted }]}>›</AppText>
     </Pressable>
   );
 }
 
 function WalletMetric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) {
-  return <View style={styles.metricBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>;
+  const theme = useThemeTokens();
+  return (
+    <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+      <SemanticBadge label={label} tone={tone} size="sm" />
+      <AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText>
+    </View>
+  );
 }
 
+
 function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
+  const theme = useThemeTokens();
   return (
-    <View style={styles.ledgerRow}>
+    <View style={[styles.ledgerRow, { borderTopColor: theme.color.border }]}>
       <View style={styles.ledgerCopy}>
         <SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" />
-        <AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText>
+        <AppText style={[styles.ledgerDescription, { color: theme.color.muted }]}>{entry.description ?? entry.balanceType}</AppText>
       </View>
       <AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText>
     </View>
@@ -215,43 +226,43 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 34, gap: 14 },
   header: { gap: 8 },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+  subtitle: { lineHeight: 20, fontWeight: '600' },
   profileHero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
   avatarImage: { width: '100%', height: '100%', borderRadius: 32 },
   avatarText: { color: '#0F766E', fontSize: 24, fontWeight: '900' },
   profileCopy: { flex: 1 },
-  profileName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
-  profileMeta: { marginTop: 3, color: '#0F766E', fontWeight: '900' },
-  profileEmail: { marginTop: 3, color: '#64748B', fontWeight: '600' },
-  fullWidthButton: { borderRadius: 16, backgroundColor: '#111827', paddingVertical: 13, alignItems: 'center' },
-  fullWidthButtonText: { color: '#FFFFFF', fontWeight: '900' },
+  profileName: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+  profileMeta: { marginTop: 3, fontWeight: '900' },
+  profileEmail: { marginTop: 3, fontWeight: '600' },
+  fullWidthButton: { borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
+  fullWidthButtonText: { fontWeight: '900' },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   sectionCopy: { flex: 1, gap: 4 },
-  sectionTitle: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+  cardText: { lineHeight: 20, fontWeight: '600' },
   walletGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 8 },
-  metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
+  metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
+  metricValue: { fontSize: 18, fontWeight: '900' },
   inlineActions: { flexDirection: 'row', gap: 10 },
-  inlinePrimary: { flex: 1, borderRadius: 16, backgroundColor: '#7C3AED', paddingVertical: 13, alignItems: 'center' },
+  inlinePrimary: { flex: 1, borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
   inlinePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
-  inlineSecondary: { flex: 1, borderRadius: 16, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0', paddingVertical: 13, alignItems: 'center' },
-  inlineSecondaryText: { color: '#334155', fontWeight: '900' },
-  textButton: { borderRadius: 999, backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 8 },
+  inlineSecondary: { flex: 1, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
+  inlineSecondaryText: { fontWeight: '900' },
+  textButton: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
   textButtonText: { color: '#334155', fontWeight: '900' },
-  ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10 },
+  ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, paddingTop: 10 },
   ledgerCopy: { flex: 1, gap: 6 },
-  ledgerDescription: { color: '#64748B', fontSize: 12, fontWeight: '700' },
+  ledgerDescription: { fontSize: 12, fontWeight: '700' },
   ledgerAmount: { color: '#047857', fontSize: 18, fontWeight: '900' },
   ledgerAmountNegative: { color: '#B91C1C' },
   menuList: { gap: 10 },
-  actionRow: { minHeight: 88, borderRadius: 22, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  actionRow: { minHeight: 88, borderRadius: 22, borderWidth: 1, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 13 },
   actionTextWrap: { flex: 1, gap: 4 },
-  actionTitle: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
-  actionDescription: { color: '#64748B', lineHeight: 19, fontWeight: '600' },
-  chevron: { color: '#94A3B8', fontSize: 32, fontWeight: '700' },
+  actionTitle: { fontSize: 18, fontWeight: '900' },
+  actionDescription: { lineHeight: 19, fontWeight: '600' },
+  chevron: { fontSize: 32, fontWeight: '700' },
   logoutButton: { marginTop: 4, borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 14, alignItems: 'center' },
   logoutButtonText: { color: '#991B1B', fontWeight: '900' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },

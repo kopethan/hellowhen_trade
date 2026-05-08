@@ -1,13 +1,16 @@
 import React, { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AppSettings } from '@hellowhen/contracts';
 import { AppCard } from '../../components/AppCard';
+import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 
@@ -21,6 +24,7 @@ const appearanceOptions: Array<{ label: string; value: AppearanceValue }> = [
 ];
 
 export function SettingsScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { settings, setSettings } = useAppSettings();
   const theme = useThemeTokens();
   const [loading, setLoading] = useState(false);
@@ -66,6 +70,7 @@ export function SettingsScreen() {
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadSettings(); }} />}>
+        <AppHeader title="Settings" onBack={() => navigation.goBack()} />
         <View style={styles.header}>
           <SemanticBadge label="Settings" tone="instruction" />
           <AppText style={styles.title}>Settings</AppText>

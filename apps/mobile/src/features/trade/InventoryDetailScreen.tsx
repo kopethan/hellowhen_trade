@@ -5,6 +5,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
+import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
@@ -145,9 +146,9 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation 
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItem(); }} />}>
+        <AppHeader title={editing ? `Edit ${label}` : label} onBack={() => navigation.goBack()} />
         <View style={styles.headerRow}>
-          <View style={styles.headerCopy}><SemanticBadge label={label} tone={tone} /><AppText style={styles.title}>{editing ? `Edit ${label}` : item?.title ?? fallbackTitle ?? label}</AppText></View>
-          <SecondaryButton label="Back" disabled={saving} onPress={() => navigation.goBack()} />
+          <View style={styles.headerCopy}><SemanticBadge label={label} tone={tone} /><AppText style={styles.title}>{item?.title ?? fallbackTitle ?? label}</AppText></View>
         </View>
         {error ? <InfoNotice tone="warning" body={error} /> : null}
         {!item && !loading ? <InfoNotice tone="danger" title={`${label} unavailable`} body={`This ${label.toLowerCase()} could not be loaded.`} /> : null}

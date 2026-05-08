@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileDto } from '@hellowhen/contracts';
 import { AppCard } from '../../components/AppCard';
+import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
@@ -101,6 +102,7 @@ export function ProfileScreen({ navigation }: Props) {
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <AppHeader title="Profile" onBack={() => navigation.goBack()} />
         <View style={styles.header}>
           <SemanticBadge label="Profile" tone="info" />
           <AppText style={styles.title}>Profile</AppText>
@@ -144,9 +146,7 @@ export function ProfileScreen({ navigation }: Props) {
           <Pressable accessibilityRole="button" disabled={saving} onPress={handleSave} style={({ pressed }) => [styles.primaryButton, saving && styles.disabled, pressed && styles.pressed]}>
             <AppText style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save Profile'}</AppText>
           </Pressable>
-          <Pressable accessibilityRole="button" disabled={saving} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, saving && styles.disabled, pressed && styles.pressed]}>
-            <AppText style={styles.secondaryButtonText}>Back</AppText>
-          </Pressable>
+
         </View>
       </ScrollView>
     </AppScreen>

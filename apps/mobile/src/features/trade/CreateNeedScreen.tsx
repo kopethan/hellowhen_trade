@@ -6,6 +6,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
+import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
@@ -69,6 +70,7 @@ export function CreateNeedScreen({ navigation }: Props) {
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <AppHeader title="Save Need" onBack={() => navigation.goBack()} />
         <View style={styles.header}>
           <SemanticBadge label="Need" tone="need" />
           <AppText style={styles.title}>Save Need</AppText>

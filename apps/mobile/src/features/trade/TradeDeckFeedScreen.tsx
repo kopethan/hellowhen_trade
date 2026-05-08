@@ -10,6 +10,7 @@ import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { useThemeTokens } from '../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck } from './deck';
 import { buildTradeSquareDeckCards, renderTradeSquareDeckCard } from './components/TradeSquareDeckCards';
 import type { TradeDeckItem } from './types';
@@ -44,6 +45,7 @@ function buildFeedQuery(query: string, modeFilter: ModeFilter, category: string,
 }
 
 export function TradeDeckFeedScreen() {
+  const theme = useThemeTokens();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [query, setQuery] = useState('');
@@ -118,21 +120,21 @@ export function TradeDeckFeedScreen() {
         <View style={styles.headerRow}>
           <AppText style={styles.title}>Trades</AppText>
           <View style={styles.headerActions}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, searchOpen && styles.iconButtonSelected, pressed && styles.pressed]}>
-              <AppText style={styles.iconButtonText}>S</AppText>
+            <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, searchOpen && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+              <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>S</AppText>
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, (filtersOpen || hasFilters) && styles.iconButtonSelected, pressed && styles.pressed]}>
-              <AppText style={styles.iconButtonText}>F</AppText>
+            <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (filtersOpen || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+              <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>F</AppText>
               {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, styles.createIconButton, pressed && styles.pressed]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
               <AppText style={[styles.iconButtonText, styles.createIconButtonText]}>+</AppText>
             </Pressable>
           </View>
         </View>
 
         {searchOpen ? (
-          <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor="#94A3B8" autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={styles.searchInput} />
+          <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
         ) : null}
 
         {filtersOpen ? (
@@ -140,15 +142,15 @@ export function TradeDeckFeedScreen() {
             <View style={styles.filterPanel}>
               <View style={styles.filterHeaderRow}>
                 <AppText style={styles.filterTitle}>Filters</AppText>
-                {hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}><AppText style={styles.clearButtonText}>Clear</AppText></Pressable> : null}
+                {hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>Clear</AppText></Pressable> : null}
               </View>
               <View style={styles.filterGroup}>
-                <AppText style={styles.filterLabel}>Mode</AppText>
+                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Mode</AppText>
                 <View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, selected && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>{option.label}</AppText></Pressable>; })}</View>
               </View>
               <View style={styles.filterGroup}>
-                <AppText style={styles.filterLabel}>Category</AppText>
-                <TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor="#94A3B8" autoCapitalize="none" autoCorrect={false} style={styles.categoryInput} />
+                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Category</AppText>
+                <TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
               </View>
               <View style={styles.chipRow}>
                 <Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, imagesOnly && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, imagesOnly && styles.filterChipTextSelected]}>Has images</AppText></Pressable>
@@ -181,6 +183,7 @@ function TradeDeckSection({ trade, index, total, onOpen }: { trade: TradeDeckIte
 }
 
 function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh, onClear }: { loading: boolean; hasTrades: boolean; hasFilters: boolean; onCreate: () => void; onRefresh: () => void; onClear: () => void }) {
+  const theme = useThemeTokens();
   const title = loading ? 'Loading trades...' : hasFilters ? 'No matches' : 'No trades yet';
   const body = hasFilters ? 'Try a different search or clear the filters.' : 'Publish a trade from one saved Need and one saved Offer. Approved images will appear as extra cards in the deck.';
 
@@ -189,10 +192,10 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
       <View style={styles.emptyBox}>
         <SemanticBadge label={hasTrades ? 'Search' : 'No active trades'} tone="info" />
         <AppText style={styles.emptyTitle}>{title}</AppText>
-        <AppText style={styles.emptyText}>{body}</AppText>
+        <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{body}</AppText>
         <View style={styles.emptyActions}>
-          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, pressed && styles.pressed]}><AppText style={styles.emptyPrimaryButtonText}>Clear filters</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, pressed && styles.pressed]}><AppText style={styles.emptyPrimaryButtonText}>Create Trade</AppText></Pressable>}
-          <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.emptySecondaryButton, pressed && styles.pressed]}><AppText style={styles.emptySecondaryButtonText}>Refresh</AppText></Pressable>
+          {hasFilters ? <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>Clear filters</AppText></Pressable> : <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.emptyPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.emptyPrimaryButtonText, { color: theme.color.background }]}>Create Trade</AppText></Pressable>}
+          <Pressable accessibilityRole="button" onPress={onRefresh} style={({ pressed }) => [styles.emptySecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.emptySecondaryButtonText, { color: theme.color.text }]}>Refresh</AppText></Pressable>
         </View>
       </View>
     </AppCard>
@@ -202,38 +205,36 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
 const styles = StyleSheet.create({
   content: { paddingBottom: 30, gap: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
-  title: { color: '#0F172A', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
-  iconButtonSelected: { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' },
-  iconButtonText: { color: '#0F172A', fontSize: 16, fontWeight: '900', lineHeight: 20 },
-  createIconButton: { backgroundColor: '#111827', borderColor: '#111827' },
+  iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  iconButtonText: { fontSize: 16, fontWeight: '900', lineHeight: 20 },
   createIconButtonText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24 },
   filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827', paddingHorizontal: 4 },
   filterDotText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
-  searchInput: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 16, paddingVertical: 12, color: '#0F172A', fontSize: 16, fontWeight: '700' },
+  searchInput: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, fontSize: 16, fontWeight: '700' },
   filterPanel: { gap: 14 },
   filterHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  filterTitle: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
-  clearButton: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 12, paddingVertical: 7 },
+  filterTitle: { fontSize: 18, fontWeight: '900' },
+  clearButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
   clearButtonText: { color: '#475569', fontSize: 12, fontWeight: '900' },
   filterGroup: { gap: 8 },
-  filterLabel: { color: '#475569', fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+  filterLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   filterChip: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 9 },
   filterChipSelected: { borderColor: '#0F172A', backgroundColor: '#111827' },
   filterChipText: { color: '#475569', fontSize: 13, fontWeight: '900' },
   filterChipTextSelected: { color: '#FFFFFF' },
-  categoryInput: { borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 13, paddingVertical: 11, color: '#0F172A', fontSize: 15, fontWeight: '700' },
+  categoryInput: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
   feedList: { gap: 20 },
   tradeSection: { alignItems: 'center', justifyContent: 'center' },
   emptyBox: { minHeight: 360, alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 18 },
-  emptyTitle: { color: '#0F172A', fontSize: 28, fontWeight: '900', letterSpacing: -0.6, textAlign: 'center' },
-  emptyText: { color: '#64748B', lineHeight: 21, fontWeight: '600', textAlign: 'center' },
+  emptyTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.6, textAlign: 'center' },
+  emptyText: { lineHeight: 21, fontWeight: '600', textAlign: 'center' },
   emptyActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  emptyPrimaryButton: { borderRadius: 16, backgroundColor: '#111827', paddingHorizontal: 16, paddingVertical: 12 },
-  emptyPrimaryButtonText: { color: '#FFFFFF', fontWeight: '900' },
-  emptySecondaryButton: { borderRadius: 16, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 12 },
-  emptySecondaryButtonText: { color: '#334155', fontWeight: '900' },
+  emptyPrimaryButton: { borderRadius: 16, paddingHorizontal: 16, paddingVertical: 12 },
+  emptyPrimaryButtonText: { fontWeight: '900' },
+  emptySecondaryButton: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12 },
+  emptySecondaryButtonText: { fontWeight: '900' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

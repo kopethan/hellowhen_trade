@@ -23,6 +23,7 @@ import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { WalletScreen } from '../features/wallet/WalletScreen';
 import { useAuth } from '../providers/AuthProvider';
+import { useThemeTokens } from '../providers/ThemeProvider';
 
 export type RootStackParamList = {
   TradeTabs: undefined;
@@ -51,6 +52,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function TradeTabs() {
   const insets = useSafeAreaInsets();
+  const theme = useThemeTokens();
   const bottomInset = Math.max(insets.bottom, 0);
 
   return (
@@ -62,9 +64,9 @@ function TradeTabs() {
         tabBarIconStyle: { display: 'none' },
         tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 8 },
         tabBarItemStyle: { paddingTop: 8 },
-        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: '#E5E7EB' },
-        tabBarActiveTintColor: '#0F766E',
-        tabBarInactiveTintColor: '#64748B',
+        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
+        tabBarActiveTintColor: theme.semantic.proposal.bg,
+        tabBarInactiveTintColor: theme.color.muted,
       }}
     >
       <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} />

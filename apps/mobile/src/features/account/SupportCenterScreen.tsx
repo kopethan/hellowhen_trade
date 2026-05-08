@@ -4,12 +4,14 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority } from '@hellowhen/contracts';
 import { AppCard } from '../../components/AppCard';
+import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useThemeTokens } from '../../providers/ThemeProvider';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import { MediaStrip } from '../trade/components/MediaStrip';
 import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
@@ -37,6 +39,7 @@ function priorityTone(priority: SupportTicketPriority) {
 }
 
 export function SupportCenterScreen() {
+  const theme = useThemeTokens();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [tickets, setTickets] = useState<SupportTicketDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,19 +78,19 @@ export function SupportCenterScreen() {
   }
 
   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTickets(); }} />}>
-    <View style={styles.header}><SemanticBadge label="Support" tone="instruction" /><AppText style={styles.title}>Feedback & Support</AppText><AppText style={styles.subtitle}>Send feedback, report a trade problem, or ask for help. This is separate from proposal conversations.</AppText></View>
+    <AppHeader title="Support" onBack={() => navigation.goBack()} />
+    <View style={styles.header}><SemanticBadge label="Support" tone="instruction" /><AppText style={styles.title}>Feedback & Support</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Send feedback, report a trade problem, or ask for help. This is separate from proposal conversations.</AppText></View>
     <InfoNotice tone="info" title="What support is for" body="Use support for product feedback, safety concerns, bugs, image/content issues, credits questions, and trade problems that need admin attention." />
     {error ? <InfoNotice tone="warning" title="Support message" body={error} /> : null}
     <AppCard><AppText style={styles.sectionTitle}>Create a ticket</AppText>
       <AppText style={styles.label}>Category</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={labelize(item)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
       <AppText style={styles.label}>Priority</AppText><View style={styles.wrap}>{priorities.map((item) => <TouchableOpacity key={item} onPress={() => setPriority(item)}><SemanticBadge label={item} tone={priority === item ? priorityTone(item) : 'muted'} /></TouchableOpacity>)}</View>
-      <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={styles.input} />
-      <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea]} multiline textAlignVertical="top" />
+      <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+      <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" />
       <ImagePickerField images={images} onChange={setImages} disabled={submitting} label="Screenshots" hint="Attach screenshots or images that explain the issue." />
       <Button title={submitting ? 'Submitting...' : 'Submit ticket'} disabled={submitting} onPress={() => { void createTicket(); }} />
     </AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={styles.cardText}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={styles.ticketCard}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={styles.cardText} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
-    <Button title="Back to Account" onPress={() => navigation.goBack()} />
+    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={[styles.ticketCard, { borderTopColor: theme.color.border }]}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
   </ScrollView></AppScreen>;
 }
 
@@ -95,15 +98,15 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 32, gap: 14 },
   header: { gap: 8 },
   title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 },
-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
+  subtitle: { lineHeight: 20, fontWeight: '700' },
   sectionTitle: { fontSize: 22, fontWeight: '900' },
-  label: { fontSize: 12, fontWeight: '900', color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 },
+  label: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  input: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700', backgroundColor: '#FFFFFF' },
+  input: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700' },
   textArea: { minHeight: 110 },
-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
-  ticketCard: { borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 12, gap: 7 },
+  cardText: { lineHeight: 20, fontWeight: '600' },
+  ticketCard: { borderTopWidth: 1, paddingTop: 12, gap: 7 },
   ticketHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   ticketTitle: { fontSize: 17, fontWeight: '900' },
-  dateText: { color: '#94A3B8', fontSize: 12, fontWeight: '800' },
+  dateText: { fontSize: 12, fontWeight: '800' },
 });

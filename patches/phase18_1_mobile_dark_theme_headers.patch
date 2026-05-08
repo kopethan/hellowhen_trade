@@ -1,0 +1,1710 @@
+diff --git a/apps/mobile/src/components/AppHeader.tsx b/apps/mobile/src/components/AppHeader.tsx
+new file mode 100644
+index 0000000..eb12adb
+--- /dev/null
++++ b/apps/mobile/src/components/AppHeader.tsx
+@@ -0,0 +1,42 @@
++import React from 'react';
++import { Pressable, StyleSheet, View } from 'react-native';
++import { AppText } from './AppText';
++import { useThemeTokens } from '../providers/ThemeProvider';
++
++type AppHeaderProps = {
++  title: string;
++  onBack: () => void;
++  rightSlot?: React.ReactNode;
++};
++
++export function AppHeader({ title, onBack, rightSlot }: AppHeaderProps) {
++  const theme = useThemeTokens();
++
++  return (
++    <View style={styles.headerRow}>
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel="Go back"
++        onPress={onBack}
++        style={({ pressed }) => [
++          styles.backButton,
++          { backgroundColor: theme.color.surface, borderColor: theme.color.border },
++          pressed && styles.pressed,
++        ]}
++      >
++        <AppText style={styles.backIcon}>‹</AppText>
++      </Pressable>
++      <AppText style={styles.title} numberOfLines={1}>{title}</AppText>
++      {rightSlot ? <View style={styles.rightSlot}>{rightSlot}</View> : null}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 11 },
++  backButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  backIcon: { fontSize: 30, lineHeight: 32, fontWeight: '900', marginTop: -2 },
++  title: { flex: 1, fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 },
++  rightSlot: { marginLeft: 'auto' },
++  pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
++});
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index 35ce087..a858410 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -12,6 +12,7 @@ import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticU
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+@@ -60,6 +61,7 @@ function getAvatarUri(user: AuthUser | null) {
+ }
+ 
+ export function AccountScreen() {
++  const theme = useThemeTokens();
+   const auth = useAuth();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
+@@ -104,7 +106,7 @@ export function AccountScreen() {
+         <View style={styles.header}>
+           <SemanticBadge label="Account" tone="info" />
+           <AppText style={styles.title}>Account</AppText>
+-          <AppText style={styles.subtitle}>Profile, wallet, settings, and support.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, wallet, settings, and support.</AppText>
+         </View>
+ 
+         <AppCard>
+@@ -118,12 +120,12 @@ export function AccountScreen() {
+             </View>
+             <View style={styles.profileCopy}>
+               <AppText style={styles.profileName}>{displayName}</AppText>
+-              <AppText style={styles.profileMeta}>{handle}</AppText>
+-              <AppText style={styles.profileEmail}>{auth.user?.email ?? 'Signed in'}</AppText>
++              <AppText style={[styles.profileMeta, { color: theme.semantic.proposal.bg }]}>{handle}</AppText>
++              <AppText style={[styles.profileEmail, { color: theme.color.muted }]}>{auth.user?.email ?? 'Signed in'}</AppText>
+             </View>
+           </View>
+-          <Pressable accessibilityRole="button" onPress={() => navigate('AccountProfile')} style={({ pressed }) => [styles.fullWidthButton, pressed && styles.pressed]}>
+-            <AppText style={styles.fullWidthButtonText}>Edit Profile</AppText>
++          <Pressable accessibilityRole="button" onPress={() => navigate('AccountProfile')} style={({ pressed }) => [styles.fullWidthButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++            <AppText style={[styles.fullWidthButtonText, { color: theme.color.background }]}>Edit Profile</AppText>
+           </Pressable>
+         </AppCard>
+ 
+@@ -131,7 +133,7 @@ export function AccountScreen() {
+           <View style={styles.sectionHeaderRow}>
+             <View style={styles.sectionCopy}>
+               <AppText style={styles.sectionTitle}>Wallet</AppText>
+-              <AppText style={styles.cardText}>Optional money available for trades, holds, and payouts.</AppText>
++              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Optional money available for trades, holds, and payouts.</AppText>
+             </View>
+             <MoneyPill amountCents={total} currency={currency} label="total" />
+           </View>
+@@ -145,11 +147,11 @@ export function AccountScreen() {
+           ) : null}
+ 
+           <View style={styles.inlineActions}>
+-            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, pressed && styles.pressed]}>
++            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.semantic.proposal.bg }, pressed && styles.pressed]}>
+               <AppText style={styles.inlinePrimaryText}>Open Wallet</AppText>
+             </Pressable>
+-            <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, pressed && styles.pressed]}>
+-              <AppText style={styles.inlineSecondaryText}>Add Money</AppText>
++            <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>Add Money</AppText>
+             </Pressable>
+           </View>
+ 
+@@ -160,7 +162,7 @@ export function AccountScreen() {
+           <AppCard>
+             <View style={styles.sectionHeaderRow}>
+               <AppText style={styles.sectionTitle}>Recent activity</AppText>
+-              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, pressed && styles.pressed]}>
++              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
+                 <AppText style={styles.textButtonText}>View all</AppText>
+               </Pressable>
+             </View>
+@@ -181,30 +183,39 @@ export function AccountScreen() {
+ }
+ 
+ function AccountActionRow({ action, onPress }: { action: AccountAction; onPress: () => void }) {
++  const theme = useThemeTokens();
+   return (
+-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+       <View style={styles.actionContent}>
+         <SemanticBadge label={action.badge} tone={action.tone} size="sm" />
+         <View style={styles.actionTextWrap}>
+           <AppText style={styles.actionTitle}>{action.title}</AppText>
+-          <AppText style={styles.actionDescription}>{action.description}</AppText>
++          <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{action.description}</AppText>
+         </View>
+       </View>
+-      <AppText style={styles.chevron}>›</AppText>
++      <AppText style={[styles.chevron, { color: theme.color.muted }]}>›</AppText>
+     </Pressable>
+   );
+ }
+ 
+ function WalletMetric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) {
+-  return <View style={styles.metricBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>;
++  const theme = useThemeTokens();
++  return (
++    <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++      <SemanticBadge label={label} tone={tone} size="sm" />
++      <AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText>
++    </View>
++  );
+ }
+ 
++
+ function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
++  const theme = useThemeTokens();
+   return (
+-    <View style={styles.ledgerRow}>
++    <View style={[styles.ledgerRow, { borderTopColor: theme.color.border }]}>
+       <View style={styles.ledgerCopy}>
+         <SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" />
+-        <AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText>
++        <AppText style={[styles.ledgerDescription, { color: theme.color.muted }]}>{entry.description ?? entry.balanceType}</AppText>
+       </View>
+       <AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText>
+     </View>
+@@ -215,43 +226,43 @@ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 14 },
+   header: { gap: 8 },
+   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  subtitle: { lineHeight: 20, fontWeight: '600' },
+   profileHero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+   avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
+   avatarImage: { width: '100%', height: '100%', borderRadius: 32 },
+   avatarText: { color: '#0F766E', fontSize: 24, fontWeight: '900' },
+   profileCopy: { flex: 1 },
+-  profileName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+-  profileMeta: { marginTop: 3, color: '#0F766E', fontWeight: '900' },
+-  profileEmail: { marginTop: 3, color: '#64748B', fontWeight: '600' },
+-  fullWidthButton: { borderRadius: 16, backgroundColor: '#111827', paddingVertical: 13, alignItems: 'center' },
+-  fullWidthButtonText: { color: '#FFFFFF', fontWeight: '900' },
++  profileName: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
++  profileMeta: { marginTop: 3, fontWeight: '900' },
++  profileEmail: { marginTop: 3, fontWeight: '600' },
++  fullWidthButton: { borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
++  fullWidthButtonText: { fontWeight: '900' },
+   sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+   sectionCopy: { flex: 1, gap: 4 },
+-  sectionTitle: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
++  cardText: { lineHeight: 20, fontWeight: '600' },
+   walletGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+-  metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 8 },
+-  metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
++  metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
++  metricValue: { fontSize: 18, fontWeight: '900' },
+   inlineActions: { flexDirection: 'row', gap: 10 },
+-  inlinePrimary: { flex: 1, borderRadius: 16, backgroundColor: '#7C3AED', paddingVertical: 13, alignItems: 'center' },
++  inlinePrimary: { flex: 1, borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
+   inlinePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
+-  inlineSecondary: { flex: 1, borderRadius: 16, backgroundColor: '#F1F5F9', borderWidth: 1, borderColor: '#E2E8F0', paddingVertical: 13, alignItems: 'center' },
+-  inlineSecondaryText: { color: '#334155', fontWeight: '900' },
+-  textButton: { borderRadius: 999, backgroundColor: '#F1F5F9', paddingHorizontal: 12, paddingVertical: 8 },
++  inlineSecondary: { flex: 1, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
++  inlineSecondaryText: { fontWeight: '900' },
++  textButton: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
+   textButtonText: { color: '#334155', fontWeight: '900' },
+-  ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10 },
++  ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, paddingTop: 10 },
+   ledgerCopy: { flex: 1, gap: 6 },
+-  ledgerDescription: { color: '#64748B', fontSize: 12, fontWeight: '700' },
++  ledgerDescription: { fontSize: 12, fontWeight: '700' },
+   ledgerAmount: { color: '#047857', fontSize: 18, fontWeight: '900' },
+   ledgerAmountNegative: { color: '#B91C1C' },
+   menuList: { gap: 10 },
+-  actionRow: { minHeight: 88, borderRadius: 22, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  actionRow: { minHeight: 88, borderRadius: 22, borderWidth: 1, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 13 },
+   actionTextWrap: { flex: 1, gap: 4 },
+-  actionTitle: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
+-  actionDescription: { color: '#64748B', lineHeight: 19, fontWeight: '600' },
+-  chevron: { color: '#94A3B8', fontSize: 32, fontWeight: '700' },
++  actionTitle: { fontSize: 18, fontWeight: '900' },
++  actionDescription: { lineHeight: 19, fontWeight: '600' },
++  chevron: { fontSize: 32, fontWeight: '700' },
+   logoutButton: { marginTop: 4, borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 14, alignItems: 'center' },
+   logoutButtonText: { color: '#991B1B', fontWeight: '900' },
+   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+diff --git a/apps/mobile/src/features/account/BuyCreditsScreen.tsx b/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+index 09ce6d7..3f892b5 100644
+--- a/apps/mobile/src/features/account/BuyCreditsScreen.tsx
++++ b/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+@@ -4,25 +4,53 @@ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { CreditPurchaseDto, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
+ import { formatMoney } from '@hellowhen/shared';
++import type { ThemeTokens } from '@hellowhen/theme';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'BuyCredits'>;
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+ type PurchasesResponse = { purchases: CreditPurchaseDto[] };
+ function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
++
+ export function BuyCreditsScreen({ navigation }: Props) {
+-  const [wallet, setWallet] = useState<WalletResponse['wallet']>(null); const [purchases, setPurchases] = useState<CreditPurchaseDto[]>([]); const [loading, setLoading] = useState(false); const [message, setMessage] = useState<string | null>(null);
+-  const load = useCallback(async () => { setLoading(true); setMessage(null); try { const [walletResult, purchaseResult] = await Promise.all([api.wallet.me() as Promise<WalletResponse>, api.credits.purchasesMine() as Promise<PurchasesResponse>]); setWallet(walletResult.wallet ?? null); setPurchases(Array.isArray(purchaseResult.purchases) ? purchaseResult.purchases : []); } catch (caughtError) { setWallet(null); setPurchases([]); setMessage(getFriendlyApiErrorMessage(caughtError)); } finally { setLoading(false); } }, []);
++  const theme = useThemeTokens();
++  const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
++  const [purchases, setPurchases] = useState<CreditPurchaseDto[]>([]);
++  const [loading, setLoading] = useState(false);
++  const [message, setMessage] = useState<string | null>(null);
++  const load = useCallback(async () => {
++    setLoading(true); setMessage(null);
++    try {
++      const [walletResult, purchaseResult] = await Promise.all([api.wallet.me() as Promise<WalletResponse>, api.credits.purchasesMine() as Promise<PurchasesResponse>]);
++      setWallet(walletResult.wallet ?? null);
++      setPurchases(Array.isArray(purchaseResult.purchases) ? purchaseResult.purchases : []);
++    } catch (caughtError) {
++      setWallet(null); setPurchases([]); setMessage(getFriendlyApiErrorMessage(caughtError));
++    } finally { setLoading(false); }
++  }, []);
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+-  const currency = wallet?.currency ?? 'eur'; const available = wallet?.availableBalanceCents ?? 0; const held = wallet?.heldBalanceCents ?? 0; const pending = wallet?.pendingPayoutCents ?? 0;
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Wallet money</AppText><AppText style={styles.subtitle}>Money is selected inside “I need” or “I offer” when creating a trade.</AppText></View>{message ? <InfoNotice tone="warning" title="Wallet unavailable" body={message} /> : null}<InfoNotice tone="warning" title="Top-up unavailable" body="Adding new money is not available in this build. Existing wallet money can still be offered in trades." /><AppCard><View style={styles.sectionHeaderRow}><View style={styles.sectionCopy}><AppText style={styles.sectionTitle}>Balance</AppText><AppText style={styles.cardText}>You can only offer up to your available wallet balance.</AppText></View><MoneyPill amountCents={available} currency={currency} label="available" /></View><View style={styles.metricGrid}><Metric label="Available" value={available} currency={currency} /><Metric label="Held" value={held} currency={currency} /><Metric label="Pending" value={pending} currency={currency} /></View></AppCard><AppCard><AppText style={styles.sectionTitle}>How it works</AppText><View style={styles.steps}><Step number="1" text="Create a trade and choose money under I need or I offer." /><Step number="2" text="Money offered by a payer is held when a proposal is accepted." /><Step number="3" text="After completion, held money moves to pending payout." /></View></AppCard><AppCard><AppText style={styles.sectionTitle}>Recent top-ups</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No top-up history yet.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.purchaseTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText></View><AppText style={styles.dateText}>{formatDate(purchase.createdAt)}</AppText></View>)}</AppCard><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}><AppText style={styles.backButtonText}>Back to Account</AppText></Pressable></ScrollView></AppScreen>;
++  const currency = wallet?.currency ?? 'eur';
++  const available = wallet?.availableBalanceCents ?? 0;
++  const held = wallet?.heldBalanceCents ?? 0;
++  const pending = wallet?.pendingPayoutCents ?? 0;
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
++    <AppHeader title="Wallet money" onBack={() => navigation.goBack()} />
++    <View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Wallet money</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Money is selected inside “I need” or “I offer” when creating a trade.</AppText></View>
++    {message ? <InfoNotice tone="warning" title="Wallet unavailable" body={message} /> : null}
++    <InfoNotice tone="warning" title="Top-up unavailable" body="Adding new money is not available in this build. Existing wallet money can still be offered in trades." />
++    <AppCard><View style={styles.sectionHeaderRow}><View style={styles.sectionCopy}><AppText style={styles.sectionTitle}>Balance</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]}>You can only offer up to your available wallet balance.</AppText></View><MoneyPill amountCents={available} currency={currency} label="available" /></View><View style={styles.metricGrid}><Metric theme={theme} label="Available" value={available} currency={currency} /><Metric theme={theme} label="Held" value={held} currency={currency} /><Metric theme={theme} label="Pending" value={pending} currency={currency} /></View></AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>How it works</AppText><View style={styles.steps}><Step theme={theme} number="1" text="Create a trade and choose money under I need or I offer." /><Step theme={theme} number="2" text="Money offered by a payer is held when a proposal is accepted." /><Step theme={theme} number="3" text="After completion, held money moves to pending payout." /></View></AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Recent top-ups</AppText>{purchases.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No top-up history yet.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={[styles.purchaseRow, { borderTopColor: theme.color.border }]}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.purchaseTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText></View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatDate(purchase.createdAt)}</AppText></View>)}</AppCard>
++  </ScrollView></AppScreen>;
+ }
+-function Metric({ label, value, currency }: { label: string; value: number; currency: string }) { return <View style={styles.metricBox}><AppText style={styles.metricLabel}>{label}</AppText><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>; }
+-function Step({ number, text }: { number: string; text: string }) { return <View style={styles.stepRow}><View style={styles.stepNumber}><AppText style={styles.stepNumberText}>{number}</AppText></View><AppText style={styles.stepText}>{text}</AppText></View>; }
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, headerCopy: { gap: 8 }, title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, sectionCopy: { flex: 1, gap: 4 }, sectionTitle: { fontSize: 22, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 13, gap: 8 }, metricLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 }, metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' }, steps: { gap: 12 }, stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, stepNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' }, stepNumberText: { color: '#0F766E', fontWeight: '900' }, stepText: { flex: 1, color: '#475569', lineHeight: 20, fontWeight: '700' }, purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10, gap: 10 }, purchaseCopy: { flex: 1, gap: 6 }, purchaseTitle: { color: '#0F172A', fontSize: 16, fontWeight: '900' }, dateText: { color: '#64748B', fontSize: 12, fontWeight: '800' }, backButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, backButtonText: { color: '#334155', fontWeight: '900' }, pressed: { opacity: 0.78 } });
++function Metric({ theme, label, value, currency }: { theme: ThemeTokens; label: string; value: number; currency: string }) { return <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={[styles.metricLabel, { color: theme.color.muted }]}>{label}</AppText><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>; }
++function Step({ theme, number, text }: { theme: ThemeTokens; number: string; text: string }) { return <View style={styles.stepRow}><View style={[styles.stepNumber, { backgroundColor: theme.semantic.proposal.softBg }]}><AppText style={[styles.stepNumberText, { color: theme.semantic.proposal.text }]}>{number}</AppText></View><AppText style={[styles.stepText, { color: theme.color.muted }]}>{text}</AppText></View>; }
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, headerCopy: { gap: 8 }, title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { lineHeight: 20, fontWeight: '700' }, sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, sectionCopy: { flex: 1, gap: 4 }, sectionTitle: { fontSize: 22, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, padding: 13, gap: 8 }, metricLabel: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 }, metricValue: { fontSize: 18, fontWeight: '900' }, steps: { gap: 12 }, stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, stepNumber: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' }, stepNumberText: { fontWeight: '900' }, stepText: { flex: 1, lineHeight: 20, fontWeight: '700' }, purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, paddingTop: 10, gap: 10 }, purchaseCopy: { flex: 1, gap: 6 }, purchaseTitle: { fontSize: 16, fontWeight: '900' }, dateText: { fontSize: 12, fontWeight: '800' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/account/SupportCenterScreen.tsx b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+index 91a43e8..1960dbb 100644
+--- a/apps/mobile/src/features/account/SupportCenterScreen.tsx
++++ b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+@@ -4,12 +4,14 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority } from '@hellowhen/contracts';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { ImagePickerField } from '../trade/components/ImagePickerField';
+ import { MediaStrip } from '../trade/components/MediaStrip';
+ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
+@@ -37,6 +39,7 @@ function priorityTone(priority: SupportTicketPriority) {
+ }
+ 
+ export function SupportCenterScreen() {
++  const theme = useThemeTokens();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [tickets, setTickets] = useState<SupportTicketDto[]>([]);
+   const [loading, setLoading] = useState(false);
+@@ -75,19 +78,19 @@ export function SupportCenterScreen() {
+   }
+ 
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTickets(); }} />}>
+-    <View style={styles.header}><SemanticBadge label="Support" tone="instruction" /><AppText style={styles.title}>Feedback & Support</AppText><AppText style={styles.subtitle}>Send feedback, report a trade problem, or ask for help. This is separate from proposal conversations.</AppText></View>
++    <AppHeader title="Support" onBack={() => navigation.goBack()} />
++    <View style={styles.header}><SemanticBadge label="Support" tone="instruction" /><AppText style={styles.title}>Feedback & Support</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Send feedback, report a trade problem, or ask for help. This is separate from proposal conversations.</AppText></View>
+     <InfoNotice tone="info" title="What support is for" body="Use support for product feedback, safety concerns, bugs, image/content issues, credits questions, and trade problems that need admin attention." />
+     {error ? <InfoNotice tone="warning" title="Support message" body={error} /> : null}
+     <AppCard><AppText style={styles.sectionTitle}>Create a ticket</AppText>
+       <AppText style={styles.label}>Category</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={labelize(item)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+       <AppText style={styles.label}>Priority</AppText><View style={styles.wrap}>{priorities.map((item) => <TouchableOpacity key={item} onPress={() => setPriority(item)}><SemanticBadge label={item} tone={priority === item ? priorityTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+-      <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={styles.input} />
+-      <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea]} multiline textAlignVertical="top" />
++      <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++      <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" />
+       <ImagePickerField images={images} onChange={setImages} disabled={submitting} label="Screenshots" hint="Attach screenshots or images that explain the issue." />
+       <Button title={submitting ? 'Submitting...' : 'Submit ticket'} disabled={submitting} onPress={() => { void createTicket(); }} />
+     </AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={styles.cardText}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={styles.ticketCard}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={styles.cardText} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
+-    <Button title="Back to Account" onPress={() => navigation.goBack()} />
++    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={[styles.ticketCard, { borderTopColor: theme.color.border }]}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
+   </ScrollView></AppScreen>;
+ }
+ 
+@@ -95,15 +98,15 @@ const styles = StyleSheet.create({
+   content: { paddingBottom: 32, gap: 14 },
+   header: { gap: 8 },
+   title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
++  subtitle: { lineHeight: 20, fontWeight: '700' },
+   sectionTitle: { fontSize: 22, fontWeight: '900' },
+-  label: { fontSize: 12, fontWeight: '900', color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 },
++  label: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+-  input: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700', backgroundColor: '#FFFFFF' },
++  input: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700' },
+   textArea: { minHeight: 110 },
+-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+-  ticketCard: { borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 12, gap: 7 },
++  cardText: { lineHeight: 20, fontWeight: '600' },
++  ticketCard: { borderTopWidth: 1, paddingTop: 12, gap: 7 },
+   ticketHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+   ticketTitle: { fontSize: 17, fontWeight: '900' },
+-  dateText: { color: '#94A3B8', fontSize: 12, fontWeight: '800' },
++  dateText: { fontSize: 12, fontWeight: '800' },
+ });
+diff --git a/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx b/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx
+index bf703b9..e259d44 100644
+--- a/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx
++++ b/apps/mobile/src/features/account/SupportTicketDetailScreen.tsx
+@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { RouteProp } from '@react-navigation/native';
+ import type { SupportTicketDto } from '@hellowhen/contracts';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+@@ -14,12 +15,14 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { ImagePickerField } from '../trade/components/ImagePickerField';
+ import { MediaStrip } from '../trade/components/MediaStrip';
+ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ 
+ type TicketResponse = { ticket: SupportTicketDto };
+ function labelize(value: string) { return value.replaceAll('_', ' '); }
+ function senderLabel(senderRole: string, fallback?: string | null) { return senderRole === 'admin' ? 'Hellowhen support' : fallback || 'You'; }
+ 
+ export function SupportTicketDetailScreen() {
++  const theme = useThemeTokens();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const route = useRoute<RouteProp<RootStackParamList, 'SupportTicketDetail'>>();
+   const [ticket, setTicket] = useState<SupportTicketDto | null>(null);
+@@ -59,12 +62,12 @@ export function SupportTicketDetailScreen() {
+ 
+   const isClosed = ticket?.status === 'closed';
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTicket(); }} />}>
+-    <View style={styles.header}><SemanticBadge label="Support ticket" tone="instruction" /><AppText style={styles.title}>{ticket?.subject ?? route.params.subject ?? 'Support ticket'}</AppText><AppText style={styles.subtitle}>Support messages are for admin help and feedback. Proposal conversations stay inside proposals.</AppText></View>
++    <AppHeader title="Support ticket" onBack={() => navigation.goBack()} />
++    <View style={styles.header}><SemanticBadge label="Support ticket" tone="instruction" /><AppText style={styles.title}>{ticket?.subject ?? route.params.subject ?? 'Support ticket'}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Support messages are for admin help and feedback. Proposal conversations stay inside proposals.</AppText></View>
+     {message ? <InfoNotice tone="warning" title="Support message" body={message} /> : null}
+-    {ticket ? <><AppCard><View style={styles.badgeRow}><StatusBadge status={ticket.status} /><SemanticBadge label={labelize(ticket.category)} tone="info" /><SemanticBadge label={ticket.priority} tone={ticket.priority === 'urgent' ? 'danger' : ticket.priority === 'high' ? 'warning' : 'muted'} /></View><AppText style={styles.cardText}>{ticket.message}</AppText><MediaStrip media={ticket.media} size="large" />{ticket.relatedTradeId ? <SemanticBadge label={`trade ${ticket.relatedTradeId}`} tone="trade" size="sm" /> : null}{ticket.relatedProposalId ? <SemanticBadge label={`proposal ${ticket.relatedProposalId}`} tone="proposal" size="sm" /> : null}{ticket.relatedMediaId ? <SemanticBadge label={`media ${ticket.relatedMediaId}`} tone="warning" size="sm" /> : null}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Conversation</AppText>{ticket.messages?.map((item) => <View key={item.id} style={[styles.messageBubble, item.senderRole === 'admin' ? styles.adminBubble : styles.userBubble]}><View style={styles.badgeRow}><SemanticBadge label={senderLabel(item.senderRole, item.sender?.profile?.displayName ?? item.sender?.email)} tone={item.senderRole === 'admin' ? 'admin' : 'info'} size="sm" />{item.internal ? <SemanticBadge label="internal" tone="warning" size="sm" /> : null}</View><AppText style={styles.messageText}>{item.body}</AppText><MediaStrip media={item.media} /><AppText style={styles.dateText}>{new Date(item.createdAt).toLocaleString()}</AppText></View>)}{ticket.messages?.length === 0 ? <AppText style={styles.cardText}>No messages yet.</AppText> : null}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>{isClosed ? 'Ticket closed' : 'Reply to support'}</AppText>{isClosed ? <InfoNotice tone="admin" title="Closed" body="This ticket is closed. Reopen it if you need to continue the conversation." /> : <><TextInput value={body} onChangeText={setBody} placeholder="Write a reply..." style={[styles.input, styles.textArea]} multiline textAlignVertical="top" /><ImagePickerField images={images} onChange={setImages} disabled={sending} label="Attach images" hint="Attach screenshots or photos that help support understand your reply." /><Button title={sending ? 'Sending...' : 'Send reply'} disabled={sending} onPress={() => { void sendMessage(); }} /></>}<Button title={isClosed ? 'Reopen ticket' : 'Close ticket'} color={isClosed ? '#0F766E' : '#B91C1C'} disabled={sending} onPress={() => { void setStatus(isClosed ? 'open' : 'closed'); }} /></AppCard></> : <AppCard><AppText style={styles.cardText}>Ticket could not be loaded.</AppText></AppCard>}
+-    <Button title="Back to Support" onPress={() => navigation.goBack()} />
++    {ticket ? <><AppCard><View style={styles.badgeRow}><StatusBadge status={ticket.status} /><SemanticBadge label={labelize(ticket.category)} tone="info" /><SemanticBadge label={ticket.priority} tone={ticket.priority === 'urgent' ? 'danger' : ticket.priority === 'high' ? 'warning' : 'muted'} /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{ticket.message}</AppText><MediaStrip media={ticket.media} size="large" />{ticket.relatedTradeId ? <SemanticBadge label={`trade ${ticket.relatedTradeId}`} tone="trade" size="sm" /> : null}{ticket.relatedProposalId ? <SemanticBadge label={`proposal ${ticket.relatedProposalId}`} tone="proposal" size="sm" /> : null}{ticket.relatedMediaId ? <SemanticBadge label={`media ${ticket.relatedMediaId}`} tone="warning" size="sm" /> : null}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>Conversation</AppText>{ticket.messages?.map((item) => <View key={item.id} style={[styles.messageBubble, item.senderRole === 'admin' ? styles.adminBubble : styles.userBubble]}><View style={styles.badgeRow}><SemanticBadge label={senderLabel(item.senderRole, item.sender?.profile?.displayName ?? item.sender?.email)} tone={item.senderRole === 'admin' ? 'admin' : 'info'} size="sm" />{item.internal ? <SemanticBadge label="internal" tone="warning" size="sm" /> : null}</View><AppText style={styles.messageText}>{item.body}</AppText><MediaStrip media={item.media} /><AppText style={styles.dateText}>{new Date(item.createdAt).toLocaleString()}</AppText></View>)}{ticket.messages?.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No messages yet.</AppText> : null}</AppCard>
++    <AppCard><AppText style={styles.sectionTitle}>{isClosed ? 'Ticket closed' : 'Reply to support'}</AppText>{isClosed ? <InfoNotice tone="admin" title="Closed" body="This ticket is closed. Reopen it if you need to continue the conversation." /> : <><TextInput value={body} onChangeText={setBody} placeholder="Write a reply..." style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" /><ImagePickerField images={images} onChange={setImages} disabled={sending} label="Attach images" hint="Attach screenshots or photos that help support understand your reply." /><Button title={sending ? 'Sending...' : 'Send reply'} disabled={sending} onPress={() => { void sendMessage(); }} /></>}<Button title={isClosed ? 'Reopen ticket' : 'Close ticket'} color={isClosed ? '#0F766E' : '#B91C1C'} disabled={sending} onPress={() => { void setStatus(isClosed ? 'open' : 'closed'); }} /></AppCard></> : <AppCard><AppText style={[styles.cardText, { color: theme.color.muted }]}>Ticket could not be loaded.</AppText></AppCard>}
+   </ScrollView></AppScreen>;
+ }
+ 
+@@ -72,11 +75,11 @@ const styles = StyleSheet.create({
+   content: { paddingBottom: 32, gap: 14 },
+   header: { gap: 8 },
+   title: { fontSize: 31, fontWeight: '900', letterSpacing: -0.8 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
++  subtitle: { lineHeight: 20, fontWeight: '700' },
+   sectionTitle: { fontSize: 22, fontWeight: '900' },
+   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+-  input: { borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700', backgroundColor: '#FFFFFF' },
++  cardText: { lineHeight: 20, fontWeight: '600' },
++  input: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700' },
+   textArea: { minHeight: 110 },
+   messageBubble: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 7 },
+   userBubble: { backgroundColor: '#E0F2FE', borderColor: '#7DD3FC' },
+diff --git a/apps/mobile/src/features/me/MeScreen.tsx b/apps/mobile/src/features/me/MeScreen.tsx
+index c6fe1fa..25d5006 100644
+--- a/apps/mobile/src/features/me/MeScreen.tsx
++++ b/apps/mobile/src/features/me/MeScreen.tsx
+@@ -4,6 +4,7 @@ import * as ImagePicker from 'expo-image-picker';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { ProfileDto } from '@hellowhen/contracts';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+@@ -101,6 +102,7 @@ export function ProfileScreen({ navigation }: Props) {
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
++        <AppHeader title="Profile" onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label="Profile" tone="info" />
+           <AppText style={styles.title}>Profile</AppText>
+@@ -144,9 +146,7 @@ export function ProfileScreen({ navigation }: Props) {
+           <Pressable accessibilityRole="button" disabled={saving} onPress={handleSave} style={({ pressed }) => [styles.primaryButton, saving && styles.disabled, pressed && styles.pressed]}>
+             <AppText style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save Profile'}</AppText>
+           </Pressable>
+-          <Pressable accessibilityRole="button" disabled={saving} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, saving && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.secondaryButtonText}>Back</AppText>
+-          </Pressable>
++
+         </View>
+       </ScrollView>
+     </AppScreen>
+diff --git a/apps/mobile/src/features/settings/SettingsScreen.tsx b/apps/mobile/src/features/settings/SettingsScreen.tsx
+index 2788867..77ed156 100644
+--- a/apps/mobile/src/features/settings/SettingsScreen.tsx
++++ b/apps/mobile/src/features/settings/SettingsScreen.tsx
+@@ -1,13 +1,16 @@
+ import React, { useCallback, useState } from 'react';
+ import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 'react-native';
+-import { useFocusEffect } from '@react-navigation/native';
++import { useFocusEffect, useNavigation } from '@react-navigation/native';
++import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { AppSettings } from '@hellowhen/contracts';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useAppSettings } from '../../providers/AppSettingsProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ 
+@@ -21,6 +24,7 @@ const appearanceOptions: Array<{ label: string; value: AppearanceValue }> = [
+ ];
+ 
+ export function SettingsScreen() {
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const { settings, setSettings } = useAppSettings();
+   const theme = useThemeTokens();
+   const [loading, setLoading] = useState(false);
+@@ -66,6 +70,7 @@ export function SettingsScreen() {
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadSettings(); }} />}>
++        <AppHeader title="Settings" onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label="Settings" tone="instruction" />
+           <AppText style={styles.title}>Settings</AppText>
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index 7f84275..ca8a363 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -6,6 +6,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+@@ -69,6 +70,7 @@ export function CreateNeedScreen({ navigation }: Props) {
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++        <AppHeader title="Save Need" onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label="Need" tone="need" />
+           <AppText style={styles.title}>Save Need</AppText>
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index 87e53ca..89f84a1 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -6,6 +6,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+@@ -71,6 +72,7 @@ export function CreateOfferScreen({ navigation }: Props) {
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
++        <AppHeader title="Save Offer" onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label="Offer" tone="offer" />
+           <AppText style={styles.title}>Save Offer</AppText>
+diff --git a/apps/mobile/src/features/trade/CreateProposalScreen.tsx b/apps/mobile/src/features/trade/CreateProposalScreen.tsx
+index a40c838..83f20a3 100644
+--- a/apps/mobile/src/features/trade/CreateProposalScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateProposalScreen.tsx
+@@ -5,14 +5,17 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import type { TradeProposalItem } from './types';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateProposal'>;
+ type ProposalResponse = { proposal: TradeProposalItem };
+ export function CreateProposalScreen({ route, navigation }: Props) {
++  const theme = useThemeTokens();
+   const [message, setMessage] = useState('I can help with this. I can share details, timing, and what I will deliver here.');
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+@@ -22,6 +25,6 @@ export function CreateProposalScreen({ route, navigation }: Props) {
+     catch (caughtError) { const body = caughtError && typeof caughtError === 'object' && 'body' in caughtError ? (caughtError as { body?: { proposal?: TradeProposalItem } }).body : undefined; if (body?.proposal?.id) { navigation.replace('ProposalDetail', { proposalId: body.proposal.id }); return; } setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this proposal.')); }
+     finally { setSubmitting(false); }
+   }
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppCard><SemanticBadge label="Proposal conversation" tone="proposal" /><AppText style={styles.title}>Apply to trade</AppText><InfoNotice tone="instruction" title="What to send" body={route.params.title ?? 'Send a short proposal, timing, and questions. Proposal messages stay private to the owner and applicant.'} /><TextInput value={message} onChangeText={setMessage} multiline textAlignVertical="top" placeholder="Tell the owner how you can help, timing, and any questions." style={styles.textArea} />{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}<Button title={submitting ? 'Sending...' : 'Send proposal'} disabled={submitting || message.trim().length < 3} onPress={() => { void submit(); }} /><Button title="Cancel" color="#64748B" onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppHeader title="Ask to trade" onBack={() => navigation.goBack()} /><AppCard><SemanticBadge label="Proposal conversation" tone="proposal" /><AppText style={styles.title}>Apply to trade</AppText><InfoNotice tone="instruction" title="What to send" body={route.params.title ?? 'Send a short proposal, timing, and questions. Proposal messages stay private to the owner and applicant.'} /><TextInput value={message} onChangeText={setMessage} multiline textAlignVertical="top" placeholder="Tell the owner how you can help, timing, and any questions." style={[styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}<Button title={submitting ? 'Sending...' : 'Send proposal'} disabled={submitting || message.trim().length < 3} onPress={() => { void submit(); }} /><Button title="Cancel" color="#64748B" onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, kicker: { color: '#0F766E', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' }, title: { fontSize: 32, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, textArea: { minHeight: 180, borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 14, fontSize: 16, lineHeight: 22 }, error: { color: '#B91C1C', backgroundColor: '#FEE2E2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 16, padding: 12, fontWeight: '700' } });
++const styles = StyleSheet.create({ content: { paddingBottom: 28 }, kicker: { color: '#0F766E', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' }, title: { fontSize: 32, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, textArea: { minHeight: 180, borderRadius: 18, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22 }, error: { color: '#B91C1C', backgroundColor: '#FEE2E2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 16, padding: 12, fontWeight: '700' } });
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 2675e06..1672635 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -5,14 +5,17 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { TradeExchangeMode, WalletDto } from '@hellowhen/contracts';
++import type { ThemeTokens } from '@hellowhen/theme';
+ import { formatMoney } from '@hellowhen/shared';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { modeLabel } from './components/InventoryFormFields';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+ 
+@@ -30,7 +33,9 @@ type NeedsResponse = { needs: NeedItem[] };
+ type OffersResponse = { offers: OfferItem[] };
+ type WalletResponse = { wallet: WalletDto | null };
+ type CreateTradeResponse = { trade: TradeDeckItem };
++
+ const expiryOptions = [{ label: '7 days', days: 7 }, { label: '14 days', days: 14 }, { label: '30 days', days: 30 }, { label: 'No expiry', days: null }] as const;
++
+ function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
+ function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
+ function optionalModeLabel(mode?: TradeExchangeMode | null) { return mode ? modeLabel(mode) : undefined; }
+@@ -40,23 +45,198 @@ function buildExpiresAt(days: number | null) { if (!days) return undefined; cons
+ function moneySelection(selection: TradeCreateSideSelection | null) { return selection?.kind === 'money' ? selection : null; }
+ function amountFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return moneySelection(needSelection)?.amountCents ?? moneySelection(offerSelection)?.amountCents ?? 0; }
+ function currencyFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return moneySelection(needSelection)?.currency ?? moneySelection(offerSelection)?.currency ?? 'eur'; }
++
+ export function CreateTradeScreen({ route, navigation }: Props) {
+-  const [needs, setNeeds] = useState<NeedItem[]>([]); const [offers, setOffers] = useState<OfferItem[]>([]); const [wallet, setWallet] = useState<WalletDto | null>(null);
+-  const [needSelection, setNeedSelection] = useState<TradeCreateSideSelection | null>(null); const [offerSelection, setOfferSelection] = useState<TradeCreateSideSelection | null>(null);
+-  const [expiryDays, setExpiryDays] = useState<number | null>(14); const [loading, setLoading] = useState(false); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState<string | null>(null);
+-  const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]); const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
++  const theme = useThemeTokens();
++  const [needs, setNeeds] = useState<NeedItem[]>([]);
++  const [offers, setOffers] = useState<OfferItem[]>([]);
++  const [wallet, setWallet] = useState<WalletDto | null>(null);
++  const [needSelection, setNeedSelection] = useState<TradeCreateSideSelection | null>(null);
++  const [offerSelection, setOfferSelection] = useState<TradeCreateSideSelection | null>(null);
++  const [expiryDays, setExpiryDays] = useState<number | null>(14);
++  const [loading, setLoading] = useState(false);
++  const [submitting, setSubmitting] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
++  const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
+   const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? usableNeeds.find((need) => need.id === needSelection.id) ?? null : null, [needSelection, usableNeeds]);
+   const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
+-  const amountCents = amountFor(needSelection, offerSelection); const currency = currencyFor(needSelection, offerSelection);
+-  useEffect(() => { const selection = route.params?.selectedTradeSide; if (!selection) return; if (selection.side === 'need') setNeedSelection(selection); else setOfferSelection(selection); }, [route.params?.selectedTradeSide]);
+-  const loadResources = useCallback(async () => { setLoading(true); setError(null); try { const [needsResult, offersResult, walletResult] = await Promise.all([api.needs.mine() as Promise<NeedsResponse>, api.offers.mine() as Promise<OffersResponse>, api.wallet.me() as Promise<WalletResponse>]); setNeeds(Array.isArray(needsResult.needs) ? needsResult.needs : []); setOffers(Array.isArray(offersResult.offers) ? offersResult.offers : []); setWallet(walletResult.wallet ?? null); } catch (caughtError) { setNeeds([]); setOffers([]); setWallet(null); setError(getFriendlyApiErrorMessage(caughtError)); } finally { setLoading(false); } }, []);
++  const amountCents = amountFor(needSelection, offerSelection);
++  const currency = currencyFor(needSelection, offerSelection);
++
++  useEffect(() => {
++    const selection = route.params?.selectedTradeSide;
++    if (!selection) return;
++    if (selection.side === 'need') setNeedSelection(selection);
++    else setOfferSelection(selection);
++  }, [route.params?.selectedTradeSide]);
++
++  const loadResources = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const [needsResult, offersResult, walletResult] = await Promise.all([
++        api.needs.mine() as Promise<NeedsResponse>,
++        api.offers.mine() as Promise<OffersResponse>,
++        api.wallet.me() as Promise<WalletResponse>,
++      ]);
++      setNeeds(Array.isArray(needsResult.needs) ? needsResult.needs : []);
++      setOffers(Array.isArray(offersResult.offers) ? offersResult.offers : []);
++      setWallet(walletResult.wallet ?? null);
++    } catch (caughtError) {
++      setNeeds([]);
++      setOffers([]);
++      setWallet(null);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
+   useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
+-  function openSidePicker(side: TradeCreateSide) { navigation.navigate('TradeSidePicker', { side, selection: side === 'need' ? needSelection : offerSelection }); }
+-  async function handlePublish() { if (!needSelection) return setError('Choose what you need before publishing.'); if (!offerSelection) return setError('Choose what you offer before publishing.'); if (needSelection.kind === 'money' && offerSelection.kind === 'money') return setError('A trade cannot need money and offer money at the same time.'); if (offerSelection.kind === 'money' && wallet && offerSelection.amountCents > wallet.availableBalanceCents) return setError(`You can only offer up to ${formatMoney(wallet.availableBalanceCents, wallet.currency)}.`); setSubmitting(true); setError(null); try { const result = await api.trades.create({ needKind: needSelection.kind === 'money' ? 'money' : 'need', offerKind: offerSelection.kind === 'money' ? 'money' : 'offer', needId: needSelection.kind === 'need' ? needSelection.id : undefined, offerId: offerSelection.kind === 'offer' ? offerSelection.id : undefined, creditAmount: 0, amountCents, currency, expiresAt: buildExpiresAt(expiryDays) }) as CreateTradeResponse; navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null }); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); } finally { setSubmitting(false); } }
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}><View style={styles.header}><SemanticBadge label="Trade" tone="trade" /><AppText style={styles.title}>Create Trade</AppText><AppText style={styles.subtitle}>Choose what you need and what you offer. Money now lives inside either side, not as an extra field.</AppText></View>{error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}<SideSelectionCard side="need" title="I need" emptyTitle="Select what you need" emptyBody="Choose a saved Need, or request wallet money." selection={needSelection} need={selectedNeed} offer={null} onPress={() => openSidePicker('need')} /><SideSelectionCard side="offer" title="I offer" emptyTitle="Select what you offer" emptyBody="Choose a saved Offer, or offer wallet money." selection={offerSelection} need={null} offer={selectedOffer} onPress={() => openSidePicker('offer')} /><AppCard><AppText style={styles.sectionTitle}>Expiry</AppText><View style={styles.expiryRow}>{expiryOptions.map((option) => { const selected = expiryDays === option.days; return <Pressable key={option.label} disabled={submitting} onPress={() => setExpiryDays(option.days)} style={({ pressed }) => [styles.expiryButton, selected && styles.expiryButtonSelected, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.expiryButtonText, selected && styles.expiryButtonTextSelected]}>{option.label}</AppText></Pressable>; })}</View></AppCard><AppCard><AppText style={styles.sectionTitle}>Deck preview</AppText><TradeSummaryPreview needSelection={needSelection} offerSelection={offerSelection} need={selectedNeed} offer={selectedOffer} /><InfoNotice tone="info" body="Money sides do not create image cards. Public decks show approved images from saved Needs and Offers." /></AppCard><View style={styles.actions}><Pressable disabled={submitting || loading} onPress={handlePublish} style={({ pressed }) => [styles.primaryButton, (submitting || loading) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{submitting ? 'Publishing...' : 'Publish Trade'}</AppText></Pressable><Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Cancel</AppText></Pressable></View></ScrollView></AppScreen>;
++
++  function openSidePicker(side: TradeCreateSide) {
++    navigation.navigate('TradeSidePicker', { side, selection: side === 'need' ? needSelection : offerSelection });
++  }
++
++  async function handlePublish() {
++    if (!needSelection) return setError('Choose what you need before publishing.');
++    if (!offerSelection) return setError('Choose what you offer before publishing.');
++    if (needSelection.kind === 'money' && offerSelection.kind === 'money') return setError('A trade cannot need money and offer money at the same time.');
++    if (offerSelection.kind === 'money' && wallet && offerSelection.amountCents > wallet.availableBalanceCents) return setError(`You can only offer up to ${formatMoney(wallet.availableBalanceCents, wallet.currency)}.`);
++
++    setSubmitting(true);
++    setError(null);
++    try {
++      const result = await api.trades.create({
++        needKind: needSelection.kind === 'money' ? 'money' : 'need',
++        offerKind: offerSelection.kind === 'money' ? 'money' : 'offer',
++        needId: needSelection.kind === 'need' ? needSelection.id : undefined,
++        offerId: offerSelection.kind === 'offer' ? offerSelection.id : undefined,
++        creditAmount: 0,
++        amountCents,
++        currency,
++        expiresAt: buildExpiresAt(expiryDays),
++      }) as CreateTradeResponse;
++      navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null });
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
++        <AppHeader title="Create Trade" onBack={() => navigation.goBack()} />
++        <View style={styles.header}>
++          <SemanticBadge label="Trade" tone="trade" />
++          <AppText style={styles.title}>Create Trade</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Choose what you need and what you offer. Money lives inside either side, not as an extra field.</AppText>
++        </View>
++        {error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}
++        <SideSelectionCard theme={theme} side="need" title="I need" emptyTitle="Select what you need" emptyBody="Choose a saved Need, or request wallet money." selection={needSelection} need={selectedNeed} offer={null} onPress={() => openSidePicker('need')} />
++        <SideSelectionCard theme={theme} side="offer" title="I offer" emptyTitle="Select what you offer" emptyBody="Choose a saved Offer, or offer wallet money." selection={offerSelection} need={null} offer={selectedOffer} onPress={() => openSidePicker('offer')} />
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Expiry</AppText>
++          <View style={styles.expiryRow}>{expiryOptions.map((option) => {
++            const selected = expiryDays === option.days;
++            return (
++              <Pressable key={option.label} disabled={submitting} onPress={() => setExpiryDays(option.days)} style={({ pressed }) => [styles.expiryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, submitting && styles.disabled, pressed && styles.pressed]}>
++                <AppText style={[styles.expiryButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{option.label}</AppText>
++              </Pressable>
++            );
++          })}</View>
++        </AppCard>
++        <AppCard>
++          <AppText style={styles.sectionTitle}>Deck preview</AppText>
++          <TradeSummaryPreview theme={theme} needSelection={needSelection} offerSelection={offerSelection} need={selectedNeed} offer={selectedOffer} />
++          <InfoNotice tone="info" body="Money sides do not create image cards. Public decks show approved images from saved Needs and Offers." />
++        </AppCard>
++        <View style={styles.actions}>
++          <Pressable disabled={submitting || loading} onPress={handlePublish} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.proposal.bg }, (submitting || loading) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{submitting ? 'Publishing...' : 'Publish Trade'}</AppText></Pressable>
++          <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Cancel</AppText></Pressable>
++        </View>
++      </ScrollView>
++    </AppScreen>
++  );
++}
++
++function SideSelectionCard({ theme, side, title, emptyTitle, emptyBody, selection, need, offer, onPress }: { theme: ThemeTokens; side: TradeCreateSide; title: string; emptyTitle: string; emptyBody: string; selection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; onPress: () => void }) {
++  const money = moneySelection(selection);
++  const item = need ?? offer;
++  const meta = need ? needMeta(need) : offer ? offerMeta(offer) : '';
++  return (
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><AppText style={[styles.changeText, { color: theme.semantic.proposal.bg }]}>{selection ? 'Change' : 'Select'} ›</AppText></View>
++      {money ? (
++        <View style={styles.selectedContent}>
++          <SemanticBadge label={side === 'need' ? 'Money needed' : 'Money offered'} tone="credits" size="sm" />
++          <AppText style={styles.selectedTitle}>Wallet money</AppText>
++          <MoneyPill amountCents={money.amountCents} currency={money.currency} label={side === 'need' ? 'needed' : 'offered'} />
++          <AppText style={[styles.selectedMeta, { color: theme.color.muted }]}>{side === 'offer' ? 'This amount is held when you accept a proposal.' : 'The accepted applicant will need enough wallet balance.'}</AppText>
++        </View>
++      ) : item ? (
++        <View style={styles.selectedContent}>
++          <SemanticBadge label={side === 'need' ? 'Saved Need' : 'Saved Offer'} tone={side === 'need' ? 'need' : 'offer'} size="sm" />
++          <AppText style={styles.selectedTitle}>{item.title}</AppText>
++          {meta ? <AppText style={[styles.selectedMeta, { color: theme.color.muted }]}>{meta}</AppText> : null}
++          <AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText>
++        </View>
++      ) : (
++        <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++          <AppText style={styles.emptyTitle}>{emptyTitle}</AppText>
++          <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody}</AppText>
++        </View>
++      )}
++    </Pressable>
++  );
+ }
+-function SideSelectionCard({ side, title, emptyTitle, emptyBody, selection, need, offer, onPress }: { side: TradeCreateSide; title: string; emptyTitle: string; emptyBody: string; selection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; onPress: () => void }) { const money = moneySelection(selection); const item = need ?? offer; const meta = need ? needMeta(need) : offer ? offerMeta(offer) : ''; return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, pressed && styles.pressed]}><View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><AppText style={styles.changeText}>{selection ? 'Change' : 'Select'} ›</AppText></View>{money ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? 'Money needed' : 'Money offered'} tone="credits" size="sm" /><AppText style={styles.selectedTitle}>Wallet money</AppText><MoneyPill amountCents={money.amountCents} currency={money.currency} label={side === 'need' ? 'needed' : 'offered'} /><AppText style={styles.selectedMeta}>{side === 'offer' ? 'This amount is held when you accept a proposal.' : 'The accepted applicant will need enough wallet balance.'}</AppText></View> : item ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? 'Saved Need' : 'Saved Offer'} tone={side === 'need' ? 'need' : 'offer'} size="sm" /><AppText style={styles.selectedTitle}>{item.title}</AppText>{meta ? <AppText style={styles.selectedMeta}>{meta}</AppText> : null}<AppText style={styles.selectedBody} numberOfLines={2}>{item.description}</AppText></View> : <View style={styles.emptyBox}><AppText style={styles.emptyTitle}>{emptyTitle}</AppText><AppText style={styles.emptyBody}>{emptyBody}</AppText></View>}</Pressable>; }
++
+ function previewTitle(selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { if (selection?.kind === 'money') return 'Wallet money'; return item?.title || fallback; }
+ function previewMeta(selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { if (selection?.kind === 'money') return formatMoney(selection.amountCents, selection.currency); if (!item) return fallback; return 'timing' in item ? needMeta(item) || 'Need details' : offerMeta(item) || 'Offer details'; }
+-function TradeSummaryPreview({ needSelection, offerSelection, need, offer }: { needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null }) { return <View style={styles.previewCard}><View style={styles.previewHeaderRow}><AppText style={styles.previewHeader}>TRADE · PREVIEW</AppText><AppText style={styles.previewStatus}>OPEN</AppText></View><View style={styles.previewBlock}><AppText style={styles.previewEyebrow}>I need</AppText><AppText style={styles.previewTitle}>{previewTitle(needSelection, need, 'Choose what you need')}</AppText><AppText style={styles.previewMeta}>{previewMeta(needSelection, need, 'Saved Need / Money')}</AppText></View><View style={styles.swapRow}><View style={styles.swapLine} /><View style={styles.swapCircle}><AppText style={styles.swapIcon}>↔</AppText></View><View style={styles.swapLine} /></View><View style={styles.previewBlock}><AppText style={styles.previewEyebrow}>I offer</AppText><AppText style={styles.previewTitle}>{previewTitle(offerSelection, offer, 'Choose what you offer')}</AppText><AppText style={styles.previewMeta}>{previewMeta(offerSelection, offer, 'Saved Offer / Money')}</AppText></View></View>; }
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 21, fontWeight: '600' }, sideCard: { borderRadius: 28, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900', color: '#0F172A' }, changeText: { color: '#0F766E', fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { color: '#475569', fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', backgroundColor: '#F8FAFC', padding: 14, gap: 5 }, emptyTitle: { color: '#0F172A', fontWeight: '900' }, emptyBody: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonSelected: { borderColor: '#0F766E', backgroundColor: '#CCFBF1' }, expiryButtonText: { color: '#475569', fontWeight: '900' }, expiryButtonTextSelected: { color: '#0F766E' }, previewCard: { borderRadius: 26, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 18, gap: 14 }, previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, previewHeader: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewStatus: { color: '#16A34A', fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewBlock: { gap: 5 }, previewEyebrow: { color: '#64748B', fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' }, previewTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 }, previewMeta: { color: '#475569', fontWeight: '800', lineHeight: 20 }, swapRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, swapLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' }, swapCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827' }, swapIcon: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, backgroundColor: '#0F766E', paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { color: '#334155', fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
++function TradeSummaryPreview({ theme, needSelection, offerSelection, need, offer }: { theme: ThemeTokens; needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null }) {
++  return <View style={[styles.previewCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}><View style={styles.previewHeaderRow}><AppText style={[styles.previewHeader, { color: theme.color.muted }]}>TRADE · PREVIEW</AppText><AppText style={[styles.previewStatus, { color: theme.semantic.success.bg }]}>OPEN</AppText></View><View style={styles.previewBlock}><AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>I need</AppText><AppText style={styles.previewTitle}>{previewTitle(needSelection, need, 'Choose what you need')}</AppText><AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{previewMeta(needSelection, need, 'Saved Need / Money')}</AppText></View><View style={styles.swapRow}><View style={[styles.swapLine, { backgroundColor: theme.color.border }]} /><View style={[styles.swapCircle, { backgroundColor: theme.color.text }]}><AppText style={[styles.swapIcon, { color: theme.color.background }]}>↔</AppText></View><View style={[styles.swapLine, { backgroundColor: theme.color.border }]} /></View><View style={styles.previewBlock}><AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>I offer</AppText><AppText style={styles.previewTitle}>{previewTitle(offerSelection, offer, 'Choose what you offer')}</AppText><AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{previewMeta(offerSelection, offer, 'Saved Offer / Money')}</AppText></View></View>;
++}
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 56, gap: 14 },
++  header: { gap: 8 },
++  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
++  subtitle: { lineHeight: 21, fontWeight: '600' },
++  sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 },
++  sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' },
++  changeText: { fontWeight: '900' },
++  selectedContent: { gap: 8 },
++  selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 },
++  selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 },
++  selectedBody: { lineHeight: 20, fontWeight: '600' },
++  emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 },
++  emptyTitle: { fontWeight: '900' },
++  emptyBody: { lineHeight: 20, fontWeight: '600' },
++  expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
++  expiryButtonText: { fontWeight: '900' },
++  previewCard: { borderRadius: 26, borderWidth: 1, padding: 18, gap: 14 },
++  previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
++  previewHeader: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9 },
++  previewStatus: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9 },
++  previewBlock: { gap: 5 },
++  previewEyebrow: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
++  previewTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 },
++  previewMeta: { fontWeight: '800', lineHeight: 20 },
++  swapRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
++  swapLine: { flex: 1, height: 1 },
++  swapCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
++  swapIcon: { fontSize: 18, fontWeight: '900' },
++  actions: { gap: 10 },
++  primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' },
++  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
++  secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' },
++  secondaryButtonText: { fontWeight: '900' },
++  disabled: { opacity: 0.55 },
++  pressed: { opacity: 0.78 },
++});
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index 777b3a9..94ee374 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -5,6 +5,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+@@ -145,9 +146,9 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItem(); }} />}>
++        <AppHeader title={editing ? `Edit ${label}` : label} onBack={() => navigation.goBack()} />
+         <View style={styles.headerRow}>
+-          <View style={styles.headerCopy}><SemanticBadge label={label} tone={tone} /><AppText style={styles.title}>{editing ? `Edit ${label}` : item?.title ?? fallbackTitle ?? label}</AppText></View>
+-          <SecondaryButton label="Back" disabled={saving} onPress={() => navigation.goBack()} />
++          <View style={styles.headerCopy}><SemanticBadge label={label} tone={tone} /><AppText style={styles.title}>{item?.title ?? fallbackTitle ?? label}</AppText></View>
+         </View>
+         {error ? <InfoNotice tone="warning" body={error} /> : null}
+         {!item && !loading ? <InfoNotice tone="danger" title={`${label} unavailable`} body={`This ${label.toLowerCase()} could not be loaded.`} /> : null}
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index a77d0a4..2f0a1ed 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -6,18 +6,22 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useAuth } from '../../providers/AuthProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import type { ProposalMessageItem, TradeProposalItem } from './types';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
+ type ProposalResponse = { proposal: TradeProposalItem; trade?: unknown };
+ type MessagesResponse = { messages: ProposalMessageItem[] };
+ function personLabel(person?: { profile?: { displayName?: string | null; handle?: string | null } | null } | null) { return person?.profile?.displayName || person?.profile?.handle || 'Hellowhen member'; }
++
+ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const auth = useAuth();
++  const theme = useThemeTokens();
+   const [proposal, setProposal] = useState<TradeProposalItem | null>(null);
+   const [messages, setMessages] = useState<ProposalMessageItem[]>([]);
+   const [body, setBody] = useState('');
+@@ -26,33 +30,73 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const [actionLoading, setActionLoading] = useState<ProposalActionStatus | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [notice, setNotice] = useState<string | null>(null);
+-  const loadProposal = useCallback(async () => { setLoading(true); setError(null); try { const result = await api.proposals.get(route.params.proposalId) as ProposalResponse; setProposal(result.proposal); setMessages(result.proposal.messages ?? []); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not load this proposal.')); } finally { setLoading(false); } }, [route.params.proposalId]);
++
++  const loadProposal = useCallback(async () => {
++    setLoading(true); setError(null);
++    try {
++      const result = await api.proposals.get(route.params.proposalId) as ProposalResponse;
++      setProposal(result.proposal);
++      setMessages(result.proposal.messages ?? []);
++    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not load this proposal.')); }
++    finally { setLoading(false); }
++  }, [route.params.proposalId]);
+   useEffect(() => { void loadProposal(); }, [loadProposal]);
++
+   const isOwner = proposal?.trade?.ownerId === auth.user?.id;
+   const isApplicant = proposal?.applicantId === auth.user?.id;
+   const isAcceptedProvider = proposal?.trade?.providerId === auth.user?.id;
+   const canMessage = proposal ? !['declined', 'withdrawn'].includes(proposal.status) : false;
+-  const statusHint = useMemo(() => { if (!proposal) return ''; if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.'; if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and wallet money was held when applicable.'; if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.'; return 'Withdrawn. This proposal conversation is now closed.'; }, [proposal, isOwner]);
+-  async function sendMessage() { const trimmed = body.trim(); if (!trimmed) return; setSubmitting(true); setError(null); setNotice(null); try { await api.proposals.sendMessage(route.params.proposalId, { body: trimmed }); setBody(''); const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse; setMessages(messageResult.messages ?? []); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this message.')); } finally { setSubmitting(false); } }
+-  async function updateStatus(status: ProposalActionStatus) { setActionLoading(status); setError(null); setNotice(null); try { const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse; setProposal(result.proposal); setMessages(result.proposal.messages ?? messages); setNotice(status === 'accepted' ? 'Proposal accepted. Wallet money is now held when this trade includes an amount and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.'); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); } finally { setActionLoading(null); } }
+-  if (!proposal) return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}><AppCard><SemanticBadge label="Proposal" tone="proposal" /><AppText style={styles.title}>Proposal</AppText>{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : <AppText style={styles.muted}>Loading proposal...</AppText>}<Button title="Back" onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />} keyboardShouldPersistTaps="handled"><AppCard>
+-    <View style={styles.headerRow}><StatusBadge status={proposal.status} /><SemanticBadge label="Proposal thread" tone="proposal" size="sm" /></View>
+-    <AppText style={styles.title}>{proposal.trade?.title ?? 'Proposal'}</AppText>
+-    {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={styles.subtitle}>Service-for-service trade</AppText>) : <AppText style={styles.subtitle}>Private proposal conversation</AppText>}
+-    <View style={styles.peopleRow}><MiniPerson label="Owner" name={personLabel(proposal.trade?.owner)} tone="need" /><MiniPerson label="Applicant" name={personLabel(proposal.applicant)} tone="offer" /></View>
+-    <InfoNotice tone="info" title="Next step" body={statusHint} />
+-    {error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}
+-    {notice ? <InfoNotice tone="success" title="Proposal updated" body={notice} /> : null}
+-    <View style={styles.messagesBox}>{messages.length === 0 ? <AppText style={styles.muted}>No messages yet.</AppText> : messages.map((message) => { const mine = message.senderId === auth.user?.id; return <View key={message.id} style={[styles.messageBubble, mine && styles.myMessageBubble]}><SemanticBadge label={mine ? 'You' : personLabel(message.sender)} tone={mine ? 'proposal' : 'info'} size="sm" /><AppText style={styles.messageBody}>{message.body}</AppText></View>; })}</View>
+-    {canMessage ? <View style={styles.composer}><TextInput value={body} onChangeText={setBody} multiline placeholder="Write a message..." style={styles.input} /><Button title={submitting ? 'Sending...' : 'Send'} disabled={submitting || body.trim().length === 0} onPress={() => { void sendMessage(); }} /></View> : null}
+-    {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? 'Accepting...' : 'Accept'} variant="primary" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('accepted'); }} /><ProposalActionButton label={actionLoading === 'declined' ? 'Declining...' : 'Decline'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('declined'); }} /></View> : null}
+-    {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? 'Withdrawing...' : 'Withdraw proposal'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('withdrawn'); }} /> : null}
+-    {proposal.trade?.id ? <Button title="Open trade detail" onPress={() => navigation.navigate('TradeDetail', { tradeId: proposal.trade!.id, title: proposal.trade!.title, description: proposal.trade!.description, amountCents: proposal.trade!.amountCents ?? 0, currency: proposal.trade!.currency ?? 'eur', creditAmount: proposal.trade!.creditAmount, status: proposal.trade!.status, expiresAt: proposal.trade!.expiresAt ?? null })} /> : null}
+-    {isAcceptedProvider ? <InfoNotice tone="success" title="Accepted provider" body="You are the accepted provider for this trade." /> : null}
+-    <Button title="Back" color="#64748B" onPress={() => navigation.goBack()} />
+-  </AppCard></ScrollView></AppScreen>;
++  const statusHint = useMemo(() => {
++    if (!proposal) return '';
++    if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.';
++    if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and wallet money was held when applicable.';
++    if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.';
++    return 'Withdrawn. This proposal conversation is now closed.';
++  }, [proposal, isOwner]);
++
++  async function sendMessage() {
++    const trimmed = body.trim();
++    if (!trimmed) return;
++    setSubmitting(true); setError(null); setNotice(null);
++    try {
++      await api.proposals.sendMessage(route.params.proposalId, { body: trimmed });
++      setBody('');
++      const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
++      setMessages(messageResult.messages ?? []);
++    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this message.')); }
++    finally { setSubmitting(false); }
++  }
++
++  async function updateStatus(status: ProposalActionStatus) {
++    setActionLoading(status); setError(null); setNotice(null);
++    try {
++      const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse;
++      setProposal(result.proposal);
++      setMessages(result.proposal.messages ?? messages);
++      setNotice(status === 'accepted' ? 'Proposal accepted. Wallet money is now held when this trade includes an amount and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.');
++    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); }
++    finally { setActionLoading(null); }
++  }
++
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
++    <AppHeader title="Proposal" onBack={() => navigation.goBack()} />
++    {!proposal ? <AppCard><SemanticBadge label="Proposal" tone="proposal" /><AppText style={styles.title}>Proposal</AppText>{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>Loading proposal...</AppText>}</AppCard> : <AppCard>
++      <View style={styles.headerRow}><StatusBadge status={proposal.status} /><SemanticBadge label="Proposal thread" tone="proposal" size="sm" /></View>
++      <AppText style={styles.title}>{proposal.trade?.title ?? 'Proposal'}</AppText>
++      {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Service-for-service trade</AppText>) : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Private proposal conversation</AppText>}
++      <View style={styles.peopleRow}><MiniPerson label="Owner" name={personLabel(proposal.trade?.owner)} tone="need" /><MiniPerson label="Applicant" name={personLabel(proposal.applicant)} tone="offer" /></View>
++      <InfoNotice tone="info" title="Next step" body={statusHint} />
++      {error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}
++      {notice ? <InfoNotice tone="success" title="Proposal updated" body={notice} /> : null}
++      <View style={styles.messagesBox}>{messages.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No messages yet.</AppText> : messages.map((message) => { const mine = message.senderId === auth.user?.id; return <View key={message.id} style={[styles.messageBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.myMessageBubble]}><SemanticBadge label={mine ? 'You' : personLabel(message.sender)} tone={mine ? 'proposal' : 'info'} size="sm" /><AppText style={styles.messageBody}>{message.body}</AppText></View>; })}</View>
++      {canMessage ? <View style={styles.composer}><TextInput value={body} onChangeText={setBody} multiline placeholder="Write a message..." placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /><Button title={submitting ? 'Sending...' : 'Send'} disabled={submitting || body.trim().length === 0} onPress={() => { void sendMessage(); }} /></View> : null}
++      {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? 'Accepting...' : 'Accept'} variant="primary" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('accepted'); }} /><ProposalActionButton label={actionLoading === 'declined' ? 'Declining...' : 'Decline'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('declined'); }} /></View> : null}
++      {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? 'Withdrawing...' : 'Withdraw proposal'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('withdrawn'); }} /> : null}
++      {proposal.trade?.id ? <Button title="Open trade detail" onPress={() => navigation.navigate('TradeDetail', { tradeId: proposal.trade!.id, title: proposal.trade!.title, description: proposal.trade!.description, amountCents: proposal.trade!.amountCents ?? 0, currency: proposal.trade!.currency ?? 'eur', creditAmount: proposal.trade!.creditAmount, status: proposal.trade!.status, expiresAt: proposal.trade!.expiresAt ?? null })} /> : null}
++      {isAcceptedProvider ? <InfoNotice tone="success" title="Accepted provider" body="You are the accepted provider for this trade." /> : null}
++    </AppCard>}
++  </ScrollView></AppScreen>;
+ }
+-function MiniPerson({ label, name, tone }: { label: string; name: string; tone: 'need' | 'offer' }) { return <View style={styles.personBox}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.personName}>{name}</AppText></View>; }
++function MiniPerson({ label, name, tone }: { label: string; name: string; tone: 'need' | 'offer' }) { const theme = useThemeTokens(); return <View style={[styles.personBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.personName}>{name}</AppText></View>; }
+ function ProposalActionButton({ label, variant, disabled, onPress }: { label: string; variant: 'primary' | 'danger'; disabled?: boolean; onPress: () => void }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' ? styles.primaryButton : styles.dangerButton, disabled && styles.disabled, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionText, variant === 'primary' ? styles.primaryText : styles.dangerText]}>{label}</AppText></Pressable>; }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 30, lineHeight: 35, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '800' }, peopleRow: { flexDirection: 'row', gap: 10 }, personBox: { flex: 1, borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', padding: 12, backgroundColor: '#F8FAFC', gap: 7 }, personName: { fontWeight: '900' }, messagesBox: { gap: 10 }, messageBubble: { alignSelf: 'flex-start', maxWidth: '92%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 12, gap: 6 }, myMessageBubble: { alignSelf: 'flex-end', backgroundColor: '#ECFDF5', borderColor: '#5EEAD4' }, messageBody: { lineHeight: 20, fontWeight: '600' }, composer: { gap: 8 }, input: { minHeight: 80, borderRadius: 16, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 12, fontSize: 16, lineHeight: 22 }, actionRow: { flexDirection: 'row', gap: 10 }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 12 }, primaryButton: { backgroundColor: '#0F766E' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, actionText: { fontWeight: '900' }, primaryText: { color: '#FFFFFF' }, dangerText: { color: '#991B1B' }, muted: { color: '#64748B', fontWeight: '700' }, disabled: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 30, lineHeight: 35, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { lineHeight: 20, fontWeight: '800' }, peopleRow: { flexDirection: 'row', gap: 10 }, personBox: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 12, gap: 7 }, personName: { fontWeight: '900' }, messagesBox: { gap: 10 }, messageBubble: { alignSelf: 'flex-start', maxWidth: '92%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 6 }, myMessageBubble: { alignSelf: 'flex-end' }, messageBody: { lineHeight: 20, fontWeight: '600' }, composer: { gap: 8 }, input: { minHeight: 80, borderRadius: 16, borderWidth: 1, padding: 12, fontSize: 16, lineHeight: 22 }, actionRow: { flexDirection: 'row', gap: 10 }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 12 }, primaryButton: { backgroundColor: '#0F766E' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, actionText: { fontWeight: '900' }, primaryText: { color: '#FFFFFF' }, dangerText: { color: '#991B1B' }, muted: { fontWeight: '700' }, disabled: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index 4606fa0..971c9f1 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -10,6 +10,7 @@ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { ContinuousSquareStackDeck } from './deck';
+ import { buildTradeSquareDeckCards, renderTradeSquareDeckCard } from './components/TradeSquareDeckCards';
+ import type { TradeDeckItem } from './types';
+@@ -44,6 +45,7 @@ function buildFeedQuery(query: string, modeFilter: ModeFilter, category: string,
+ }
+ 
+ export function TradeDeckFeedScreen() {
++  const theme = useThemeTokens();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
+   const [query, setQuery] = useState('');
+@@ -118,21 +120,21 @@ export function TradeDeckFeedScreen() {
+         <View style={styles.headerRow}>
+           <AppText style={styles.title}>Trades</AppText>
+           <View style={styles.headerActions}>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, styles.createIconButton, pressed && styles.pressed]}>
++            <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+               <AppText style={[styles.iconButtonText, styles.createIconButtonText]}>+</AppText>
+             </Pressable>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, searchOpen && styles.iconButtonSelected, pressed && styles.pressed]}>
+-              <AppText style={styles.iconButtonText}>S</AppText>
++            <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, searchOpen && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
++              <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>S</AppText>
+             </Pressable>
+-            <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, (filtersOpen || hasFilters) && styles.iconButtonSelected, pressed && styles.pressed]}>
+-              <AppText style={styles.iconButtonText}>F</AppText>
++            <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (filtersOpen || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
++              <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>F</AppText>
+               {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
+             </Pressable>
+           </View>
+         </View>
+ 
+         {searchOpen ? (
+-          <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor="#94A3B8" autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={styles.searchInput} />
++          <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+         ) : null}
+ 
+         {filtersOpen ? (
+@@ -140,15 +142,15 @@ export function TradeDeckFeedScreen() {
+             <View style={styles.filterPanel}>
+               <View style={styles.filterHeaderRow}>
+                 <AppText style={styles.filterTitle}>Filters</AppText>
+-                {hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}><AppText style={styles.clearButtonText}>Clear</AppText></Pressable> : null}
++                {hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>Clear</AppText></Pressable> : null}
+               </View>
+               <View style={styles.filterGroup}>
+-                <AppText style={styles.filterLabel}>Mode</AppText>
++                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Mode</AppText>
+                 <View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, selected && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>{option.label}</AppText></Pressable>; })}</View>
+               </View>
+               <View style={styles.filterGroup}>
+-                <AppText style={styles.filterLabel}>Category</AppText>
+-                <TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor="#94A3B8" autoCapitalize="none" autoCorrect={false} style={styles.categoryInput} />
++                <AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Category</AppText>
++                <TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+               </View>
+               <View style={styles.chipRow}>
+                 <Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, imagesOnly && styles.filterChipSelected, pressed && styles.pressed]}><AppText style={[styles.filterChipText, imagesOnly && styles.filterChipTextSelected]}>Has images</AppText></Pressable>
+@@ -202,34 +204,32 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 30, gap: 16 },
+   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
+-  title: { color: '#0F172A', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
++  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+-  iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
+-  createIconButton: { backgroundColor: '#111827', borderColor: '#111827' },
+-  createIconButtonText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24 },
+-  iconButtonSelected: { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' },
+-  iconButtonText: { color: '#0F172A', fontSize: 16, fontWeight: '900', lineHeight: 20 },
++  iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
++    createIconButtonText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24 },
++    iconButtonText: { fontSize: 16, fontWeight: '900', lineHeight: 20 },
+   filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827', paddingHorizontal: 4 },
+   filterDotText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
+-  searchInput: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 16, paddingVertical: 12, color: '#0F172A', fontSize: 16, fontWeight: '700' },
++  searchInput: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 16, paddingVertical: 12, color: '#0F172A', fontSize: 16, fontWeight: '700' },
+   filterPanel: { gap: 14 },
+   filterHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+-  filterTitle: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
+-  clearButton: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 12, paddingVertical: 7 },
++  filterTitle: { fontSize: 18, fontWeight: '900' },
++  clearButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+   clearButtonText: { color: '#475569', fontSize: 12, fontWeight: '900' },
+   filterGroup: { gap: 8 },
+-  filterLabel: { color: '#475569', fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
++  filterLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   filterChip: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 9 },
+   filterChipSelected: { borderColor: '#0F172A', backgroundColor: '#111827' },
+   filterChipText: { color: '#475569', fontSize: 13, fontWeight: '900' },
+   filterChipTextSelected: { color: '#FFFFFF' },
+-  categoryInput: { borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 13, paddingVertical: 11, color: '#0F172A', fontSize: 15, fontWeight: '700' },
++  categoryInput: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, color: '#0F172A', fontSize: 15, fontWeight: '700' },
+   feedList: { gap: 20 },
+   tradeSection: { alignItems: 'center', justifyContent: 'center' },
+   emptyBox: { minHeight: 360, alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 18 },
+-  emptyTitle: { color: '#0F172A', fontSize: 28, fontWeight: '900', letterSpacing: -0.6, textAlign: 'center' },
+-  emptyText: { color: '#64748B', lineHeight: 21, fontWeight: '600', textAlign: 'center' },
++  emptyTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.6, textAlign: 'center' },
++  emptyText: { lineHeight: 21, fontWeight: '600', textAlign: 'center' },
+   emptyActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+   emptyPrimaryButton: { borderRadius: 16, backgroundColor: '#111827', paddingHorizontal: 16, paddingVertical: 12 },
+   emptyPrimaryButtonText: { color: '#FFFFFF', fontWeight: '900' },
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 983cc69..6c48a50 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -7,6 +7,7 @@ import type { ThemeTokens } from '@hellowhen/theme';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+@@ -204,7 +205,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   }, [replyDrafts]);
+ 
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+-    <View style={styles.topBar}><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}><AppText style={styles.backText}>←</AppText></Pressable><AppText style={styles.topBarTitle}>Trade</AppText><View style={styles.topBarSpacer} /></View>
++    <AppHeader title="Trade" onBack={() => navigation.goBack()} />
+ 
+     <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? (moneySide(trade) === 'need' ? 'Money needed' : 'Money offered') : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={moneySide(trade) === 'need' ? 'needed' : 'offered'} /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
+ 
+@@ -235,4 +236,4 @@ function ProposalBlock({ proposal, role, currentUserId, replyDraft, onReplyDraft
+ function MessageBubble({ message, mine, theme }: { message: ProposalMessageItem; mine: boolean; theme: ThemeTokens }) { return <View style={[styles.messageBubble, mine ? styles.myMessageBubble : styles.theirMessageBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }]}><AppText style={[styles.messageAuthor, { color: theme.color.muted }]}>{mine ? 'You' : personLabel(message.sender)}</AppText><AppText style={styles.messageBody}>{message.body}</AppText></View>; }
+ function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) { const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }; const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text; return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>; }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, backButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, backText: { fontSize: 24, lineHeight: 26, fontWeight: '800' }, topBarTitle: { fontSize: 18, fontWeight: '900' }, topBarSpacer: { width: 42 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, reviewNote: { fontSize: 12, lineHeight: 17, fontWeight: '800' }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 10 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1 }, proposalCopy: { flex: 1, gap: 4 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, reviewNote: { fontSize: 12, lineHeight: 17, fontWeight: '800' }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 10 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1 }, proposalCopy: { flex: 1, gap: 4 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+new file mode 100644
+index 0000000..d865fbf
+--- /dev/null
++++ b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+@@ -0,0 +1,149 @@
++import React, { useCallback, useMemo, useState } from 'react';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { useFocusEffect } from '@react-navigation/native';
++import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { TradeExchangeMode, WalletDto } from '@hellowhen/contracts';
++import { formatMoney } from '@hellowhen/shared';
++import type { ThemeTokens } from '@hellowhen/theme';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
++import { AppScreen } from '../../components/AppScreen';
++import { AppText } from '../../components/AppText';
++import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { modeLabel } from './components/InventoryFormFields';
++import type { NeedItem, OfferItem } from './types';
++import type { TradeCreateSide, TradeCreateSideSelection } from './CreateTradeScreen';
++
++type Props = NativeStackScreenProps<RootStackParamList, 'TradeSidePicker'>;
++type NeedsResponse = { needs: NeedItem[] };
++type OffersResponse = { offers: OfferItem[] };
++type WalletResponse = { wallet: WalletDto | null };
++
++function optionalModeLabel(mode?: TradeExchangeMode | null) { return mode ? modeLabel(mode) : undefined; }
++function needMeta(need: NeedItem) { return [need.category, need.timing, optionalModeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details'; }
++function offerMeta(offer: OfferItem) { return [offer.category, offer.availability, optionalModeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details'; }
++function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
++function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
++function parseMoneyInput(value: string) { const normalized = value.replace(',', '.').replace(/[^0-9.]/g, ''); const amount = Number(normalized); return Number.isFinite(amount) ? Math.round(amount * 100) : 0; }
++function formatInputFromCents(cents?: number) { return cents && cents > 0 ? (cents / 100).toFixed(2) : ''; }
++
++export function TradeSidePickerScreen({ route, navigation }: Props) {
++  const theme = useThemeTokens();
++  const side = route.params.side;
++  const existing = route.params.selection;
++  const [needs, setNeeds] = useState<NeedItem[]>([]);
++  const [offers, setOffers] = useState<OfferItem[]>([]);
++  const [wallet, setWallet] = useState<WalletDto | null>(null);
++  const [moneyInput, setMoneyInput] = useState(existing?.kind === 'money' ? formatInputFromCents(existing.amountCents) : '');
++  const [loading, setLoading] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++
++  const loadResources = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const [needsResult, offersResult, walletResult] = await Promise.all([
++        api.needs.mine() as Promise<NeedsResponse>,
++        api.offers.mine() as Promise<OffersResponse>,
++        api.wallet.me() as Promise<WalletResponse>,
++      ]);
++      setNeeds(Array.isArray(needsResult.needs) ? needsResult.needs : []);
++      setOffers(Array.isArray(offersResult.offers) ? offersResult.offers : []);
++      setWallet(walletResult.wallet ?? null);
++    } catch (caughtError) {
++      setNeeds([]);
++      setOffers([]);
++      setWallet(null);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
++  useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
++
++  const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
++  const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
++  const currency = wallet?.currency ?? 'eur';
++  const moneyAmountCents = parseMoneyInput(moneyInput);
++  const moneyTooHigh = side === 'offer' && wallet ? moneyAmountCents > wallet.availableBalanceCents : false;
++  const canSelectMoney = moneyAmountCents > 0 && !moneyTooHigh;
++  const title = side === 'need' ? 'Select what you need' : 'Select what you offer';
++  const inventoryTitle = side === 'need' ? 'My Needs' : 'My Offers';
++
++  function choose(selection: TradeCreateSideSelection) {
++    navigation.navigate('CreateTrade', { selectedTradeSide: selection });
++  }
++
++  function chooseMoney() {
++    if (!canSelectMoney) return;
++    choose({ side, kind: 'money', amountCents: moneyAmountCents, currency } as TradeCreateSideSelection);
++  }
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}>
++        <AppHeader title={title} onBack={() => navigation.goBack()} />
++        {error ? <InfoNotice tone="warning" title="Could not load resources" body={error} /> : null}
++
++        <AppCard>
++          <View style={styles.sectionHeader}><SemanticBadge label={side === 'need' ? 'Need' : 'Offer'} tone={side === 'need' ? 'need' : 'offer'} /><AppText style={styles.sectionTitle}>{inventoryTitle}</AppText></View>
++          {side === 'need' ? (
++            usableNeeds.length === 0 ? <EmptyInventory side={side} theme={theme} onCreate={() => navigation.navigate('CreateNeed')} /> : usableNeeds.map((need) => <InventoryRow key={need.id} title={need.title} description={need.description} meta={needMeta(need)} status={need.status} selected={existing?.kind === 'need' && existing.id === need.id} tone="need" theme={theme} onPress={() => choose({ side: 'need', kind: 'need', id: need.id })} />)
++          ) : (
++            usableOffers.length === 0 ? <EmptyInventory side={side} theme={theme} onCreate={() => navigation.navigate('CreateOffer')} /> : usableOffers.map((offer) => <InventoryRow key={offer.id} title={offer.title} description={offer.description} meta={offerMeta(offer)} status={offer.status} selected={existing?.kind === 'offer' && existing.id === offer.id} tone="offer" theme={theme} onPress={() => choose({ side: 'offer', kind: 'offer', id: offer.id })} />)
++          )}
++        </AppCard>
++
++        <AppCard>
++          <View style={styles.sectionHeader}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.sectionTitle}>{side === 'need' ? 'I need money' : 'I offer money'}</AppText></View>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>{side === 'need' ? 'Request wallet money as the thing you need from an accepted applicant.' : 'Offer wallet money from your available balance.'}</AppText>
++          {side === 'offer' ? <MoneyPill amountCents={wallet?.availableBalanceCents ?? 0} currency={currency} label="available" /> : null}
++          <TextInput value={moneyInput} onChangeText={setMoneyInput} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.color.muted} style={[styles.moneyInput, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border, color: theme.color.text }]} />
++          {moneyTooHigh ? <InfoNotice tone="danger" body={`You can only offer up to ${formatMoney(wallet?.availableBalanceCents ?? 0, currency)}.`} /> : null}
++          {side === 'offer' && moneyAmountCents > 0 && !moneyTooHigh ? <AppText style={[styles.body, { color: theme.color.muted }]}>Remaining after trade: {formatMoney((wallet?.availableBalanceCents ?? 0) - moneyAmountCents, currency)}</AppText> : null}
++          <Pressable accessibilityRole="button" disabled={!canSelectMoney} onPress={chooseMoney} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.proposal.bg }, !canSelectMoney && styles.disabled, pressed && canSelectMoney && styles.pressed]}><AppText style={styles.primaryButtonText}>Select wallet money</AppText></Pressable>
++        </AppCard>
++
++        <AppCard>
++          <SemanticBadge label="Later" tone="muted" size="sm" />
++          <AppText style={styles.sectionTitle}>More item types later</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>Tickets, gifts, checks, and vouchers can be added here later without changing the I need / I offer model.</AppText>
++        </AppCard>
++      </ScrollView>
++    </AppScreen>
++  );
++}
++
++function EmptyInventory({ side, theme, onCreate }: { side: TradeCreateSide; theme: ThemeTokens; onCreate: () => void }) {
++  return <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>No saved {side === 'need' ? 'needs' : 'offers'} yet</AppText><AppText style={[styles.body, { color: theme.color.muted }]}>Create one now, or use wallet money for this side.</AppText><Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Create {side === 'need' ? 'Need' : 'Offer'}</AppText></Pressable></View>;
++}
++
++function InventoryRow({ title, description, meta, status, selected, tone, theme, onPress }: { title: string; description: string; meta: string; status: string; selected: boolean; tone: 'need' | 'offer'; theme: ThemeTokens; onPress: () => void }) {
++  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.inventoryRow, { borderColor: selected ? theme.semantic[tone].border : theme.color.border, backgroundColor: selected ? theme.semantic[tone].softBg : theme.color.subtleSurface }, pressed && styles.pressed]}><View style={styles.inventoryHeader}><AppText style={styles.inventoryTitle}>{title}</AppText><StatusBadge status={status} size="sm" /></View><AppText style={[styles.inventoryMeta, { color: selected ? theme.semantic[tone].text : theme.color.muted }]}>{meta}</AppText><AppText style={[styles.inventoryDescription, { color: selected ? theme.semantic[tone].text : theme.color.muted }]} numberOfLines={2}>{description}</AppText></Pressable>;
++}
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 56, gap: 14 },
++  sectionHeader: { gap: 8 },
++  sectionTitle: { fontSize: 22, lineHeight: 27, fontWeight: '900', letterSpacing: -0.35 },
++  body: { lineHeight: 20, fontWeight: '700' },
++  inventoryRow: { borderRadius: 18, borderWidth: 1, padding: 14, gap: 6 },
++  inventoryHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
++  inventoryTitle: { flex: 1, fontSize: 18, fontWeight: '900' },
++  inventoryMeta: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
++  inventoryDescription: { lineHeight: 20, fontWeight: '600' },
++  moneyInput: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 13, fontSize: 28, fontWeight: '900' },
++  emptyBox: { borderRadius: 18, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 10 },
++  emptyTitle: { fontSize: 17, fontWeight: '900' },
++  primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' },
++  primaryButtonText: { color: '#FFFFFF', fontWeight: '900' },
++  secondaryButton: { alignSelf: 'flex-start', borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10 },
++  secondaryButtonText: { fontWeight: '900' },
++  disabled: { opacity: 0.5 },
++  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
++});
+diff --git a/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx b/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
+index 525c5c9..6b46f8b 100644
+--- a/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
+@@ -2,6 +2,7 @@ import React from 'react';
+ import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import type { MediaAssetDto } from '@hellowhen/contracts';
+ import { AppText } from '../../../components/AppText';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { StatusBadge } from '../../../components/SemanticUI';
+ import { resolveMediaUrl } from '../mediaUrls';
+ 
+@@ -46,21 +47,25 @@ export function joinCsv(items?: string[]) { return (items ?? []).join(', '); }
+ export function optionalText(value: string) { const trimmed = value.trim(); return trimmed.length > 0 ? trimmed : null; }
+ 
+ export function InventoryTextField({ label, value, onChangeText, placeholder, multiline, disabled }: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; multiline?: boolean; disabled?: boolean }) {
+-  return <View style={styles.field}><AppText style={styles.label}>{label}</AppText><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor="#94A3B8" editable={!disabled} multiline={multiline} textAlignVertical={multiline ? 'top' : 'center'} style={[styles.input, multiline && styles.textarea]} /></View>;
++  const theme = useThemeTokens();
++  return <View style={styles.field}><AppText style={styles.label}>{label}</AppText><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={theme.color.muted} editable={!disabled} multiline={multiline} textAlignVertical={multiline ? 'top' : 'center'} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }, multiline && styles.textarea]} /></View>;
+ }
+ 
+ export function InventoryModePicker({ value, onChange, disabled }: { value: InventoryMode; onChange: (value: InventoryMode) => void; disabled?: boolean }) {
+-  return <View style={styles.field}><AppText style={styles.label}>Mode</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, selected && styles.modeButtonSelected, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, selected && styles.modeButtonTextSelected]}>{modeLabel(mode)}</AppText></Pressable>; })}</View></View>;
++  const theme = useThemeTokens();
++  return <View style={styles.field}><AppText style={styles.label}>Mode</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode)}</AppText></Pressable>; })}</View></View>;
+ }
+ 
+ export function ExistingMediaManager({ media, disabled, onRemove }: { media?: MediaAssetDto[]; disabled?: boolean; onRemove: (mediaId: string) => void }) {
++  const theme = useThemeTokens();
+   const visible = (media ?? []).filter((item) => item.status !== 'removed');
+-  if (visible.length === 0) return <View style={styles.emptyMedia}><AppText style={styles.emptyMediaText}>No saved images yet.</AppText></View>;
++  if (visible.length === 0) return <View style={[styles.emptyMedia, { borderColor: theme.color.border }]}><AppText style={[styles.emptyMediaText, { color: theme.color.muted }]}>No saved images yet.</AppText></View>;
+   return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item) => <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>Remove</AppText></Pressable></View>)}</ScrollView>;
+ }
+ 
++
+ export function DangerButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) { return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.dangerButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.dangerButtonText}>{label}</AppText></Pressable>; }
+ export function PrimaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) { return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{label}</AppText></Pressable>; }
+ export function SecondaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) { return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.secondaryButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>{label}</AppText></Pressable>; }
+ 
+-const styles = StyleSheet.create({ field: { gap: 8 }, label: { color: '#0F172A', fontWeight: '900' }, input: { borderRadius: 16, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, paddingVertical: 12, color: '#0F172A', fontSize: 16, fontWeight: '700' }, textarea: { minHeight: 128, lineHeight: 22 }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, modeButton: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, paddingVertical: 9 }, modeButtonSelected: { borderColor: '#111827', backgroundColor: '#F1F5F9' }, modeButtonText: { color: '#475569', fontWeight: '900' }, modeButtonTextSelected: { color: '#111827' }, mediaRow: { gap: 12 }, mediaCard: { width: 148, gap: 8 }, mediaImage: { width: 148, height: 112, borderRadius: 18, backgroundColor: '#E2E8F0' }, mediaStatus: { position: 'absolute', top: 8, left: 8 }, removeMediaButton: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 8, alignItems: 'center' }, removeMediaButtonText: { color: '#991B1B', fontSize: 12, fontWeight: '900' }, emptyMedia: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyMediaText: { color: '#64748B', fontWeight: '700' }, primaryButton: { borderRadius: 18, backgroundColor: '#111827', paddingVertical: 14, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { color: '#334155', fontWeight: '900' }, dangerButton: { borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2', paddingVertical: 14, alignItems: 'center' }, dangerButtonText: { color: '#991B1B', fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ field: { gap: 8 }, label: { fontWeight: '900' }, input: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, fontSize: 16, fontWeight: '700' }, textarea: { minHeight: 128, lineHeight: 22 }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, modeButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, modeButtonSelected: {}, modeButtonText: { fontWeight: '900' }, modeButtonTextSelected: {}, mediaRow: { gap: 12 }, mediaCard: { width: 148, gap: 8 }, mediaImage: { width: 148, height: 112, borderRadius: 18, backgroundColor: '#E2E8F0' }, mediaStatus: { position: 'absolute', top: 8, left: 8 }, removeMediaButton: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 8, alignItems: 'center' }, removeMediaButtonText: { color: '#991B1B', fontSize: 12, fontWeight: '900' }, emptyMedia: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', padding: 12 }, emptyMediaText: { fontWeight: '700' }, primaryButton: { borderRadius: 18, backgroundColor: '#111827', paddingVertical: 14, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { color: '#334155', fontWeight: '900' }, dangerButton: { borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2', paddingVertical: 14, alignItems: 'center' }, dangerButtonText: { color: '#991B1B', fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+index f5c6a6e..cf1f130 100644
+--- a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -2,6 +2,7 @@ import React from 'react';
+ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+ import type { TradeExchangeMode } from '@hellowhen/contracts';
+ import { AppText } from '../../../components/AppText';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
+ 
+ export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
+ 
+@@ -49,27 +50,29 @@ export function InventoryTextField({
+   multiline?: boolean;
+   disabled?: boolean;
+ }) {
++  const theme = useThemeTokens();
+   return (
+     <View style={styles.field}>
+       <View style={styles.labelRow}>
+         <AppText style={styles.label}>{label}</AppText>
+-        {hint ? <AppText style={styles.hint}>{hint}</AppText> : null}
++        {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
+       </View>
+       <TextInput
+         value={value}
+         onChangeText={onChangeText}
+         placeholder={placeholder}
+-        placeholderTextColor="#94A3B8"
++        placeholderTextColor={theme.color.muted}
+         editable={!disabled}
+         multiline={multiline}
+         textAlignVertical={multiline ? 'top' : 'center'}
+-        style={[styles.input, multiline && styles.textarea]}
++        style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
+       />
+     </View>
+   );
+ }
+ 
+ export function ModePicker({ value, onChange, disabled }: { value: TradeExchangeMode; onChange: (mode: TradeExchangeMode) => void; disabled?: boolean }) {
++  const theme = useThemeTokens();
+   return (
+     <View style={styles.field}>
+       <AppText style={styles.label}>Mode</AppText>
+@@ -81,9 +84,9 @@ export function ModePicker({ value, onChange, disabled }: { value: TradeExchange
+               key={mode}
+               disabled={disabled}
+               onPress={() => onChange(mode)}
+-              style={({ pressed }) => [styles.modeButton, selected && styles.modeButtonSelected, disabled && styles.disabled, pressed && styles.pressed]}
++              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+             >
+-              <AppText style={[styles.modeButtonText, selected && styles.modeButtonTextSelected]}>{modeLabel(mode)}</AppText>
++              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode)}</AppText>
+             </Pressable>
+           );
+         })}
+@@ -103,12 +106,13 @@ export function InventoryPreview({
+   meta: string;
+   description: string;
+ }) {
++  const theme = useThemeTokens();
+   return (
+-    <View style={styles.preview}>
+-      <AppText style={styles.previewEyebrow}>{eyebrow}</AppText>
++    <View style={[styles.preview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++      <AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>{eyebrow}</AppText>
+       <AppText style={styles.previewTitle}>{title || 'Title appears here'}</AppText>
+-      <AppText style={styles.previewMeta}>{meta || 'Category · Timing · Mode · Location'}</AppText>
+-      <AppText style={styles.previewDescription} numberOfLines={3}>{description || 'A short summary will appear here while you write.'}</AppText>
++      <AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{meta || 'Category · Timing · Mode · Location'}</AppText>
++      <AppText style={[styles.previewDescription, { color: theme.color.muted }]} numberOfLines={3}>{description || 'A short summary will appear here while you write.'}</AppText>
+     </View>
+   );
+ }
+@@ -123,10 +127,10 @@ const styles = StyleSheet.create({
+   label: {
+     fontSize: 14,
+     fontWeight: '900',
+-    color: '#0F172A',
++
+   },
+   hint: {
+-    color: '#64748B',
++
+     fontSize: 12,
+     lineHeight: 17,
+     fontWeight: '700',
+@@ -134,11 +138,11 @@ const styles = StyleSheet.create({
+   input: {
+     borderRadius: 16,
+     borderWidth: 1,
+-    borderColor: '#CBD5E1',
+-    backgroundColor: '#FFFFFF',
++
++
+     paddingHorizontal: 13,
+     paddingVertical: 12,
+-    color: '#0F172A',
++
+     fontSize: 16,
+     fontWeight: '600',
+   },
+@@ -154,17 +158,17 @@ const styles = StyleSheet.create({
+   modeButton: {
+     borderRadius: 999,
+     borderWidth: 1,
+-    borderColor: '#CBD5E1',
+-    backgroundColor: '#FFFFFF',
++
++
+     paddingHorizontal: 13,
+     paddingVertical: 9,
+   },
+   modeButtonSelected: {
+-    borderColor: '#0F766E',
+-    backgroundColor: '#CCFBF1',
++
++
+   },
+   modeButtonText: {
+-    color: '#475569',
++
+     fontWeight: '900',
+   },
+   modeButtonTextSelected: {
+@@ -173,31 +177,31 @@ const styles = StyleSheet.create({
+   preview: {
+     borderRadius: 22,
+     borderWidth: 1,
+-    borderColor: '#E2E8F0',
+-    backgroundColor: '#F8FAFC',
++
++
+     padding: 16,
+     gap: 7,
+   },
+   previewEyebrow: {
+-    color: '#64748B',
++
+     fontSize: 11,
+     fontWeight: '900',
+     letterSpacing: 0.8,
+     textTransform: 'uppercase',
+   },
+   previewTitle: {
+-    color: '#0F172A',
++
+     fontSize: 22,
+     fontWeight: '900',
+     letterSpacing: -0.4,
+   },
+   previewMeta: {
+-    color: '#475569',
++
+     fontSize: 13,
+     fontWeight: '800',
+   },
+   previewDescription: {
+-    color: '#64748B',
++
+     lineHeight: 20,
+     fontWeight: '600',
+   },
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 2ead28f..b1ee12d 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import type { MediaAssetDto } from '@hellowhen/contracts';
+ import { formatMoney } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { TradeExchangeIcon } from './TradeExchangeIcon';
+ import { resolveMediaUrl } from '../mediaUrls';
+ import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
+@@ -46,30 +47,31 @@ function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer'
+ export function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
+ export function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
+ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
++  const theme = useThemeTokens();
+   return (
+-    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, pressed && styles.pressed]}>
++    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+       <View style={styles.summaryHeaderRow}>
+-        <AppText style={styles.summaryHeader}>TRADE · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
+-        <AppText style={styles.summaryStatus}>{getStatusLabel(trade.status)}</AppText>
++        <AppText style={[styles.summaryHeader, { color: theme.color.muted }]}>TRADE · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
++        <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status)}</AppText>
+       </View>
+ 
+       <View style={styles.summaryBody}>
+         <View style={styles.tradeSideBlock}>
+-          <AppText style={styles.sideEyebrow}>I need</AppText>
++          <AppText style={[styles.sideEyebrow, { color: theme.color.muted }]}>I need</AppText>
+           <AppText style={styles.sideTitle} numberOfLines={2}>{needTitle(trade)}</AppText>
+-          <AppText style={styles.sideMeta} numberOfLines={2}>{needMeta(trade.need, trade)}</AppText>
++          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={2}>{needMeta(trade.need, trade)}</AppText>
+         </View>
+ 
+         <View style={styles.exchangeRow}>
+-          <View style={styles.exchangeLine} />
+-          <View style={styles.exchangeCircle}><TradeExchangeIcon color="#0F172A" size={22} strokeWidth={2.4} /></View>
+-          <View style={styles.exchangeLine} />
++          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++          <View style={[styles.exchangeCircle, { backgroundColor: theme.color.elevated }]}><TradeExchangeIcon color={theme.color.text} size={22} strokeWidth={2.4} /></View>
++          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
+         </View>
+ 
+         <View style={styles.tradeSideBlock}>
+-          <AppText style={styles.sideEyebrow}>I offer</AppText>
++          <AppText style={[styles.sideEyebrow, { color: theme.color.muted }]}>I offer</AppText>
+           <AppText style={styles.sideTitle} numberOfLines={2}>{offerTitle(trade)}</AppText>
+-          <AppText style={styles.sideMeta} numberOfLines={2}>{offerMeta(trade.offer, trade)}</AppText>
++          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={2}>{offerMeta(trade.offer, trade)}</AppText>
+         </View>
+       </View>
+     </Pressable>
+@@ -89,18 +91,18 @@ export function TradeImageCard({ kind, media, onOpen }: TradeImageCardProps) {
+ }
+ 
+ const styles = StyleSheet.create({
+-  summaryCard: { flex: 1, paddingHorizontal: 22, paddingVertical: 20, gap: 14, backgroundColor: '#FFFFFF' },
++  summaryCard: { flex: 1, paddingHorizontal: 22, paddingVertical: 20, gap: 14 },
+   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+-  summaryHeader: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.95 },
+-  summaryStatus: { color: '#0F172A', fontSize: 11, fontWeight: '900', letterSpacing: 0.95 },
++  summaryHeader: { fontSize: 11, fontWeight: '900', letterSpacing: 0.95 },
++  summaryStatus: { fontSize: 11, fontWeight: '900', letterSpacing: 0.95 },
+   summaryBody: { flex: 1, justifyContent: 'center', gap: 19 },
+   tradeSideBlock: { alignItems: 'center', gap: 7 },
+-  sideEyebrow: { color: '#64748B', fontSize: 12, fontWeight: '900' },
+-  sideTitle: { color: '#020617', textAlign: 'center', fontSize: 25, lineHeight: 29, fontWeight: '900', letterSpacing: -0.75 },
+-  sideMeta: { color: '#64748B', textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  sideEyebrow: { fontSize: 12, fontWeight: '900' },
++  sideTitle: { textAlign: 'center', fontSize: 25, lineHeight: 29, fontWeight: '900', letterSpacing: -0.75 },
++  sideMeta: { textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 13, marginVertical: 2 },
+-  exchangeLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
+-  exchangeCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
++  exchangeLine: { flex: 1, height: 1 },
++  exchangeCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+   imageCard: { flex: 1, overflow: 'hidden', backgroundColor: '#0F172A' },
+   fullBleedImage: { width: '100%', height: '100%' },
+   imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18, backgroundColor: '#E2E8F0' },
+diff --git a/apps/mobile/src/features/wallet/WalletScreen.tsx b/apps/mobile/src/features/wallet/WalletScreen.tsx
+index 88a4c29..d2faf6b 100644
+--- a/apps/mobile/src/features/wallet/WalletScreen.tsx
++++ b/apps/mobile/src/features/wallet/WalletScreen.tsx
+@@ -6,12 +6,14 @@ import type { LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
+ import { formatMoney } from '@hellowhen/shared';
+ import type { SemanticColorName } from '@hellowhen/theme';
+ import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+ 
+@@ -39,6 +41,7 @@ function formatDate(value: string) {
+ }
+ 
+ export function WalletScreen() {
++  const theme = useThemeTokens();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
+   const [error, setError] = useState<string | null>(null);
+@@ -68,10 +71,11 @@ export function WalletScreen() {
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadWallet(); }} />}>
++        <AppHeader title="Wallet" onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+           <SemanticBadge label="Wallet" tone="credits" />
+           <AppText style={styles.title}>Wallet</AppText>
+-          <AppText style={styles.subtitle}>Track optional money used in trades, holds, refunds, and pending payouts.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Track optional money used in trades, holds, refunds, and pending payouts.</AppText>
+         </View>
+ 
+         {error ? <InfoNotice tone="danger" title="Wallet unavailable" body={error} /> : null}
+@@ -79,7 +83,7 @@ export function WalletScreen() {
+         <AppCard>
+           <View style={styles.balanceHeader}>
+             <View style={styles.balanceCopy}>
+-              <AppText style={styles.balanceLabel}>Total balance</AppText>
++              <AppText style={[styles.balanceLabel, { color: theme.color.muted }]}>Total balance</AppText>
+               <AppText style={styles.balanceValue}>{formatMoney(total, currency)}</AppText>
+             </View>
+             <MoneyPill amountCents={wallet?.availableBalanceCents ?? 0} currency={currency} label="available" />
+@@ -89,7 +93,7 @@ export function WalletScreen() {
+             <Metric label="Held" value={wallet?.heldBalanceCents ?? 0} currency={currency} tone="time" />
+             <Metric label="Pending payout" value={wallet?.pendingPayoutCents ?? 0} currency={currency} tone="success" />
+           </View>
+-          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BuyCredits')} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
++          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BuyCredits')} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.credits.bg }, pressed && styles.pressed]}>
+             <AppText style={styles.primaryButtonText}>Add Money</AppText>
+           </Pressable>
+         </AppCard>
+@@ -109,8 +113,9 @@ export function WalletScreen() {
+ }
+ 
+ function Metric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) {
++  const theme = useThemeTokens();
+   return (
+-    <View style={styles.metric}>
++    <View style={[styles.metric, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+       <SemanticBadge label={label} tone={tone} size="sm" />
+       <AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText>
+     </View>
+@@ -118,14 +123,15 @@ function Metric({ label, value, currency, tone }: { label: string; value: number
+ }
+ 
+ function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
++  const theme = useThemeTokens();
+   return (
+-    <View style={styles.ledgerRow}>
++    <View style={[styles.ledgerRow, { borderTopColor: theme.color.border }]}>
+       <View style={styles.ledgerCopy}>
+         <View style={styles.ledgerTitleRow}>
+           <SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" />
+-          <AppText style={styles.ledgerDate}>{formatDate(entry.createdAt)}</AppText>
++          <AppText style={[styles.ledgerDate, { color: theme.color.muted }]}>{formatDate(entry.createdAt)}</AppText>
+         </View>
+-        <AppText style={styles.ledgerDescription}>{entry.description ?? entry.balanceType}</AppText>
++        <AppText style={[styles.ledgerDescription, { color: theme.color.muted }]}>{entry.description ?? entry.balanceType}</AppText>
+       </View>
+       <AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText>
+     </View>
+@@ -136,25 +142,25 @@ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 14 },
+   header: { gap: 8 },
+   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  subtitle: { lineHeight: 20, fontWeight: '600' },
+   balanceHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 },
+   balanceCopy: { flex: 1 },
+-  balanceLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
+-  balanceValue: { marginTop: 4, color: '#0F172A', fontSize: 42, fontWeight: '900', letterSpacing: -1.2 },
++  balanceLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
++  balanceValue: { marginTop: 4, fontSize: 42, fontWeight: '900', letterSpacing: -1.2 },
+   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+-  metric: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 12, gap: 8 },
+-  metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' },
+-  primaryButton: { borderRadius: 18, backgroundColor: '#F59E0B', paddingVertical: 15, alignItems: 'center' },
++  metric: { width: '47%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
++  metricValue: { fontSize: 18, fontWeight: '900' },
++  primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' },
+   primaryButtonText: { color: '#78350F', fontWeight: '900' },
+-  sectionTitle: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
++  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+   emptyBox: { borderRadius: 18, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 14, gap: 5 },
+-  emptyTitle: { color: '#0F172A', fontWeight: '900' },
+-  emptyText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+-  ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 12 },
++  emptyTitle: { fontWeight: '900' },
++  emptyText: { lineHeight: 20, fontWeight: '600' },
++  ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, paddingTop: 12 },
+   ledgerCopy: { flex: 1, gap: 7 },
+   ledgerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+-  ledgerDate: { color: '#94A3B8', fontSize: 12, fontWeight: '800' },
+-  ledgerDescription: { color: '#64748B', lineHeight: 19, fontWeight: '600' },
++  ledgerDate: { fontSize: 12, fontWeight: '800' },
++  ledgerDescription: { lineHeight: 19, fontWeight: '600' },
+   ledgerAmount: { color: '#047857', fontSize: 19, fontWeight: '900' },
+   ledgerAmountNegative: { color: '#B91C1C' },
+   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index b4b9242..899a8db 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -23,6 +23,7 @@ import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
+ import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
+ import { WalletScreen } from '../features/wallet/WalletScreen';
+ import { useAuth } from '../providers/AuthProvider';
++import { useThemeTokens } from '../providers/ThemeProvider';
+ 
+ export type RootStackParamList = {
+   TradeTabs: undefined;
+@@ -51,6 +52,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
+ 
+ function TradeTabs() {
+   const insets = useSafeAreaInsets();
++  const theme = useThemeTokens();
+   const bottomInset = Math.max(insets.bottom, 0);
+ 
+   return (
+@@ -62,9 +64,9 @@ function TradeTabs() {
+         tabBarIconStyle: { display: 'none' },
+         tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 8 },
+         tabBarItemStyle: { paddingTop: 8 },
+-        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: '#E5E7EB' },
+-        tabBarActiveTintColor: '#0F766E',
+-        tabBarInactiveTintColor: '#64748B',
++        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
++        tabBarActiveTintColor: theme.semantic.proposal.bg,
++        tabBarInactiveTintColor: theme.color.muted,
+       }}
+     >
+       <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} />
