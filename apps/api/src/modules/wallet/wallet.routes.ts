@@ -9,11 +9,17 @@ walletRoutes.use(requireAuth);
 
 const demoPayoutMetadata = { stripeDemoPayoutAccount: true } as const;
 
-async function ensureWallet(userId: string, currency = 'eur') {
+async function getPreferredCurrency(userId: string, fallback = 'eur') {
+  const profile = await prisma.profile.findUnique({ where: { userId }, select: { preferredCurrency: true } });
+  return (profile?.preferredCurrency || fallback).toLowerCase();
+}
+
+async function ensureWallet(userId: string, currency?: string) {
+  const walletCurrency = (currency || await getPreferredCurrency(userId)).toLowerCase();
   return prisma.wallet.upsert({
     where: { userId },
     update: {},
-    create: { userId, currency },
+    create: { userId, currency: walletCurrency },
     include: { entries: { orderBy: { createdAt: 'desc' }, take: 25 } }
   });
 }

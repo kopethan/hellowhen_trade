@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { countryCodeSchema, supportedCurrencySchema } from './profile';
 
 const passwordSchema = z.string().min(8).max(128);
 
@@ -12,6 +13,8 @@ export const registerRequestSchema = z.object({
   password: passwordSchema,
   confirmPassword: passwordSchema.optional(),
   displayName: z.string().min(1).max(80).optional(),
+  countryCode: countryCodeSchema.optional(),
+  preferredCurrency: supportedCurrencySchema.optional(),
   acceptedTerms: z.boolean().optional()
 }).superRefine((value, ctx) => {
   if (value.confirmPassword && value.password !== value.confirmPassword) {
@@ -58,6 +61,8 @@ export type AuthUser = {
     avatarUrl?: string | null;
     bio?: string | null;
     avatarMediaId?: string | null;
+    countryCode?: string | null;
+    preferredCurrency?: 'eur' | 'usd' | 'gbp' | null;
   } | null;
 };
 

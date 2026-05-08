@@ -25,7 +25,7 @@ function publicUserInclude() {
   return { profile: true, settings: true, wallet: true } as const;
 }
 
-async function createStartingLedger(userId: string, walletId: string, description = 'Starting demo credits for fake/test trades') {
+async function createStartingLedger(userId: string, walletId: string, description = 'Legacy demo balance created for older test accounts') {
   await prisma.creditLedgerEntry.create({
     data: {
       userId,
@@ -44,15 +44,15 @@ async function ensureUserBootstrap(userId: string, displayName?: string | null) 
   if (!user) throw new Error('user_not_found');
 
   if (!user.profile) {
-    await prisma.profile.create({ data: { userId, displayName: displayName ?? null } });
+    await prisma.profile.create({ data: { userId, displayName: displayName ?? null, preferredCurrency: 'eur' } });
   } else if (displayName && !user.profile.displayName) {
     await prisma.profile.update({ where: { userId }, data: { displayName } });
   }
 
   if (!user.settings) await prisma.userSettings.create({ data: { userId } });
   if (!user.wallet) {
-    const wallet = await prisma.wallet.create({ data: { userId, purchasedAvailableCredits: STARTING_CREDITS } });
-    await createStartingLedger(userId, wallet.id, 'Starting credits created during auth bootstrap');
+    const wallet = await prisma.wallet.create({ data: { userId, purchasedAvailableCredits: STARTING_CREDITS, currency: user.profile?.preferredCurrency ?? 'eur' } });
+    await createStartingLedger(userId, wallet.id, 'Legacy demo balance created during auth bootstrap');
   }
 
   return prisma.user.findUnique({ where: { id: userId }, include: publicUserInclude() });
@@ -151,9 +151,9 @@ authRoutes.post('/register', asyncRoute(async (req, res) => {
       email,
       passwordHash,
       lastLoginAt: new Date(),
-      profile: { create: { displayName: input.displayName ?? null } },
+      profile: { create: { displayName: input.displayName ?? null, countryCode: input.countryCode ?? null, preferredCurrency: input.preferredCurrency ?? 'eur' } },
       settings: { create: {} },
-      wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS } },
+      wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: input.preferredCurrency ?? 'eur' } },
       identities: { create: { provider: 'email', providerUserId: email, email } }
     },
     include: publicUserInclude()
@@ -204,14 +204,14 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
           passwordHash: null,
           emailVerifiedAt: new Date(),
           lastLoginAt: new Date(),
-          profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl } },
+          profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
           settings: { create: {} },
-          wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS } },
+          wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: 'eur' } },
           identities: { create: [{ provider: 'google', providerUserId: googleUser.sub, email: googleUser.email }] }
         },
         include: publicUserInclude()
       });
-      await createStartingLedger(created.id, created.wallet!.id, 'Starting credits for Google-created account');
+      await createStartingLedger(created.id, created.wallet!.id, 'Legacy demo balance for Google-created account');
       userId = created.id;
     }
   }

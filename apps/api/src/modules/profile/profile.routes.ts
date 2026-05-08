@@ -17,7 +17,9 @@ function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.par
     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
     ...(input.handle !== undefined ? { handle: input.handle } : {}),
     ...(input.bio !== undefined ? { bio: input.bio } : {}),
-    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {})
+    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {}),
+    ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
+    ...(input.preferredCurrency !== undefined ? { preferredCurrency: input.preferredCurrency } : {})
   };
 }
 
@@ -71,6 +73,16 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
         return res.status(payload.status).json({ error: payload.error, message: payload.message });
       }
       throw error;
+    }
+  }
+
+  if (input.preferredCurrency) {
+    const wallet = await prisma.wallet.findUnique({ where: { userId } });
+    const hasMoney = Boolean(wallet && (wallet.availableBalanceCents || wallet.heldBalanceCents || wallet.pendingPayoutCents));
+    if (wallet && !hasMoney) {
+      await prisma.wallet.update({ where: { id: wallet.id }, data: { currency: input.preferredCurrency } });
+    } else if (!wallet) {
+      await prisma.wallet.create({ data: { userId, currency: input.preferredCurrency } });
     }
   }
 

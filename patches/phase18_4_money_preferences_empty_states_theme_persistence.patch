@@ -1,0 +1,662 @@
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index f1d0f56..dae3d47 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -236,6 +236,8 @@ model Profile {
+   bio         String?
+   avatarUrl   String?
+   avatarMediaId String?
++  countryCode String?
++  preferredCurrency String? @default("eur")
+   createdAt   DateTime @default(now())
+   updatedAt   DateTime @updatedAt
+ 
+diff --git a/apps/api/src/modules/auth/auth.routes.ts b/apps/api/src/modules/auth/auth.routes.ts
+index 58f5e32..9038d3c 100644
+--- a/apps/api/src/modules/auth/auth.routes.ts
++++ b/apps/api/src/modules/auth/auth.routes.ts
+@@ -25,7 +25,7 @@ function publicUserInclude() {
+   return { profile: true, settings: true, wallet: true } as const;
+ }
+ 
+-async function createStartingLedger(userId: string, walletId: string, description = 'Starting demo credits for fake/test trades') {
++async function createStartingLedger(userId: string, walletId: string, description = 'Legacy demo balance created for older test accounts') {
+   await prisma.creditLedgerEntry.create({
+     data: {
+       userId,
+@@ -44,15 +44,15 @@ async function ensureUserBootstrap(userId: string, displayName?: string | null)
+   if (!user) throw new Error('user_not_found');
+ 
+   if (!user.profile) {
+-    await prisma.profile.create({ data: { userId, displayName: displayName ?? null } });
++    await prisma.profile.create({ data: { userId, displayName: displayName ?? null, preferredCurrency: 'eur' } });
+   } else if (displayName && !user.profile.displayName) {
+     await prisma.profile.update({ where: { userId }, data: { displayName } });
+   }
+ 
+   if (!user.settings) await prisma.userSettings.create({ data: { userId } });
+   if (!user.wallet) {
+-    const wallet = await prisma.wallet.create({ data: { userId, purchasedAvailableCredits: STARTING_CREDITS } });
+-    await createStartingLedger(userId, wallet.id, 'Starting credits created during auth bootstrap');
++    const wallet = await prisma.wallet.create({ data: { userId, purchasedAvailableCredits: STARTING_CREDITS, currency: user.profile?.preferredCurrency ?? 'eur' } });
++    await createStartingLedger(userId, wallet.id, 'Legacy demo balance created during auth bootstrap');
+   }
+ 
+   return prisma.user.findUnique({ where: { id: userId }, include: publicUserInclude() });
+@@ -151,9 +151,9 @@ authRoutes.post('/register', asyncRoute(async (req, res) => {
+       email,
+       passwordHash,
+       lastLoginAt: new Date(),
+-      profile: { create: { displayName: input.displayName ?? null } },
++      profile: { create: { displayName: input.displayName ?? null, countryCode: input.countryCode ?? null, preferredCurrency: input.preferredCurrency ?? 'eur' } },
+       settings: { create: {} },
+-      wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS } },
++      wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: input.preferredCurrency ?? 'eur' } },
+       identities: { create: { provider: 'email', providerUserId: email, email } }
+     },
+     include: publicUserInclude()
+@@ -204,14 +204,14 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
+           passwordHash: null,
+           emailVerifiedAt: new Date(),
+           lastLoginAt: new Date(),
+-          profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl } },
++          profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
+           settings: { create: {} },
+-          wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS } },
++          wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: 'eur' } },
+           identities: { create: [{ provider: 'google', providerUserId: googleUser.sub, email: googleUser.email }] }
+         },
+         include: publicUserInclude()
+       });
+-      await createStartingLedger(created.id, created.wallet!.id, 'Starting credits for Google-created account');
++      await createStartingLedger(created.id, created.wallet!.id, 'Legacy demo balance for Google-created account');
+       userId = created.id;
+     }
+   }
+diff --git a/apps/api/src/modules/profile/profile.routes.ts b/apps/api/src/modules/profile/profile.routes.ts
+index 887c53a..296e9a4 100644
+--- a/apps/api/src/modules/profile/profile.routes.ts
++++ b/apps/api/src/modules/profile/profile.routes.ts
+@@ -17,7 +17,9 @@ function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.par
+     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+     ...(input.handle !== undefined ? { handle: input.handle } : {}),
+     ...(input.bio !== undefined ? { bio: input.bio } : {}),
+-    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {})
++    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {}),
++    ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
++    ...(input.preferredCurrency !== undefined ? { preferredCurrency: input.preferredCurrency } : {})
+   };
+ }
+ 
+@@ -74,5 +76,15 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
+     }
+   }
+ 
++  if (input.preferredCurrency) {
++    const wallet = await prisma.wallet.findUnique({ where: { userId } });
++    const hasMoney = Boolean(wallet && (wallet.availableBalanceCents || wallet.heldBalanceCents || wallet.pendingPayoutCents));
++    if (wallet && !hasMoney) {
++      await prisma.wallet.update({ where: { id: wallet.id }, data: { currency: input.preferredCurrency } });
++    } else if (!wallet) {
++      await prisma.wallet.create({ data: { userId, currency: input.preferredCurrency } });
++    }
++  }
++
+   res.json({ profile });
+ }));
+diff --git a/apps/api/src/modules/wallet/wallet.routes.ts b/apps/api/src/modules/wallet/wallet.routes.ts
+index 1baac47..ec3ade3 100644
+--- a/apps/api/src/modules/wallet/wallet.routes.ts
++++ b/apps/api/src/modules/wallet/wallet.routes.ts
+@@ -9,11 +9,17 @@ walletRoutes.use(requireAuth);
+ 
+ const demoPayoutMetadata = { stripeDemoPayoutAccount: true } as const;
+ 
+-async function ensureWallet(userId: string, currency = 'eur') {
++async function getPreferredCurrency(userId: string, fallback = 'eur') {
++  const profile = await prisma.profile.findUnique({ where: { userId }, select: { preferredCurrency: true } });
++  return (profile?.preferredCurrency || fallback).toLowerCase();
++}
++
++async function ensureWallet(userId: string, currency?: string) {
++  const walletCurrency = (currency || await getPreferredCurrency(userId)).toLowerCase();
+   return prisma.wallet.upsert({
+     where: { userId },
+     update: {},
+-    create: { userId, currency },
++    create: { userId, currency: walletCurrency },
+     include: { entries: { orderBy: { createdAt: 'desc' }, take: 25 } }
+   });
+ }
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index e84269c..5fd8834 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -36,12 +36,17 @@ const accountActions: AccountAction[] = [
+ ];
+ 
+ function formatLedgerType(type: string) {
++  if (type === 'test_credit_grant') return 'demo top-up';
++  if (type === 'credit_purchase') return 'wallet top-up';
++  if (type === 'payout_requested') return 'payout';
++  if (type === 'trade_hold') return 'trade hold';
++  if (type === 'trade_release') return 'trade release';
++  if (type === 'trade_refund') return 'trade refund';
+   return type.replaceAll('_', ' ');
+ }
+ 
+ function entryAmount(entry: LedgerEntryDto) {
+-  if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}`;
+-  return entry.amount ? `${entry.amount > 0 ? '+' : ''}${entry.amount} legacy credits` : formatMoney(0, entry.currency ?? 'eur');
++  return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents ?? 0, entry.currency ?? 'eur')}`;
+ }
+ 
+ function ledgerTone(type: string, amount: number): SemanticColorName {
+@@ -91,7 +96,7 @@ export function AccountScreen() {
+   const avatarUri = getAvatarUri(auth.user);
+   const currency = wallet?.currency ?? 'eur';
+   const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
+-  const recentEntries = wallet?.entries?.slice(0, 3) ?? [];
++  const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits').slice(0, 3) ?? [];
+ 
+   function navigate(route: AccountRoute) {
+     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+@@ -159,17 +164,15 @@ export function AccountScreen() {
+           {walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}
+         </AppCard>
+ 
+-        {recentEntries.length > 0 ? (
+-          <AppCard>
+-            <View style={styles.sectionHeaderRow}>
+-              <AppText style={styles.sectionTitle}>Recent activity</AppText>
+-              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
+-                <AppText style={styles.textButtonText}>View all</AppText>
+-              </Pressable>
+-            </View>
+-            {recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
+-          </AppCard>
+-        ) : null}
++        <AppCard>
++          <View style={styles.sectionHeaderRow}>
++            <AppText style={styles.sectionTitle}>Recent activity</AppText>
++            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
++              <AppText style={[styles.textButtonText, { color: theme.color.text }]}>View all</AppText>
++            </Pressable>
++          </View>
++          {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No wallet activity yet.</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
++        </AppCard>
+ 
+         <View style={styles.menuList}>
+           {accountActions.map((action) => <AccountActionRow key={action.title} action={action} onPress={() => navigate(action.route)} />)}
+diff --git a/apps/mobile/src/features/account/SupportCenterScreen.tsx b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+index 1960dbb..5500bcb 100644
+--- a/apps/mobile/src/features/account/SupportCenterScreen.tsx
++++ b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+@@ -80,7 +80,7 @@ export function SupportCenterScreen() {
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTickets(); }} />}>
+     <AppHeader title="Support" onBack={() => navigation.goBack()} />
+     <View style={styles.header}><SemanticBadge label="Support" tone="instruction" /><AppText style={styles.title}>Feedback & Support</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Send feedback, report a trade problem, or ask for help. This is separate from proposal conversations.</AppText></View>
+-    <InfoNotice tone="info" title="What support is for" body="Use support for product feedback, safety concerns, bugs, image/content issues, credits questions, and trade problems that need admin attention." />
++    <InfoNotice tone="info" title="What support is for" body="Use support for product feedback, safety concerns, bugs, image/content issues, wallet questions, and trade problems that need admin attention." />
+     {error ? <InfoNotice tone="warning" title="Support message" body={error} /> : null}
+     <AppCard><AppText style={styles.sectionTitle}>Create a ticket</AppText>
+       <AppText style={styles.label}>Category</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={labelize(item)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+diff --git a/apps/mobile/src/features/auth/LoginScreen.tsx b/apps/mobile/src/features/auth/LoginScreen.tsx
+index 5829ff4..15e651c 100644
+--- a/apps/mobile/src/features/auth/LoginScreen.tsx
++++ b/apps/mobile/src/features/auth/LoginScreen.tsx
+@@ -8,6 +8,17 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
+ 
+ type AuthMode = 'login' | 'register' | 'forgot';
++type SupportedCurrency = 'eur' | 'usd' | 'gbp';
++
++const countryOptions = [
++  { code: 'FR', label: 'France', currency: 'eur' as SupportedCurrency },
++  { code: 'US', label: 'United States', currency: 'usd' as SupportedCurrency },
++  { code: 'GB', label: 'United Kingdom', currency: 'gbp' as SupportedCurrency },
++  { code: 'DE', label: 'Germany', currency: 'eur' as SupportedCurrency },
++  { code: 'ES', label: 'Spain', currency: 'eur' as SupportedCurrency },
++  { code: 'IT', label: 'Italy', currency: 'eur' as SupportedCurrency },
++];
++const currencyOptions: SupportedCurrency[] = ['eur', 'usd', 'gbp'];
+ 
+ const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
+ const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
+@@ -21,6 +32,8 @@ export function LoginScreen() {
+   const [password, setPassword] = useState('');
+   const [confirmPassword, setConfirmPassword] = useState('');
+   const [acceptedTerms, setAcceptedTerms] = useState(false);
++  const [countryCode, setCountryCode] = useState('FR');
++  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
+   const [showPassword, setShowPassword] = useState(false);
+   const [submitting, setSubmitting] = useState(false);
+   const [googleSubmitting, setGoogleSubmitting] = useState(false);
+@@ -34,6 +47,7 @@ export function LoginScreen() {
+     if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
+     if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
+     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
++    if (mode === 'register' && !countryCode) return 'Choose your country.';
+     if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
+     return null;
+   }
+@@ -46,7 +60,7 @@ export function LoginScreen() {
+     setMessage(null);
+     try {
+       if (mode === 'login') await auth.login(email, password);
+-      else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms);
++      else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency);
+       else {
+         const result = await auth.forgotPassword(email);
+         setMessage(result.message);
+@@ -93,6 +107,7 @@ export function LoginScreen() {
+     <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" style={styles.input} />
+     {mode !== 'forgot' ? <View style={styles.passwordRow}><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry={!showPassword} style={[styles.input, styles.passwordInput]} /><Pressable onPress={() => setShowPassword((value) => !value)} style={styles.showButton}><AppText style={styles.showButtonText}>{showPassword ? 'Hide' : 'Show'}</AppText></Pressable></View> : null}
+     {mode === 'register' ? <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} style={styles.input} /> : null}
++    {mode === 'register' ? <View style={styles.preferenceBlock}><AppText style={styles.preferenceTitle}>Money preferences</AppText><AppText style={styles.preferenceBody}>Used for wallet money and future Stripe demo flows. You can change this from Profile later.</AppText><View style={styles.optionWrap}>{countryOptions.map((option) => <Pressable key={option.code} accessibilityRole="button" onPress={() => { setCountryCode(option.code); setPreferredCurrency(option.currency); }} style={({ pressed }) => [styles.preferenceChip, countryCode === option.code && styles.preferenceChipActive, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, countryCode === option.code && styles.preferenceChipTextActive]}>{option.label}</AppText></Pressable>)}</View><View style={styles.optionWrap}>{currencyOptions.map((currency) => <Pressable key={currency} accessibilityRole="button" onPress={() => setPreferredCurrency(currency)} style={({ pressed }) => [styles.preferenceChip, preferredCurrency === currency && styles.preferenceChipActive, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, preferredCurrency === currency && styles.preferenceChipTextActive]}>{currency.toUpperCase()}</AppText></Pressable>)}</View></View> : null}
+     {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
+ 
+     {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
+@@ -122,6 +137,14 @@ const styles = StyleSheet.create({
+   passwordInput: { flex: 1 },
+   showButton: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#F8FAFC' },
+   showButtonText: { fontWeight: '900', color: '#0F172A' },
++  preferenceBlock: { gap: 8 },
++  preferenceTitle: { color: '#0F172A', fontWeight: '900' },
++  preferenceBody: { color: '#64748B', lineHeight: 18, fontWeight: '700' },
++  optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  preferenceChip: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 8 },
++  preferenceChipActive: { backgroundColor: '#111827', borderColor: '#111827' },
++  preferenceChipText: { color: '#334155', fontWeight: '900' },
++  preferenceChipTextActive: { color: '#FFFFFF' },
+   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+   checkbox: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: '#94A3B8', backgroundColor: '#FFFFFF' },
+   checkboxActive: { backgroundColor: '#0F766E', borderColor: '#0F766E' },
+diff --git a/apps/mobile/src/features/me/MeScreen.tsx b/apps/mobile/src/features/me/MeScreen.tsx
+index 25d5006..9d86535 100644
+--- a/apps/mobile/src/features/me/MeScreen.tsx
++++ b/apps/mobile/src/features/me/MeScreen.tsx
+@@ -12,11 +12,22 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useAuth } from '../../providers/AuthProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
+ type ProfileResponse = { profile: ProfileDto };
++type SupportedCurrency = 'eur' | 'usd' | 'gbp';
++const countryOptions = [
++  { code: 'FR', label: 'France', currency: 'eur' as SupportedCurrency },
++  { code: 'US', label: 'United States', currency: 'usd' as SupportedCurrency },
++  { code: 'GB', label: 'United Kingdom', currency: 'gbp' as SupportedCurrency },
++  { code: 'DE', label: 'Germany', currency: 'eur' as SupportedCurrency },
++  { code: 'ES', label: 'Spain', currency: 'eur' as SupportedCurrency },
++  { code: 'IT', label: 'Italy', currency: 'eur' as SupportedCurrency },
++];
++const currencyOptions: SupportedCurrency[] = ['eur', 'usd', 'gbp'];
+ 
+ function optionalText(value: string) {
+   const trimmed = value.trim();
+@@ -31,10 +42,13 @@ function getAvatarSource(url?: string | null) {
+ 
+ export function ProfileScreen({ navigation }: Props) {
+   const auth = useAuth();
++  const theme = useThemeTokens();
+   const [displayName, setDisplayName] = useState(auth.user?.profile?.displayName ?? '');
+   const [handle, setHandle] = useState(auth.user?.profile?.handle ?? '');
+   const [bio, setBio] = useState(auth.user?.profile?.bio ?? '');
+   const [avatarUrl, setAvatarUrl] = useState<string | null>(auth.user?.profile?.avatarUrl ?? null);
++  const [countryCode, setCountryCode] = useState(auth.user?.profile?.countryCode ?? 'FR');
++  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>((auth.user?.profile?.preferredCurrency as SupportedCurrency | null) ?? 'eur');
+   const [avatarImage, setAvatarImage] = useState<SelectedLocalImage | null>(null);
+   const [removingAvatar, setRemovingAvatar] = useState(false);
+   const [saving, setSaving] = useState(false);
+@@ -69,10 +83,10 @@ export function ProfileScreen({ navigation }: Props) {
+ 
+     try {
+       const avatarMediaIds = avatarImage ? await uploadSelectedImages([avatarImage]) : [];
+-      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
++      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), countryCode, preferredCurrency, ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
+       setAvatarImage(null);
+       setAvatarUrl(result.profile.avatarUrl ?? null);
+-      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId });
++      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId, countryCode: result.profile.countryCode, preferredCurrency: result.profile.preferredCurrency });
+       setSaved(true);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -90,7 +104,7 @@ export function ProfileScreen({ navigation }: Props) {
+       const result = await api.profile.updateMe({ removeAvatar: true }) as ProfileResponse;
+       setAvatarImage(null);
+       setAvatarUrl(null);
+-      auth.updateLocalProfile({ avatarUrl: null, avatarMediaId: null, displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio });
++      auth.updateLocalProfile({ avatarUrl: null, avatarMediaId: null, displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, countryCode: result.profile.countryCode, preferredCurrency: result.profile.preferredCurrency });
+       setSaved(true);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -106,7 +120,7 @@ export function ProfileScreen({ navigation }: Props) {
+         <View style={styles.header}>
+           <SemanticBadge label="Profile" tone="info" />
+           <AppText style={styles.title}>Profile</AppText>
+-          <AppText style={styles.subtitle}>Your public identity for trades, needs, and offers.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Your public identity for trades, needs, and offers.</AppText>
+         </View>
+ 
+         {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
+@@ -142,6 +156,14 @@ export function ProfileScreen({ navigation }: Props) {
+           <ProfileField label="Bio" hint="Optional" value={bio} onChangeText={setBio} placeholder="What do you trade, need, or offer?" disabled={saving} multiline />
+         </AppCard>
+ 
++        <AppCard>
++          <SemanticBadge label="Money preferences" tone="credits" size="sm" />
++          <AppText style={styles.sectionTitle}>Country and currency</AppText>
++          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for wallet money, payouts, and future Stripe setup. Full address/KYC comes later only when needed.</AppText>
++          <View style={styles.optionWrap}>{countryOptions.map((option) => <Pressable key={option.code} accessibilityRole="button" disabled={saving} onPress={() => { setCountryCode(option.code); setPreferredCurrency(option.currency); }} style={({ pressed }) => [styles.preferenceChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, countryCode === option.code && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, { color: countryCode === option.code ? theme.color.background : theme.color.text }]}>{option.label}</AppText></Pressable>)}</View>
++          <View style={styles.optionWrap}>{currencyOptions.map((currency) => <Pressable key={currency} accessibilityRole="button" disabled={saving} onPress={() => setPreferredCurrency(currency)} style={({ pressed }) => [styles.preferenceChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, preferredCurrency === currency && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, { color: preferredCurrency === currency ? theme.color.background : theme.color.text }]}>{currency.toUpperCase()}</AppText></Pressable>)}</View>
++        </AppCard>
++
+         <View style={styles.actions}>
+           <Pressable accessibilityRole="button" disabled={saving} onPress={handleSave} style={({ pressed }) => [styles.primaryButton, saving && styles.disabled, pressed && styles.pressed]}>
+             <AppText style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save Profile'}</AppText>
+@@ -158,22 +180,23 @@ export function MeScreen(props: Props) {
+ }
+ 
+ function ProfileField({ label, hint, value, onChangeText, placeholder, disabled, multiline, autoCapitalize }: { label: string; hint?: string; value: string; onChangeText: (value: string) => void; placeholder: string; disabled?: boolean; multiline?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters' }) {
++  const theme = useThemeTokens();
+   return (
+     <View style={styles.field}>
+       <View style={styles.labelRow}>
+-        <AppText style={styles.label}>{label}</AppText>
+-        {hint ? <AppText style={styles.hint}>{hint}</AppText> : null}
++        <AppText style={[styles.label, { color: theme.color.text }]}>{label}</AppText>
++        {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
+       </View>
+       <TextInput
+         value={value}
+         onChangeText={onChangeText}
+         placeholder={placeholder}
+-        placeholderTextColor="#94A3B8"
++        placeholderTextColor={theme.color.muted}
+         editable={!disabled}
+         multiline={multiline}
+         autoCapitalize={autoCapitalize}
+         textAlignVertical={multiline ? 'top' : 'center'}
+-        style={[styles.input, multiline && styles.textarea]}
++        style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }, multiline && styles.textarea]}
+       />
+     </View>
+   );
+@@ -182,17 +205,22 @@ function ProfileField({ label, hint, value, onChangeText, placeholder, disabled,
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 14 },
+   header: { gap: 8 },
+-  title: { color: '#0F172A', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
++  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
++  subtitle: { lineHeight: 20, fontWeight: '600' },
+   avatarPanel: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+   avatarActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+   avatar: { width: 76, height: 76, borderRadius: 38, overflow: 'hidden', backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
+   avatarImage: { width: '100%', height: '100%', borderRadius: 38 },
+   avatarText: { color: '#0F766E', fontSize: 25, fontWeight: '900' },
+   previewCopy: { flex: 1 },
+-  previewName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
++  previewName: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+   previewHandle: { marginTop: 3, color: '#0F766E', fontWeight: '900' },
+   previewEmail: { marginTop: 3, color: '#64748B', fontWeight: '600' },
++  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
++  preferenceBody: { lineHeight: 20, fontWeight: '700' },
++  optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  preferenceChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
++  preferenceChipText: { fontWeight: '900' },
+   field: { gap: 8 },
+   labelRow: { gap: 3 },
+   label: { color: '#0F172A', fontWeight: '900' },
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index b78f36d..701b6af 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useState } from 'react';
+-import { Button, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+@@ -32,7 +32,20 @@ export function MyNeedsScreen() {
+ 
+   return <AppFixedHeaderScreen header={header}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItems(); }} />}>
+     {error ? <InfoNotice tone="danger" title="Could not load needs" body={error} /> : null}
+-    {items.length === 0 ? <AppCard><AppText style={styles.cardTitle}>No needs yet</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]}>Create a need with details and reference images, then choose it when publishing a trade.</AppText><Button title="Create Need" onPress={() => navigation.navigate('CreateNeed')} /></AppCard> : items.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
++    {items.length === 0 ? <EmptyInventoryPlaceholder title="Create your first need" body="Add details and reference images, then choose it when publishing a trade." tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : items.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, pressed: { opacity: 0.78 } });
++
++function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: string; body: string; tone: 'need' | 'offer'; onPress: () => void }) {
++  const theme = useThemeTokens();
++  const semantic = tone === 'need' ? theme.semantic.need : theme.semantic.offer;
++  return (
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.emptyPlaceholder, { borderColor: semantic.border, backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
++      <View style={[styles.emptyIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}><AppText style={[styles.emptyIconText, { color: semantic.text }]}>+</AppText></View>
++      <AppText style={styles.emptyTitle}>{title}</AppText>
++      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
++    </Pressable>
++  );
++}
++
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyIconText: { fontSize: 28, lineHeight: 30, fontWeight: '900' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index 4eec644..10bc7df 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useState } from 'react';
+-import { Button, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+@@ -32,7 +32,20 @@ export function MyOffersScreen() {
+ 
+   return <AppFixedHeaderScreen header={header}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItems(); }} />}>
+     {error ? <InfoNotice tone="danger" title="Could not load offers" body={error} /> : null}
+-    {items.length === 0 ? <AppCard><AppText style={styles.cardTitle}>No offers yet</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]}>Create an offer with details and sample images, then choose it when publishing a trade.</AppText><Button title="Create Offer" onPress={() => navigation.navigate('CreateOffer')} /></AppCard> : items.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
++    {items.length === 0 ? <EmptyInventoryPlaceholder title="Create your first offer" body="Add services, availability, and sample images, then choose it when publishing a trade." tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : items.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, pressed: { opacity: 0.78 } });
++
++function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: string; body: string; tone: 'need' | 'offer'; onPress: () => void }) {
++  const theme = useThemeTokens();
++  const semantic = tone === 'need' ? theme.semantic.need : theme.semantic.offer;
++  return (
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.emptyPlaceholder, { borderColor: semantic.border, backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
++      <View style={[styles.emptyIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}><AppText style={[styles.emptyIconText, { color: semantic.text }]}>+</AppText></View>
++      <AppText style={styles.emptyTitle}>{title}</AppText>
++      <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText>
++    </Pressable>
++  );
++}
++
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyIconText: { fontSize: 28, lineHeight: 30, fontWeight: '900' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/wallet/WalletScreen.tsx b/apps/mobile/src/features/wallet/WalletScreen.tsx
+index a961e84..2fb82a8 100644
+--- a/apps/mobile/src/features/wallet/WalletScreen.tsx
++++ b/apps/mobile/src/features/wallet/WalletScreen.tsx
+@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+ type PayoutsResponse = { wallet: WalletDto; payouts: PayoutRequestDto[]; summary: PayoutSummaryDto };
+ 
+-function formatLedgerType(type: string) { return type.replaceAll('_', ' '); }
++function formatLedgerType(type: string) { if (type === 'test_credit_grant') return 'demo top-up'; if (type === 'credit_purchase') return 'wallet top-up'; if (type === 'payout_requested') return 'payout'; return type.replaceAll('_', ' '); }
+ function entryAmount(entry: LedgerEntryDto) { return entry.amountCents ? `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}` : formatMoney(0, entry.currency ?? 'eur'); }
+ function ledgerTone(type: string, amountCents: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('payout')) return amountCents < 0 ? 'danger' : 'info'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amountCents < 0) return 'danger'; return 'credits'; }
+ function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
+@@ -50,7 +50,7 @@ export function WalletScreen({ navigation }: Props) {
+   const availableForPayout = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
+   const pendingPayoutRequests = summary?.pendingPayoutRequestsCents ?? 0;
+   const paidOut = summary?.paidOutCents ?? 0;
+-  const recentEntries = wallet?.entries ?? [];
++  const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits') ?? [];
+ 
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
+diff --git a/apps/mobile/src/providers/AppSettingsProvider.tsx b/apps/mobile/src/providers/AppSettingsProvider.tsx
+index 60e4b32..e19968c 100644
+--- a/apps/mobile/src/providers/AppSettingsProvider.tsx
++++ b/apps/mobile/src/providers/AppSettingsProvider.tsx
+@@ -1,20 +1,66 @@
+-import React, { createContext, useContext, useState } from 'react';
++import AsyncStorage from '@react-native-async-storage/async-storage';
++import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+ import type { AppSettings } from '@hellowhen/contracts';
+ 
++const SETTINGS_STORAGE_KEY = 'hellowhen_app_settings_v1';
++
+ const defaultSettings: AppSettings = {
+   appearance: 'system',
+   language: 'en',
+   notificationsEnabled: true,
+ };
+ 
+-const SettingsContext = createContext({
++type SettingsContextValue = {
++  settings: AppSettings;
++  setSettings: (settings: AppSettings) => void;
++  hydrated: boolean;
++};
++
++const SettingsContext = createContext<SettingsContextValue>({
+   settings: defaultSettings,
+   setSettings: (_settings: AppSettings) => {},
++  hydrated: false,
+ });
+ 
++function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
++  return {
++    appearance: value?.appearance === 'light' || value?.appearance === 'dark' || value?.appearance === 'system' ? value.appearance : defaultSettings.appearance,
++    language: value?.language || defaultSettings.language,
++    notificationsEnabled: typeof value?.notificationsEnabled === 'boolean' ? value.notificationsEnabled : defaultSettings.notificationsEnabled,
++  };
++}
++
+ export function AppSettingsProvider({ children }: { children: React.ReactNode }) {
+-  const [settings, setSettings] = useState(defaultSettings);
+-  return <SettingsContext.Provider value={{ settings, setSettings }}>{children}</SettingsContext.Provider>;
++  const [settings, setSettingsState] = useState(defaultSettings);
++  const [hydrated, setHydrated] = useState(false);
++
++  useEffect(() => {
++    let mounted = true;
++    async function hydrate() {
++      try {
++        const raw = await AsyncStorage.getItem(SETTINGS_STORAGE_KEY);
++        if (!mounted) return;
++        if (raw) setSettingsState(normalizeSettings(JSON.parse(raw) as Partial<AppSettings>));
++      } catch {
++        if (mounted) setSettingsState(defaultSettings);
++      } finally {
++        if (mounted) setHydrated(true);
++      }
++    }
++    void hydrate();
++    return () => { mounted = false; };
++  }, []);
++
++  const setSettings = useCallback((nextSettings: AppSettings) => {
++    const normalized = normalizeSettings(nextSettings);
++    setSettingsState(normalized);
++    void AsyncStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(normalized)).catch(() => undefined);
++  }, []);
++
++  const value = useMemo(() => ({ settings, setSettings, hydrated }), [hydrated, setSettings, settings]);
++
++  if (!hydrated) return null;
++  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
+ }
+ 
+ export function useAppSettings() {
+diff --git a/apps/mobile/src/providers/AuthProvider.tsx b/apps/mobile/src/providers/AuthProvider.tsx
+index 4fd665b..ba1db42 100644
+--- a/apps/mobile/src/providers/AuthProvider.tsx
++++ b/apps/mobile/src/providers/AuthProvider.tsx
+@@ -9,7 +9,7 @@ type AuthContextValue = {
+   user: AuthUser | null;
+   isAuthenticated: boolean;
+   login: (email: string, password: string) => Promise<void>;
+-  register: (email: string, password: string, displayName: string, confirmPassword?: string, acceptedTerms?: boolean) => Promise<void>;
++  register: (email: string, password: string, displayName: string, confirmPassword?: string, acceptedTerms?: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
+   loginWithGoogleIdToken: (idToken: string) => Promise<void>;
+   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
+   updateLocalProfile: (profile: AuthProfilePatch) => void;
+@@ -29,8 +29,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
+       await setAccessToken(result.accessToken);
+       setUser(result.user);
+     },
+-    async register(email, password, displayName, confirmPassword, acceptedTerms) {
+-      const result = await api.auth.register({ email, password, confirmPassword, displayName, acceptedTerms });
++    async register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency) {
++      const result = await api.auth.register({ email, password, confirmPassword, displayName, acceptedTerms, countryCode, preferredCurrency });
+       await setAccessToken(result.accessToken);
+       setUser(result.user);
+     },
+diff --git a/packages/contracts/src/auth.ts b/packages/contracts/src/auth.ts
+index d900972..666db70 100644
+--- a/packages/contracts/src/auth.ts
++++ b/packages/contracts/src/auth.ts
+@@ -1,4 +1,5 @@
+ import { z } from 'zod';
++import { countryCodeSchema, supportedCurrencySchema } from './profile';
+ 
+ const passwordSchema = z.string().min(8).max(128);
+ 
+@@ -12,6 +13,8 @@ export const registerRequestSchema = z.object({
+   password: passwordSchema,
+   confirmPassword: passwordSchema.optional(),
+   displayName: z.string().min(1).max(80).optional(),
++  countryCode: countryCodeSchema.optional(),
++  preferredCurrency: supportedCurrencySchema.optional(),
+   acceptedTerms: z.boolean().optional()
+ }).superRefine((value, ctx) => {
+   if (value.confirmPassword && value.password !== value.confirmPassword) {
+@@ -58,6 +61,8 @@ export type AuthUser = {
+     avatarUrl?: string | null;
+     bio?: string | null;
+     avatarMediaId?: string | null;
++    countryCode?: string | null;
++    preferredCurrency?: 'eur' | 'usd' | 'gbp' | null;
+   } | null;
+ };
+ 
+diff --git a/packages/contracts/src/profile.ts b/packages/contracts/src/profile.ts
+index 2ed2fda..ace9256 100644
+--- a/packages/contracts/src/profile.ts
++++ b/packages/contracts/src/profile.ts
+@@ -1,11 +1,16 @@
+ import { z } from 'zod';
+ 
++export const supportedCurrencySchema = z.enum(['eur', 'usd', 'gbp']);
++export const countryCodeSchema = z.string().trim().regex(/^[a-zA-Z]{2}$/).transform((value: string) => value.toUpperCase());
++
+ export const updateProfileRequestSchema = z.object({
+   displayName: z.string().min(1).max(80).optional(),
+   handle: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/).optional(),
+   bio: z.string().max(280).optional(),
+   avatarUrl: z.string().max(2000).optional(),
+   avatarMediaId: z.string().min(1).optional(),
++  countryCode: countryCodeSchema.optional(),
++  preferredCurrency: supportedCurrencySchema.optional(),
+   removeAvatar: z.boolean().optional()
+ });
+ 
+@@ -19,6 +24,8 @@ export type ProfileDto = {
+   bio?: string | null;
+   avatarUrl?: string | null;
+   avatarMediaId?: string | null;
++  countryCode?: string | null;
++  preferredCurrency?: 'eur' | 'usd' | 'gbp' | null;
+   createdAt: string;
+   updatedAt: string;
+ };

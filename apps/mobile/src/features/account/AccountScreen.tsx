@@ -36,12 +36,17 @@ const accountActions: AccountAction[] = [
 ];
 
 function formatLedgerType(type: string) {
+  if (type === 'test_credit_grant') return 'demo top-up';
+  if (type === 'credit_purchase') return 'wallet top-up';
+  if (type === 'payout_requested') return 'payout';
+  if (type === 'trade_hold') return 'trade hold';
+  if (type === 'trade_release') return 'trade release';
+  if (type === 'trade_refund') return 'trade refund';
   return type.replaceAll('_', ' ');
 }
 
 function entryAmount(entry: LedgerEntryDto) {
-  if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}`;
-  return entry.amount ? `${entry.amount > 0 ? '+' : ''}${entry.amount} legacy credits` : formatMoney(0, entry.currency ?? 'eur');
+  return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents ?? 0, entry.currency ?? 'eur')}`;
 }
 
 function ledgerTone(type: string, amount: number): SemanticColorName {
@@ -91,7 +96,7 @@ export function AccountScreen() {
   const avatarUri = getAvatarUri(auth.user);
   const currency = wallet?.currency ?? 'eur';
   const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
-  const recentEntries = wallet?.entries?.slice(0, 3) ?? [];
+  const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits').slice(0, 3) ?? [];
 
   function navigate(route: AccountRoute) {
     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
@@ -159,17 +164,15 @@ export function AccountScreen() {
           {walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}
         </AppCard>
 
-        {recentEntries.length > 0 ? (
-          <AppCard>
-            <View style={styles.sectionHeaderRow}>
-              <AppText style={styles.sectionTitle}>Recent activity</AppText>
-              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
-                <AppText style={styles.textButtonText}>View all</AppText>
-              </Pressable>
-            </View>
-            {recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
-          </AppCard>
-        ) : null}
+        <AppCard>
+          <View style={styles.sectionHeaderRow}>
+            <AppText style={styles.sectionTitle}>Recent activity</AppText>
+            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
+              <AppText style={[styles.textButtonText, { color: theme.color.text }]}>View all</AppText>
+            </Pressable>
+          </View>
+          {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No wallet activity yet.</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
+        </AppCard>
 
         <View style={styles.menuList}>
           {accountActions.map((action) => <AccountActionRow key={action.title} action={action} onPress={() => navigate(action.route)} />)}

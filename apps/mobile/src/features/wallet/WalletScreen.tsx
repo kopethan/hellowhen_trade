@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
 type PayoutsResponse = { wallet: WalletDto; payouts: PayoutRequestDto[]; summary: PayoutSummaryDto };
 
-function formatLedgerType(type: string) { return type.replaceAll('_', ' '); }
+function formatLedgerType(type: string) { if (type === 'test_credit_grant') return 'demo top-up'; if (type === 'credit_purchase') return 'wallet top-up'; if (type === 'payout_requested') return 'payout'; return type.replaceAll('_', ' '); }
 function entryAmount(entry: LedgerEntryDto) { return entry.amountCents ? `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}` : formatMoney(0, entry.currency ?? 'eur'); }
 function ledgerTone(type: string, amountCents: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('payout')) return amountCents < 0 ? 'danger' : 'info'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amountCents < 0) return 'danger'; return 'credits'; }
 function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
@@ -50,7 +50,7 @@ export function WalletScreen({ navigation }: Props) {
   const availableForPayout = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
   const pendingPayoutRequests = summary?.pendingPayoutRequestsCents ?? 0;
   const paidOut = summary?.paidOutCents ?? 0;
-  const recentEntries = wallet?.entries ?? [];
+  const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits') ?? [];
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>

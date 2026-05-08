@@ -236,6 +236,8 @@ model Profile {
   bio         String?
   avatarUrl   String?
   avatarMediaId String?
+  countryCode String?
+  preferredCurrency String? @default("eur")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

@@ -8,6 +8,17 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 
 type AuthMode = 'login' | 'register' | 'forgot';
+type SupportedCurrency = 'eur' | 'usd' | 'gbp';
+
+const countryOptions = [
+  { code: 'FR', label: 'France', currency: 'eur' as SupportedCurrency },
+  { code: 'US', label: 'United States', currency: 'usd' as SupportedCurrency },
+  { code: 'GB', label: 'United Kingdom', currency: 'gbp' as SupportedCurrency },
+  { code: 'DE', label: 'Germany', currency: 'eur' as SupportedCurrency },
+  { code: 'ES', label: 'Spain', currency: 'eur' as SupportedCurrency },
+  { code: 'IT', label: 'Italy', currency: 'eur' as SupportedCurrency },
+];
+const currencyOptions: SupportedCurrency[] = ['eur', 'usd', 'gbp'];
 
 const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
 const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
@@ -21,6 +32,8 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [countryCode, setCountryCode] = useState('FR');
+  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [googleSubmitting, setGoogleSubmitting] = useState(false);
@@ -34,6 +47,7 @@ export function LoginScreen() {
     if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
     if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
+    if (mode === 'register' && !countryCode) return 'Choose your country.';
     if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
     return null;
   }
@@ -46,7 +60,7 @@ export function LoginScreen() {
     setMessage(null);
     try {
       if (mode === 'login') await auth.login(email, password);
-      else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms);
+      else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency);
       else {
         const result = await auth.forgotPassword(email);
         setMessage(result.message);
@@ -93,6 +107,7 @@ export function LoginScreen() {
     <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" style={styles.input} />
     {mode !== 'forgot' ? <View style={styles.passwordRow}><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry={!showPassword} style={[styles.input, styles.passwordInput]} /><Pressable onPress={() => setShowPassword((value) => !value)} style={styles.showButton}><AppText style={styles.showButtonText}>{showPassword ? 'Hide' : 'Show'}</AppText></Pressable></View> : null}
     {mode === 'register' ? <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} style={styles.input} /> : null}
+    {mode === 'register' ? <View style={styles.preferenceBlock}><AppText style={styles.preferenceTitle}>Money preferences</AppText><AppText style={styles.preferenceBody}>Used for wallet money and future Stripe demo flows. You can change this from Profile later.</AppText><View style={styles.optionWrap}>{countryOptions.map((option) => <Pressable key={option.code} accessibilityRole="button" onPress={() => { setCountryCode(option.code); setPreferredCurrency(option.currency); }} style={({ pressed }) => [styles.preferenceChip, countryCode === option.code && styles.preferenceChipActive, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, countryCode === option.code && styles.preferenceChipTextActive]}>{option.label}</AppText></Pressable>)}</View><View style={styles.optionWrap}>{currencyOptions.map((currency) => <Pressable key={currency} accessibilityRole="button" onPress={() => setPreferredCurrency(currency)} style={({ pressed }) => [styles.preferenceChip, preferredCurrency === currency && styles.preferenceChipActive, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, preferredCurrency === currency && styles.preferenceChipTextActive]}>{currency.toUpperCase()}</AppText></Pressable>)}</View></View> : null}
     {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
 
     {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
@@ -122,6 +137,14 @@ const styles = StyleSheet.create({
   passwordInput: { flex: 1 },
   showButton: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#F8FAFC' },
   showButtonText: { fontWeight: '900', color: '#0F172A' },
+  preferenceBlock: { gap: 8 },
+  preferenceTitle: { color: '#0F172A', fontWeight: '900' },
+  preferenceBody: { color: '#64748B', lineHeight: 18, fontWeight: '700' },
+  optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  preferenceChip: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 8 },
+  preferenceChipActive: { backgroundColor: '#111827', borderColor: '#111827' },
+  preferenceChipText: { color: '#334155', fontWeight: '900' },
+  preferenceChipTextActive: { color: '#FFFFFF' },
   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
   checkbox: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: '#94A3B8', backgroundColor: '#FFFFFF' },
   checkboxActive: { backgroundColor: '#0F766E', borderColor: '#0F766E' },

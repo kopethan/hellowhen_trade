@@ -12,11 +12,22 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
+import { useThemeTokens } from '../../providers/ThemeProvider';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
 type ProfileResponse = { profile: ProfileDto };
+type SupportedCurrency = 'eur' | 'usd' | 'gbp';
+const countryOptions = [
+  { code: 'FR', label: 'France', currency: 'eur' as SupportedCurrency },
+  { code: 'US', label: 'United States', currency: 'usd' as SupportedCurrency },
+  { code: 'GB', label: 'United Kingdom', currency: 'gbp' as SupportedCurrency },
+  { code: 'DE', label: 'Germany', currency: 'eur' as SupportedCurrency },
+  { code: 'ES', label: 'Spain', currency: 'eur' as SupportedCurrency },
+  { code: 'IT', label: 'Italy', currency: 'eur' as SupportedCurrency },
+];
+const currencyOptions: SupportedCurrency[] = ['eur', 'usd', 'gbp'];
 
 function optionalText(value: string) {
   const trimmed = value.trim();
@@ -31,10 +42,13 @@ function getAvatarSource(url?: string | null) {
 
 export function ProfileScreen({ navigation }: Props) {
   const auth = useAuth();
+  const theme = useThemeTokens();
   const [displayName, setDisplayName] = useState(auth.user?.profile?.displayName ?? '');
   const [handle, setHandle] = useState(auth.user?.profile?.handle ?? '');
   const [bio, setBio] = useState(auth.user?.profile?.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(auth.user?.profile?.avatarUrl ?? null);
+  const [countryCode, setCountryCode] = useState(auth.user?.profile?.countryCode ?? 'FR');
+  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>((auth.user?.profile?.preferredCurrency as SupportedCurrency | null) ?? 'eur');
   const [avatarImage, setAvatarImage] = useState<SelectedLocalImage | null>(null);
   const [removingAvatar, setRemovingAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -69,10 +83,10 @@ export function ProfileScreen({ navigation }: Props) {
 
     try {
       const avatarMediaIds = avatarImage ? await uploadSelectedImages([avatarImage]) : [];
-      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
+      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), countryCode, preferredCurrency, ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
       setAvatarImage(null);
       setAvatarUrl(result.profile.avatarUrl ?? null);
-      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId });
+      auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId, countryCode: result.profile.countryCode, preferredCurrency: result.profile.preferredCurrency });
       setSaved(true);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
@@ -90,7 +104,7 @@ export function ProfileScreen({ navigation }: Props) {
       const result = await api.profile.updateMe({ removeAvatar: true }) as ProfileResponse;
       setAvatarImage(null);
       setAvatarUrl(null);
-      auth.updateLocalProfile({ avatarUrl: null, avatarMediaId: null, displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio });
+      auth.updateLocalProfile({ avatarUrl: null, avatarMediaId: null, displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, countryCode: result.profile.countryCode, preferredCurrency: result.profile.preferredCurrency });
       setSaved(true);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
@@ -106,7 +120,7 @@ export function ProfileScreen({ navigation }: Props) {
         <View style={styles.header}>
           <SemanticBadge label="Profile" tone="info" />
           <AppText style={styles.title}>Profile</AppText>
-          <AppText style={styles.subtitle}>Your public identity for trades, needs, and offers.</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Your public identity for trades, needs, and offers.</AppText>
         </View>
 
         {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
@@ -142,6 +156,14 @@ export function ProfileScreen({ navigation }: Props) {
           <ProfileField label="Bio" hint="Optional" value={bio} onChangeText={setBio} placeholder="What do you trade, need, or offer?" disabled={saving} multiline />
         </AppCard>
 
+        <AppCard>
+          <SemanticBadge label="Money preferences" tone="credits" size="sm" />
+          <AppText style={styles.sectionTitle}>Country and currency</AppText>
+          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for wallet money, payouts, and future Stripe setup. Full address/KYC comes later only when needed.</AppText>
+          <View style={styles.optionWrap}>{countryOptions.map((option) => <Pressable key={option.code} accessibilityRole="button" disabled={saving} onPress={() => { setCountryCode(option.code); setPreferredCurrency(option.currency); }} style={({ pressed }) => [styles.preferenceChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, countryCode === option.code && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, { color: countryCode === option.code ? theme.color.background : theme.color.text }]}>{option.label}</AppText></Pressable>)}</View>
+          <View style={styles.optionWrap}>{currencyOptions.map((currency) => <Pressable key={currency} accessibilityRole="button" disabled={saving} onPress={() => setPreferredCurrency(currency)} style={({ pressed }) => [styles.preferenceChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, preferredCurrency === currency && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, { color: preferredCurrency === currency ? theme.color.background : theme.color.text }]}>{currency.toUpperCase()}</AppText></Pressable>)}</View>
+        </AppCard>
+
         <View style={styles.actions}>
           <Pressable accessibilityRole="button" disabled={saving} onPress={handleSave} style={({ pressed }) => [styles.primaryButton, saving && styles.disabled, pressed && styles.pressed]}>
             <AppText style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save Profile'}</AppText>
@@ -158,22 +180,23 @@ export function MeScreen(props: Props) {
 }
 
 function ProfileField({ label, hint, value, onChangeText, placeholder, disabled, multiline, autoCapitalize }: { label: string; hint?: string; value: string; onChangeText: (value: string) => void; placeholder: string; disabled?: boolean; multiline?: boolean; autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters' }) {
+  const theme = useThemeTokens();
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
-        <AppText style={styles.label}>{label}</AppText>
-        {hint ? <AppText style={styles.hint}>{hint}</AppText> : null}
+        <AppText style={[styles.label, { color: theme.color.text }]}>{label}</AppText>
+        {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
       </View>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#94A3B8"
+        placeholderTextColor={theme.color.muted}
         editable={!disabled}
         multiline={multiline}
         autoCapitalize={autoCapitalize}
         textAlignVertical={multiline ? 'top' : 'center'}
-        style={[styles.input, multiline && styles.textarea]}
+        style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }, multiline && styles.textarea]}
       />
     </View>
   );
@@ -182,17 +205,22 @@ function ProfileField({ label, hint, value, onChangeText, placeholder, disabled,
 const styles = StyleSheet.create({
   content: { paddingBottom: 34, gap: 14 },
   header: { gap: 8 },
-  title: { color: '#0F172A', fontSize: 36, fontWeight: '900', letterSpacing: -1 },
-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+  title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
+  subtitle: { lineHeight: 20, fontWeight: '600' },
   avatarPanel: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatarActions: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   avatar: { width: 76, height: 76, borderRadius: 38, overflow: 'hidden', backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
   avatarImage: { width: '100%', height: '100%', borderRadius: 38 },
   avatarText: { color: '#0F766E', fontSize: 25, fontWeight: '900' },
   previewCopy: { flex: 1 },
-  previewName: { color: '#0F172A', fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+  previewName: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
   previewHandle: { marginTop: 3, color: '#0F766E', fontWeight: '900' },
   previewEmail: { marginTop: 3, color: '#64748B', fontWeight: '600' },
+  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+  preferenceBody: { lineHeight: 20, fontWeight: '700' },
+  optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  preferenceChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  preferenceChipText: { fontWeight: '900' },
   field: { gap: 8 },
   labelRow: { gap: 3 },
   label: { color: '#0F172A', fontWeight: '900' },
