@@ -47,10 +47,15 @@ function compactList(values: Array<string | null | undefined>) {
   return values.map((value) => value?.trim()).filter(Boolean).join(' · ');
 }
 
-function needTitle(trade: TradeDeckItem) { return trade.need?.title || trade.title || 'Open request'; }
-function offerTitle(trade: TradeDeckItem) { return trade.offer?.title || 'Open offer'; }
-function needMeta(need?: NeedItem | null) { return compactList([need?.category, need?.timing, modeLabel(need?.mode), need?.locationLabel]) || 'Need details not set yet'; }
-function offerMeta(offer?: OfferItem | null) { return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode), offer?.locationLabel]) || 'Offer details not set yet'; }
+function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
+function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
+function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
+function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
+function needDescription(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? `Requested wallet money: ${moneyLabel(trade)}` : trade.need?.description ?? trade.description; }
+function offerDescription(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? `Offered wallet money: ${moneyLabel(trade)}` : trade.offer?.description ?? ''; }
+function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return 'Money request'; return compactList([need?.category, need?.timing, modeLabel(need?.mode), need?.locationLabel]) || 'Need details not set yet'; }
+function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return 'Wallet money offer'; return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode), offer?.locationLabel]) || 'Offer details not set yet'; }
+function exchangeLabel(trade: TradeDeckItem) { const side = moneySide(trade); if (side === 'need') return `Money requested · ${moneyLabel(trade)}`; if (side === 'offer') return `Money offered · ${moneyLabel(trade)}`; return (trade.amountCents ?? 0) > 0 ? `Wallet amount · ${moneyLabel(trade)}` : 'Service-for-service'; }
 
 function expiryLabel(expiresAt?: string | null) {
   if (!expiresAt) return 'No expiry set';
@@ -117,7 +122,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
   const acceptedProposal = useMemo(() => proposals.find((proposal) => proposal.status === 'accepted') ?? null, [proposals]);
   const title = compactList([needTitle(trade), offerTitle(trade)]).replace(' · ', ' ↔ ');
-  const paymentLabel = (trade.amountCents ?? 0) > 0 ? formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur') : 'Service-for-service';
+  const paymentLabel = exchangeLabel(trade);
   const createdLabel = formatDate(trade.createdAt);
 
   const loadTrade = useCallback(async () => {
@@ -201,12 +206,12 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
     <View style={styles.topBar}><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}><AppText style={styles.backText}>←</AppText></Pressable><AppText style={styles.topBarTitle}>Trade</AppText><View style={styles.topBarSpacer} /></View>
 
-    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? 'Wallet optional' : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
+    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? (moneySide(trade) === 'need' ? 'Money needed' : 'Money offered') : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={moneySide(trade) === 'need' ? 'needed' : 'offered'} /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
 
     <Separator theme={theme} />
-    <InventorySection eyebrow="I need" title={trade.need?.title ?? needTitle(trade)} description={trade.need?.description ?? trade.description} meta={needMeta(trade.need)} images={trade.need?.media ?? []} emptyImageLabel="No need reference images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.need?.media)} theme={theme} />
+    <InventorySection eyebrow="I need" title={needTitle(trade)} description={needDescription(trade)} meta={needMeta(trade.need, trade)} images={trade.need?.media ?? []} emptyImageLabel="No need reference images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.need?.media)} theme={theme} />
     <Separator theme={theme} />
-    <InventorySection eyebrow="I offer" title={trade.offer?.title ?? offerTitle(trade)} description={trade.offer?.description ?? ''} meta={offerMeta(trade.offer)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.offer?.media)} theme={theme} />
+    <InventorySection eyebrow="I offer" title={offerTitle(trade)} description={offerDescription(trade)} meta={offerMeta(trade.offer, trade)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.offer?.media)} theme={theme} />
 
     <Separator theme={theme} />
     <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{(trade.amountCents ?? 0) > 0 ? <DetailRow label="Payment" value={trade.payment?.status ? formatStatus(trade.payment.status) : 'Not held yet'} theme={theme} /> : null}{(trade.amountCents ?? 0) > 0 && trade.escrow ? <DetailRow label="Escrow" value={formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur')} theme={theme} /> : null}{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status ? 'Updating...' : action.label} variant={action.status === 'cancelled' ? 'danger' : 'primary'} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>

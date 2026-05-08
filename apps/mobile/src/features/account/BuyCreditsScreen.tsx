@@ -1,90 +1,28 @@
 import React, { useCallback, useState } from 'react';
-import { Button, Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { CreditPackageDto, CreditPurchaseDto } from '@hellowhen/contracts';
-
+import type { CreditPurchaseDto, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
+import { formatMoney } from '@hellowhen/shared';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BuyCredits'>;
-type PackagesResponse = { packages: CreditPackageDto[]; stripeConfigured: boolean };
+type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
 type PurchasesResponse = { purchases: CreditPurchaseDto[] };
-type CheckoutResponse = { checkoutUrl?: string | null; sessionId: string; purchase: CreditPurchaseDto };
-
-function formatMoney(amountCents: number, currency: string) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100);
-  } catch {
-    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
-  }
-}
-
+function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
 export function BuyCreditsScreen({ navigation }: Props) {
-  const [packages, setPackages] = useState<CreditPackageDto[]>([]);
-  const [purchases, setPurchases] = useState<CreditPurchaseDto[]>([]);
-  const [stripeConfigured, setStripeConfigured] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true); setMessage(null);
-    try {
-      const [packageResult, purchaseResult] = await Promise.all([
-        api.credits.packages() as Promise<PackagesResponse>,
-        api.credits.purchasesMine() as Promise<PurchasesResponse>
-      ]);
-      setPackages(packageResult.packages);
-      setStripeConfigured(packageResult.stripeConfigured);
-      setPurchases(purchaseResult.purchases);
-    } catch (caughtError) {
-      setMessage(getFriendlyApiErrorMessage(caughtError));
-    } finally { setLoading(false); }
-  }, []);
-
+  const [wallet, setWallet] = useState<WalletResponse['wallet']>(null); const [purchases, setPurchases] = useState<CreditPurchaseDto[]>([]); const [loading, setLoading] = useState(false); const [message, setMessage] = useState<string | null>(null);
+  const load = useCallback(async () => { setLoading(true); setMessage(null); try { const [walletResult, purchaseResult] = await Promise.all([api.wallet.me() as Promise<WalletResponse>, api.credits.purchasesMine() as Promise<PurchasesResponse>]); setWallet(walletResult.wallet ?? null); setPurchases(Array.isArray(purchaseResult.purchases) ? purchaseResult.purchases : []); } catch (caughtError) { setWallet(null); setPurchases([]); setMessage(getFriendlyApiErrorMessage(caughtError)); } finally { setLoading(false); } }, []);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
-
-  async function buyPackage(packageId: string) {
-    setBuyingPackageId(packageId); setMessage(null);
-    try {
-      const result = await api.credits.createCheckoutSession({ packageId }) as CheckoutResponse;
-      if (!result.checkoutUrl) throw new Error('Stripe did not return a checkout URL.');
-      await Linking.openURL(result.checkoutUrl);
-      setMessage('Checkout opened. Complete the payment, then return here and pull to refresh your wallet.');
-    } catch (caughtError) {
-      setMessage(getFriendlyApiErrorMessage(caughtError));
-    } finally { setBuyingPackageId(null); }
-  }
-
-  return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Add Money</AppText><AppText style={styles.subtitle}>Wallet money is optional and can be used when a trade includes an amount.</AppText></View></View>
-    {!stripeConfigured ? <InfoNotice tone="warning" title="Checkout unavailable" body="Wallet checkout is not available right now. You can still browse trades and manage saved needs and offers." /> : null}
-    {message ? <InfoNotice tone={message.includes('opened') ? 'success' : 'warning'} title="Wallet top-up" body={message} /> : null}
-    <AppCard><AppText style={styles.sectionTitle}>Money packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><MoneyPill amountCents={item.amountCents} currency={item.currency} label="wallet" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No wallet top-ups yet. Completed checkout sessions will appear here.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
-    <Button title="Back to Account" onPress={() => navigation.goBack()} />
-  </ScrollView></AppScreen>;
+  const currency = wallet?.currency ?? 'eur'; const available = wallet?.availableBalanceCents ?? 0; const held = wallet?.heldBalanceCents ?? 0; const pending = wallet?.pendingPayoutCents ?? 0;
+  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Wallet money</AppText><AppText style={styles.subtitle}>Money is selected inside “I need” or “I offer” when creating a trade.</AppText></View>{message ? <InfoNotice tone="warning" title="Wallet unavailable" body={message} /> : null}<InfoNotice tone="warning" title="Top-up unavailable" body="Adding new money is not available in this build. Existing wallet money can still be offered in trades." /><AppCard><View style={styles.sectionHeaderRow}><View style={styles.sectionCopy}><AppText style={styles.sectionTitle}>Balance</AppText><AppText style={styles.cardText}>You can only offer up to your available wallet balance.</AppText></View><MoneyPill amountCents={available} currency={currency} label="available" /></View><View style={styles.metricGrid}><Metric label="Available" value={available} currency={currency} /><Metric label="Held" value={held} currency={currency} /><Metric label="Pending" value={pending} currency={currency} /></View></AppCard><AppCard><AppText style={styles.sectionTitle}>How it works</AppText><View style={styles.steps}><Step number="1" text="Create a trade and choose money under I need or I offer." /><Step number="2" text="Money offered by a payer is held when a proposal is accepted." /><Step number="3" text="After completion, held money moves to pending payout." /></View></AppCard><AppCard><AppText style={styles.sectionTitle}>Recent top-ups</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No top-up history yet.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.purchaseTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText></View><AppText style={styles.dateText}>{formatDate(purchase.createdAt)}</AppText></View>)}</AppCard><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}><AppText style={styles.backButtonText}>Back to Account</AppText></Pressable></ScrollView></AppScreen>;
 }
-
-const styles = StyleSheet.create({
-  content: { paddingBottom: 32, gap: 14 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  headerCopy: { flex: 1, gap: 8 },
-  title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 },
-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
-  sectionTitle: { fontSize: 22, fontWeight: '900' },
-  muted: { color: '#64748B', fontSize: 12, fontWeight: '700' },
-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
-  packageRow: { borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 12, gap: 10 },
-  packageCopy: { gap: 8 },
-  packageTitle: { fontSize: 16, fontWeight: '900' },
-  purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10, gap: 10 },
-  purchaseCopy: { flex: 1, gap: 6 },
-  dateText: { color: '#64748B', fontSize: 12, fontWeight: '800' }
-});
+function Metric({ label, value, currency }: { label: string; value: number; currency: string }) { return <View style={styles.metricBox}><AppText style={styles.metricLabel}>{label}</AppText><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>; }
+function Step({ number, text }: { number: string; text: string }) { return <View style={styles.stepRow}><View style={styles.stepNumber}><AppText style={styles.stepNumberText}>{number}</AppText></View><AppText style={styles.stepText}>{text}</AppText></View>; }
+const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, headerCopy: { gap: 8 }, title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, sectionCopy: { flex: 1, gap: 4 }, sectionTitle: { fontSize: 22, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 13, gap: 8 }, metricLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 }, metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' }, steps: { gap: 12 }, stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, stepNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' }, stepNumberText: { color: '#0F766E', fontWeight: '900' }, stepText: { flex: 1, color: '#475569', lineHeight: 20, fontWeight: '700' }, purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10, gap: 10 }, purchaseCopy: { flex: 1, gap: 6 }, purchaseTitle: { color: '#0F172A', fontSize: 16, fontWeight: '900' }, dateText: { color: '#64748B', fontSize: 12, fontWeight: '800' }, backButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, backButtonText: { color: '#334155', fontWeight: '900' }, pressed: { opacity: 0.78 } });

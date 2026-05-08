@@ -1,0 +1,1062 @@
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 2f3868a..8a09b1d 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -96,6 +96,15 @@ function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
+   return { AND: and };
+ }
+ 
++function tradeMoneySide(trade: { amountCents?: number | null; needId?: string | null; offerId?: string | null }) {
++  const amountCents = trade.amountCents ?? 0;
++  if (amountCents <= 0) return null;
++  if (!trade.needId && trade.offerId) return 'need' as const;
++  if (trade.needId && !trade.offerId) return 'offer' as const;
++  return 'legacy_optional' as const;
++}
++function moneyTitle(amountCents: number, currency: string) { return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100); }
++
+ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
+   return prisma.$transaction(async (tx) => {
+     const trade = await tx.trade.findUnique({ where: { id: tradeId }, include: { payment: true } });
+@@ -106,15 +115,17 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
+ 
+     const amountCents = trade.amountCents ?? 0;
+     const currency = trade.currency || 'eur';
++    const moneySide = tradeMoneySide(trade);
+ 
+     if (amountCents > 0) {
+-      let wallet = await tx.wallet.findUnique({ where: { userId: ownerId } });
+-      if (!wallet) wallet = await tx.wallet.create({ data: { userId: ownerId, currency } });
++      const buyerId = moneySide === 'need' ? applicantId : ownerId;
++      const sellerId = moneySide === 'need' ? ownerId : applicantId;
++      let wallet = await tx.wallet.findUnique({ where: { userId: buyerId } });
++      if (!wallet) wallet = await tx.wallet.create({ data: { userId: buyerId, currency } });
+       if (wallet.availableBalanceCents < amountCents) throw Object.assign(new Error('insufficient_wallet_balance'), { code: 'INSUFFICIENT_WALLET_BALANCE' });
+-
+       const updatedWallet = await tx.wallet.update({ where: { id: wallet.id }, data: { availableBalanceCents: { decrement: amountCents }, heldBalanceCents: { increment: amountCents }, currency } });
+-      await tx.creditLedgerEntry.create({ data: { userId: ownerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, walletMoney: true } } });
+-      await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' } });
++      await tx.creditLedgerEntry.create({ data: { userId: buyerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, moneySide, walletMoney: true } } });
++      await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' } });
+       await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: 0, heldAmountCents: amountCents, currency, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: 0, heldAmountCents: amountCents, currency } });
+     }
+ 
+@@ -149,33 +160,30 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+   const input = createTradeRequestSchema.parse(req.body);
+   const actorId = req.user!.id;
+ 
+-  const [need, offer] = await Promise.all([
+-    prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
+-    prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } })
++  const needIsMoney = input.needKind === 'money';
++  const offerIsMoney = input.offerKind === 'money';
++  const [need, offer, wallet] = await Promise.all([
++    needIsMoney ? Promise.resolve(null) : prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
++    offerIsMoney ? Promise.resolve(null) : prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }),
++    offerIsMoney && input.amountCents > 0 ? prisma.wallet.findUnique({ where: { userId: actorId } }) : Promise.resolve(null)
+   ]);
++  if (!needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
++  if (!offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
++  if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
++  if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
++  if (offerIsMoney && input.amountCents > 0 && (!wallet || wallet.availableBalanceCents < input.amountCents)) return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'You can only offer money that is available in your wallet.' });
++  const moneyLabel = moneyTitle(input.amountCents, input.currency);
++  const needTitle = needIsMoney ? moneyLabel : need!.title;
++  const offerTitle = offerIsMoney ? moneyLabel : offer!.title;
++  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need!.description;
++  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer!.description;
++  const title = input.title?.trim() || `${needTitle} <-> ${offerTitle}`;
++  const description = input.description?.trim() || `I need: ${needDescription}
+ 
+-  if (!need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
+-  if (!offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
+-  if (['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
+-  if (['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
+-
+-  const title = input.title?.trim() || `${need.title} <-> ${offer.title}`;
+-  const description = input.description?.trim() || `I need: ${need.description}\n\nI offer: ${offer.description}`;
++I offer: ${offerDescription}`;
+ 
+   const trade = await prisma.trade.create({
+-    data: {
+-      ownerId: actorId,
+-      title,
+-      description,
+-      creditAmount: input.creditAmount,
+-      amountCents: input.amountCents,
+-      currency: input.currency,
+-      needId: need.id,
+-      offerId: offer.id,
+-      status: 'active',
+-      isPublic: true,
+-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+-    },
++    data: { ownerId: actorId, title, description, creditAmount: input.creditAmount, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
+     include: tradeInclude
+   });
+ 
+diff --git a/apps/mobile/src/features/account/BuyCreditsScreen.tsx b/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+index 7084318..09ce6d7 100644
+--- a/apps/mobile/src/features/account/BuyCreditsScreen.tsx
++++ b/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+@@ -1,90 +1,28 @@
+ import React, { useCallback, useState } from 'react';
+-import { Button, Linking, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { CreditPackageDto, CreditPurchaseDto } from '@hellowhen/contracts';
+-
++import type { CreditPurchaseDto, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
++import { formatMoney } from '@hellowhen/shared';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'BuyCredits'>;
+-type PackagesResponse = { packages: CreditPackageDto[]; stripeConfigured: boolean };
++type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+ type PurchasesResponse = { purchases: CreditPurchaseDto[] };
+-type CheckoutResponse = { checkoutUrl?: string | null; sessionId: string; purchase: CreditPurchaseDto };
+-
+-function formatMoney(amountCents: number, currency: string) {
+-  try {
+-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100);
+-  } catch {
+-    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+-  }
+-}
+-
++function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
+ export function BuyCreditsScreen({ navigation }: Props) {
+-  const [packages, setPackages] = useState<CreditPackageDto[]>([]);
+-  const [purchases, setPurchases] = useState<CreditPurchaseDto[]>([]);
+-  const [stripeConfigured, setStripeConfigured] = useState(false);
+-  const [loading, setLoading] = useState(false);
+-  const [buyingPackageId, setBuyingPackageId] = useState<string | null>(null);
+-  const [message, setMessage] = useState<string | null>(null);
+-
+-  const load = useCallback(async () => {
+-    setLoading(true); setMessage(null);
+-    try {
+-      const [packageResult, purchaseResult] = await Promise.all([
+-        api.credits.packages() as Promise<PackagesResponse>,
+-        api.credits.purchasesMine() as Promise<PurchasesResponse>
+-      ]);
+-      setPackages(packageResult.packages);
+-      setStripeConfigured(packageResult.stripeConfigured);
+-      setPurchases(purchaseResult.purchases);
+-    } catch (caughtError) {
+-      setMessage(getFriendlyApiErrorMessage(caughtError));
+-    } finally { setLoading(false); }
+-  }, []);
+-
++  const [wallet, setWallet] = useState<WalletResponse['wallet']>(null); const [purchases, setPurchases] = useState<CreditPurchaseDto[]>([]); const [loading, setLoading] = useState(false); const [message, setMessage] = useState<string | null>(null);
++  const load = useCallback(async () => { setLoading(true); setMessage(null); try { const [walletResult, purchaseResult] = await Promise.all([api.wallet.me() as Promise<WalletResponse>, api.credits.purchasesMine() as Promise<PurchasesResponse>]); setWallet(walletResult.wallet ?? null); setPurchases(Array.isArray(purchaseResult.purchases) ? purchaseResult.purchases : []); } catch (caughtError) { setWallet(null); setPurchases([]); setMessage(getFriendlyApiErrorMessage(caughtError)); } finally { setLoading(false); } }, []);
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+-
+-  async function buyPackage(packageId: string) {
+-    setBuyingPackageId(packageId); setMessage(null);
+-    try {
+-      const result = await api.credits.createCheckoutSession({ packageId }) as CheckoutResponse;
+-      if (!result.checkoutUrl) throw new Error('Stripe did not return a checkout URL.');
+-      await Linking.openURL(result.checkoutUrl);
+-      setMessage('Checkout opened. Complete the payment, then return here and pull to refresh your wallet.');
+-    } catch (caughtError) {
+-      setMessage(getFriendlyApiErrorMessage(caughtError));
+-    } finally { setBuyingPackageId(null); }
+-  }
+-
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+-    <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Add Money</AppText><AppText style={styles.subtitle}>Wallet money is optional and can be used when a trade includes an amount.</AppText></View></View>
+-    {!stripeConfigured ? <InfoNotice tone="warning" title="Checkout unavailable" body="Wallet checkout is not available right now. You can still browse trades and manage saved needs and offers." /> : null}
+-    {message ? <InfoNotice tone={message.includes('opened') ? 'success' : 'warning'} title="Wallet top-up" body={message} /> : null}
+-    <AppCard><AppText style={styles.sectionTitle}>Money packages</AppText>{packages.length === 0 ? <AppText style={styles.muted}>No packages loaded yet.</AppText> : packages.map((item) => <View key={item.id} style={styles.packageRow}><View style={styles.packageCopy}><MoneyPill amountCents={item.amountCents} currency={item.currency} label="wallet" /><AppText style={styles.packageTitle}>{item.label} · {formatMoney(item.amountCents, item.currency)}</AppText><AppText style={styles.cardText}>{item.description}</AppText></View><Button title={buyingPackageId === item.id ? 'Opening...' : 'Buy'} disabled={!stripeConfigured || Boolean(buyingPackageId)} onPress={() => { void buyPackage(item.id); }} /></View>)}</AppCard>
+-    <AppCard><AppText style={styles.sectionTitle}>Recent purchases</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No wallet top-ups yet. Completed checkout sessions will appear here.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.packageTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText><AppText style={styles.muted}>{purchase.stripeCheckoutSessionId ?? 'pending checkout session'}</AppText></View><AppText style={styles.dateText}>{new Date(purchase.createdAt).toLocaleDateString()}</AppText></View>)}</AppCard>
+-    <Button title="Back to Account" onPress={() => navigation.goBack()} />
+-  </ScrollView></AppScreen>;
++  const currency = wallet?.currency ?? 'eur'; const available = wallet?.availableBalanceCents ?? 0; const held = wallet?.heldBalanceCents ?? 0; const pending = wallet?.pendingPayoutCents ?? 0;
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}><View style={styles.headerCopy}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.title}>Wallet money</AppText><AppText style={styles.subtitle}>Money is selected inside “I need” or “I offer” when creating a trade.</AppText></View>{message ? <InfoNotice tone="warning" title="Wallet unavailable" body={message} /> : null}<InfoNotice tone="warning" title="Top-up unavailable" body="Adding new money is not available in this build. Existing wallet money can still be offered in trades." /><AppCard><View style={styles.sectionHeaderRow}><View style={styles.sectionCopy}><AppText style={styles.sectionTitle}>Balance</AppText><AppText style={styles.cardText}>You can only offer up to your available wallet balance.</AppText></View><MoneyPill amountCents={available} currency={currency} label="available" /></View><View style={styles.metricGrid}><Metric label="Available" value={available} currency={currency} /><Metric label="Held" value={held} currency={currency} /><Metric label="Pending" value={pending} currency={currency} /></View></AppCard><AppCard><AppText style={styles.sectionTitle}>How it works</AppText><View style={styles.steps}><Step number="1" text="Create a trade and choose money under I need or I offer." /><Step number="2" text="Money offered by a payer is held when a proposal is accepted." /><Step number="3" text="After completion, held money moves to pending payout." /></View></AppCard><AppCard><AppText style={styles.sectionTitle}>Recent top-ups</AppText>{purchases.length === 0 ? <AppText style={styles.cardText}>No top-up history yet.</AppText> : purchases.slice(0, 8).map((purchase) => <View key={purchase.id} style={styles.purchaseRow}><View style={styles.purchaseCopy}><StatusBadge status={purchase.status} size="sm" /><AppText style={styles.purchaseTitle}>{formatMoney(purchase.amountCents, purchase.currency)}</AppText></View><AppText style={styles.dateText}>{formatDate(purchase.createdAt)}</AppText></View>)}</AppCard><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}><AppText style={styles.backButtonText}>Back to Account</AppText></Pressable></ScrollView></AppScreen>;
+ }
+-
+-const styles = StyleSheet.create({
+-  content: { paddingBottom: 32, gap: 14 },
+-  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+-  headerCopy: { flex: 1, gap: 8 },
+-  title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 },
+-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
+-  sectionTitle: { fontSize: 22, fontWeight: '900' },
+-  muted: { color: '#64748B', fontSize: 12, fontWeight: '700' },
+-  cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' },
+-  packageRow: { borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 12, gap: 10 },
+-  packageCopy: { gap: 8 },
+-  packageTitle: { fontSize: 16, fontWeight: '900' },
+-  purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10, gap: 10 },
+-  purchaseCopy: { flex: 1, gap: 6 },
+-  dateText: { color: '#64748B', fontSize: 12, fontWeight: '800' }
+-});
++function Metric({ label, value, currency }: { label: string; value: number; currency: string }) { return <View style={styles.metricBox}><AppText style={styles.metricLabel}>{label}</AppText><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>; }
++function Step({ number, text }: { number: string; text: string }) { return <View style={styles.stepRow}><View style={styles.stepNumber}><AppText style={styles.stepNumberText}>{number}</AppText></View><AppText style={styles.stepText}>{text}</AppText></View>; }
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, headerCopy: { gap: 8 }, title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, sectionCopy: { flex: 1, gap: 4 }, sectionTitle: { fontSize: 22, fontWeight: '900' }, cardText: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', padding: 13, gap: 8 }, metricLabel: { color: '#64748B', fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 }, metricValue: { color: '#0F172A', fontSize: 18, fontWeight: '900' }, steps: { gap: 12 }, stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, stepNumber: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#CCFBF1', alignItems: 'center', justifyContent: 'center' }, stepNumberText: { color: '#0F766E', fontWeight: '900' }, stepText: { flex: 1, color: '#475569', lineHeight: 20, fontWeight: '700' }, purchaseRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#E2E8F0', paddingTop: 10, gap: 10 }, purchaseCopy: { flex: 1, gap: 6 }, purchaseTitle: { color: '#0F172A', fontSize: 16, fontWeight: '900' }, dateText: { color: '#64748B', fontSize: 12, fontWeight: '800' }, backButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, backButtonText: { color: '#334155', fontWeight: '900' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 9f0e6c9..2675e06 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -1,631 +1,62 @@
+ // apps/mobile/src/features/trade/CreateTradeScreen.tsx
+ 
+-import React, { useCallback, useMemo, useState } from 'react';
+-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { TradeExchangeMode } from '@hellowhen/contracts';
++import type { TradeExchangeMode, WalletDto } from '@hellowhen/contracts';
++import { formatMoney } from '@hellowhen/shared';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCard } from '../../components/AppCard';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
+ import { modeLabel } from './components/InventoryFormFields';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+ 
++export type TradeCreateSide = 'need' | 'offer';
++export type TradeCreateSideSelection =
++  | { side: 'need'; kind: 'need'; id: string }
++  | { side: 'need'; kind: 'money'; amountCents: number; currency: string }
++  | { side: 'offer'; kind: 'offer'; id: string }
++  | { side: 'offer'; kind: 'money'; amountCents: number; currency: string };
++export type TradeSidePickerParams = { side: TradeCreateSide; selection?: TradeCreateSideSelection | null };
++export type TradeCreateReturnParams = { selectedTradeSide?: TradeCreateSideSelection } | undefined;
++
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateTrade'>;
+ type NeedsResponse = { needs: NeedItem[] };
+ type OffersResponse = { offers: OfferItem[] };
++type WalletResponse = { wallet: WalletDto | null };
+ type CreateTradeResponse = { trade: TradeDeckItem };
+-
+-type InventoryKind = 'need' | 'offer';
+-
+-const expiryOptions = [
+-  { label: '7 days', days: 7 },
+-  { label: '14 days', days: 14 },
+-  { label: '30 days', days: 30 },
+-  { label: 'No expiry', days: null },
+-] as const;
+-
+-function isNeedAvailable(need: NeedItem) {
+-  return !['fulfilled', 'closed', 'expired'].includes(need.status);
+-}
+-
+-function isOfferAvailable(offer: OfferItem) {
+-  return !['accepted', 'closed', 'expired'].includes(offer.status);
+-}
+-
+-function optionalModeLabel(mode?: TradeExchangeMode | null) {
+-  return mode ? modeLabel(mode) : undefined;
+-}
+-
+-function needMeta(need?: NeedItem | null) {
+-  if (!need) return '';
+-  return [need.category, need.timing, optionalModeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ');
+-}
+-
+-function offerMeta(offer?: OfferItem | null) {
+-  if (!offer) return '';
+-  return [offer.category, offer.availability, optionalModeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ');
+-}
+-
+-function imageSummary(item: { media?: unknown[] }) {
+-  const count = item.media?.length ?? 0;
+-  if (count === 0) return 'No images yet';
+-  return `${count} image${count === 1 ? '' : 's'}`;
+-}
+-
+-function buildExpiresAt(days: number | null) {
+-  if (!days) return undefined;
+-  const expiresAt = new Date();
+-  expiresAt.setDate(expiresAt.getDate() + days);
+-  return expiresAt.toISOString();
+-}
+-
+-function parseMoneyAmount(value: string) {
+-  const normalized = value.trim().replace(',', '.');
+-  const amount = normalized.length === 0 ? 0 : Number.parseFloat(normalized);
+-  if (!Number.isFinite(amount) || amount < 0) return Number.NaN;
+-  return Math.round(amount * 100);
+-}
+-
+-export function CreateTradeScreen({ navigation }: Props) {
+-  const [needs, setNeeds] = useState<NeedItem[]>([]);
+-  const [offers, setOffers] = useState<OfferItem[]>([]);
+-  const [selectedNeedId, setSelectedNeedId] = useState<string | null>(null);
+-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+-  const [walletAmount, setWalletAmount] = useState('0');
+-  const [expiryDays, setExpiryDays] = useState<number | null>(14);
+-  const [loading, setLoading] = useState(false);
+-  const [submitting, setSubmitting] = useState(false);
+-  const [error, setError] = useState<string | null>(null);
+-
+-  const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
+-  const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
+-  const selectedNeed = useMemo(() => usableNeeds.find((need) => need.id === selectedNeedId) ?? null, [selectedNeedId, usableNeeds]);
+-  const selectedOffer = useMemo(() => usableOffers.find((offer) => offer.id === selectedOfferId) ?? null, [selectedOfferId, usableOffers]);
+-  const previewAmountCents = parseMoneyAmount(walletAmount);
+-
+-  const loadInventory = useCallback(async () => {
+-    setLoading(true);
+-    setError(null);
+-
+-    try {
+-      const [needsResult, offersResult] = await Promise.all([
+-        api.needs.mine() as Promise<NeedsResponse>,
+-        api.offers.mine() as Promise<OffersResponse>,
+-      ]);
+-
+-      const nextNeeds = Array.isArray(needsResult.needs) ? needsResult.needs : [];
+-      const nextOffers = Array.isArray(offersResult.offers) ? offersResult.offers : [];
+-      const nextUsableNeeds = nextNeeds.filter(isNeedAvailable);
+-      const nextUsableOffers = nextOffers.filter(isOfferAvailable);
+-
+-      setNeeds(nextNeeds);
+-      setOffers(nextOffers);
+-      setSelectedNeedId((current) => nextUsableNeeds.some((need) => need.id === current) ? current : nextUsableNeeds[0]?.id ?? null);
+-      setSelectedOfferId((current) => nextUsableOffers.some((offer) => offer.id === current) ? current : nextUsableOffers[0]?.id ?? null);
+-    } catch (caughtError) {
+-      setNeeds([]);
+-      setOffers([]);
+-      setSelectedNeedId(null);
+-      setSelectedOfferId(null);
+-      setError(getFriendlyApiErrorMessage(caughtError));
+-    } finally {
+-      setLoading(false);
+-    }
+-  }, []);
+-
+-  useFocusEffect(useCallback(() => {
+-    void loadInventory();
+-  }, [loadInventory]));
+-
+-  async function handlePublish() {
+-    const amountCents = parseMoneyAmount(walletAmount);
+-
+-    if (!selectedNeed) {
+-      setError('Choose one saved need before publishing.');
+-      return;
+-    }
+-    if (!selectedOffer) {
+-      setError('Choose one saved offer before publishing.');
+-      return;
+-    }
+-    if (!Number.isFinite(amountCents)) {
+-      setError('Wallet amount must be zero or a valid money amount.');
+-      return;
+-    }
+-
+-    setSubmitting(true);
+-    setError(null);
+-
+-    try {
+-      const result = await api.trades.create({
+-        needId: selectedNeed.id,
+-        offerId: selectedOffer.id,
+-        creditAmount: 0,
+-        amountCents,
+-        currency: 'eur',
+-        expiresAt: buildExpiresAt(expiryDays),
+-      }) as CreateTradeResponse;
+-
+-      navigation.replace('TradeDetail', {
+-        tradeId: result.trade.id,
+-        title: result.trade.title,
+-        description: result.trade.description,
+-        amountCents: result.trade.amountCents ?? 0,
+-        currency: result.trade.currency ?? 'eur',
+-        creditAmount: result.trade.creditAmount ?? 0,
+-        status: result.trade.status,
+-        expiresAt: result.trade.expiresAt ?? null,
+-      });
+-    } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
+-    } finally {
+-      setSubmitting(false);
+-    }
+-  }
+-
+-  return (
+-    <AppScreen>
+-      <ScrollView
+-        contentContainerStyle={styles.content}
+-        keyboardShouldPersistTaps="handled"
+-        showsVerticalScrollIndicator={false}
+-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadInventory(); }} />}
+-      >
+-        <View style={styles.header}>
+-          <SemanticBadge label="Trade" tone="trade" />
+-          <AppText style={styles.title}>Publish Trade</AppText>
+-          <AppText style={styles.subtitle}>Pair one saved Need with one saved Offer. The public deck will use images from those two items.</AppText>
+-        </View>
+-
+-        {error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}
+-
+-        <InventorySection
+-          title="Choose Need"
+-          kind="need"
+-          items={usableNeeds}
+-          selectedId={selectedNeedId}
+-          onSelect={setSelectedNeedId}
+-          emptyTitle="No needs ready"
+-          emptyBody="Save a need first, then come back to publish it in a trade."
+-          createLabel="Save Need"
+-          onCreate={() => navigation.navigate('CreateNeed')}
+-        />
+-
+-        <InventorySection
+-          title="Choose Offer"
+-          kind="offer"
+-          items={usableOffers}
+-          selectedId={selectedOfferId}
+-          onSelect={setSelectedOfferId}
+-          emptyTitle="No offers ready"
+-          emptyBody="Save an offer first, then pair it with a need."
+-          createLabel="Save Offer"
+-          onCreate={() => navigation.navigate('CreateOffer')}
+-        />
+-
+-        <AppCard>
+-          <AppText style={styles.sectionTitle}>Wallet and expiry</AppText>
+-          <View style={styles.field}>
+-            <AppText style={styles.label}>Optional wallet amount</AppText>
+-            <TextInput
+-              value={walletAmount}
+-              onChangeText={setWalletAmount}
+-              placeholder="0"
+-              placeholderTextColor="#94A3B8"
+-              keyboardType="decimal-pad"
+-              editable={!submitting}
+-              style={styles.input}
+-            />
+-          </View>
+-          {Number.isFinite(previewAmountCents) && previewAmountCents > 0 ? <MoneyPill amountCents={previewAmountCents} currency="eur" label="optional" /> : null}
+-
+-          <View style={styles.field}>
+-            <AppText style={styles.label}>Expiry</AppText>
+-            <View style={styles.expiryRow}>
+-              {expiryOptions.map((option) => {
+-                const selected = expiryDays === option.days;
+-                return (
+-                  <Pressable
+-                    key={option.label}
+-                    disabled={submitting}
+-                    onPress={() => setExpiryDays(option.days)}
+-                    style={({ pressed }) => [styles.expiryButton, selected && styles.expiryButtonSelected, submitting && styles.disabled, pressed && styles.pressed]}
+-                  >
+-                    <AppText style={[styles.expiryButtonText, selected && styles.expiryButtonTextSelected]}>{option.label}</AppText>
+-                  </Pressable>
+-                );
+-              })}
+-            </View>
+-          </View>
+-        </AppCard>
+-
+-        <AppCard>
+-          <AppText style={styles.sectionTitle}>Deck preview</AppText>
+-          <TradeSummaryPreview need={selectedNeed} offer={selectedOffer} amountCents={previewAmountCents} />
+-          <InfoNotice tone="info" body="Only approved Need and Offer images appear in public decks. Pending images stay visible to you while admin reviews them." />
+-        </AppCard>
+-
+-        <View style={styles.actions}>
+-          <Pressable disabled={submitting || loading} onPress={handlePublish} style={({ pressed }) => [styles.primaryButton, (submitting || loading) && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.primaryButtonText}>{submitting ? 'Publishing...' : 'Publish Trade'}</AppText>
+-          </Pressable>
+-          <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.secondaryButtonText}>Cancel</AppText>
+-          </Pressable>
+-        </View>
+-      </ScrollView>
+-    </AppScreen>
+-  );
+-}
+-
+-function InventorySection({
+-  title,
+-  kind,
+-  items,
+-  selectedId,
+-  onSelect,
+-  emptyTitle,
+-  emptyBody,
+-  createLabel,
+-  onCreate,
+-}: {
+-  title: string;
+-  kind: InventoryKind;
+-  items: Array<NeedItem | OfferItem>;
+-  selectedId: string | null;
+-  onSelect: (id: string) => void;
+-  emptyTitle: string;
+-  emptyBody: string;
+-  createLabel: string;
+-  onCreate: () => void;
+-}) {
+-  return (
+-    <AppCard>
+-      <View style={styles.sectionHeaderRow}>
+-        <AppText style={styles.sectionTitle}>{title}</AppText>
+-        <Pressable onPress={onCreate} style={({ pressed }) => [styles.smallCreateButton, pressed && styles.pressed]}>
+-          <AppText style={styles.smallCreateButtonText}>{createLabel}</AppText>
+-        </Pressable>
+-      </View>
+-
+-      {items.length === 0 ? (
+-        <View style={styles.emptyBox}>
+-          <AppText style={styles.emptyTitle}>{emptyTitle}</AppText>
+-          <AppText style={styles.emptyBody}>{emptyBody}</AppText>
+-        </View>
+-      ) : (
+-        <View style={styles.optionList}>
+-          {items.map((item) => {
+-            const selected = selectedId === item.id;
+-            const meta = kind === 'need' ? needMeta(item as NeedItem) : offerMeta(item as OfferItem);
+-            return (
+-              <Pressable key={item.id} onPress={() => onSelect(item.id)} style={({ pressed }) => [styles.option, selected && styles.optionSelected, pressed && styles.pressed]}>
+-                <View style={styles.optionTopRow}>
+-                  <View style={styles.optionTitleWrap}>
+-                    <AppText style={styles.optionEyebrow}>{kind === 'need' ? 'I need' : 'I offer'}</AppText>
+-                    <AppText style={styles.optionTitle}>{item.title}</AppText>
+-                  </View>
+-                  <View style={styles.optionBadges}>
+-                    <StatusBadge status={item.status} size="sm" />
+-                    {selected ? <SemanticBadge label="Selected" tone="trade" size="sm" /> : null}
+-                  </View>
+-                </View>
+-                {meta ? <AppText style={styles.optionMeta}>{meta}</AppText> : null}
+-                <AppText style={styles.optionDescription} numberOfLines={2}>{item.description}</AppText>
+-                <AppText style={styles.optionImages}>{imageSummary(item)}</AppText>
+-              </Pressable>
+-            );
+-          })}
+-        </View>
+-      )}
+-    </AppCard>
+-  );
+-}
+-
+-function TradeSummaryPreview({ need, offer, amountCents }: { need: NeedItem | null; offer: OfferItem | null; amountCents: number }) {
+-  return (
+-    <View style={styles.previewCard}>
+-      <View style={styles.previewHeaderRow}>
+-        <AppText style={styles.previewHeader}>TRADE · PREVIEW</AppText>
+-        <AppText style={styles.previewStatus}>OPEN</AppText>
+-      </View>
+-
+-      <View style={styles.previewBlock}>
+-        <AppText style={styles.previewEyebrow}>I need</AppText>
+-        <AppText style={styles.previewTitle}>{need?.title || 'Choose a need'}</AppText>
+-        <AppText style={styles.previewMeta}>{need ? needMeta(need) || 'Need details' : 'Category · Timing · Mode'}</AppText>
+-      </View>
+-
+-      <View style={styles.swapRow}>
+-        <View style={styles.swapLine} />
+-        <View style={styles.swapCircle}><AppText style={styles.swapIcon}>↔</AppText></View>
+-        <View style={styles.swapLine} />
+-      </View>
+-
+-      <View style={styles.previewBlock}>
+-        <AppText style={styles.previewEyebrow}>I offer</AppText>
+-        <AppText style={styles.previewTitle}>{offer?.title || 'Choose an offer'}</AppText>
+-        <AppText style={styles.previewMeta}>{offer ? offerMeta(offer) || 'Offer details' : 'Category · Availability · Mode'}</AppText>
+-      </View>
+-
+-      {Number.isFinite(amountCents) && amountCents > 0 ? <MoneyPill amountCents={amountCents} currency="eur" label="optional" /> : null}
+-    </View>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  content: {
+-    paddingBottom: 32,
+-    gap: 14,
+-  },
+-  header: {
+-    gap: 8,
+-  },
+-  title: {
+-    fontSize: 36,
+-    fontWeight: '900',
+-    letterSpacing: -1,
+-  },
+-  subtitle: {
+-    color: '#64748B',
+-    lineHeight: 21,
+-    fontWeight: '600',
+-  },
+-  sectionHeaderRow: {
+-    flexDirection: 'row',
+-    alignItems: 'center',
+-    justifyContent: 'space-between',
+-    gap: 12,
+-  },
+-  sectionTitle: {
+-    flex: 1,
+-    fontSize: 18,
+-    fontWeight: '900',
+-    color: '#0F172A',
+-  },
+-  smallCreateButton: {
+-    borderRadius: 999,
+-    backgroundColor: '#F1F5F9',
+-    paddingHorizontal: 12,
+-    paddingVertical: 8,
+-  },
+-  smallCreateButtonText: {
+-    color: '#334155',
+-    fontSize: 12,
+-    fontWeight: '900',
+-  },
+-  emptyBox: {
+-    borderRadius: 18,
+-    borderWidth: 1,
+-    borderStyle: 'dashed',
+-    borderColor: '#CBD5E1',
+-    padding: 14,
+-    gap: 5,
+-  },
+-  emptyTitle: {
+-    color: '#0F172A',
+-    fontWeight: '900',
+-  },
+-  emptyBody: {
+-    color: '#64748B',
+-    lineHeight: 20,
+-    fontWeight: '600',
+-  },
+-  optionList: {
+-    gap: 10,
+-  },
+-  option: {
+-    borderRadius: 20,
+-    borderWidth: 1,
+-    borderColor: '#E2E8F0',
+-    backgroundColor: '#F8FAFC',
+-    padding: 14,
+-    gap: 7,
+-  },
+-  optionSelected: {
+-    borderColor: '#7C3AED',
+-    backgroundColor: '#F5F3FF',
+-  },
+-  optionTopRow: {
+-    flexDirection: 'row',
+-    justifyContent: 'space-between',
+-    alignItems: 'flex-start',
+-    gap: 10,
+-  },
+-  optionTitleWrap: {
+-    flex: 1,
+-    gap: 3,
+-  },
+-  optionEyebrow: {
+-    color: '#64748B',
+-    fontSize: 11,
+-    fontWeight: '900',
+-    letterSpacing: 0.7,
+-    textTransform: 'uppercase',
+-  },
+-  optionTitle: {
+-    color: '#0F172A',
+-    fontSize: 18,
+-    fontWeight: '900',
+-    letterSpacing: -0.2,
+-  },
+-  optionBadges: {
+-    alignItems: 'flex-end',
+-    gap: 6,
+-  },
+-  optionMeta: {
+-    color: '#475569',
+-    fontSize: 13,
+-    fontWeight: '800',
+-  },
+-  optionDescription: {
+-    color: '#64748B',
+-    lineHeight: 19,
+-    fontWeight: '600',
+-  },
+-  optionImages: {
+-    color: '#64748B',
+-    fontSize: 12,
+-    fontWeight: '900',
+-    textTransform: 'uppercase',
+-    letterSpacing: 0.5,
+-  },
+-  field: {
+-    gap: 8,
+-  },
+-  label: {
+-    color: '#0F172A',
+-    fontWeight: '900',
+-  },
+-  input: {
+-    borderRadius: 16,
+-    borderWidth: 1,
+-    borderColor: '#CBD5E1',
+-    backgroundColor: '#FFFFFF',
+-    paddingHorizontal: 13,
+-    paddingVertical: 12,
+-    color: '#0F172A',
+-    fontSize: 16,
+-    fontWeight: '700',
+-  },
+-  expiryRow: {
+-    flexDirection: 'row',
+-    flexWrap: 'wrap',
+-    gap: 8,
+-  },
+-  expiryButton: {
+-    borderRadius: 999,
+-    borderWidth: 1,
+-    borderColor: '#CBD5E1',
+-    backgroundColor: '#FFFFFF',
+-    paddingHorizontal: 13,
+-    paddingVertical: 9,
+-  },
+-  expiryButtonSelected: {
+-    borderColor: '#7C3AED',
+-    backgroundColor: '#F5F3FF',
+-  },
+-  expiryButtonText: {
+-    color: '#475569',
+-    fontWeight: '900',
+-  },
+-  expiryButtonTextSelected: {
+-    color: '#6D28D9',
+-  },
+-  previewCard: {
+-    borderRadius: 26,
+-    borderWidth: 1,
+-    borderColor: '#DDD6FE',
+-    backgroundColor: '#FFFFFF',
+-    padding: 18,
+-    gap: 14,
+-  },
+-  previewHeaderRow: {
+-    flexDirection: 'row',
+-    alignItems: 'center',
+-    justifyContent: 'space-between',
+-  },
+-  previewHeader: {
+-    color: '#64748B',
+-    fontSize: 11,
+-    fontWeight: '900',
+-    letterSpacing: 0.9,
+-  },
+-  previewStatus: {
+-    color: '#16A34A',
+-    fontSize: 11,
+-    fontWeight: '900',
+-    letterSpacing: 0.9,
+-  },
+-  previewBlock: {
+-    gap: 5,
+-  },
+-  previewEyebrow: {
+-    color: '#64748B',
+-    fontSize: 12,
+-    fontWeight: '900',
+-    letterSpacing: 0.8,
+-    textTransform: 'uppercase',
+-  },
+-  previewTitle: {
+-    color: '#0F172A',
+-    fontSize: 24,
+-    fontWeight: '900',
+-    letterSpacing: -0.5,
+-  },
+-  previewMeta: {
+-    color: '#475569',
+-    fontWeight: '800',
+-    lineHeight: 20,
+-  },
+-  swapRow: {
+-    flexDirection: 'row',
+-    alignItems: 'center',
+-    gap: 10,
+-  },
+-  swapLine: {
+-    flex: 1,
+-    height: 1,
+-    backgroundColor: '#E2E8F0',
+-  },
+-  swapCircle: {
+-    width: 38,
+-    height: 38,
+-    borderRadius: 19,
+-    alignItems: 'center',
+-    justifyContent: 'center',
+-    backgroundColor: '#111827',
+-  },
+-  swapIcon: {
+-    color: '#FFFFFF',
+-    fontSize: 18,
+-    fontWeight: '900',
+-  },
+-  previewCredits: {
+-    alignSelf: 'flex-start',
+-    overflow: 'hidden',
+-    borderRadius: 999,
+-    backgroundColor: '#FEF3C7',
+-    color: '#92400E',
+-    paddingHorizontal: 12,
+-    paddingVertical: 7,
+-    fontWeight: '900',
+-  },
+-  actions: {
+-    gap: 10,
+-  },
+-  primaryButton: {
+-    borderRadius: 18,
+-    backgroundColor: '#7C3AED',
+-    paddingVertical: 15,
+-    alignItems: 'center',
+-  },
+-  primaryButtonText: {
+-    color: '#FFFFFF',
+-    fontSize: 16,
+-    fontWeight: '900',
+-  },
+-  secondaryButton: {
+-    borderRadius: 18,
+-    borderWidth: 1,
+-    borderColor: '#CBD5E1',
+-    backgroundColor: '#FFFFFF',
+-    paddingVertical: 14,
+-    alignItems: 'center',
+-  },
+-  secondaryButtonText: {
+-    color: '#334155',
+-    fontWeight: '900',
+-  },
+-  disabled: {
+-    opacity: 0.55,
+-  },
+-  pressed: {
+-    opacity: 0.78,
+-  },
+-});
++const expiryOptions = [{ label: '7 days', days: 7 }, { label: '14 days', days: 14 }, { label: '30 days', days: 30 }, { label: 'No expiry', days: null }] as const;
++function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
++function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
++function optionalModeLabel(mode?: TradeExchangeMode | null) { return mode ? modeLabel(mode) : undefined; }
++function needMeta(need?: NeedItem | null) { return need ? [need.category, need.timing, optionalModeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') : ''; }
++function offerMeta(offer?: OfferItem | null) { return offer ? [offer.category, offer.availability, optionalModeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
++function buildExpiresAt(days: number | null) { if (!days) return undefined; const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + days); return expiresAt.toISOString(); }
++function moneySelection(selection: TradeCreateSideSelection | null) { return selection?.kind === 'money' ? selection : null; }
++function amountFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return moneySelection(needSelection)?.amountCents ?? moneySelection(offerSelection)?.amountCents ?? 0; }
++function currencyFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return moneySelection(needSelection)?.currency ?? moneySelection(offerSelection)?.currency ?? 'eur'; }
++export function CreateTradeScreen({ route, navigation }: Props) {
++  const [needs, setNeeds] = useState<NeedItem[]>([]); const [offers, setOffers] = useState<OfferItem[]>([]); const [wallet, setWallet] = useState<WalletDto | null>(null);
++  const [needSelection, setNeedSelection] = useState<TradeCreateSideSelection | null>(null); const [offerSelection, setOfferSelection] = useState<TradeCreateSideSelection | null>(null);
++  const [expiryDays, setExpiryDays] = useState<number | null>(14); const [loading, setLoading] = useState(false); const [submitting, setSubmitting] = useState(false); const [error, setError] = useState<string | null>(null);
++  const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]); const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
++  const selectedNeed = useMemo(() => needSelection?.kind === 'need' ? usableNeeds.find((need) => need.id === needSelection.id) ?? null : null, [needSelection, usableNeeds]);
++  const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
++  const amountCents = amountFor(needSelection, offerSelection); const currency = currencyFor(needSelection, offerSelection);
++  useEffect(() => { const selection = route.params?.selectedTradeSide; if (!selection) return; if (selection.side === 'need') setNeedSelection(selection); else setOfferSelection(selection); }, [route.params?.selectedTradeSide]);
++  const loadResources = useCallback(async () => { setLoading(true); setError(null); try { const [needsResult, offersResult, walletResult] = await Promise.all([api.needs.mine() as Promise<NeedsResponse>, api.offers.mine() as Promise<OffersResponse>, api.wallet.me() as Promise<WalletResponse>]); setNeeds(Array.isArray(needsResult.needs) ? needsResult.needs : []); setOffers(Array.isArray(offersResult.offers) ? offersResult.offers : []); setWallet(walletResult.wallet ?? null); } catch (caughtError) { setNeeds([]); setOffers([]); setWallet(null); setError(getFriendlyApiErrorMessage(caughtError)); } finally { setLoading(false); } }, []);
++  useFocusEffect(useCallback(() => { void loadResources(); }, [loadResources]));
++  function openSidePicker(side: TradeCreateSide) { navigation.navigate('TradeSidePicker', { side, selection: side === 'need' ? needSelection : offerSelection }); }
++  async function handlePublish() { if (!needSelection) return setError('Choose what you need before publishing.'); if (!offerSelection) return setError('Choose what you offer before publishing.'); if (needSelection.kind === 'money' && offerSelection.kind === 'money') return setError('A trade cannot need money and offer money at the same time.'); if (offerSelection.kind === 'money' && wallet && offerSelection.amountCents > wallet.availableBalanceCents) return setError(`You can only offer up to ${formatMoney(wallet.availableBalanceCents, wallet.currency)}.`); setSubmitting(true); setError(null); try { const result = await api.trades.create({ needKind: needSelection.kind === 'money' ? 'money' : 'need', offerKind: offerSelection.kind === 'money' ? 'money' : 'offer', needId: needSelection.kind === 'need' ? needSelection.id : undefined, offerId: offerSelection.kind === 'offer' ? offerSelection.id : undefined, creditAmount: 0, amountCents, currency, expiresAt: buildExpiresAt(expiryDays) }) as CreateTradeResponse; navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null }); } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError)); } finally { setSubmitting(false); } }
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadResources(); }} />}><View style={styles.header}><SemanticBadge label="Trade" tone="trade" /><AppText style={styles.title}>Create Trade</AppText><AppText style={styles.subtitle}>Choose what you need and what you offer. Money now lives inside either side, not as an extra field.</AppText></View>{error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}<SideSelectionCard side="need" title="I need" emptyTitle="Select what you need" emptyBody="Choose a saved Need, or request wallet money." selection={needSelection} need={selectedNeed} offer={null} onPress={() => openSidePicker('need')} /><SideSelectionCard side="offer" title="I offer" emptyTitle="Select what you offer" emptyBody="Choose a saved Offer, or offer wallet money." selection={offerSelection} need={null} offer={selectedOffer} onPress={() => openSidePicker('offer')} /><AppCard><AppText style={styles.sectionTitle}>Expiry</AppText><View style={styles.expiryRow}>{expiryOptions.map((option) => { const selected = expiryDays === option.days; return <Pressable key={option.label} disabled={submitting} onPress={() => setExpiryDays(option.days)} style={({ pressed }) => [styles.expiryButton, selected && styles.expiryButtonSelected, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.expiryButtonText, selected && styles.expiryButtonTextSelected]}>{option.label}</AppText></Pressable>; })}</View></AppCard><AppCard><AppText style={styles.sectionTitle}>Deck preview</AppText><TradeSummaryPreview needSelection={needSelection} offerSelection={offerSelection} need={selectedNeed} offer={selectedOffer} /><InfoNotice tone="info" body="Money sides do not create image cards. Public decks show approved images from saved Needs and Offers." /></AppCard><View style={styles.actions}><Pressable disabled={submitting || loading} onPress={handlePublish} style={({ pressed }) => [styles.primaryButton, (submitting || loading) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{submitting ? 'Publishing...' : 'Publish Trade'}</AppText></Pressable><Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Cancel</AppText></Pressable></View></ScrollView></AppScreen>;
++}
++function SideSelectionCard({ side, title, emptyTitle, emptyBody, selection, need, offer, onPress }: { side: TradeCreateSide; title: string; emptyTitle: string; emptyBody: string; selection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; onPress: () => void }) { const money = moneySelection(selection); const item = need ?? offer; const meta = need ? needMeta(need) : offer ? offerMeta(offer) : ''; return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, pressed && styles.pressed]}><View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><AppText style={styles.changeText}>{selection ? 'Change' : 'Select'} ›</AppText></View>{money ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? 'Money needed' : 'Money offered'} tone="credits" size="sm" /><AppText style={styles.selectedTitle}>Wallet money</AppText><MoneyPill amountCents={money.amountCents} currency={money.currency} label={side === 'need' ? 'needed' : 'offered'} /><AppText style={styles.selectedMeta}>{side === 'offer' ? 'This amount is held when you accept a proposal.' : 'The accepted applicant will need enough wallet balance.'}</AppText></View> : item ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? 'Saved Need' : 'Saved Offer'} tone={side === 'need' ? 'need' : 'offer'} size="sm" /><AppText style={styles.selectedTitle}>{item.title}</AppText>{meta ? <AppText style={styles.selectedMeta}>{meta}</AppText> : null}<AppText style={styles.selectedBody} numberOfLines={2}>{item.description}</AppText></View> : <View style={styles.emptyBox}><AppText style={styles.emptyTitle}>{emptyTitle}</AppText><AppText style={styles.emptyBody}>{emptyBody}</AppText></View>}</Pressable>; }
++function previewTitle(selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { if (selection?.kind === 'money') return 'Wallet money'; return item?.title || fallback; }
++function previewMeta(selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { if (selection?.kind === 'money') return formatMoney(selection.amountCents, selection.currency); if (!item) return fallback; return 'timing' in item ? needMeta(item) || 'Need details' : offerMeta(item) || 'Offer details'; }
++function TradeSummaryPreview({ needSelection, offerSelection, need, offer }: { needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null }) { return <View style={styles.previewCard}><View style={styles.previewHeaderRow}><AppText style={styles.previewHeader}>TRADE · PREVIEW</AppText><AppText style={styles.previewStatus}>OPEN</AppText></View><View style={styles.previewBlock}><AppText style={styles.previewEyebrow}>I need</AppText><AppText style={styles.previewTitle}>{previewTitle(needSelection, need, 'Choose what you need')}</AppText><AppText style={styles.previewMeta}>{previewMeta(needSelection, need, 'Saved Need / Money')}</AppText></View><View style={styles.swapRow}><View style={styles.swapLine} /><View style={styles.swapCircle}><AppText style={styles.swapIcon}>↔</AppText></View><View style={styles.swapLine} /></View><View style={styles.previewBlock}><AppText style={styles.previewEyebrow}>I offer</AppText><AppText style={styles.previewTitle}>{previewTitle(offerSelection, offer, 'Choose what you offer')}</AppText><AppText style={styles.previewMeta}>{previewMeta(offerSelection, offer, 'Saved Offer / Money')}</AppText></View></View>; }
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { color: '#64748B', lineHeight: 21, fontWeight: '600' }, sideCard: { borderRadius: 28, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900', color: '#0F172A' }, changeText: { color: '#0F766E', fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { color: '#475569', fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', backgroundColor: '#F8FAFC', padding: 14, gap: 5 }, emptyTitle: { color: '#0F172A', fontWeight: '900' }, emptyBody: { color: '#64748B', lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonSelected: { borderColor: '#0F766E', backgroundColor: '#CCFBF1' }, expiryButtonText: { color: '#475569', fontWeight: '900' }, expiryButtonTextSelected: { color: '#0F766E' }, previewCard: { borderRadius: 26, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 18, gap: 14 }, previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, previewHeader: { color: '#64748B', fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewStatus: { color: '#16A34A', fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewBlock: { gap: 5 }, previewEyebrow: { color: '#64748B', fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' }, previewTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.5 }, previewMeta: { color: '#475569', fontWeight: '800', lineHeight: 20 }, swapRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, swapLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' }, swapCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827' }, swapIcon: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, backgroundColor: '#0F766E', paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { color: '#334155', fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 0d8da32..c991afd 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -47,10 +47,15 @@ function compactList(values: Array<string | null | undefined>) {
+   return values.map((value) => value?.trim()).filter(Boolean).join(' · ');
+ }
+ 
+-function needTitle(trade: TradeDeckItem) { return trade.need?.title || trade.title || 'Open request'; }
+-function offerTitle(trade: TradeDeckItem) { return trade.offer?.title || 'Open offer'; }
+-function needMeta(need?: NeedItem | null) { return compactList([need?.category, need?.timing, modeLabel(need?.mode), need?.locationLabel]) || 'Need details not set yet'; }
+-function offerMeta(offer?: OfferItem | null) { return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode), offer?.locationLabel]) || 'Offer details not set yet'; }
++function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
++function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
++function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
++function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
++function needDescription(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? `Requested wallet money: ${moneyLabel(trade)}` : trade.need?.description ?? trade.description; }
++function offerDescription(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? `Offered wallet money: ${moneyLabel(trade)}` : trade.offer?.description ?? ''; }
++function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return 'Money request'; return compactList([need?.category, need?.timing, modeLabel(need?.mode), need?.locationLabel]) || 'Need details not set yet'; }
++function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return 'Wallet money offer'; return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode), offer?.locationLabel]) || 'Offer details not set yet'; }
++function exchangeLabel(trade: TradeDeckItem) { const side = moneySide(trade); if (side === 'need') return `Money requested · ${moneyLabel(trade)}`; if (side === 'offer') return `Money offered · ${moneyLabel(trade)}`; return (trade.amountCents ?? 0) > 0 ? `Wallet amount · ${moneyLabel(trade)}` : 'Service-for-service'; }
+ 
+ function expiryLabel(expiresAt?: string | null) {
+   if (!expiresAt) return 'No expiry set';
+@@ -110,7 +115,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
+   const acceptedProposal = useMemo(() => proposals.find((proposal) => proposal.status === 'accepted') ?? null, [proposals]);
+   const title = compactList([needTitle(trade), offerTitle(trade)]).replace(' · ', ' ↔ ');
+-  const paymentLabel = (trade.amountCents ?? 0) > 0 ? formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur') : 'Service-for-service';
++  const paymentLabel = exchangeLabel(trade);
+   const createdLabel = formatDate(trade.createdAt);
+ 
+   const loadTrade = useCallback(async () => {
+@@ -194,7 +199,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   return <AppScreen><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+     <View style={styles.topBar}><Pressable accessibilityRole="button" onPress={() => navigation.goBack()} style={({ pressed }) => [styles.backButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}><AppText style={styles.backText}>←</AppText></Pressable><AppText style={styles.topBarTitle}>Trade</AppText><View style={styles.topBarSpacer} /></View>
+ 
+-    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? 'Wallet optional' : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
++    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label={(trade.amountCents ?? 0) > 0 ? (moneySide(trade) === 'need' ? 'Money needed' : 'Money offered') : 'Service trade'} tone={(trade.amountCents ?? 0) > 0 ? 'credits' : 'trade'} size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText>{(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={moneySide(trade) === 'need' ? 'needed' : 'offered'} /> : <AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText>}</View>
+ 
+     <Separator theme={theme} />
+     <InventorySection eyebrow="I need" title={trade.need?.title ?? needTitle(trade)} description={trade.need?.description ?? trade.description} meta={needMeta(trade.need)} images={trade.need?.media ?? []} emptyImageLabel="No need reference images yet." theme={theme} />
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 48f2389..2ead28f 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import type { MediaAssetDto } from '@hellowhen/contracts';
++import { formatMoney } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
+ import { TradeExchangeIcon } from './TradeExchangeIcon';
+ import { resolveMediaUrl } from '../mediaUrls';
+@@ -38,10 +39,12 @@ function modeLabel(mode?: string | null) {
+   if (mode === 'hybrid') return 'Hybrid';
+   return null;
+ }
+-function needTitle(trade: TradeDeckItem) { return trade.need?.title || trade.title || 'Open request'; }
+-function offerTitle(trade: TradeDeckItem) { return trade.offer?.title || 'Open offer'; }
+-export function needMeta(need?: NeedItem | null) { return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
+-export function offerMeta(offer?: OfferItem | null) { return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
++function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
++function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
++function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
++function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
++export function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
++export function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
+ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
+   return (
+     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, pressed && styles.pressed]}>
+@@ -54,7 +57,7 @@ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Trad
+         <View style={styles.tradeSideBlock}>
+           <AppText style={styles.sideEyebrow}>I need</AppText>
+           <AppText style={styles.sideTitle} numberOfLines={2}>{needTitle(trade)}</AppText>
+-          <AppText style={styles.sideMeta} numberOfLines={2}>{needMeta(trade.need)}</AppText>
++          <AppText style={styles.sideMeta} numberOfLines={2}>{needMeta(trade.need, trade)}</AppText>
+         </View>
+ 
+         <View style={styles.exchangeRow}>
+@@ -66,7 +69,7 @@ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Trad
+         <View style={styles.tradeSideBlock}>
+           <AppText style={styles.sideEyebrow}>I offer</AppText>
+           <AppText style={styles.sideTitle} numberOfLines={2}>{offerTitle(trade)}</AppText>
+-          <AppText style={styles.sideMeta} numberOfLines={2}>{offerMeta(trade.offer)}</AppText>
++          <AppText style={styles.sideMeta} numberOfLines={2}>{offerMeta(trade.offer, trade)}</AppText>
+         </View>
+       </View>
+     </Pressable>
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 8f6274f..1cb8b2b 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -11,7 +11,8 @@ import { SettingsScreen } from '../features/settings/SettingsScreen';
+ import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
+ import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
+ import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
+-import { CreateTradeScreen } from '../features/trade/CreateTradeScreen';
++import { CreateTradeScreen, type TradeCreateReturnParams, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
++import { TradeSidePickerScreen } from '../features/trade/TradeSidePickerScreen';
+ import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
+ import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
+ import { MyOffersScreen } from '../features/trade/MyOffersScreen';
+@@ -34,7 +35,8 @@ export type RootStackParamList = {
+   NeedDetail: { needId: string; title?: string };
+   CreateOffer: undefined;
+   OfferDetail: { offerId: string; title?: string };
+-  CreateTrade: undefined;
++  CreateTrade: TradeCreateReturnParams;
++  TradeSidePicker: TradeSidePickerParams;
+   CreateProposal: { tradeId: string; title?: string };
+   ProposalDetail: { proposalId: string };
+   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
+@@ -88,6 +90,7 @@ export function RootNavigator() {
+           <Stack.Screen name="CreateOffer" component={CreateOfferScreen} />
+           <Stack.Screen name="OfferDetail" component={OfferDetailScreen} />
+           <Stack.Screen name="CreateTrade" component={CreateTradeScreen} />
++          <Stack.Screen name="TradeSidePicker" component={TradeSidePickerScreen} />
+           <Stack.Screen name="CreateProposal" component={CreateProposalScreen} />
+           <Stack.Screen name="ProposalDetail" component={ProposalDetailScreen} />
+           <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index a2fc07a..63cacb6 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -8,6 +8,8 @@ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'complet
+ export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
+ export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
+ export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
++export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
++export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
+ 
+ const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
+ const needMetadataSchema = z.object({
+@@ -48,14 +50,29 @@ export const createTradeRequestSchema = z.object({
+   creditAmount: z.number().int().min(0).max(100000).optional().default(0),
+   amountCents: z.number().int().min(0).max(10000000).optional().default(0),
+   currency: z.string().trim().length(3).optional().default('eur'),
++  needKind: tradeNeedSideKindSchema.optional().default('need'),
++  offerKind: tradeOfferSideKindSchema.optional().default('offer'),
+   needId: z.string().min(1).optional(),
+   offerId: z.string().min(1).optional(),
+   expiresAt: z.string().datetime().optional(),
+   // Deprecated for the new mobile create flow. Trade deck images come from the selected Need and Offer.
+   mediaIds: z.array(z.string()).max(5).optional()
+-}).refine((value) => Boolean(value.needId && value.offerId), {
+-  message: 'A trade must be created from one saved Need and one saved Offer.',
+-  path: ['needId']
++}).superRefine((value, ctx) => {
++  const needIsMoney = value.needKind === 'money';
++  const offerIsMoney = value.offerKind === 'money';
++
++  if (needIsMoney && offerIsMoney) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A trade cannot request and offer wallet money at the same time.', path: ['offerKind'] });
++  }
++  if (!needIsMoney && !value.needId) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
++  }
++  if (!offerIsMoney && !value.offerId) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
++  }
++  if ((needIsMoney || offerIsMoney) && value.amountCents <= 0) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Money trades must include an amount greater than zero.', path: ['amountCents'] });
++  }
+ });
+ 
+ const inventoryUpdateBaseSchema = z.object({
+@@ -161,6 +178,8 @@ export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
+ export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
+ export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
+ export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
++export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
++export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
+ export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
+ export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
+ export type CreateNeedRequest = z.infer<typeof createNeedRequestSchema>;

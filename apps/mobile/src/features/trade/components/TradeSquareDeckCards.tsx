@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import type { MediaAssetDto } from '@hellowhen/contracts';
+import { formatMoney } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { TradeExchangeIcon } from './TradeExchangeIcon';
 import { resolveMediaUrl } from '../mediaUrls';
@@ -38,10 +39,12 @@ function modeLabel(mode?: string | null) {
   if (mode === 'hybrid') return 'Hybrid';
   return null;
 }
-function needTitle(trade: TradeDeckItem) { return trade.need?.title || trade.title || 'Open request'; }
-function offerTitle(trade: TradeDeckItem) { return trade.offer?.title || 'Open offer'; }
-export function needMeta(need?: NeedItem | null) { return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
-export function offerMeta(offer?: OfferItem | null) { return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
+function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
+function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
+function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
+function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
+export function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
+export function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
 export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
   return (
     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, pressed && styles.pressed]}>
@@ -54,7 +57,7 @@ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Trad
         <View style={styles.tradeSideBlock}>
           <AppText style={styles.sideEyebrow}>I need</AppText>
           <AppText style={styles.sideTitle} numberOfLines={2}>{needTitle(trade)}</AppText>
-          <AppText style={styles.sideMeta} numberOfLines={2}>{needMeta(trade.need)}</AppText>
+          <AppText style={styles.sideMeta} numberOfLines={2}>{needMeta(trade.need, trade)}</AppText>
         </View>
 
         <View style={styles.exchangeRow}>
@@ -66,7 +69,7 @@ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Trad
         <View style={styles.tradeSideBlock}>
           <AppText style={styles.sideEyebrow}>I offer</AppText>
           <AppText style={styles.sideTitle} numberOfLines={2}>{offerTitle(trade)}</AppText>
-          <AppText style={styles.sideMeta} numberOfLines={2}>{offerMeta(trade.offer)}</AppText>
+          <AppText style={styles.sideMeta} numberOfLines={2}>{offerMeta(trade.offer, trade)}</AppText>
         </View>
       </View>
     </Pressable>

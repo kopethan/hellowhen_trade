@@ -12,7 +12,8 @@ import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
 import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
 import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
-import { CreateTradeScreen } from '../features/trade/CreateTradeScreen';
+import { CreateTradeScreen, type TradeCreateReturnParams, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
+import { TradeSidePickerScreen } from '../features/trade/TradeSidePickerScreen';
 import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
 import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
 import { MyOffersScreen } from '../features/trade/MyOffersScreen';
@@ -35,7 +36,8 @@ export type RootStackParamList = {
   NeedDetail: { needId: string; title?: string };
   CreateOffer: undefined;
   OfferDetail: { offerId: string; title?: string };
-  CreateTrade: undefined;
+  CreateTrade: TradeCreateReturnParams;
+  TradeSidePicker: TradeSidePickerParams;
   CreateProposal: { tradeId: string; title?: string };
   ProposalDetail: { proposalId: string };
   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
@@ -92,6 +94,7 @@ export function RootNavigator() {
           <Stack.Screen name="CreateOffer" component={CreateOfferScreen} />
           <Stack.Screen name="OfferDetail" component={OfferDetailScreen} />
           <Stack.Screen name="CreateTrade" component={CreateTradeScreen} />
+          <Stack.Screen name="TradeSidePicker" component={TradeSidePickerScreen} />
           <Stack.Screen name="CreateProposal" component={CreateProposalScreen} />
           <Stack.Screen name="ProposalDetail" component={ProposalDetailScreen} />
           <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />

@@ -8,6 +8,8 @@ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'complet
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
+export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
+export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
 
 const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 const needMetadataSchema = z.object({
@@ -48,14 +50,29 @@ export const createTradeRequestSchema = z.object({
   creditAmount: z.number().int().min(0).max(100000).optional().default(0),
   amountCents: z.number().int().min(0).max(10000000).optional().default(0),
   currency: z.string().trim().length(3).optional().default('eur'),
+  needKind: tradeNeedSideKindSchema.optional().default('need'),
+  offerKind: tradeOfferSideKindSchema.optional().default('offer'),
   needId: z.string().min(1).optional(),
   offerId: z.string().min(1).optional(),
   expiresAt: z.string().datetime().optional(),
   // Deprecated for the new mobile create flow. Trade deck images come from the selected Need and Offer.
   mediaIds: z.array(z.string()).max(5).optional()
-}).refine((value) => Boolean(value.needId && value.offerId), {
-  message: 'A trade must be created from one saved Need and one saved Offer.',
-  path: ['needId']
+}).superRefine((value, ctx) => {
+  const needIsMoney = value.needKind === 'money';
+  const offerIsMoney = value.offerKind === 'money';
+
+  if (needIsMoney && offerIsMoney) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A trade cannot request and offer wallet money at the same time.', path: ['offerKind'] });
+  }
+  if (!needIsMoney && !value.needId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
+  }
+  if (!offerIsMoney && !value.offerId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
+  }
+  if ((needIsMoney || offerIsMoney) && value.amountCents <= 0) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Money trades must include an amount greater than zero.', path: ['amountCents'] });
+  }
 });
 
 const inventoryUpdateBaseSchema = z.object({
@@ -161,6 +178,8 @@ export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
+export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
 export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
 export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
 export type CreateNeedRequest = z.infer<typeof createNeedRequestSchema>;

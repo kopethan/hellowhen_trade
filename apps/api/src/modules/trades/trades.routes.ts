@@ -109,6 +109,15 @@ function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
   return { AND: and };
 }
 
+function tradeMoneySide(trade: { amountCents?: number | null; needId?: string | null; offerId?: string | null }) {
+  const amountCents = trade.amountCents ?? 0;
+  if (amountCents <= 0) return null;
+  if (!trade.needId && trade.offerId) return 'need' as const;
+  if (trade.needId && !trade.offerId) return 'offer' as const;
+  return 'legacy_optional' as const;
+}
+function moneyTitle(amountCents: number, currency: string) { return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100); }
+
 export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
   return prisma.$transaction(async (tx) => {
     const trade = await tx.trade.findUnique({ where: { id: tradeId }, include: { payment: true } });
@@ -119,15 +128,17 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
 
     const amountCents = trade.amountCents ?? 0;
     const currency = trade.currency || 'eur';
+    const moneySide = tradeMoneySide(trade);
 
     if (amountCents > 0) {
-      let wallet = await tx.wallet.findUnique({ where: { userId: ownerId } });
-      if (!wallet) wallet = await tx.wallet.create({ data: { userId: ownerId, currency } });
+      const buyerId = moneySide === 'need' ? applicantId : ownerId;
+      const sellerId = moneySide === 'need' ? ownerId : applicantId;
+      let wallet = await tx.wallet.findUnique({ where: { userId: buyerId } });
+      if (!wallet) wallet = await tx.wallet.create({ data: { userId: buyerId, currency } });
       if (wallet.availableBalanceCents < amountCents) throw Object.assign(new Error('insufficient_wallet_balance'), { code: 'INSUFFICIENT_WALLET_BALANCE' });
-
       const updatedWallet = await tx.wallet.update({ where: { id: wallet.id }, data: { availableBalanceCents: { decrement: amountCents }, heldBalanceCents: { increment: amountCents }, currency } });
-      await tx.creditLedgerEntry.create({ data: { userId: ownerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, walletMoney: true } } });
-      await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId: ownerId, sellerId: applicantId, creditAmount: 0, amountCents, currency, status: 'held' } });
+      await tx.creditLedgerEntry.create({ data: { userId: buyerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, moneySide, walletMoney: true } } });
+      await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' } });
       await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: 0, heldAmountCents: amountCents, currency, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: 0, heldAmountCents: amountCents, currency } });
     }
 
@@ -163,33 +174,30 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   const input = createTradeRequestSchema.parse(req.body);
   const actorId = req.user!.id;
 
-  const [need, offer] = await Promise.all([
-    prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
-    prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } })
+  const needIsMoney = input.needKind === 'money';
+  const offerIsMoney = input.offerKind === 'money';
+  const [need, offer, wallet] = await Promise.all([
+    needIsMoney ? Promise.resolve(null) : prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
+    offerIsMoney ? Promise.resolve(null) : prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }),
+    offerIsMoney && input.amountCents > 0 ? prisma.wallet.findUnique({ where: { userId: actorId } }) : Promise.resolve(null)
   ]);
+  if (!needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
+  if (!offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
+  if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
+  if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
+  if (offerIsMoney && input.amountCents > 0 && (!wallet || wallet.availableBalanceCents < input.amountCents)) return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'You can only offer money that is available in your wallet.' });
+  const moneyLabel = moneyTitle(input.amountCents, input.currency);
+  const needTitle = needIsMoney ? moneyLabel : need!.title;
+  const offerTitle = offerIsMoney ? moneyLabel : offer!.title;
+  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need!.description;
+  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer!.description;
+  const title = input.title?.trim() || `${needTitle} <-> ${offerTitle}`;
+  const description = input.description?.trim() || `I need: ${needDescription}
 
-  if (!need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
-  if (!offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
-  if (['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
-  if (['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
-
-  const title = input.title?.trim() || `${need.title} <-> ${offer.title}`;
-  const description = input.description?.trim() || `I need: ${need.description}\n\nI offer: ${offer.description}`;
+I offer: ${offerDescription}`;
 
   const trade = await prisma.trade.create({
-    data: {
-      ownerId: actorId,
-      title,
-      description,
-      creditAmount: input.creditAmount,
-      amountCents: input.amountCents,
-      currency: input.currency,
-      needId: need.id,
-      offerId: offer.id,
-      status: 'active',
-      isPublic: true,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
-    },
+    data: { ownerId: actorId, title, description, creditAmount: input.creditAmount, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
     include: tradeInclude
   });
 
