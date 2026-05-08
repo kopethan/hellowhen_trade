@@ -125,6 +125,9 @@ export function TradeDeckFeedScreen() {
               <AppText style={styles.iconButtonText}>F</AppText>
               {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
             </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, styles.createIconButton, pressed && styles.pressed]}>
+              <AppText style={[styles.iconButtonText, styles.createIconButtonText]}>+</AppText>
+            </Pressable>
           </View>
         </View>
 
@@ -204,6 +207,8 @@ const styles = StyleSheet.create({
   iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0' },
   iconButtonSelected: { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' },
   iconButtonText: { color: '#0F172A', fontSize: 16, fontWeight: '900', lineHeight: 20 },
+  createIconButton: { backgroundColor: '#111827', borderColor: '#111827' },
+  createIconButtonText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24 },
   filterDot: { position: 'absolute', right: -3, top: -3, minWidth: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111827', paddingHorizontal: 4 },
   filterDotText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   searchInput: { borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0', backgroundColor: '#F8FAFC', paddingHorizontal: 16, paddingVertical: 12, color: '#0F172A', fontSize: 16, fontWeight: '700' },

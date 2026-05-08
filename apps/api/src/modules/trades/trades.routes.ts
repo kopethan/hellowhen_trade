@@ -12,7 +12,7 @@ export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { 
 export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
 
 type DeckRelatedEntity = { id: string } | null | undefined;
-type TradeWithDeckRelations = { id: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'offer'> & {
   media: MediaAsset[];
   need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
@@ -42,6 +42,19 @@ export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trade
 export async function withOneTradeDeckMedia<T extends TradeWithDeckRelations>(trade: T, visibility: MediaVisibility = 'owner'): Promise<TradeDeckHydrated<T>> {
   const [result] = await withTradeDeckMedia([trade], visibility);
   return result ?? ({ ...trade, media: [], need: null, offer: null } as TradeDeckHydrated<T>);
+}
+
+export async function withTradeDeckMediaForActor<T extends TradeWithDeckRelations>(trades: T[], actorId?: string): Promise<Array<TradeDeckHydrated<T>>> {
+  if (!actorId) return withTradeDeckMedia(trades, 'public');
+
+  const ownerTrades = trades.filter((trade) => trade.ownerId === actorId);
+  const publicTrades = trades.filter((trade) => trade.ownerId !== actorId);
+  const [ownerHydrated, publicHydrated] = await Promise.all([
+    withTradeDeckMedia(ownerTrades, 'owner'),
+    withTradeDeckMedia(publicTrades, 'public')
+  ]);
+  const hydratedById = new Map([...ownerHydrated, ...publicHydrated].map((trade) => [trade.id, trade]));
+  return trades.map((trade) => hydratedById.get(trade.id) ?? ({ ...trade, media: [], need: null, offer: null } as TradeDeckHydrated<T>));
 }
 
 export async function withProposalTradeMedia<T extends ProposalWithTrade>(proposals: T[], visibility: MediaVisibility = 'owner'): Promise<T[]> {
@@ -124,10 +137,11 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
   });
 }
 
-tradesRoutes.get('/feed', asyncRoute(async (req, res) => {
+tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const input = listTradesFeedQuerySchema.parse(req.query);
+  const actorId = req.user?.id;
   const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: tradeInclude, orderBy: { createdAt: 'desc' }, take: input.take ?? 50 });
-  const hydratedTrades = await withTradeDeckMedia(trades, 'public');
+  const hydratedTrades = await withTradeDeckMediaForActor(trades, actorId);
   const filteredTrades = input.hasImages
     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
     : hydratedTrades;

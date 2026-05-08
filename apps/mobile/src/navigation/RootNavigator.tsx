@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountScreen } from '../features/account/AccountScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
@@ -47,6 +48,9 @@ const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function TradeTabs() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, 0);
+
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -54,9 +58,9 @@ function TradeTabs() {
         tabBarShowLabel: true,
         tabBarIcon: () => null,
         tabBarIconStyle: { display: 'none' },
-        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 10 },
-        tabBarItemStyle: { paddingTop: 10 },
-        tabBarStyle: { height: 58, borderTopColor: '#E5E7EB' },
+        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 8 },
+        tabBarItemStyle: { paddingTop: 8 },
+        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: '#E5E7EB' },
         tabBarActiveTintColor: '#0F766E',
         tabBarInactiveTintColor: '#64748B',
       }}

@@ -1,4 +1,5 @@
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { AppSettingsProvider } from './providers/AppSettingsProvider';
@@ -9,16 +10,18 @@ import { RootNavigator } from './navigation/RootNavigator';
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AppSettingsProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <NavigationContainer>
-            <StatusBar style="auto" />
-            <RootNavigator />
-          </NavigationContainer>
-        </AuthProvider>
-      </ThemeProvider>
-      </AppSettingsProvider>
+      <SafeAreaProvider>
+        <AppSettingsProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <NavigationContainer>
+                <StatusBar style="auto" />
+                <RootNavigator />
+              </NavigationContainer>
+            </AuthProvider>
+          </ThemeProvider>
+        </AppSettingsProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

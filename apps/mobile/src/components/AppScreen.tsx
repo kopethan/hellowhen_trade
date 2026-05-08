@@ -1,15 +1,32 @@
 import React from 'react';
-import { SafeAreaView, StyleSheet, ViewStyle } from 'react-native';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeTokens } from '../providers/ThemeProvider';
 
 export function AppScreen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   const theme = useThemeTokens();
-  return <SafeAreaView style={[styles.screen, { backgroundColor: theme.color.background }, style]}>{children}</SafeAreaView>;
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View
+      style={[
+        styles.screen,
+        {
+          backgroundColor: theme.color.background,
+          paddingTop: insets.top + 18,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingBottom: 0,
   },
 });
