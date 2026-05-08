@@ -1,31 +1,33 @@
 import React, { useMemo, useState } from 'react';
-import { Button, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
+import { AppSelect } from '../../components/AppSelect';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { countryOptions, currencyOptions, type SupportedCurrency } from '../../lib/moneyPreferences';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
+import { useThemeTokens } from '../../providers/ThemeProvider';
 
 type AuthMode = 'login' | 'register' | 'forgot';
-type SupportedCurrency = 'eur' | 'usd' | 'gbp';
-
-const countryOptions = [
-  { code: 'FR', label: 'France', currency: 'eur' as SupportedCurrency },
-  { code: 'US', label: 'United States', currency: 'usd' as SupportedCurrency },
-  { code: 'GB', label: 'United Kingdom', currency: 'gbp' as SupportedCurrency },
-  { code: 'DE', label: 'Germany', currency: 'eur' as SupportedCurrency },
-  { code: 'ES', label: 'Spain', currency: 'eur' as SupportedCurrency },
-  { code: 'IT', label: 'Italy', currency: 'eur' as SupportedCurrency },
-];
-const currencyOptions: SupportedCurrency[] = ['eur', 'usd', 'gbp'];
 
 const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
 const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
 const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim() ?? '';
 
+const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `Default currency ${country.currency.toUpperCase()}` }));
+const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
+
+function authSubtitle(mode: AuthMode) {
+  if (mode === 'register') return 'Create your account and set money preferences for wallet demo flows.';
+  if (mode === 'forgot') return 'Reset your password using your account email.';
+  return 'Sign in to create needs, offers, and trades.';
+}
+
 export function LoginScreen() {
   const auth = useAuth();
+  const theme = useThemeTokens();
   const [mode, setMode] = useState<AuthMode>('login');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -42,12 +44,19 @@ export function LoginScreen() {
 
   const googleConfigured = useMemo(() => Boolean(googleWebClientId || googleIosClientId || googleAndroidClientId), []);
 
+  function switchMode(nextMode: AuthMode) {
+    setMode(nextMode);
+    setError(null);
+    setMessage(null);
+  }
+
   function validateLocalForm() {
     if (!email.trim()) return 'Enter your email.';
     if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
     if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
     if (mode === 'register' && !countryCode) return 'Choose your country.';
+    if (mode === 'register' && !preferredCurrency) return 'Choose your preferred currency.';
     if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
     return null;
   }
@@ -96,61 +105,124 @@ export function LoginScreen() {
     }
   }
 
-  return <AppScreen><ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled"><AppCard>
-    <SemanticBadge label="Trade" tone="trade" />
-    <AppText style={styles.logo}>Hellowhen</AppText>
-    <AppText style={styles.subtitle}>Sign in to create needs, offers, and trades.</AppText>
+  return (
+    <AppScreen>
+      <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <AppCard style={styles.authCard}>
+          <View style={styles.brandBlock}>
+            <SemanticBadge label="Trade" tone="trade" />
+            <AppText style={styles.logo}>Hellowhen</AppText>
+            <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{authSubtitle(mode)}</AppText>
+          </View>
 
-    <View style={styles.toggleRow}><ModeButton label="Login" active={mode === 'login'} onPress={() => setMode('login')} /><ModeButton label="Register" active={mode === 'register'} onPress={() => setMode('register')} /><ModeButton label="Reset" active={mode === 'forgot'} onPress={() => setMode('forgot')} /></View>
+          <View style={[styles.toggleRow, { backgroundColor: theme.color.subtleSurface }]}>
+            <ModeButton label="Login" active={mode === 'login'} onPress={() => switchMode('login')} />
+            <ModeButton label="Register" active={mode === 'register'} onPress={() => switchMode('register')} />
+            <ModeButton label="Reset" active={mode === 'forgot'} onPress={() => switchMode('forgot')} />
+          </View>
 
-    {mode === 'register' ? <TextInput value={displayName} onChangeText={setDisplayName} placeholder="Full name" style={styles.input} /> : null}
-    <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" style={styles.input} />
-    {mode !== 'forgot' ? <View style={styles.passwordRow}><TextInput value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry={!showPassword} style={[styles.input, styles.passwordInput]} /><Pressable onPress={() => setShowPassword((value) => !value)} style={styles.showButton}><AppText style={styles.showButtonText}>{showPassword ? 'Hide' : 'Show'}</AppText></Pressable></View> : null}
-    {mode === 'register' ? <TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} style={styles.input} /> : null}
-    {mode === 'register' ? <View style={styles.preferenceBlock}><AppText style={styles.preferenceTitle}>Money preferences</AppText><AppText style={styles.preferenceBody}>Used for wallet money and future Stripe demo flows. You can change this from Profile later.</AppText><View style={styles.optionWrap}>{countryOptions.map((option) => <Pressable key={option.code} accessibilityRole="button" onPress={() => { setCountryCode(option.code); setPreferredCurrency(option.currency); }} style={({ pressed }) => [styles.preferenceChip, countryCode === option.code && styles.preferenceChipActive, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, countryCode === option.code && styles.preferenceChipTextActive]}>{option.label}</AppText></Pressable>)}</View><View style={styles.optionWrap}>{currencyOptions.map((currency) => <Pressable key={currency} accessibilityRole="button" onPress={() => setPreferredCurrency(currency)} style={({ pressed }) => [styles.preferenceChip, preferredCurrency === currency && styles.preferenceChipActive, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, preferredCurrency === currency && styles.preferenceChipTextActive]}>{currency.toUpperCase()}</AppText></Pressable>)}</View></View> : null}
-    {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, acceptedTerms && styles.checkboxActive]} /><AppText style={styles.termsText}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
+          <View style={styles.formStack}>
+            {mode === 'register' ? <AuthInput value={displayName} onChangeText={setDisplayName} placeholder="Full name" /> : null}
+            <AuthInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" />
+            {mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder="Password" showPassword={showPassword} onToggle={() => setShowPassword((value) => !value)} /> : null}
+            {mode === 'register' ? <AuthInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} /> : null}
 
-    {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
-    {error ? <InfoNotice tone="danger" title="Sign-in error" body={error} /> : null}
-    {message ? <InfoNotice tone="success" title="Done" body={message} /> : null}
+            {mode === 'register' ? (
+              <View style={[styles.preferenceBlock, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+                <View style={styles.preferenceHeader}>
+                  <AppText style={styles.preferenceTitle}>Money preferences</AppText>
+                  <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for wallet money and future Stripe demo flows. You can change this from Profile later.</AppText>
+                </View>
+                <AppSelect
+                  label="Country"
+                  value={countryCode}
+                  options={countrySelectOptions}
+                  onSelect={(value) => {
+                    const selectedCountry = countryOptions.find((country) => country.code === value);
+                    setCountryCode(value);
+                    if (selectedCountry) setPreferredCurrency(selectedCountry.currency);
+                  }}
+                />
+                <AppSelect
+                  label="Preferred currency"
+                  value={preferredCurrency}
+                  options={currencySelectOptions}
+                  onSelect={(value) => setPreferredCurrency(value as SupportedCurrency)}
+                />
+              </View>
+            ) : null}
 
-    <Button title={submitting ? 'Working...' : mode === 'login' ? 'Login' : mode === 'register' ? 'Create account' : 'Send reset link'} disabled={submitting || googleSubmitting} onPress={handleSubmit} />
-    <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={styles.googleButtonText}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
-  </AppCard></ScrollView></AppScreen>;
+            {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View><AppText style={[styles.termsText, { color: theme.color.muted }]}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
+          </View>
+
+          {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
+          {error ? <InfoNotice tone="danger" title="Sign-in error" body={error} /> : null}
+          {message ? <InfoNotice tone="success" title="Done" body={message} /> : null}
+
+          <View style={styles.actionStack}>
+            <AuthActionButton label={submitting ? 'Working...' : mode === 'login' ? 'Login' : mode === 'register' ? 'Create account' : 'Send reset link'} disabled={submitting || googleSubmitting} onPress={() => { void handleSubmit(); }} />
+            <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={[styles.googleButtonText, { color: theme.color.text }]}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
+          </View>
+        </AppCard>
+      </ScrollView>
+    </AppScreen>
+  );
 }
 
 function ModeButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.modeButton, active && styles.modeButtonActive, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, active && styles.modeButtonTextActive]}>{label}</AppText></Pressable>;
+  const theme = useThemeTokens();
+  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.modeButton, active && { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: active ? theme.color.background : theme.color.muted }]}>{label}</AppText></Pressable>;
+}
+
+function AuthInput(props: React.ComponentProps<typeof TextInput>) {
+  const theme = useThemeTokens();
+  return <TextInput {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
+}
+
+function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; onToggle: () => void }) {
+  const theme = useThemeTokens();
+  return (
+    <View style={styles.passwordRow}>
+      <AuthInput value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={!showPassword} style={styles.passwordInput} />
+      <Pressable onPress={onToggle} style={({ pressed }) => [styles.showButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+        <AppText style={[styles.showButtonText, { color: theme.color.text }]}>{showPassword ? 'Hide' : 'Show'}</AppText>
+      </Pressable>
+    </View>
+  );
+}
+
+function AuthActionButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={styles.primaryButtonText}>{label}</AppText></Pressable>;
 }
 
 const styles = StyleSheet.create({
   shell: { flexGrow: 1, justifyContent: 'center', paddingVertical: 24 },
+  authCard: { gap: 16 },
+  brandBlock: { gap: 9 },
   logo: { fontSize: 38, fontWeight: '900', letterSpacing: -1 },
-  subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' },
-  toggleRow: { flexDirection: 'row', gap: 8, padding: 4, borderRadius: 18, backgroundColor: '#F1F5F9' },
-  modeButton: { flex: 1, borderRadius: 14, paddingVertical: 10, alignItems: 'center' },
-  modeButtonActive: { backgroundColor: '#111827' },
-  modeButtonText: { color: '#334155', fontWeight: '900' },
-  modeButtonTextActive: { color: '#FFFFFF' },
-  input: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', padding: 12, fontSize: 16 },
+  subtitle: { lineHeight: 20, fontWeight: '700' },
+  toggleRow: { flexDirection: 'row', gap: 6, padding: 4, borderRadius: 18 },
+  modeButton: { flex: 1, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  modeButtonText: { fontWeight: '900' },
+  formStack: { gap: 11 },
+  input: { minHeight: 56, borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, fontSize: 16, fontWeight: '600' },
   passwordRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   passwordInput: { flex: 1 },
-  showButton: { borderRadius: 14, borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: '#F8FAFC' },
-  showButtonText: { fontWeight: '900', color: '#0F172A' },
-  preferenceBlock: { gap: 8 },
-  preferenceTitle: { color: '#0F172A', fontWeight: '900' },
-  preferenceBody: { color: '#64748B', lineHeight: 18, fontWeight: '700' },
-  optionWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  preferenceChip: { borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingHorizontal: 12, paddingVertical: 8 },
-  preferenceChipActive: { backgroundColor: '#111827', borderColor: '#111827' },
-  preferenceChipText: { color: '#334155', fontWeight: '900' },
-  preferenceChipTextActive: { color: '#FFFFFF' },
+  showButton: { minHeight: 56, borderRadius: 16, borderWidth: 1, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center' },
+  showButtonText: { fontWeight: '900' },
+  preferenceBlock: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 12 },
+  preferenceHeader: { gap: 4 },
+  preferenceTitle: { fontSize: 16, fontWeight: '900' },
+  preferenceBody: { lineHeight: 18, fontWeight: '700' },
   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  checkbox: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: '#94A3B8', backgroundColor: '#FFFFFF' },
-  checkboxActive: { backgroundColor: '#0F766E', borderColor: '#0F766E' },
-  termsText: { flex: 1, color: '#334155', fontWeight: '700', lineHeight: 19 },
-  googleButton: { borderRadius: 16, borderWidth: 1, borderColor: '#CBD5E1', paddingVertical: 13, alignItems: 'center', backgroundColor: '#FFFFFF' },
-  googleButtonText: { color: '#0F172A', fontWeight: '900' },
+  checkbox: { width: 23, height: 23, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
+  termsText: { flex: 1, fontWeight: '700', lineHeight: 19 },
+  actionStack: { gap: 10 },
+  primaryButton: { minHeight: 52, borderRadius: 16, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', textTransform: 'uppercase' },
+  googleButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  googleButtonText: { fontWeight: '900' },
   disabledButton: { opacity: 0.55 },
-  pressed: { opacity: 0.78 },
+  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
 });

@@ -6,9 +6,11 @@ import type { ProfileDto } from '@hellowhen/contracts';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
+import { AppSelect } from '../../components/AppSelect';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
+import { countryOptions, currencyOptions, type SupportedCurrency } from '../../lib/moneyPreferences';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
@@ -18,16 +20,8 @@ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpl
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
 type ProfileResponse = { profile: ProfileDto };
-type SupportedCurrency = 'eur' | 'usd' | 'gbp';
-const countryOptions = [
-  { code: 'FR', label: 'France', currency: 'eur' as SupportedCurrency },
-  { code: 'US', label: 'United States', currency: 'usd' as SupportedCurrency },
-  { code: 'GB', label: 'United Kingdom', currency: 'gbp' as SupportedCurrency },
-  { code: 'DE', label: 'Germany', currency: 'eur' as SupportedCurrency },
-  { code: 'ES', label: 'Spain', currency: 'eur' as SupportedCurrency },
-  { code: 'IT', label: 'Italy', currency: 'eur' as SupportedCurrency },
-];
-const currencyOptions: SupportedCurrency[] = ['eur', 'usd', 'gbp'];
+const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `Default currency ${country.currency.toUpperCase()}` }));
+const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
 
 function optionalText(value: string) {
   const trimmed = value.trim();
@@ -160,8 +154,26 @@ export function ProfileScreen({ navigation }: Props) {
           <SemanticBadge label="Money preferences" tone="credits" size="sm" />
           <AppText style={styles.sectionTitle}>Country and currency</AppText>
           <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for wallet money, payouts, and future Stripe setup. Full address/KYC comes later only when needed.</AppText>
-          <View style={styles.optionWrap}>{countryOptions.map((option) => <Pressable key={option.code} accessibilityRole="button" disabled={saving} onPress={() => { setCountryCode(option.code); setPreferredCurrency(option.currency); }} style={({ pressed }) => [styles.preferenceChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, countryCode === option.code && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, { color: countryCode === option.code ? theme.color.background : theme.color.text }]}>{option.label}</AppText></Pressable>)}</View>
-          <View style={styles.optionWrap}>{currencyOptions.map((currency) => <Pressable key={currency} accessibilityRole="button" disabled={saving} onPress={() => setPreferredCurrency(currency)} style={({ pressed }) => [styles.preferenceChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, preferredCurrency === currency && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.preferenceChipText, { color: preferredCurrency === currency ? theme.color.background : theme.color.text }]}>{currency.toUpperCase()}</AppText></Pressable>)}</View>
+          <AppSelect
+            label="Country"
+            helper="Used for wallet and payout rules"
+            value={countryCode}
+            options={countrySelectOptions}
+            disabled={saving}
+            onSelect={(value) => {
+              const selectedCountry = countryOptions.find((country) => country.code === value);
+              setCountryCode(value);
+              if (selectedCountry) setPreferredCurrency(selectedCountry.currency);
+            }}
+          />
+          <AppSelect
+            label="Preferred currency"
+            helper="No FX conversion yet"
+            value={preferredCurrency}
+            options={currencySelectOptions}
+            disabled={saving}
+            onSelect={(value) => setPreferredCurrency(value as SupportedCurrency)}
+          />
         </AppCard>
 
         <View style={styles.actions}>
