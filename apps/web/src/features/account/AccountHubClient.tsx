@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
-import { betaFeatures, MoneyOffNotice } from '../../lib/betaFeatures';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { assetUrl, fallbackCurrency, formatMoney, formatPayoutFeeRate, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
 
@@ -82,8 +82,6 @@ export function AccountHubClient() {
           </div>
         </section>
       ) : null}
-
-      {!betaFeatures.moneyFeaturesVisible ? <MoneyOffNotice title="Service and goods beta" /> : null}
 
       <div className="mobile-list">
         {accountItems.map((item) => (

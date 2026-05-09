@@ -7,7 +7,6 @@ import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { mockTrades } from '../../lib/mockData';
-import { TradeDetailReferenceDeck } from './TradeDetailReferenceDeck';
 import { TradeImageGrid } from './TradeImageGrid';
 import { TradeProposalPanel } from './TradeProposalPanel';
 import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeMode } from './tradePresentation';
@@ -206,8 +205,6 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <p>{currentTrade.description}</p>
         <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
       </section>
-
-      <TradeDetailReferenceDeck trade={currentTrade} />
 
       <SideSection side={needSide} />
       <SideSection side={offerSide} />

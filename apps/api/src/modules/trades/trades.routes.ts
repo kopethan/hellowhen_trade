@@ -48,13 +48,13 @@ export async function withOneTradeDeckMedia<T extends TradeWithDeckRelations>(tr
 }
 
 export async function withTradeDeckMediaForActor<T extends TradeWithDeckRelations>(trades: T[], actorId?: string): Promise<Array<TradeDeckHydrated<T>>> {
-  if (!actorId) return withTradeDeckMedia(trades, 'public');
+  if (!actorId) return withTradeDeckMedia(trades, 'trade_public');
 
   const ownerTrades = trades.filter((trade) => trade.ownerId === actorId);
   const publicTrades = trades.filter((trade) => trade.ownerId !== actorId);
   const [ownerHydrated, publicHydrated] = await Promise.all([
     withTradeDeckMedia(ownerTrades, 'owner'),
-    withTradeDeckMedia(publicTrades, 'public')
+    withTradeDeckMedia(publicTrades, 'trade_public')
   ]);
   const hydratedById = new Map([...ownerHydrated, ...publicHydrated].map((trade) => [trade.id, trade]));
   return trades.map((trade) => hydratedById.get(trade.id) ?? ({ ...trade, media: [], need: null, offer: null } as TradeDeckHydrated<T>));
@@ -178,7 +178,8 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
   const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, OR: [{ isPublic: true }, ...(actorId ? [{ ownerId: actorId }, { providerId: actorId }, { proposals: { some: { applicantId: actorId } } }] : [])] }, include: tradeInclude });
   if (!trade) return res.status(404).json({ error: 'not_found' });
-  const visibility: MediaVisibility = actorId && (trade.ownerId === actorId || trade.providerId === actorId) ? 'owner' : 'public';
+  const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
+  const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
   res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
 }));
 tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {

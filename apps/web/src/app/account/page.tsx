@@ -8,7 +8,7 @@ export default function AccountPage() {
       <PageIntro
         eyebrow="Private"
         title="Account"
-        body="Your profile, settings, support, and beta launch controls live here."
+        body="Manage your profile, settings, and support from here."
       />
       <WebAuthSummary />
       <AccountHubClient />

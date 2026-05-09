@@ -247,7 +247,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
       <PageIntro
         eyebrow="Create trade"
         title="Choose what you need and what you offer"
-        body={betaFeatures.moneyTradesEnabled ? 'Pick saved inventory or place wallet money under one side. Money is never a third extra field.' : 'For the beta launch, create service and goods exchanges from saved Needs and Offers. Wallet money and cash trades are hidden.'}
+        body={betaFeatures.moneyTradesEnabled ? 'Pick saved inventory or place wallet money under one side. Money is never a third extra field.' : 'Choose saved Needs and Offers to build a service or goods exchange.'}
         action={<Link href="/trades" className="button secondary">Cancel</Link>}
       />
 
@@ -269,7 +269,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
       <form className="trade-create-form" onSubmit={handleSubmit}>
         <div className="trade-create-status-row">
           <span className="semantic-badge trade">{loadState === 'loading' ? 'Loading inventory' : loadState === 'live' ? 'Live inventory' : loadState === 'demo' ? 'Demo inventory' : 'Inventory'}</span>
-          {betaFeatures.moneyTradesEnabled && amountPreview ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">Service/goods beta</span>}
+          {betaFeatures.moneyTradesEnabled && amountPreview ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">Beta</span>}
         </div>
 
         <div className="trade-create-side-grid">

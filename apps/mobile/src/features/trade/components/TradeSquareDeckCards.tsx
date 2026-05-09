@@ -20,10 +20,14 @@ export type TradeSquareDeckCard = {
 type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTotal: number; onOpen: () => void; };
 type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; onOpen: () => void; };
 
+function deckMedia(media: MediaAssetDto[] | undefined) {
+  return (media ?? []).filter((asset) => asset.status !== 'removed');
+}
+
 export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, tradeTotal = 1): TradeSquareDeckCard[] {
   const cards: TradeSquareDeckCard[] = [{ id: `${trade.id}:summary`, kind: 'summary', trade, tradeIndex, tradeTotal }];
-  for (const [index, media] of (trade.need?.media ?? []).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
-  for (const [index, media] of (trade.offer?.media ?? []).entries()) cards.push({ id: `${trade.id}:offer:${media.id}:${index}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media });
+  for (const [index, media] of deckMedia(trade.need?.media).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
+  for (const [index, media] of deckMedia(trade.offer?.media).entries()) cards.push({ id: `${trade.id}:offer:${media.id}:${index}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media });
   return cards;
 }
 
@@ -41,6 +45,7 @@ function modeLabel(mode?: string | null) {
   return null;
 }
 function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
+function imagePlaceholderLabel(media?: MediaAssetDto) { if (media?.status === 'pending_review') return 'Image pending review'; if (media?.status === 'flagged') return 'Image unavailable'; return 'Image unavailable'; }
 function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
 function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
 function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
@@ -84,8 +89,9 @@ export function TradeImageCard({ kind, media, onOpen }: TradeImageCardProps) {
 
   return (
     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, pressed && styles.pressed]}>
-      {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>No approved image</AppText></View>}
+      {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>{imagePlaceholderLabel(media)}</AppText></View>}
       <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{label}</AppText></View>
+      {media?.status === 'pending_review' ? <View style={styles.reviewBadge}><AppText style={styles.reviewBadgeText}>Pending review</AppText></View> : null}
     </Pressable>
   );
 }
@@ -109,5 +115,7 @@ const styles = StyleSheet.create({
   imagePlaceholderText: { color: '#64748B', fontWeight: '900' },
   floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
   floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
+  reviewBadge: { position: 'absolute', right: 14, bottom: 14, borderRadius: 999, backgroundColor: 'rgba(255, 255, 255, 0.86)', paddingHorizontal: 10, paddingVertical: 6 },
+  reviewBadgeText: { color: '#0F172A', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
   pressed: { opacity: 0.82 },
 });

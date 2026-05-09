@@ -1,0 +1,272 @@
+diff --git a/apps/mobile/assets/icons/outline/need.svg b/apps/mobile/assets/icons/outline/need.svg
+new file mode 100644
+index 0000000..5d191d4
+--- /dev/null
++++ b/apps/mobile/assets/icons/outline/need.svg
+@@ -0,0 +1,8 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.75H18.25V6.5H15.5V3.75Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++  <path d="M10.5 8.75C11.47 8.75 12.25 7.97 12.25 7C12.25 6.03 11.47 5.25 10.5 5.25C9.53 5.25 8.75 6.03 8.75 7C8.75 7.97 9.53 8.75 10.5 8.75Z" stroke="currentColor" stroke-width="1.25"/>
++  <path d="M14.3 10.1H17.4L15.85 12.75L14.3 10.1Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/mobile/assets/icons/outline/offer.svg b/apps/mobile/assets/icons/outline/offer.svg
+new file mode 100644
+index 0000000..c033b30
+--- /dev/null
++++ b/apps/mobile/assets/icons/outline/offer.svg
+@@ -0,0 +1,8 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M20.75 10.6L18.55 11.5L16 5.2L18.2 4.3L20.75 10.6Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M17.9 6.2C16.85 7 15.9 7.4 15 7.28C13.95 7.15 12.65 5.88 11.45 6.12C9.2 6.58 5.45 8.35 3.15 9.45C2.35 9.83 1.95 10.52 2.24 11.26C2.53 12.02 3.42 12.22 4.26 11.95L9.05 10.42" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M14.5 9.9C13.1 9.15 11.45 8.55 10.38 8.95C9.45 9.3 9.05 10.42 9.05 10.42C9.8 10.78 10.98 10.85 12.05 11.45C13.8 12.42 14.55 13.08 15.9 12.65C16.58 12.43 17.6 11.88 18.8 11.12" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M8.5 20.25H5.75V17.5H8.5V20.25Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++  <path d="M13.5 18.75C12.53 18.75 11.75 17.97 11.75 17C11.75 16.03 12.53 15.25 13.5 15.25C14.47 15.25 15.25 16.03 15.25 17C15.25 17.97 14.47 18.75 13.5 18.75Z" stroke="currentColor" stroke-width="1.25"/>
++  <path d="M9.7 13.9H6.6L8.15 11.25L9.7 13.9Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/mobile/assets/icons/outline/proposal-accepted.svg b/apps/mobile/assets/icons/outline/proposal-accepted.svg
+new file mode 100644
+index 0000000..9722155
+--- /dev/null
++++ b/apps/mobile/assets/icons/outline/proposal-accepted.svg
+@@ -0,0 +1,7 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M13.9 6.8L15.05 7.95L17.25 5.75" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/mobile/assets/icons/outline/proposal-declined.svg b/apps/mobile/assets/icons/outline/proposal-declined.svg
+new file mode 100644
+index 0000000..d613391
+--- /dev/null
++++ b/apps/mobile/assets/icons/outline/proposal-declined.svg
+@@ -0,0 +1,8 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M14.2 5.45L16.8 8.05" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++  <path d="M16.8 5.45L14.2 8.05" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/need.svg b/apps/web/public/icons/outline/need.svg
+new file mode 100644
+index 0000000..5d191d4
+--- /dev/null
++++ b/apps/web/public/icons/outline/need.svg
+@@ -0,0 +1,8 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.75H18.25V6.5H15.5V3.75Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++  <path d="M10.5 8.75C11.47 8.75 12.25 7.97 12.25 7C12.25 6.03 11.47 5.25 10.5 5.25C9.53 5.25 8.75 6.03 8.75 7C8.75 7.97 9.53 8.75 10.5 8.75Z" stroke="currentColor" stroke-width="1.25"/>
++  <path d="M14.3 10.1H17.4L15.85 12.75L14.3 10.1Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/offer.svg b/apps/web/public/icons/outline/offer.svg
+new file mode 100644
+index 0000000..c033b30
+--- /dev/null
++++ b/apps/web/public/icons/outline/offer.svg
+@@ -0,0 +1,8 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M20.75 10.6L18.55 11.5L16 5.2L18.2 4.3L20.75 10.6Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M17.9 6.2C16.85 7 15.9 7.4 15 7.28C13.95 7.15 12.65 5.88 11.45 6.12C9.2 6.58 5.45 8.35 3.15 9.45C2.35 9.83 1.95 10.52 2.24 11.26C2.53 12.02 3.42 12.22 4.26 11.95L9.05 10.42" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M14.5 9.9C13.1 9.15 11.45 8.55 10.38 8.95C9.45 9.3 9.05 10.42 9.05 10.42C9.8 10.78 10.98 10.85 12.05 11.45C13.8 12.42 14.55 13.08 15.9 12.65C16.58 12.43 17.6 11.88 18.8 11.12" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M8.5 20.25H5.75V17.5H8.5V20.25Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++  <path d="M13.5 18.75C12.53 18.75 11.75 17.97 11.75 17C11.75 16.03 12.53 15.25 13.5 15.25C14.47 15.25 15.25 16.03 15.25 17C15.25 17.97 14.47 18.75 13.5 18.75Z" stroke="currentColor" stroke-width="1.25"/>
++  <path d="M9.7 13.9H6.6L8.15 11.25L9.7 13.9Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/proposal-accepted.svg b/apps/web/public/icons/outline/proposal-accepted.svg
+new file mode 100644
+index 0000000..9722155
+--- /dev/null
++++ b/apps/web/public/icons/outline/proposal-accepted.svg
+@@ -0,0 +1,7 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M13.9 6.8L15.05 7.95L17.25 5.75" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++</svg>
+diff --git a/apps/web/public/icons/outline/proposal-declined.svg b/apps/web/public/icons/outline/proposal-declined.svg
+new file mode 100644
+index 0000000..d613391
+--- /dev/null
++++ b/apps/web/public/icons/outline/proposal-declined.svg
+@@ -0,0 +1,8 @@
++<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M14.2 5.45L16.8 8.05" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++  <path d="M16.8 5.45L14.2 8.05" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++</svg>
+diff --git a/apps/web/src/app/account/profile/page.tsx b/apps/web/src/app/account/profile/page.tsx
+index 1010f2b..9ecd749 100644
+--- a/apps/web/src/app/account/profile/page.tsx
++++ b/apps/web/src/app/account/profile/page.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useEffect, useState } from 'react';
++import { useEffect, useRef, useState } from 'react';
+ import type { MediaAssetDto } from '@hellowhen/contracts';
+ import { MobilePage, PageIntro } from '../../../components/MobilePage';
+ import { api } from '../../../lib/api';
+@@ -11,6 +11,41 @@ import { mediaSrc, normalizeMediaUpload } from '../../../features/inventory/inve
+ import { assetUrl } from '../../../features/account/accountPresentation';
+ import { useWebAuth } from '../../../providers/WebAuthProvider';
+ 
++
++const avatarSizePx = 512;
++
++function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
++  return new Promise<Blob | null>((resolve) => {
++    canvas.toBlob((blob) => resolve(blob), type, quality);
++  });
++}
++
++async function resizeAvatarForUpload(file: File) {
++  const bitmap = await createImageBitmap(file);
++  const sourceSize = Math.min(bitmap.width, bitmap.height);
++  const sourceX = Math.max(0, Math.floor((bitmap.width - sourceSize) / 2));
++  const sourceY = Math.max(0, Math.floor((bitmap.height - sourceSize) / 2));
++  const canvas = document.createElement('canvas');
++  canvas.width = avatarSizePx;
++  canvas.height = avatarSizePx;
++  const context = canvas.getContext('2d');
++  if (!context) {
++    bitmap.close();
++    throw new Error('Could not prepare this profile image. Try a different image.');
++  }
++
++  context.drawImage(bitmap, sourceX, sourceY, sourceSize, sourceSize, 0, 0, avatarSizePx, avatarSizePx);
++  bitmap.close();
++
++  const webpBlob = await canvasBlob(canvas, 'image/webp', 0.9);
++  const blob = webpBlob ?? await canvasBlob(canvas, 'image/jpeg', 0.92);
++  if (!blob) throw new Error('Could not prepare this profile image. Try a different image.');
++
++  const baseName = file.name.replace(/\.[^.]+$/, '') || 'profile-photo';
++  const extension = blob.type === 'image/webp' ? 'webp' : 'jpg';
++  return new File([blob], `${baseName}.${extension}`, { type: blob.type, lastModified: Date.now() });
++}
++
+ export default function AccountProfilePage() {
+   const auth = useWebAuth();
+   const profile = auth.user?.profile;
+@@ -20,11 +55,32 @@ export default function AccountProfilePage() {
+   const [countryCode, setCountryCode] = useState('FR');
+   const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
+   const [avatar, setAvatar] = useState<MediaAssetDto | null>(null);
++  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
++  const avatarPreviewUrlRef = useRef('');
+   const [saving, setSaving] = useState(false);
+   const [uploading, setUploading] = useState(false);
+   const [message, setMessage] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
+ 
++  useEffect(() => {
++    return () => {
++      if (avatarPreviewUrlRef.current) URL.revokeObjectURL(avatarPreviewUrlRef.current);
++    };
++  }, []);
++
++  function replaceAvatarPreview(file: File) {
++    if (avatarPreviewUrlRef.current) URL.revokeObjectURL(avatarPreviewUrlRef.current);
++    const nextUrl = URL.createObjectURL(file);
++    avatarPreviewUrlRef.current = nextUrl;
++    setAvatarPreviewUrl(nextUrl);
++  }
++
++  function clearAvatarPreview() {
++    if (avatarPreviewUrlRef.current) URL.revokeObjectURL(avatarPreviewUrlRef.current);
++    avatarPreviewUrlRef.current = '';
++    setAvatarPreviewUrl('');
++  }
++
+   useEffect(() => {
+     setDisplayName(profile?.displayName ?? '');
+     setHandle(profile?.handle ?? '');
+@@ -39,17 +95,19 @@ export default function AccountProfilePage() {
+     setError(null);
+     setMessage(null);
+     try {
++      const preparedFile = await resizeAvatarForUpload(file);
++      replaceAvatarPreview(preparedFile);
+       const formData = new FormData();
+-      formData.append('image', file);
++      formData.append('image', preparedFile);
+       const response = await api.media.uploadImage(formData);
+       const media = normalizeMediaUpload(response);
+       if (!media) throw new Error('Upload completed but no image was returned.');
+       const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id, avatarUrl: media.url });
+       setAvatar(media);
+       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
+-      setMessage('Profile photo uploaded for review.');
++      setMessage('Profile photo uploaded for review. We resized it to a square preview.');
+     } catch (caughtError) {
+-      setError(getFriendlyApiErrorMessage(caughtError));
++      setError(caughtError instanceof Error && caughtError.message.startsWith('Could not prepare') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+     } finally {
+       setUploading(false);
+     }
+@@ -62,6 +120,7 @@ export default function AccountProfilePage() {
+     try {
+       const nextProfile = await api.profile.updateMe({ removeAvatar: true });
+       setAvatar(null);
++      clearAvatarPreview();
+       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
+       setMessage('Profile photo removed.');
+     } catch (caughtError) {
+@@ -93,7 +152,7 @@ export default function AccountProfilePage() {
+     }
+   }
+ 
+-  const avatarUrl = avatar ? mediaSrc(avatar) : assetUrl(profile?.avatarUrl);
++  const avatarUrl = avatarPreviewUrl || (avatar ? mediaSrc(avatar) : assetUrl(profile?.avatarUrl));
+   const avatarInitial = displayName.trim().slice(0, 1).toUpperCase() || 'H';
+ 
+   return (
+@@ -124,7 +183,7 @@ export default function AccountProfilePage() {
+             </div>
+             <div>
+               <h3>Profile photo</h3>
+-              <p>Upload a JPEG, PNG, or WEBP image. It uses the same media review flow as Need/Offer images.</p>
++              <p>Upload a JPEG, PNG, or WEBP image. We center-crop and resize it to a 512×512 square before upload, then send it through the same media review flow as Need/Offer images.</p>
+               <div className="mobile-actions">
+                 <label className="image-upload-button">
+                   {uploading ? 'Uploading...' : 'Upload photo'}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index cc2350c..b8c254c 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -471,7 +471,10 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+   .web-desktop-nav__link.is-active { border-color: var(--app-border); background: var(--app-surface); color: var(--app-text); box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08); }
+   .web-scroll-area { height: auto; overflow: visible; max-width: var(--web-content-width); margin: 0 auto; padding: 28px 32px 72px; scrollbar-width: auto; }
+   .web-bottom-tabs { display: none; }
+-  .mobile-page:not(.trade-feed-page), .wallet-page, .support-mobile-page, .trade-detail-page { max-width: 760px; margin-right: auto; margin-left: auto; }
++  .mobile-page:not(.trade-feed-page), .wallet-page, .trade-detail-page { max-width: 760px; margin-right: auto; margin-left: auto; }
++  .support-mobile-page { max-width: min(1120px, 100%); margin-right: auto; margin-left: auto; grid-template-columns: minmax(320px, 0.9fr) minmax(420px, 1.1fr); align-items: start; }
++  .support-mobile-page > .notice-box { grid-column: 1 / -1; }
++  .support-compose-card, .support-thread-card { min-width: 0; }
+   .trade-feed-page { gap: 22px; max-width: none; }
+   .trade-feed-controls { top: 82px; grid-template-columns: minmax(280px, 520px) auto auto; justify-content: center; gap: 10px; width: min(880px, 100%); margin: 0 auto; padding: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-bg-muted) 86%, transparent); backdrop-filter: blur(18px); }
+   .trade-feed-controls .trade-filter-panel { position: absolute; top: calc(100% + 10px); right: 0; width: min(360px, 100%); grid-column: auto; border-radius: 28px; }
+@@ -576,7 +579,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-stack-card__mobile-section span { display: -webkit-box; max-width: 92%; overflow: hidden; color: var(--app-text-muted); font-size: 14px; font-weight: 850; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+ .trade-stack-card__mobile-divider { position: relative; display: grid; place-items: center; min-height: 38px; color: var(--app-text-muted); }
+ .trade-stack-card__mobile-divider::before { content: ''; position: absolute; right: 0; left: 0; top: 50%; height: 1px; background: color-mix(in srgb, var(--app-border) 72%, transparent); }
+-.trade-stack-card__mobile-divider span { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
++.trade-stack-card__mobile-divider > span { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
+ .trade-stack-card__mobile-money { justify-self: center; align-self: end; display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--money-border); border-radius: 999px; background: var(--money-bg); color: var(--money-text); padding: 0 12px; font-size: 12px; font-weight: 950; }
+ 
+ @keyframes web-skeleton-shimmer {

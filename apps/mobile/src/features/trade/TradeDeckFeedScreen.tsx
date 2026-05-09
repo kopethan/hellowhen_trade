@@ -10,6 +10,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
+import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { ContinuousSquareStackDeck } from './deck';
@@ -121,13 +122,13 @@ export function TradeDeckFeedScreen() {
         <AppText style={styles.title}>Trades</AppText>
         <View style={styles.headerActions}>
           <Pressable accessibilityRole="button" accessibilityLabel="Create trade" onPress={createTrade} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-            <AppText style={[styles.iconButtonText, { color: theme.color.background }, styles.createIconButtonText]}>+</AppText>
+            <MobileIcon name="add" size={23} color={theme.color.background} />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Search trades" onPress={() => setSearchOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, searchOpen && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-            <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>S</AppText>
+            <MobileIcon name="search" size={18} color={searchOpen ? theme.semantic.info.text : theme.color.text} />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Filter trades" onPress={() => setFiltersOpen((current) => !current)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (filtersOpen || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-            <AppText style={[styles.iconButtonText, { color: theme.color.text }]}>F</AppText>
+            <MobileIcon name="filter" size={18} color={(filtersOpen || hasFilters) ? theme.semantic.info.text : theme.color.text} />
             {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
           </Pressable>
         </View>

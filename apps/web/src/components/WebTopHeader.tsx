@@ -3,7 +3,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getRouteHeader, webTabs } from '../lib/webRoutes';
+import { betaFeatures } from '../lib/betaFeatures';
 import { WebIcon } from './WebIcon';
+
+function WebBetaHeaderBadge() {
+  if (betaFeatures.moneyFeaturesVisible) return null;
+
+  return <span className="web-header-beta-badge">BETA</span>;
+}
 
 function WebDesktopNav({ pathname }: { pathname: string }) {
   return (
@@ -28,6 +35,7 @@ export function WebTopHeader() {
   if (header.root) {
     return (
       <header className="web-top-header web-top-header--root">
+        <WebBetaHeaderBadge />
         <div>
           <p className="web-kicker">Hellowhen Trade</p>
           <h1>{header.title}</h1>
@@ -39,6 +47,7 @@ export function WebTopHeader() {
 
   return (
     <header className="web-top-header web-top-header--nested">
+      <WebBetaHeaderBadge />
       <div className="web-nested-title-row">
         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label="Go back">
           <WebIcon name="back" size={21} decorative />

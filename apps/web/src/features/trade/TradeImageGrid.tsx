@@ -1,4 +1,8 @@
+'use client';
+
 import type { MediaAssetDto } from '@hellowhen/contracts';
+import { useState } from 'react';
+import { resolveTradeMediaUrl } from './tradePresentation';
 
 type TradeImageGridProps = {
   images: MediaAssetDto[];
@@ -6,27 +10,58 @@ type TradeImageGridProps = {
   badge?: 'Need reference' | 'Offer sample';
 };
 
+function statusLabel(status?: MediaAssetDto['status']) {
+  if (status === 'pending_review') return 'Pending review';
+  if (status === 'flagged') return 'Unavailable';
+  return null;
+}
+
+function fallbackTitle(status?: MediaAssetDto['status']) {
+  if (status === 'pending_review') return 'Image pending review';
+  if (status === 'flagged') return 'Image unavailable';
+  return 'Image unavailable';
+}
+
+function fallbackBody(status?: MediaAssetDto['status']) {
+  if (status === 'pending_review') return 'Only the owner can see this before approval.';
+  if (status === 'flagged') return 'This image needs review before it can be shown.';
+  return 'The image could not be loaded.';
+}
+
+function TradeImageGridItem({ image, index, title, badge, extra }: { image: MediaAssetDto; index: number; title: string; badge?: 'Need reference' | 'Offer sample'; extra: number }) {
+  const src = resolveTradeMediaUrl(image.url);
+  const [hasError, setHasError] = useState(!src);
+  const imageStatusLabel = statusLabel(image.status);
+
+  return (
+    <figure className={`trade-image-grid__item${hasError ? ' is-broken' : ''}`}>
+      {!hasError ? <img src={src} alt={`${title} image ${index + 1}`} loading="lazy" onError={() => setHasError(true)} /> : <div className="trade-image-grid__fallback"><strong>{fallbackTitle(image.status)}</strong><span>{fallbackBody(image.status)}</span></div>}
+      {badge ? <span className={badge === 'Need reference' ? 'semantic-badge need trade-image-grid__badge' : 'semantic-badge offer trade-image-grid__badge'}>{badge}</span> : null}
+      {imageStatusLabel ? <span className="trade-image-grid__status">{imageStatusLabel}</span> : null}
+      {extra > 0 ? <figcaption>+{extra}</figcaption> : null}
+    </figure>
+  );
+}
+
 export function TradeImageGrid({ images, title, badge }: TradeImageGridProps) {
-  if (!images.length) {
+  const visibleImages = images.filter((image) => image.status !== 'removed');
+
+  if (!visibleImages.length) {
     return (
       <div className="trade-image-empty-state">
         <strong>No images yet</strong>
-        <span>When images are attached, they become full-bleed cards in the feed deck.</span>
+        <span>Images attached to this side will appear here.</span>
       </div>
     );
   }
 
-  const visible = images.slice(0, 4);
-  const extra = Math.max(0, images.length - visible.length);
+  const visible = visibleImages.slice(0, 4);
+  const extra = Math.max(0, visibleImages.length - visible.length);
 
   return (
     <div className={`trade-image-grid trade-image-grid--${visible.length}`}>
       {visible.map((image, index) => (
-        <figure key={image.id} className="trade-image-grid__item">
-          <img src={image.url} alt={`${title} image ${index + 1}`} loading="lazy" />
-          {badge ? <span className={badge === 'Need reference' ? 'semantic-badge need trade-image-grid__badge' : 'semantic-badge offer trade-image-grid__badge'}>{badge}</span> : null}
-          {extra > 0 && index === visible.length - 1 ? <figcaption>+{extra}</figcaption> : null}
-        </figure>
+        <TradeImageGridItem key={image.id} image={image} index={index} title={title} badge={badge} extra={index === visible.length - 1 ? extra : 0} />
       ))}
     </div>
   );

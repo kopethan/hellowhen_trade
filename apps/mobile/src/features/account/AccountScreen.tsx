@@ -8,6 +8,7 @@ import type { SemanticColorName } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
+import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -26,15 +27,16 @@ type AccountAction = {
   badge: string;
   tone: SemanticColorName;
   route: AccountRoute;
+  icon: MobileIconName;
 };
 
 const accountActions: AccountAction[] = [
-  { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile' },
-  ...(betaFeatures.businessAccountsVisible ? [{ title: 'Business / brand', description: 'Future business, agency, brand, and enterprise profiles.', badge: 'Brand', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute }] : []),
-  ...(betaFeatures.walletVisible ? [{ title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute }] : []),
-  ...(betaFeatures.payoutsVisible ? [{ title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute }] : []),
-  { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings' },
-  { title: 'Support', description: 'Get help with trades, images, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter' },
+  { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile', icon: 'profile' },
+  ...(betaFeatures.businessAccountsVisible ? [{ title: 'Business / brand', description: 'Future business, agency, brand, and enterprise profiles.', badge: 'Brand', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName }] : []),
+  ...(betaFeatures.walletVisible ? [{ title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
+  ...(betaFeatures.payoutsVisible ? [{ title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
+  { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings', icon: 'settings' },
+  { title: 'Support', description: 'Get help with trades, images, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter', icon: 'help' },
 ];
 
 function formatLedgerType(type: string) {
@@ -111,7 +113,7 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
-  const header = <View style={styles.header}><SemanticBadge label="Account" tone="info" /><AppText style={styles.title}>Account</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, settings, support, and beta trade safety.</AppText></View>;
+  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label="Beta" tone="instruction" /></View><AppText style={styles.title}>Account</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, settings, and support live here.</AppText></View>;
 
   return (
     <AppFixedHeaderScreen header={header}>
@@ -166,7 +168,7 @@ export function AccountScreen() {
           </View>
 
           {walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}
-        </AppCard> : <AppCard><SemanticBadge label="Beta launch" tone="instruction" /><AppText style={styles.sectionTitle}>Service and goods beta</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]}>Wallet money, cash trades, and payouts are hidden for the first international beta. Use Needs and Offers for service or goods exchanges.</AppText></AppCard>}
+        </AppCard> : null}
 
         {betaFeatures.moneyFeaturesVisible ? <AppCard>
           <View style={styles.sectionHeaderRow}>
@@ -192,16 +194,22 @@ export function AccountScreen() {
 
 function AccountActionRow({ action, onPress }: { action: AccountAction; onPress: () => void }) {
   const theme = useThemeTokens();
+  const tone = theme.semantic[action.tone];
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.actionContent}>
-        <SemanticBadge label={action.badge} tone={action.tone} size="sm" />
+        <View style={[styles.actionIcon, { backgroundColor: tone.softBg, borderColor: tone.border }]}>
+          <MobileIcon name={action.icon} size={19} color={tone.text} />
+        </View>
         <View style={styles.actionTextWrap}>
-          <AppText style={styles.actionTitle}>{action.title}</AppText>
+          <View style={styles.actionTitleRow}>
+            <AppText style={styles.actionTitle}>{action.title}</AppText>
+            <SemanticBadge label={action.badge} tone={action.tone} size="sm" />
+          </View>
           <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{action.description}</AppText>
         </View>
       </View>
-      <AppText style={[styles.chevron, { color: theme.color.muted }]}>›</AppText>
+      <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />
     </Pressable>
   );
 }
@@ -233,6 +241,7 @@ function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
 const styles = StyleSheet.create({
   content: { paddingBottom: 34, gap: 14 },
   header: { gap: 8 },
+  headerBadgeRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   subtitle: { lineHeight: 20, fontWeight: '600' },
   profileHero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
@@ -267,10 +276,11 @@ const styles = StyleSheet.create({
   menuList: { gap: 10 },
   actionRow: { minHeight: 88, borderRadius: 22, borderWidth: 1, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 13 },
+  actionIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   actionTextWrap: { flex: 1, gap: 4 },
+  actionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   actionTitle: { fontSize: 18, fontWeight: '900' },
   actionDescription: { lineHeight: 19, fontWeight: '600' },
-  chevron: { fontSize: 32, fontWeight: '700' },
   logoutButton: { marginTop: 4, borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 14, alignItems: 'center' },
   logoutButtonText: { color: '#991B1B', fontWeight: '900' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },

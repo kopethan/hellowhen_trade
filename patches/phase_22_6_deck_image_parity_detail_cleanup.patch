@@ -1,0 +1,453 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 1db7727..464f308 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -1,7 +1,7 @@
+ // apps/mobile/src/features/trade/CreateTradeScreen.tsx
+ 
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { TradeExchangeMode, WalletDto } from '@hellowhen/contracts';
+@@ -19,6 +19,8 @@ import { MobileIcon } from '../../components/MobileIcon';
+ import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
++import { buildTradeSquareDeckCards, renderTradeSquareDeckCard, type TradeSquareDeckCard } from './components/TradeSquareDeckCards';
++import { ContinuousSquareStackDeck } from './deck';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+ 
+ export type TradeCreateSide = 'need' | 'offer';
+@@ -47,9 +49,45 @@ function buildExpiresAt(days: number | null) { if (!days) return undefined; cons
+ function moneySelection(selection: TradeCreateSideSelection | null) { return betaFeatures.moneyTradesEnabled && selection?.kind === 'money' ? selection : null; }
+ function amountFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return moneySelection(needSelection)?.amountCents ?? moneySelection(offerSelection)?.amountCents ?? 0; }
+ function currencyFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return moneySelection(needSelection)?.currency ?? moneySelection(offerSelection)?.currency ?? 'eur'; }
++function buildPreviewTrade({ needSelection, offerSelection, need, offer, amountCents, currency, expiryDays }: { needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; amountCents: number; currency: string; expiryDays: number | null }): TradeDeckItem {
++  const needTitleValue = previewTitle(needSelection, need, 'Choose what you need');
++  const offerTitleValue = previewTitle(offerSelection, offer, 'Choose what you offer');
++  const description = [need?.description, offer?.description].filter(Boolean).join(' I offer: ') || 'Choose a Need and Offer to preview this trade deck.';
++  const createdAt = new Date(0).toISOString();
++
++  return {
++    id: 'draft-trade-preview',
++    ownerId: 'preview',
++    providerId: null,
++    needId: need?.id ?? null,
++    offerId: offer?.id ?? null,
++    title: `${needTitleValue} ↔ ${offerTitleValue}`,
++    description,
++    creditAmount: 0,
++    amountCents: betaFeatures.moneyTradesEnabled ? amountCents : 0,
++    currency,
++    status: 'active',
++    isPublic: true,
++    createdAt,
++    updatedAt: createdAt,
++    expiresAt: buildExpiresAt(expiryDays) ?? null,
++    closedAt: null,
++    deliverySubmittedById: null,
++    deliverySubmittedAt: null,
++    confirmedById: null,
++    confirmedAt: null,
++    disputedById: null,
++    disputedAt: null,
++    disputeTicketId: null,
++    need,
++    offer,
++    media: [],
++  };
++}
+ 
+ export function CreateTradeScreen({ route, navigation }: Props) {
+   const theme = useThemeTokens();
++  const { width } = useWindowDimensions();
+   const [needs, setNeeds] = useState<NeedItem[]>([]);
+   const [offers, setOffers] = useState<OfferItem[]>([]);
+   const [wallet, setWallet] = useState<WalletDto | null>(null);
+@@ -66,6 +104,9 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+   const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
+   const amountCents = amountFor(needSelection, offerSelection);
+   const currency = currencyFor(needSelection, offerSelection);
++  const previewDeckWidth = Math.min(320, Math.max(260, width - 72));
++  const previewTrade = useMemo(() => buildPreviewTrade({ needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays }), [amountCents, currency, expiryDays, needSelection, offerSelection, selectedNeed, selectedOffer]);
++  const previewCards = useMemo(() => buildTradeSquareDeckCards(previewTrade, 0, 1), [previewTrade]);
+ 
+   useEffect(() => {
+     const selection = route.params?.selectedTradeSide;
+@@ -136,11 +177,11 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+         <View style={styles.header}>
+           <SemanticBadge label="Trade" tone="trade" />
+           <AppText style={styles.title}>Create Trade</AppText>
+-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Choose what you need and what you offer. Beta launch supports service and goods exchanges only.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Choose what you need and what you offer.</AppText>
+         </View>
+         {error ? <InfoNotice tone="danger" title="Could not publish" body={error} /> : null}
+-        <SideSelectionCard theme={theme} side="need" title="I need" emptyTitle="Select what you need" emptyBody="Choose a saved Need. Wallet money is hidden for beta." selection={needSelection} need={selectedNeed} offer={null} onPress={() => openSidePicker('need')} />
+-        <SideSelectionCard theme={theme} side="offer" title="I offer" emptyTitle="Select what you offer" emptyBody="Choose a saved Offer. Wallet money is hidden for beta." selection={offerSelection} need={null} offer={selectedOffer} onPress={() => openSidePicker('offer')} />
++        <SideSelectionCard theme={theme} side="need" title="I need" emptyTitle="Select what you need" emptyBody="Choose a saved Need." selection={needSelection} need={selectedNeed} offer={null} onPress={() => openSidePicker('need')} />
++        <SideSelectionCard theme={theme} side="offer" title="I offer" emptyTitle="Select what you offer" emptyBody="Choose a saved Offer." selection={offerSelection} need={null} offer={selectedOffer} onPress={() => openSidePicker('offer')} />
+         <AppCard>
+           <AppText style={styles.sectionTitle}>Expiry</AppText>
+           <View style={styles.expiryRow}>{expiryOptions.map((option) => {
+@@ -149,9 +190,23 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+           })}</View>
+         </AppCard>
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Deck preview</AppText>
+-          <TradeSummaryPreview theme={theme} needSelection={needSelection} offerSelection={offerSelection} need={selectedNeed} offer={selectedOffer} />
+-          <InfoNotice tone="info" body="Public decks show approved images from saved Needs and Offers. Money and cash trades are hidden for beta." />
++          <View style={styles.deckPreviewHeader}>
++            <AppText style={styles.sectionTitle}>Deck preview</AppText>
++            {previewCards.length > 1 ? <AppText style={[styles.deckPreviewCount, { color: theme.color.muted }]}>{previewCards.length} cards</AppText> : null}
++          </View>
++          <View style={styles.previewDeckStage}>
++            <ContinuousSquareStackDeck<TradeSquareDeckCard>
++              cards={previewCards}
++              renderCard={({ card, index, total }) => renderTradeSquareDeckCard(card, index, total, () => {})}
++              availableWidth={previewDeckWidth}
++              availableHeight={previewDeckWidth}
++              minCardSize={260}
++              maxCardSize={320}
++              renderWindow="all"
++              depthEffect="motionOnly"
++            />
++          </View>
++          {previewCards.length > 1 ? <AppText style={[styles.previewHint, { color: theme.color.muted }]}>Swipe the preview to check selected Need and Offer image cards.</AppText> : null}
+         </AppCard>
+         <View style={styles.actions}>
+           <Pressable disabled={submitting || loading} onPress={handlePublish} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.proposal.bg }, (submitting || loading) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{submitting ? 'Publishing...' : 'Publish Trade'}</AppText></Pressable>
+@@ -170,10 +225,6 @@ function SideSelectionCard({ theme, side, title, emptyTitle, emptyBody, selectio
+ }
+ 
+ function previewTitle(selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { if (betaFeatures.moneyTradesEnabled && selection?.kind === 'money') return 'Wallet money'; return item?.title || fallback; }
+-function isNeedItem(item: NeedItem | OfferItem): item is NeedItem { return 'timing' in item; }
+-function previewMeta(selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { if (betaFeatures.moneyTradesEnabled && selection?.kind === 'money') return formatMoney(selection.amountCents, selection.currency); if (!item) return fallback; return isNeedItem(item) ? needMeta(item) || 'Need details' : offerMeta(item) || 'Offer details'; }
+-function TradeSummaryPreview({ theme, needSelection, offerSelection, need, offer }: { theme: ThemeTokens; needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null }) {
+-  return <View style={[styles.previewCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}><View style={styles.previewHeaderRow}><AppText style={[styles.previewHeader, { color: theme.color.muted }]}>TRADE PREVIEW</AppText><AppText style={[styles.previewStatus, { color: theme.semantic.success.bg }]}>OPEN</AppText></View><View style={styles.previewBlock}><AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>I need</AppText><AppText style={styles.previewTitle}>{previewTitle(needSelection, need, 'Choose what you need')}</AppText><AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{previewMeta(needSelection, need, 'Saved Need')}</AppText></View><View style={styles.swapRow}><View style={[styles.swapLine, { backgroundColor: theme.color.border }]} /><View style={[styles.swapCircle, { backgroundColor: theme.color.text }]}><MobileIcon name="trade" size={18} color={theme.color.background} /></View><View style={[styles.swapLine, { backgroundColor: theme.color.border }]} /></View><View style={styles.previewBlock}><AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>I offer</AppText><AppText style={styles.previewTitle}>{previewTitle(offerSelection, offer, 'Choose what you offer')}</AppText><AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{previewMeta(offerSelection, offer, 'Saved Offer')}</AppText></View></View>;
+-}
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, previewCard: { borderRadius: 26, borderWidth: 1, padding: 18, gap: 14 }, previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, previewHeader: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewStatus: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewBlock: { gap: 5 }, previewEyebrow: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' }, previewTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 }, previewMeta: { fontWeight: '800', lineHeight: 20 }, swapRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, swapLine: { flex: 1, height: 1 }, swapCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
++
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, previewCard: { borderRadius: 26, borderWidth: 1, padding: 18, gap: 14 }, deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 }, previewDeckStage: { alignItems: 'center', justifyContent: 'center', marginTop: 2 }, previewHint: { fontSize: 12, fontWeight: '800', lineHeight: 18, textAlign: 'center' }, previewHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, previewHeader: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewStatus: { fontSize: 11, fontWeight: '900', letterSpacing: 0.9 }, previewBlock: { gap: 5 }, previewEyebrow: { fontSize: 12, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' }, previewTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.5 }, previewMeta: { fontWeight: '800', lineHeight: 20 }, swapRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, swapLine: { flex: 1, height: 1 }, swapCircle: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index b1ee12d..eb06bac 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -20,10 +20,14 @@ export type TradeSquareDeckCard = {
+ type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTotal: number; onOpen: () => void; };
+ type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; onOpen: () => void; };
+ 
++function deckMedia(media: MediaAssetDto[] | undefined) {
++  return (media ?? []).filter((asset) => asset.status !== 'removed');
++}
++
+ export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, tradeTotal = 1): TradeSquareDeckCard[] {
+   const cards: TradeSquareDeckCard[] = [{ id: `${trade.id}:summary`, kind: 'summary', trade, tradeIndex, tradeTotal }];
+-  for (const [index, media] of (trade.need?.media ?? []).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
+-  for (const [index, media] of (trade.offer?.media ?? []).entries()) cards.push({ id: `${trade.id}:offer:${media.id}:${index}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media });
++  for (const [index, media] of deckMedia(trade.need?.media).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
++  for (const [index, media] of deckMedia(trade.offer?.media).entries()) cards.push({ id: `${trade.id}:offer:${media.id}:${index}`, kind: 'offerImage', trade, tradeIndex, tradeTotal, media });
+   return cards;
+ }
+ 
+@@ -41,6 +45,7 @@ function modeLabel(mode?: string | null) {
+   return null;
+ }
+ function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
++function imagePlaceholderLabel(media?: MediaAssetDto) { if (media?.status === 'pending_review') return 'Image pending review'; if (media?.status === 'flagged') return 'Image unavailable'; return 'Image unavailable'; }
+ function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
+ function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
+ function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
+@@ -84,8 +89,9 @@ export function TradeImageCard({ kind, media, onOpen }: TradeImageCardProps) {
+ 
+   return (
+     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, pressed && styles.pressed]}>
+-      {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>No approved image</AppText></View>}
++      {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>{imagePlaceholderLabel(media)}</AppText></View>}
+       <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{label}</AppText></View>
++      {media?.status === 'pending_review' ? <View style={styles.reviewBadge}><AppText style={styles.reviewBadgeText}>Pending review</AppText></View> : null}
+     </Pressable>
+   );
+ }
+@@ -109,5 +115,7 @@ const styles = StyleSheet.create({
+   imagePlaceholderText: { color: '#64748B', fontWeight: '900' },
+   floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
+   floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
++  reviewBadge: { position: 'absolute', right: 14, bottom: 14, borderRadius: 999, backgroundColor: 'rgba(255, 255, 255, 0.86)', paddingHorizontal: 10, paddingVertical: 6 },
++  reviewBadgeText: { color: '#0F172A', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
+   pressed: { opacity: 0.82 },
+ });
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index fa4baea..9430e38 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -290,12 +290,12 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .icon-heading { display: inline-flex; align-items: center; gap: 8px; }
+ .tag-row { display: flex; flex-wrap: wrap; gap: 7px; }
+ .tag-row span { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 0 10px; font-size: 12px; font-weight: 850; }
+-.trade-image-grid { display: grid; gap: 6px; overflow: hidden; border-radius: 22px; }
++.trade-image-grid { display: grid; gap: 8px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 24px; background: var(--app-surface-soft); box-shadow: 0 18px 46px rgba(15, 23, 42, 0.08); }
+ .trade-image-grid--1 { grid-template-columns: 1fr; }
+ .trade-image-grid--2, .trade-image-grid--3, .trade-image-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+-.trade-image-grid__item { position: relative; min-height: 0; margin: 0; overflow: hidden; background: var(--app-border); aspect-ratio: 1 / 1; }
+-.trade-image-grid--1 .trade-image-grid__item { aspect-ratio: 16 / 11; }
+-.trade-image-grid__item img { width: 100%; height: 100%; object-fit: cover; display: block; }
++.trade-image-grid__item { position: relative; min-height: 0; margin: 0; overflow: hidden; background: linear-gradient(135deg, var(--app-surface-soft), var(--app-border)); aspect-ratio: 1 / 1; }
++.trade-image-grid--1 .trade-image-grid__item { aspect-ratio: 16 / 10; }
++.trade-image-grid__item img { width: 100%; height: 100%; object-fit: cover; display: block; background: var(--app-border); }
+ .trade-image-grid__item figcaption { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(15, 23, 42, 0.48); color: white; font-size: 28px; font-weight: 900; }
+ .trade-detail-list { display: grid; gap: 0; margin: 0; }
+ .trade-detail-list div { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 11px 0; border-top: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); }
+@@ -456,7 +456,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-stack-card__body h2 { margin: 0; font-size: clamp(22px, 6.4vw, 26px); line-height: 1.03; letter-spacing: -0.055em; }
+ .trade-stack-card__body p:not(.eyebrow) { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+ .trade-stack-card__footer { align-self: end; }
+-.trade-stack-card--image { display: block; margin: 0; background: var(--app-border); }
++.trade-stack-card--image { display: block; margin: 0; background: linear-gradient(135deg, var(--app-surface-soft), var(--app-border)); }
+ .trade-stack-card--image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+ .trade-stack-card--image figcaption { position: absolute; top: 14px; left: 14px; box-shadow: 0 10px 26px rgba(15, 23, 42, 0.18); }
+ 
+@@ -539,11 +539,12 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-create-preview__sides div { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 12px; }
+ .trade-create-preview__sides strong { font-size: 15px; }
+ .trade-create-preview__sides small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
+-.trade-reference-deck-section { display: grid; gap: 14px; }
+-.trade-detail-reference-deck { max-width: 430px; margin: 0 auto; }
+-.trade-detail-reference-card figcaption { top: 14px; left: 14px; }
+ .trade-image-grid__item { position: relative; }
+ .trade-image-grid__badge { position: absolute; top: 10px; left: 10px; box-shadow: 0 10px 26px rgba(15, 23, 42, 0.2); }
++.trade-image-grid__status { position: absolute; right: 10px; bottom: 10px; border: 1px solid color-mix(in srgb, var(--proposal-border) 70%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-surface) 88%, transparent); color: var(--proposal-text); padding: 5px 9px; font-size: 10px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12); backdrop-filter: blur(12px); }
++.trade-image-grid__fallback { display: grid; place-items: center; align-content: center; gap: 6px; width: 100%; height: 100%; padding: 18px; color: var(--app-text-muted); text-align: center; }
++.trade-image-grid__fallback strong { color: var(--app-text); }
++.trade-image-grid__fallback span { max-width: 240px; font-size: 13px; font-weight: 750; line-height: 1.4; }
+ .trade-image-empty-state { display: grid; gap: 4px; border: 1px dashed var(--app-border-strong); border-radius: 22px; background: var(--app-surface-soft); padding: 16px; }
+ .trade-image-empty-state span { color: var(--app-text-muted); font-weight: 750; }
+ 
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index d514ad3..f3bb9d2 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -247,7 +247,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+       <PageIntro
+         eyebrow="Create trade"
+         title="Choose what you need and what you offer"
+-        body={betaFeatures.moneyTradesEnabled ? 'Pick saved inventory or place wallet money under one side. Money is never a third extra field.' : 'For the beta launch, create service and goods exchanges from saved Needs and Offers. Wallet money and cash trades are hidden.'}
++        body={betaFeatures.moneyTradesEnabled ? 'Pick saved inventory or place wallet money under one side. Money is never a third extra field.' : 'Choose saved Needs and Offers to build a service or goods exchange.'}
+         action={<Link href="/trades" className="button secondary">Cancel</Link>}
+       />
+ 
+@@ -269,7 +269,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+       <form className="trade-create-form" onSubmit={handleSubmit}>
+         <div className="trade-create-status-row">
+           <span className="semantic-badge trade">{loadState === 'loading' ? 'Loading inventory' : loadState === 'live' ? 'Live inventory' : loadState === 'demo' ? 'Demo inventory' : 'Inventory'}</span>
+-          {betaFeatures.moneyTradesEnabled && amountPreview ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">Service/goods beta</span>}
++          {betaFeatures.moneyTradesEnabled && amountPreview ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">Beta</span>}
+         </div>
+ 
+         <div className="trade-create-side-grid">
+diff --git a/apps/web/src/features/trade/TradeDetailClient.tsx b/apps/web/src/features/trade/TradeDetailClient.tsx
+index dbf88c1..abcd298 100644
+--- a/apps/web/src/features/trade/TradeDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeDetailClient.tsx
+@@ -7,7 +7,6 @@ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { mockTrades } from '../../lib/mockData';
+-import { TradeDetailReferenceDeck } from './TradeDetailReferenceDeck';
+ import { TradeImageGrid } from './TradeImageGrid';
+ import { TradeProposalPanel } from './TradeProposalPanel';
+ import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeMode } from './tradePresentation';
+@@ -207,8 +206,6 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
+       </section>
+ 
+-      <TradeDetailReferenceDeck trade={currentTrade} />
+-
+       <SideSection side={needSide} />
+       <SideSection side={offerSide} />
+ 
+diff --git a/apps/web/src/features/trade/TradeDetailReferenceDeck.tsx b/apps/web/src/features/trade/TradeDetailReferenceDeck.tsx
+deleted file mode 100644
+index 5147c05..0000000
+--- a/apps/web/src/features/trade/TradeDetailReferenceDeck.tsx
++++ /dev/null
+@@ -1,36 +0,0 @@
+-'use client';
+-
+-import { useMemo } from 'react';
+-import type { TradeDto } from '@hellowhen/contracts';
+-import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
+-import { getDeckImages } from './tradePresentation';
+-
+-export function TradeDetailReferenceDeck({ trade }: { trade: TradeDto }) {
+-  const images = getDeckImages(trade);
+-  const items = useMemo<SquareStackDeckItem[]>(() => images.map((image) => ({
+-    id: image.id,
+-    ariaLabel: `${image.badge}: ${image.alt}`,
+-    content: (
+-      <figure className="trade-stack-card trade-stack-card--image trade-detail-reference-card">
+-        <img src={image.url} alt={image.alt} loading="lazy" />
+-        <figcaption className={image.badge === 'Need reference' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</figcaption>
+-      </figure>
+-    ),
+-  })), [images]);
+-
+-  if (!items.length) return null;
+-
+-  return (
+-    <section className="trade-social-section trade-reference-deck-section">
+-      <div className="trade-section-heading">
+-        <div>
+-          <p className="eyebrow">Reference cards</p>
+-          <h2>Need and Offer images</h2>
+-        </div>
+-        <span className="semantic-badge instruction">{items.length} card{items.length === 1 ? '' : 's'}</span>
+-      </div>
+-      <SquareStackDeck className="trade-detail-reference-deck" items={items} label="Trade reference images" />
+-      <p className="meta">Use the corner buttons, touchpad, or swipe to move through the image cards.</p>
+-    </section>
+-  );
+-}
+diff --git a/apps/web/src/features/trade/TradeImageGrid.tsx b/apps/web/src/features/trade/TradeImageGrid.tsx
+index 432e71f..a39ab80 100644
+--- a/apps/web/src/features/trade/TradeImageGrid.tsx
++++ b/apps/web/src/features/trade/TradeImageGrid.tsx
+@@ -1,4 +1,8 @@
++'use client';
++
+ import type { MediaAssetDto } from '@hellowhen/contracts';
++import { useState } from 'react';
++import { resolveTradeMediaUrl } from './tradePresentation';
+ 
+ type TradeImageGridProps = {
+   images: MediaAssetDto[];
+@@ -6,27 +10,58 @@ type TradeImageGridProps = {
+   badge?: 'Need reference' | 'Offer sample';
+ };
+ 
++function statusLabel(status?: MediaAssetDto['status']) {
++  if (status === 'pending_review') return 'Pending review';
++  if (status === 'flagged') return 'Unavailable';
++  return null;
++}
++
++function fallbackTitle(status?: MediaAssetDto['status']) {
++  if (status === 'pending_review') return 'Image pending review';
++  if (status === 'flagged') return 'Image unavailable';
++  return 'Image unavailable';
++}
++
++function fallbackBody(status?: MediaAssetDto['status']) {
++  if (status === 'pending_review') return 'Only the owner can see this before approval.';
++  if (status === 'flagged') return 'This image needs review before it can be shown.';
++  return 'The image could not be loaded.';
++}
++
++function TradeImageGridItem({ image, index, title, badge, extra }: { image: MediaAssetDto; index: number; title: string; badge?: 'Need reference' | 'Offer sample'; extra: number }) {
++  const src = resolveTradeMediaUrl(image.url);
++  const [hasError, setHasError] = useState(!src);
++  const imageStatusLabel = statusLabel(image.status);
++
++  return (
++    <figure className={`trade-image-grid__item${hasError ? ' is-broken' : ''}`}>
++      {!hasError ? <img src={src} alt={`${title} image ${index + 1}`} loading="lazy" onError={() => setHasError(true)} /> : <div className="trade-image-grid__fallback"><strong>{fallbackTitle(image.status)}</strong><span>{fallbackBody(image.status)}</span></div>}
++      {badge ? <span className={badge === 'Need reference' ? 'semantic-badge need trade-image-grid__badge' : 'semantic-badge offer trade-image-grid__badge'}>{badge}</span> : null}
++      {imageStatusLabel ? <span className="trade-image-grid__status">{imageStatusLabel}</span> : null}
++      {extra > 0 ? <figcaption>+{extra}</figcaption> : null}
++    </figure>
++  );
++}
++
+ export function TradeImageGrid({ images, title, badge }: TradeImageGridProps) {
+-  if (!images.length) {
++  const visibleImages = images.filter((image) => image.status !== 'removed');
++
++  if (!visibleImages.length) {
+     return (
+       <div className="trade-image-empty-state">
+         <strong>No images yet</strong>
+-        <span>When images are attached, they become full-bleed cards in the feed deck.</span>
++        <span>Images attached to this side will appear here.</span>
+       </div>
+     );
+   }
+ 
+-  const visible = images.slice(0, 4);
+-  const extra = Math.max(0, images.length - visible.length);
++  const visible = visibleImages.slice(0, 4);
++  const extra = Math.max(0, visibleImages.length - visible.length);
+ 
+   return (
+     <div className={`trade-image-grid trade-image-grid--${visible.length}`}>
+       {visible.map((image, index) => (
+-        <figure key={image.id} className="trade-image-grid__item">
+-          <img src={image.url} alt={`${title} image ${index + 1}`} loading="lazy" />
+-          {badge ? <span className={badge === 'Need reference' ? 'semantic-badge need trade-image-grid__badge' : 'semantic-badge offer trade-image-grid__badge'}>{badge}</span> : null}
+-          {extra > 0 && index === visible.length - 1 ? <figcaption>+{extra}</figcaption> : null}
+-        </figure>
++        <TradeImageGridItem key={image.id} image={image} index={index} title={title} badge={badge} extra={index === visible.length - 1 ? extra : 0} />
+       ))}
+     </div>
+   );
+diff --git a/apps/web/src/features/trade/tradePresentation.ts b/apps/web/src/features/trade/tradePresentation.ts
+index be2a786..e99195f 100644
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -1,4 +1,5 @@
+ import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
++import { API_URL } from '../../lib/api';
+ import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
+ 
+ export type TradeSide = {
+@@ -16,12 +17,25 @@ export type DeckImage = {
+   url: string;
+   alt: string;
+   badge: 'Need reference' | 'Offer sample';
++  status?: MediaAssetDto['status'];
+ };
+ 
+ function compactJoin(values: Array<string | null | undefined>) {
+   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
++export function resolveTradeMediaUrl(value?: string | null) {
++  if (!value) return '';
++  if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
++  const base = API_URL.replace(/\/$/, '');
++  const path = value.startsWith('/') ? value : `/${value}`;
++  return `${base}${path}`;
++}
++
++function deckMedia(media: MediaAssetDto[] | undefined) {
++  return (media ?? []).filter((asset) => asset.status !== 'removed' && Boolean(asset.url));
++}
++
+ export function getOwnerName(trade: TradeDto) {
+   return trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
+ }
+@@ -118,17 +132,19 @@ export function offerToSide(offer: OfferDto | null | undefined, label: 'I offer'
+ }
+ 
+ export function getDeckImages(trade: TradeDto): DeckImage[] {
+-  const needImages = (trade.need?.media ?? []).map((media, index) => ({
++  const needImages = deckMedia(trade.need?.media).map((media, index) => ({
+     id: `need-${media.id}`,
+-    url: media.url,
++    url: resolveTradeMediaUrl(media.url),
+     alt: `${trade.need?.title ?? 'Need'} reference ${index + 1}`,
+     badge: 'Need reference' as const,
++    status: media.status,
+   }));
+-  const offerImages = (trade.offer?.media ?? []).map((media, index) => ({
++  const offerImages = deckMedia(trade.offer?.media).map((media, index) => ({
+     id: `offer-${media.id}`,
+-    url: media.url,
++    url: resolveTradeMediaUrl(media.url),
+     alt: `${trade.offer?.title ?? 'Offer'} sample ${index + 1}`,
+     badge: 'Offer sample' as const,
++    status: media.status,
+   }));
+   return [...needImages, ...offerImages];
+ }

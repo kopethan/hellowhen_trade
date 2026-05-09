@@ -1,4 +1,5 @@
 import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
+import { API_URL } from '../../lib/api';
 import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
 
 export type TradeSide = {
@@ -16,10 +17,23 @@ export type DeckImage = {
   url: string;
   alt: string;
   badge: 'Need reference' | 'Offer sample';
+  status?: MediaAssetDto['status'];
 };
 
 function compactJoin(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+}
+
+export function resolveTradeMediaUrl(value?: string | null) {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
+  const base = API_URL.replace(/\/$/, '');
+  const path = value.startsWith('/') ? value : `/${value}`;
+  return `${base}${path}`;
+}
+
+function deckMedia(media: MediaAssetDto[] | undefined) {
+  return (media ?? []).filter((asset) => asset.status !== 'removed' && Boolean(asset.url));
 }
 
 export function getOwnerName(trade: TradeDto) {
@@ -118,17 +132,19 @@ export function offerToSide(offer: OfferDto | null | undefined, label: 'I offer'
 }
 
 export function getDeckImages(trade: TradeDto): DeckImage[] {
-  const needImages = (trade.need?.media ?? []).map((media, index) => ({
+  const needImages = deckMedia(trade.need?.media).map((media, index) => ({
     id: `need-${media.id}`,
-    url: media.url,
+    url: resolveTradeMediaUrl(media.url),
     alt: `${trade.need?.title ?? 'Need'} reference ${index + 1}`,
     badge: 'Need reference' as const,
+    status: media.status,
   }));
-  const offerImages = (trade.offer?.media ?? []).map((media, index) => ({
+  const offerImages = deckMedia(trade.offer?.media).map((media, index) => ({
     id: `offer-${media.id}`,
-    url: media.url,
+    url: resolveTradeMediaUrl(media.url),
     alt: `${trade.offer?.title ?? 'Offer'} sample ${index + 1}`,
     badge: 'Offer sample' as const,
+    status: media.status,
   }));
   return [...needImages, ...offerImages];
 }

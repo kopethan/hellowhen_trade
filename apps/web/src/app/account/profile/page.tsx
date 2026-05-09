@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MediaAssetDto } from '@hellowhen/contracts';
 import { MobilePage, PageIntro } from '../../../components/MobilePage';
 import { api } from '../../../lib/api';
@@ -10,6 +10,41 @@ import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSuppor
 import { mediaSrc, normalizeMediaUpload } from '../../../features/inventory/inventoryPresentation';
 import { assetUrl } from '../../../features/account/accountPresentation';
 import { useWebAuth } from '../../../providers/WebAuthProvider';
+
+
+const avatarSizePx = 512;
+
+function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), type, quality);
+  });
+}
+
+async function resizeAvatarForUpload(file: File) {
+  const bitmap = await createImageBitmap(file);
+  const sourceSize = Math.min(bitmap.width, bitmap.height);
+  const sourceX = Math.max(0, Math.floor((bitmap.width - sourceSize) / 2));
+  const sourceY = Math.max(0, Math.floor((bitmap.height - sourceSize) / 2));
+  const canvas = document.createElement('canvas');
+  canvas.width = avatarSizePx;
+  canvas.height = avatarSizePx;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    bitmap.close();
+    throw new Error('Could not prepare this profile image. Try a different image.');
+  }
+
+  context.drawImage(bitmap, sourceX, sourceY, sourceSize, sourceSize, 0, 0, avatarSizePx, avatarSizePx);
+  bitmap.close();
+
+  const webpBlob = await canvasBlob(canvas, 'image/webp', 0.9);
+  const blob = webpBlob ?? await canvasBlob(canvas, 'image/jpeg', 0.92);
+  if (!blob) throw new Error('Could not prepare this profile image. Try a different image.');
+
+  const baseName = file.name.replace(/\.[^.]+$/, '') || 'profile-photo';
+  const extension = blob.type === 'image/webp' ? 'webp' : 'jpg';
+  return new File([blob], `${baseName}.${extension}`, { type: blob.type, lastModified: Date.now() });
+}
 
 export default function AccountProfilePage() {
   const auth = useWebAuth();
@@ -20,10 +55,31 @@ export default function AccountProfilePage() {
   const [countryCode, setCountryCode] = useState('FR');
   const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
   const [avatar, setAvatar] = useState<MediaAssetDto | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
+  const avatarPreviewUrlRef = useRef('');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrlRef.current) URL.revokeObjectURL(avatarPreviewUrlRef.current);
+    };
+  }, []);
+
+  function replaceAvatarPreview(file: File) {
+    if (avatarPreviewUrlRef.current) URL.revokeObjectURL(avatarPreviewUrlRef.current);
+    const nextUrl = URL.createObjectURL(file);
+    avatarPreviewUrlRef.current = nextUrl;
+    setAvatarPreviewUrl(nextUrl);
+  }
+
+  function clearAvatarPreview() {
+    if (avatarPreviewUrlRef.current) URL.revokeObjectURL(avatarPreviewUrlRef.current);
+    avatarPreviewUrlRef.current = '';
+    setAvatarPreviewUrl('');
+  }
 
   useEffect(() => {
     setDisplayName(profile?.displayName ?? '');
@@ -39,17 +95,19 @@ export default function AccountProfilePage() {
     setError(null);
     setMessage(null);
     try {
+      const preparedFile = await resizeAvatarForUpload(file);
+      replaceAvatarPreview(preparedFile);
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('image', preparedFile);
       const response = await api.media.uploadImage(formData);
       const media = normalizeMediaUpload(response);
       if (!media) throw new Error('Upload completed but no image was returned.');
       const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id, avatarUrl: media.url });
       setAvatar(media);
       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
-      setMessage('Profile photo uploaded for review.');
+      setMessage('Profile photo uploaded for review. We resized it to a square preview.');
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(caughtError instanceof Error && caughtError.message.startsWith('Could not prepare') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
     } finally {
       setUploading(false);
     }
@@ -62,6 +120,7 @@ export default function AccountProfilePage() {
     try {
       const nextProfile = await api.profile.updateMe({ removeAvatar: true });
       setAvatar(null);
+      clearAvatarPreview();
       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
       setMessage('Profile photo removed.');
     } catch (caughtError) {
@@ -93,7 +152,7 @@ export default function AccountProfilePage() {
     }
   }
 
-  const avatarUrl = avatar ? mediaSrc(avatar) : assetUrl(profile?.avatarUrl);
+  const avatarUrl = avatarPreviewUrl || (avatar ? mediaSrc(avatar) : assetUrl(profile?.avatarUrl));
   const avatarInitial = displayName.trim().slice(0, 1).toUpperCase() || 'H';
 
   return (
@@ -124,7 +183,7 @@ export default function AccountProfilePage() {
             </div>
             <div>
               <h3>Profile photo</h3>
-              <p>Upload a JPEG, PNG, or WEBP image. It uses the same media review flow as Need/Offer images.</p>
+              <p>Upload a JPEG, PNG, or WEBP image. We center-crop and resize it to a 512×512 square before upload, then send it through the same media review flow as Need/Offer images.</p>
               <div className="mobile-actions">
                 <label className="image-upload-button">
                   {uploading ? 'Uploading...' : 'Upload photo'}

@@ -1,5 +1,4 @@
 import React from 'react';
-import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, View } from 'react-native';
@@ -28,6 +27,7 @@ import { WalletScreen } from '../features/wallet/WalletScreen';
 import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
 import { useThemeTokens } from '../providers/ThemeProvider';
+import { MobileIcon, type MobileIconName } from '../components/MobileIcon';
 
 export type RootStackParamList = {
   TradeTabs: undefined;
@@ -56,13 +56,11 @@ type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-type TabIconName = React.ComponentProps<typeof Ionicons>['name'];
-
-function getTabIconName(routeName: keyof MainTabParamList, focused: boolean): TabIconName {
-  if (routeName === 'Trades') return focused ? 'swap-horizontal' : 'swap-horizontal-outline';
-  if (routeName === 'Needs') return focused ? 'arrow-down-circle' : 'arrow-down-circle-outline';
-  if (routeName === 'Offers') return focused ? 'arrow-up-circle' : 'arrow-up-circle-outline';
-  return focused ? 'person-circle' : 'person-circle-outline';
+function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
+  if (routeName === 'Trades') return 'trade';
+  if (routeName === 'Needs') return 'need';
+  if (routeName === 'Offers') return 'offer';
+  return 'profile';
 }
 
 function TradeTabs() {
@@ -75,8 +73,8 @@ function TradeTabs() {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
-        tabBarIcon: ({ color, focused, size }) => (
-          <Ionicons name={getTabIconName(route.name, focused)} size={Math.max(size, 23)} color={color} />
+        tabBarIcon: ({ color, size }) => (
+          <MobileIcon name={getTabIconName(route.name)} size={Math.max(size, 22)} color={color} />
         ),
         tabBarIconStyle: { marginTop: 6 },
         tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 6 },
