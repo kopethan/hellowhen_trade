@@ -1,0 +1,1139 @@
+diff --git a/apps/web/src/app/account/page.tsx b/apps/web/src/app/account/page.tsx
+index 4ba7075..d6cfe70 100644
+--- a/apps/web/src/app/account/page.tsx
++++ b/apps/web/src/app/account/page.tsx
+@@ -1,5 +1,6 @@
+ import Link from 'next/link';
+ import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { WebAuthSummary } from '../../components/WebAuthSummary';
+ 
+ const accountItems = [
+   { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, and profile photo.' },
+@@ -17,6 +18,7 @@ export default function AccountPage() {
+         title="Account"
+         body="Your profile, wallet, payouts, settings, and support live here."
+       />
++      <WebAuthSummary />
+       <div className="mobile-list">
+         {accountItems.map((item) => (
+           <Link key={item.href} href={item.href} className="mobile-link-card">
+diff --git a/apps/web/src/app/account/profile/page.tsx b/apps/web/src/app/account/profile/page.tsx
+index 8e24f11..9ee80ea 100644
+--- a/apps/web/src/app/account/profile/page.tsx
++++ b/apps/web/src/app/account/profile/page.tsx
+@@ -1,17 +1,132 @@
++'use client';
++
++import Link from 'next/link';
++import { useEffect, useState } from 'react';
+ import { MobilePage, PageIntro } from '../../../components/MobilePage';
++import { api } from '../../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../../lib/webErrors';
++import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSupportedCurrency, type SupportedCurrency } from '../../../lib/webMoneyPreferences';
++import { useWebAuth } from '../../../providers/WebAuthProvider';
+ 
+ export default function AccountProfilePage() {
++  const auth = useWebAuth();
++  const profile = auth.user?.profile;
++  const [displayName, setDisplayName] = useState('');
++  const [handle, setHandle] = useState('');
++  const [bio, setBio] = useState('');
++  const [countryCode, setCountryCode] = useState('FR');
++  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
++  const [saving, setSaving] = useState(false);
++  const [message, setMessage] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => {
++    setDisplayName(profile?.displayName ?? '');
++    setHandle(profile?.handle ?? '');
++    setBio(profile?.bio ?? '');
++    setCountryCode(profile?.countryCode ?? 'FR');
++    setPreferredCurrency(profile?.preferredCurrency ?? 'eur');
++  }, [profile?.bio, profile?.countryCode, profile?.displayName, profile?.handle, profile?.preferredCurrency]);
++
++  async function saveProfile() {
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      if (!displayName.trim()) throw new Error('Display name is required.');
++      const nextProfile = await api.profile.updateMe({
++        displayName: displayName.trim(),
++        handle: handle.trim() || undefined,
++        bio: bio.trim() || undefined,
++        countryCode,
++        preferredCurrency,
++      });
++      auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
++      setMessage('Profile updated.');
++    } catch (caughtError) {
++      setError(caughtError instanceof Error && caughtError.message === 'Display name is required.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   return (
+     <MobilePage>
+       <PageIntro
+         eyebrow="Profile"
+         title="Your public identity"
+-        body="The web profile screen will reuse the latest mobile profile model, including profile picture upload."
++        body="Update your display profile and money preferences for web. Profile photo upload stays a later web pass."
+       />
+-      <section className="mobile-card mobile-card--soft">
+-        <h3>Profile form placeholder</h3>
+-        <p>Display name, handle, bio, and avatar controls will be wired in Phase 19.2 or later.</p>
+-      </section>
++
++      {!auth.hydrated ? (
++        <section className="mobile-card mobile-card--soft"><p>Loading your session...</p></section>
++      ) : null}
++
++      {auth.hydrated && !auth.isAuthenticated ? (
++        <section className="mobile-card mobile-card--soft">
++          <h3>Login required</h3>
++          <p>Sign in before editing your profile, country, or preferred currency.</p>
++          <Link href="/auth" className="button primary full">Login or register</Link>
++        </section>
++      ) : null}
++
++      {auth.isAuthenticated ? (
++        <section className="mobile-card profile-form-card">
++          <div className="form-stack">
++            <label className="field-label">
++              Display name
++              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" />
++            </label>
++            <label className="field-label">
++              Handle
++              <input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="username" autoCapitalize="none" />
++            </label>
++            <label className="field-label">
++              Bio
++              <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="What do you like to trade?" rows={4} maxLength={280} />
++            </label>
++
++            <div className="preference-panel">
++              <div>
++                <h3>Money preferences</h3>
++                <p>Country and preferred currency are used for wallet money display and demo payment flows. No full address is collected yet.</p>
++              </div>
++              <label className="field-label">
++                Country
++                <select
++                  value={countryCode}
++                  onChange={(event) => {
++                    const nextCountry = event.target.value;
++                    setCountryCode(nextCountry);
++                    setPreferredCurrency(getDefaultCurrencyForCountry(nextCountry));
++                  }}
++                >
++                  {countryOptions.map((country) => (
++                    <option key={country.code} value={country.code}>{country.label} · default {country.currency.toUpperCase()}</option>
++                  ))}
++                </select>
++              </label>
++              <label className="field-label">
++                Preferred currency
++                <select
++                  value={preferredCurrency}
++                  onChange={(event) => {
++                    if (isSupportedCurrency(event.target.value)) setPreferredCurrency(event.target.value);
++                  }}
++                >
++                  {currencyOptions.map((currency) => (
++                    <option key={currency.code} value={currency.code}>{currency.label} · {currency.helper}</option>
++                  ))}
++                </select>
++              </label>
++            </div>
++          </div>
++
++          {message ? <p className="notice-box success">{message}</p> : null}
++          {error ? <p className="notice-box danger">{error}</p> : null}
++          <button type="button" onClick={() => { void saveProfile(); }} disabled={saving}>{saving ? 'Saving...' : 'Save profile'}</button>
++        </section>
++      ) : null}
+     </MobilePage>
+   );
+ }
+diff --git a/apps/web/src/app/account/settings/page.tsx b/apps/web/src/app/account/settings/page.tsx
+index 544c6b2..3d584c2 100644
+--- a/apps/web/src/app/account/settings/page.tsx
++++ b/apps/web/src/app/account/settings/page.tsx
+@@ -1,21 +1,115 @@
++'use client';
++
++import { useState } from 'react';
+ import { MobilePage, PageIntro } from '../../../components/MobilePage';
++import { getFriendlyApiErrorMessage } from '../../../lib/webErrors';
++import { useWebAppSettings } from '../../../providers/WebAppSettingsProvider';
++import { useWebAuth } from '../../../providers/WebAuthProvider';
++
++type Appearance = 'system' | 'light' | 'dark';
++
++const appearanceOptions: Array<{ value: Appearance; title: string; body: string }> = [
++  { value: 'system', title: 'System', body: 'Follow your device/browser setting.' },
++  { value: 'light', title: 'Light', body: 'Always open in light mode.' },
++  { value: 'dark', title: 'Dark', body: 'Always open in dark mode.' },
++];
+ 
+ export default function AccountSettingsPage() {
++  const auth = useWebAuth();
++  const appSettings = useWebAppSettings();
++  const [saving, setSaving] = useState(false);
++  const [message, setMessage] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  async function updateAppearance(appearance: Appearance) {
++    setSaving(true);
++    setMessage(null);
++    setError(null);
++    try {
++      await appSettings.setSettings({ ...appSettings.settings, appearance }, { syncRemote: auth.isAuthenticated });
++      setMessage(auth.isAuthenticated ? 'Appearance saved to your account.' : 'Appearance saved on this browser.');
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function updateNotifications(enabled: boolean) {
++    setSaving(true);
++    setMessage(null);
++    setError(null);
++    try {
++      await appSettings.setSettings({ ...appSettings.settings, notificationsEnabled: enabled }, { syncRemote: auth.isAuthenticated });
++      setMessage(auth.isAuthenticated ? 'Notification preference saved to your account.' : 'Notification preference saved on this browser.');
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   return (
+     <MobilePage>
+       <PageIntro
+         eyebrow="Settings"
+         title="App preferences"
+-        body="Dark mode stays supported. Accent color and old action-bar settings stay removed from the web product shell."
++        body="Control web appearance and account preferences. Accent color and old action-bar settings stay removed."
+       />
+-      <section className="mobile-card mobile-card--soft">
+-        <h3>Country + preferred currency</h3>
+-        <p>These preferences are collected before full address details. The editable web form comes after auth/session wiring.</p>
++
++      <section className="mobile-card settings-panel">
++        <div>
++          <span className="semantic-badge info">Appearance</span>
++          <h3>Dark mode</h3>
++          <p>The selected mode is stored before React loads, so web reloads should not flash back to light mode.</p>
++        </div>
++        <div className="choice-list">
++          {appearanceOptions.map((option) => {
++            const active = appSettings.settings.appearance === option.value;
++            return (
++              <button
++                key={option.value}
++                type="button"
++                className={active ? 'choice-card choice-card--active' : 'choice-card'}
++                onClick={() => { void updateAppearance(option.value); }}
++                disabled={saving}
++              >
++                <span>
++                  <strong>{option.title}</strong>
++                  <small>{option.body}</small>
++                </span>
++                {active ? <em>✓</em> : null}
++              </button>
++            );
++          })}
++        </div>
++      </section>
++
++      <section className="mobile-card settings-panel">
++        <div>
++          <span className="semantic-badge instruction">Account</span>
++          <h3>Notifications</h3>
++          <p>This is stored with the same settings model as mobile. Push/email delivery rules will come later.</p>
++        </div>
++        <label className="checkbox-row checkbox-row--boxed">
++          <input
++            checked={appSettings.settings.notificationsEnabled}
++            onChange={(event) => { void updateNotifications(event.target.checked); }}
++            type="checkbox"
++            disabled={saving}
++          />
++          <span>Enable trade and support notifications</span>
++        </label>
+       </section>
++
+       <section className="mobile-card mobile-card--soft">
+-        <h3>Appearance</h3>
+-        <p>The shell is dark-mode aware now and reads a saved web appearance key when available.</p>
++        <h3>Country + preferred currency</h3>
++        <p>Money preferences now live on Profile so they can be saved with your public account data.</p>
+       </section>
++
++      {message ? <p className="notice-box success">{message}</p> : null}
++      {error ? <p className="notice-box danger">{error}</p> : null}
++      {!auth.isAuthenticated ? <p className="notice-box info">You are not logged in. Appearance still persists locally on this browser.</p> : null}
+     </MobilePage>
+   );
+ }
+diff --git a/apps/web/src/app/auth/page.tsx b/apps/web/src/app/auth/page.tsx
+new file mode 100644
+index 0000000..9c62047
+--- /dev/null
++++ b/apps/web/src/app/auth/page.tsx
+@@ -0,0 +1,9 @@
++import { WebAuthPanel } from '../../components/WebAuthPanel';
++
++export default function AuthPage() {
++  return (
++    <section className="auth-page-shell">
++      <WebAuthPanel />
++    </section>
++  );
++}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 8ef8527..1b529ed 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -196,3 +196,38 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ @media (max-width: 480px) { .web-app-shell { width: 100vw; box-shadow: none; } .web-top-header, .web-bottom-tabs { width: 100vw; } }
+ @media (max-width: 900px) { .support-layout { grid-template-columns: 1fr; } }
+ @media (max-width: 760px) { .form-row { grid-template-columns: 1fr; } }
++
++.auth-page-shell { min-height: calc(100dvh - 72px); display: grid; place-items: center; }
++.auth-panel { display: grid; gap: 18px; width: min(100%, 430px); margin: 0 auto; }
++.auth-brand-block { display: grid; gap: 8px; }
++.auth-brand-block h1 { margin: 0; }
++.auth-brand-block p { margin: 0; }
++.auth-toggle-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-radius: 999px; background: var(--app-surface-soft); padding: 5px; }
++.auth-toggle { min-height: 38px; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 0 10px; font-size: 13px; }
++.auth-toggle--active { background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
++.form-stack { display: grid; gap: 12px; }
++.field-label { display: grid; gap: 7px; color: var(--app-text); font-size: 13px; font-weight: 900; }
++.field-label input, .field-label select, .field-label textarea { font-size: 16px; font-weight: 650; }
++.password-field { position: relative; display: grid; }
++.password-field input { padding-right: 72px; }
++.inline-button { position: absolute; top: 50%; right: 7px; min-height: 34px; transform: translateY(-50%); border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 0 11px; font-size: 12px; }
++.preference-panel { display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface-soft); padding: 14px; }
++.preference-panel h3 { margin-bottom: 3px; }
++.preference-panel p { margin-bottom: 0; font-size: 13px; }
++.checkbox-row { display: flex; align-items: center; gap: 10px; color: var(--app-text-muted); font-weight: 750; }
++.checkbox-row input { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--app-text); }
++.checkbox-row--boxed { border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface-soft); padding: 14px; }
++.auth-actions { display: grid; gap: 10px; }
++.account-session-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
++.account-session-card h3 { margin-top: 10px; }
++.profile-form-card { display: grid; gap: 16px; }
++.settings-panel { display: grid; gap: 14px; }
++.choice-list { display: grid; gap: 9px; }
++.choice-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 66px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); color: var(--app-text); padding: 13px; text-align: left; }
++.choice-card span { display: grid; gap: 3px; }
++.choice-card strong { font-size: 15px; }
++.choice-card small { color: var(--app-text-muted); font-size: 12px; font-weight: 750; line-height: 1.35; }
++.choice-card em { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; background: var(--success-bg); color: var(--success-text); font-style: normal; }
++.choice-card--active { border-color: var(--proposal-border); background: var(--proposal-bg); color: var(--proposal-text); }
++.choice-card--active small { color: var(--proposal-text); opacity: 0.85; }
++.reset-card { display: grid; gap: 16px; }
+diff --git a/apps/web/src/app/layout.tsx b/apps/web/src/app/layout.tsx
+index 351aa3a..479576e 100644
+--- a/apps/web/src/app/layout.tsx
++++ b/apps/web/src/app/layout.tsx
+@@ -1,6 +1,7 @@
+ import './globals.css';
+ import type { ReactNode } from 'react';
+ import { WebMobileShell } from '../components/WebMobileShell';
++import { WebAppProviders } from '../providers/WebAppProviders';
+ 
+ export const metadata = {
+   title: 'Hellowhen Trade',
+@@ -11,13 +12,18 @@ export const metadata = {
+ const themeScript = `
+ (function () {
+   try {
+-    var stored = window.localStorage.getItem('hellowhen:appearance');
+-    var theme = stored === 'dark' || stored === 'light'
+-      ? stored
++    var settingsRaw = window.localStorage.getItem('hellowhen_app_settings_v1');
++    var settings = settingsRaw ? JSON.parse(settingsRaw) : null;
++    var stored = settings && settings.appearance ? settings.appearance : window.localStorage.getItem('hellowhen:appearance');
++    var appearance = stored === 'dark' || stored === 'light' || stored === 'system' ? stored : 'system';
++    var theme = appearance === 'dark' || appearance === 'light'
++      ? appearance
+       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+     document.documentElement.dataset.theme = theme;
++    document.documentElement.dataset.appearance = appearance;
+   } catch (error) {
+     document.documentElement.dataset.theme = 'light';
++    document.documentElement.dataset.appearance = 'system';
+   }
+ })();
+ `;
+@@ -29,7 +35,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
+         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+       </head>
+       <body>
+-        <WebMobileShell>{children}</WebMobileShell>
++        <WebAppProviders><WebMobileShell>{children}</WebMobileShell></WebAppProviders>
+       </body>
+     </html>
+   );
+diff --git a/apps/web/src/app/page.tsx b/apps/web/src/app/page.tsx
+index 9e77303..d1817f6 100644
+--- a/apps/web/src/app/page.tsx
++++ b/apps/web/src/app/page.tsx
+@@ -1,5 +1,28 @@
+-import { redirect } from 'next/navigation';
++'use client';
++
++import { useRouter } from 'next/navigation';
++import { useEffect } from 'react';
++import { WebAuthPanel } from '../components/WebAuthPanel';
++import { useWebAuth } from '../providers/WebAuthProvider';
+ 
+ export default function HomePage() {
+-  redirect('/trades');
++  const router = useRouter();
++  const auth = useWebAuth();
++
++  useEffect(() => {
++    if (auth.hydrated && auth.isAuthenticated) router.replace('/trades');
++  }, [auth.hydrated, auth.isAuthenticated, router]);
++
++  if (!auth.hydrated) {
++    return (
++      <section className="mobile-card mobile-card--soft">
++        <p className="eyebrow">Hellowhen Trade</p>
++        <h2>Loading your session...</h2>
++      </section>
++    );
++  }
++
++  if (auth.isAuthenticated) return null;
++
++  return <WebAuthPanel />;
+ }
+diff --git a/apps/web/src/app/reset-password/page.tsx b/apps/web/src/app/reset-password/page.tsx
+index 994bdc1..6b8d0bd 100644
+--- a/apps/web/src/app/reset-password/page.tsx
++++ b/apps/web/src/app/reset-password/page.tsx
+@@ -1,10 +1,12 @@
+ 'use client';
+ 
++import Link from 'next/link';
+ import { useEffect, useState } from 'react';
+-
+-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { useWebAuth } from '../../providers/WebAuthProvider';
+ 
+ export default function ResetPasswordPage() {
++  const auth = useWebAuth();
+   const [token, setToken] = useState('');
+   const [password, setPassword] = useState('');
+   const [confirmPassword, setConfirmPassword] = useState('');
+@@ -22,39 +24,40 @@ export default function ResetPasswordPage() {
+     setMessage(null);
+     setError(null);
+     try {
+-      if (!token) throw new Error('Missing reset token. Request a new link from the app login screen.');
++      if (!token) throw new Error('Missing reset token. Request a new link from the login screen.');
+       if (password.length < 8) throw new Error('Password must be at least 8 characters.');
+       if (password !== confirmPassword) throw new Error('Passwords do not match.');
+-      const response = await fetch(`${apiBase}/auth/reset-password`, {
+-        method: 'POST',
+-        headers: { 'Content-Type': 'application/json' },
+-        body: JSON.stringify({ token, password, confirmPassword })
+-      });
+-      const body = await response.json().catch(() => ({})) as { message?: string };
+-      if (!response.ok) throw new Error(body.message ?? 'Could not reset password.');
+-      setMessage(body.message ?? 'Password reset. You can now return to Hellowhen and log in.');
++      const result = await auth.resetPassword(token, password, confirmPassword);
++      setMessage(result.message ?? 'Password reset. You can now log in.');
+       setPassword('');
+       setConfirmPassword('');
+     } catch (caughtError) {
+-      setError(caughtError instanceof Error ? caughtError.message : 'Could not reset password.');
++      setError(caughtError instanceof Error && caughtError.message.startsWith('Missing reset token') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+     } finally {
+       setLoading(false);
+     }
+   }
+ 
+   return (
+-    <section className="card auth-card">
++    <section className="card auth-card reset-card">
+       <span className="semantic-badge instruction">Password reset</span>
+       <h1>Reset your Hellowhen password</h1>
+       <p className="notice-box info">Choose a new password for your Hellowhen account. Reset links are one-time use and expire automatically.</p>
+-      {!token ? <p className="notice-box danger">Missing reset token. Open the link from your email or request a new password reset.</p> : null}
+-      <div className="form-row single">
+-        <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New password" type="password" />
+-        <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Confirm new password" type="password" />
+-        <button onClick={() => { void submit(); }} disabled={loading || !token}>{loading ? 'Resetting...' : 'Reset password'}</button>
++      {!token ? <p className="notice-box danger">Missing reset token. Open the link from your email or request a new reset link.</p> : null}
++      <div className="form-stack">
++        <label className="field-label">
++          New password
++          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" type="password" autoComplete="new-password" />
++        </label>
++        <label className="field-label">
++          Confirm new password
++          <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat password" type="password" autoComplete="new-password" />
++        </label>
++        <button onClick={() => { void submit(); }} disabled={loading || !token} type="button">{loading ? 'Resetting...' : 'Reset password'}</button>
+       </div>
+       {message ? <p className="notice-box success">{message}</p> : null}
+       {error ? <p className="notice-box danger">{error}</p> : null}
++      <Link href="/auth" className="button full">Back to login</Link>
+     </section>
+   );
+ }
+diff --git a/apps/web/src/components/WebAuthPanel.tsx b/apps/web/src/components/WebAuthPanel.tsx
+new file mode 100644
+index 0000000..37a0b4b
+--- /dev/null
++++ b/apps/web/src/components/WebAuthPanel.tsx
+@@ -0,0 +1,190 @@
++'use client';
++
++import { useRouter } from 'next/navigation';
++import { useMemo, useState } from 'react';
++import { getFriendlyApiErrorMessage } from '../lib/webErrors';
++import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSupportedCurrency, type SupportedCurrency } from '../lib/webMoneyPreferences';
++import { useWebAuth } from '../providers/WebAuthProvider';
++
++type AuthMode = 'login' | 'register' | 'forgot';
++
++function authSubtitle(mode: AuthMode) {
++  if (mode === 'register') return 'Create your account and set country and preferred currency for wallet demo flows.';
++  if (mode === 'forgot') return 'Request a reset link for your Hellowhen account.';
++  return 'Sign in to create needs, offers, trades, and proposals.';
++}
++
++export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }) {
++  const router = useRouter();
++  const auth = useWebAuth();
++  const [mode, setMode] = useState<AuthMode>('login');
++  const [displayName, setDisplayName] = useState('');
++  const [email, setEmail] = useState('');
++  const [password, setPassword] = useState('');
++  const [confirmPassword, setConfirmPassword] = useState('');
++  const [acceptedTerms, setAcceptedTerms] = useState(false);
++  const [countryCode, setCountryCode] = useState('FR');
++  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
++  const [showPassword, setShowPassword] = useState(false);
++  const [submitting, setSubmitting] = useState(false);
++  const [message, setMessage] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  const primaryLabel = useMemo(() => {
++    if (submitting) return 'Working...';
++    if (mode === 'register') return 'Create account';
++    if (mode === 'forgot') return 'Send reset link';
++    return 'Login';
++  }, [mode, submitting]);
++
++  function switchMode(nextMode: AuthMode) {
++    setMode(nextMode);
++    setError(null);
++    setMessage(null);
++  }
++
++  function validateLocalForm() {
++    if (!email.trim()) return 'Enter your email.';
++    if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
++    if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
++    if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
++    if (mode === 'register' && !countryCode) return 'Choose your country.';
++    if (mode === 'register' && !preferredCurrency) return 'Choose your preferred currency.';
++    if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
++    return null;
++  }
++
++  async function submit() {
++    const validationError = validateLocalForm();
++    if (validationError) {
++      setError(validationError);
++      return;
++    }
++
++    setSubmitting(true);
++    setError(null);
++    setMessage(null);
++    try {
++      if (mode === 'login') {
++        await auth.login(email.trim(), password);
++        router.push(redirectTo);
++      } else if (mode === 'register') {
++        await auth.register({
++          email: email.trim(),
++          password,
++          confirmPassword,
++          displayName: displayName.trim(),
++          acceptedTerms,
++          countryCode,
++          preferredCurrency,
++        });
++        router.push(redirectTo);
++      } else {
++        const result = await auth.forgotPassword(email.trim());
++        setMessage(result.message);
++      }
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
++  return (
++    <section className="mobile-card auth-panel">
++      <div className="auth-brand-block">
++        <span className="semantic-badge trade">Trade</span>
++        <h1>Hellowhen</h1>
++        <p>{authSubtitle(mode)}</p>
++      </div>
++
++      <div className="auth-toggle-row" role="tablist" aria-label="Auth mode">
++        <button className={mode === 'login' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('login')}>Login</button>
++        <button className={mode === 'register' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('register')}>Register</button>
++        <button className={mode === 'forgot' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('forgot')}>Reset</button>
++      </div>
++
++      <div className="form-stack">
++        {mode === 'register' ? (
++          <label className="field-label">
++            Full name
++            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Mina Chen" autoComplete="name" />
++          </label>
++        ) : null}
++
++        <label className="field-label">
++          Email
++          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" type="email" />
++        </label>
++
++        {mode !== 'forgot' ? (
++          <label className="field-label">
++            Password
++            <div className="password-field">
++              <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} type={showPassword ? 'text' : 'password'} />
++              <button type="button" className="inline-button" onClick={() => setShowPassword((value) => !value)}>{showPassword ? 'Hide' : 'Show'}</button>
++            </div>
++          </label>
++        ) : null}
++
++        {mode === 'register' ? (
++          <>
++            <label className="field-label">
++              Confirm password
++              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat password" autoComplete="new-password" type={showPassword ? 'text' : 'password'} />
++            </label>
++
++            <div className="preference-panel">
++              <div>
++                <h3>Money preferences</h3>
++                <p>Used only for wallet money and demo top-up/payout flows. Full address details are not collected here.</p>
++              </div>
++              <label className="field-label">
++                Country
++                <select
++                  value={countryCode}
++                  onChange={(event) => {
++                    const nextCountry = event.target.value;
++                    setCountryCode(nextCountry);
++                    setPreferredCurrency(getDefaultCurrencyForCountry(nextCountry));
++                  }}
++                >
++                  {countryOptions.map((country) => (
++                    <option key={country.code} value={country.code}>{country.label} · default {country.currency.toUpperCase()}</option>
++                  ))}
++                </select>
++              </label>
++              <label className="field-label">
++                Preferred currency
++                <select
++                  value={preferredCurrency}
++                  onChange={(event) => {
++                    if (isSupportedCurrency(event.target.value)) setPreferredCurrency(event.target.value);
++                  }}
++                >
++                  {currencyOptions.map((currency) => (
++                    <option key={currency.code} value={currency.code}>{currency.label} · {currency.helper}</option>
++                  ))}
++                </select>
++              </label>
++            </div>
++
++            <label className="checkbox-row">
++              <input checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} type="checkbox" />
++              <span>I agree to the Terms and Privacy Policy.</span>
++            </label>
++          </>
++        ) : null}
++      </div>
++
++      {mode === 'forgot' ? <p className="notice-box info">Enter your account email and we will send a reset link if the account exists.</p> : null}
++      {message ? <p className="notice-box success">{message}</p> : null}
++      {error ? <p className="notice-box danger">{error}</p> : null}
++
++      <div className="auth-actions">
++        <button type="button" onClick={() => { void submit(); }} disabled={submitting}>{primaryLabel}</button>
++        <button type="button" className="secondary" disabled title="Google sign-in is not wired for web yet">Continue with Google</button>
++      </div>
++    </section>
++  );
++}
+diff --git a/apps/web/src/components/WebAuthSummary.tsx b/apps/web/src/components/WebAuthSummary.tsx
+new file mode 100644
+index 0000000..f6ed710
+--- /dev/null
++++ b/apps/web/src/components/WebAuthSummary.tsx
+@@ -0,0 +1,50 @@
++'use client';
++
++import Link from 'next/link';
++import { useRouter } from 'next/navigation';
++import { useWebAuth } from '../providers/WebAuthProvider';
++
++export function WebAuthSummary() {
++  const router = useRouter();
++  const auth = useWebAuth();
++  const profile = auth.user?.profile;
++  const displayName = profile?.displayName || auth.user?.email || 'Guest';
++
++  if (!auth.hydrated) {
++    return (
++      <section className="mobile-card mobile-card--soft">
++        <h3>Checking session...</h3>
++        <p>Loading your account state.</p>
++      </section>
++    );
++  }
++
++  if (!auth.isAuthenticated) {
++    return (
++      <section className="mobile-card mobile-card--soft">
++        <h3>Sign in to manage your account</h3>
++        <p>Create needs, offers, trades, wallet demo actions, and support requests after login.</p>
++        <Link href="/auth" className="button primary full">Login or register</Link>
++      </section>
++    );
++  }
++
++  return (
++    <section className="mobile-card account-session-card">
++      <div>
++        <span className="semantic-badge success">Signed in</span>
++        <h3>{displayName}</h3>
++        <p>{auth.user?.email}</p>
++      </div>
++      <button
++        type="button"
++        className="secondary"
++        onClick={() => {
++          void auth.logout().then(() => router.push('/auth'));
++        }}
++      >
++        Logout
++      </button>
++    </section>
++  );
++}
+diff --git a/apps/web/src/lib/api.ts b/apps/web/src/lib/api.ts
+new file mode 100644
+index 0000000..32fb1ca
+--- /dev/null
++++ b/apps/web/src/lib/api.ts
+@@ -0,0 +1,9 @@
++import { createApiClient } from '@hellowhen/api-client';
++import { getAccessToken } from './webTokenStore';
++
++export const API_URL = process.env.NEXT_PUBLIC_API_URL?.trim() || 'http://localhost:4000';
++
++export const api = createApiClient({
++  baseUrl: API_URL,
++  getAccessToken,
++});
+diff --git a/apps/web/src/lib/webErrors.ts b/apps/web/src/lib/webErrors.ts
+new file mode 100644
+index 0000000..cc4d368
+--- /dev/null
++++ b/apps/web/src/lib/webErrors.ts
+@@ -0,0 +1,43 @@
++export const API_CONNECTION_ERROR_MESSAGE =
++  'Could not connect to Hellowhen. Check the API URL and try again.';
++
++type ApiLikeError = {
++  code?: string;
++  status?: number;
++  body?: {
++    error?: string;
++    message?: string;
++  };
++  message?: string;
++};
++
++function toApiLikeError(error: unknown): ApiLikeError {
++  if (error && typeof error === 'object') return error as ApiLikeError;
++  return {};
++}
++
++export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something went wrong. Please try again.') {
++  const apiError = toApiLikeError(error);
++  const message = apiError.message ?? '';
++
++  if (
++    apiError.code === 'HELLOWHEN_API_CONNECTION_ERROR' ||
++    message.includes('Network request failed') ||
++    message.includes('Failed to fetch') ||
++    message.includes('Could not connect')
++  ) {
++    return API_CONNECTION_ERROR_MESSAGE;
++  }
++
++  if (apiError.body?.error === 'invalid_credentials') return 'Email or password is incorrect.';
++  if (apiError.body?.error === 'email_already_exists') return apiError.body.message ?? 'An account already exists with this email. Try logging in or resetting your password.';
++  if (apiError.body?.error === 'google_not_configured') return apiError.body.message ?? 'Google sign-in is not configured yet.';
++  if (apiError.body?.error === 'invalid_google_token') return apiError.body.message ?? 'Google sign-in could not be verified.';
++  if (apiError.body?.error === 'invalid_or_expired_reset_token') return apiError.body.message ?? 'This reset link is invalid or expired.';
++  if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
++  if (apiError.body?.error === 'not_found') return 'That item could not be found.';
++  if (apiError.status === 401) return 'Please log in again to continue.';
++  if (apiError.body?.message) return apiError.body.message;
++
++  return fallback;
++}
+diff --git a/apps/web/src/lib/webMoneyPreferences.ts b/apps/web/src/lib/webMoneyPreferences.ts
+new file mode 100644
+index 0000000..e22efc3
+--- /dev/null
++++ b/apps/web/src/lib/webMoneyPreferences.ts
+@@ -0,0 +1,38 @@
++export type SupportedCurrency = 'eur' | 'usd' | 'gbp';
++
++export type CountryOption = {
++  code: string;
++  label: string;
++  currency: SupportedCurrency;
++};
++
++export const countryOptions: CountryOption[] = [
++  { code: 'FR', label: 'France', currency: 'eur' },
++  { code: 'US', label: 'United States', currency: 'usd' },
++  { code: 'GB', label: 'United Kingdom', currency: 'gbp' },
++  { code: 'DE', label: 'Germany', currency: 'eur' },
++  { code: 'ES', label: 'Spain', currency: 'eur' },
++  { code: 'IT', label: 'Italy', currency: 'eur' },
++];
++
++export const currencyOptions: Array<{ code: SupportedCurrency; label: string; helper: string }> = [
++  { code: 'eur', label: 'EUR', helper: 'Euro' },
++  { code: 'usd', label: 'USD', helper: 'US dollar' },
++  { code: 'gbp', label: 'GBP', helper: 'British pound' },
++];
++
++export function getCountryLabel(code?: string | null) {
++  return countryOptions.find((country) => country.code === code)?.label ?? 'Select country';
++}
++
++export function getCurrencyLabel(currency?: string | null) {
++  return currencyOptions.find((option) => option.code === currency)?.label ?? 'Select currency';
++}
++
++export function getDefaultCurrencyForCountry(code?: string | null): SupportedCurrency {
++  return countryOptions.find((country) => country.code === code)?.currency ?? 'eur';
++}
++
++export function isSupportedCurrency(value: string): value is SupportedCurrency {
++  return value === 'eur' || value === 'usd' || value === 'gbp';
++}
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index 620813e..3848dc7 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -39,9 +39,10 @@ export const webTabs: WebTab[] = [
+   },
+ ];
+ 
+-export const utilityRoutePrefixes = ['/admin', '/reset-password', '/credits'];
++export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits'];
+ 
+ export function isUtilityRoute(pathname: string) {
++  if (pathname === '/') return true;
+   return utilityRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+ }
+ 
+diff --git a/apps/web/src/lib/webTokenStore.ts b/apps/web/src/lib/webTokenStore.ts
+new file mode 100644
+index 0000000..a0eb438
+--- /dev/null
++++ b/apps/web/src/lib/webTokenStore.ts
+@@ -0,0 +1,16 @@
++const ACCESS_TOKEN_KEY = 'hellowhen_access_token';
++
++export function getAccessToken() {
++  if (typeof window === 'undefined') return null;
++  return window.localStorage.getItem(ACCESS_TOKEN_KEY);
++}
++
++export function setAccessToken(token: string) {
++  if (typeof window === 'undefined') return;
++  window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
++}
++
++export function clearAccessToken() {
++  if (typeof window === 'undefined') return;
++  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
++}
+diff --git a/apps/web/src/providers/WebAppProviders.tsx b/apps/web/src/providers/WebAppProviders.tsx
+new file mode 100644
+index 0000000..54f2600
+--- /dev/null
++++ b/apps/web/src/providers/WebAppProviders.tsx
+@@ -0,0 +1,13 @@
++'use client';
++
++import type { ReactNode } from 'react';
++import { WebAppSettingsProvider } from './WebAppSettingsProvider';
++import { WebAuthProvider } from './WebAuthProvider';
++
++export function WebAppProviders({ children }: { children: ReactNode }) {
++  return (
++    <WebAppSettingsProvider>
++      <WebAuthProvider>{children}</WebAuthProvider>
++    </WebAppSettingsProvider>
++  );
++}
+diff --git a/apps/web/src/providers/WebAppSettingsProvider.tsx b/apps/web/src/providers/WebAppSettingsProvider.tsx
+new file mode 100644
+index 0000000..986d172
+--- /dev/null
++++ b/apps/web/src/providers/WebAppSettingsProvider.tsx
+@@ -0,0 +1,113 @@
++'use client';
++
++import type { AppSettings } from '@hellowhen/contracts';
++import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
++import { api } from '../lib/api';
++
++const SETTINGS_STORAGE_KEY = 'hellowhen_app_settings_v1';
++const LEGACY_APPEARANCE_KEY = 'hellowhen:appearance';
++
++const defaultSettings: AppSettings = {
++  appearance: 'system',
++  language: 'en',
++  notificationsEnabled: true,
++};
++
++type SettingsContextValue = {
++  settings: AppSettings;
++  hydrated: boolean;
++  setSettings: (settings: AppSettings, options?: { syncRemote?: boolean }) => Promise<void>;
++  refreshSettings: () => Promise<void>;
++};
++
++const SettingsContext = createContext<SettingsContextValue>({
++  settings: defaultSettings,
++  hydrated: false,
++  setSettings: async () => undefined,
++  refreshSettings: async () => undefined,
++});
++
++function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
++  return {
++    appearance: value?.appearance === 'light' || value?.appearance === 'dark' || value?.appearance === 'system' ? value.appearance : defaultSettings.appearance,
++    language: value?.language || defaultSettings.language,
++    notificationsEnabled: typeof value?.notificationsEnabled === 'boolean' ? value.notificationsEnabled : defaultSettings.notificationsEnabled,
++  };
++}
++
++function resolveTheme(appearance: AppSettings['appearance']) {
++  if (appearance === 'light' || appearance === 'dark') return appearance;
++  if (typeof window === 'undefined') return 'light';
++  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
++}
++
++function applyTheme(appearance: AppSettings['appearance']) {
++  if (typeof document === 'undefined') return;
++  const resolved = resolveTheme(appearance);
++  document.documentElement.dataset.theme = resolved;
++  document.documentElement.dataset.appearance = appearance;
++}
++
++function saveSettings(settings: AppSettings) {
++  if (typeof window === 'undefined') return;
++  window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
++  window.localStorage.setItem(LEGACY_APPEARANCE_KEY, settings.appearance);
++}
++
++function readStoredSettings() {
++  if (typeof window === 'undefined') return defaultSettings;
++  try {
++    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
++    if (raw) return normalizeSettings(JSON.parse(raw) as Partial<AppSettings>);
++    const legacyAppearance = window.localStorage.getItem(LEGACY_APPEARANCE_KEY);
++    return normalizeSettings({ appearance: legacyAppearance as AppSettings['appearance'] });
++  } catch {
++    return defaultSettings;
++  }
++}
++
++export function WebAppSettingsProvider({ children }: { children: React.ReactNode }) {
++  const [settings, setSettingsState] = useState<AppSettings>(defaultSettings);
++  const [hydrated, setHydrated] = useState(false);
++
++  useEffect(() => {
++    const stored = readStoredSettings();
++    setSettingsState(stored);
++    applyTheme(stored.appearance);
++    setHydrated(true);
++  }, []);
++
++  useEffect(() => {
++    if (!hydrated || settings.appearance !== 'system' || typeof window === 'undefined') return undefined;
++    const media = window.matchMedia('(prefers-color-scheme: dark)');
++    const listener = () => applyTheme('system');
++    media.addEventListener('change', listener);
++    return () => media.removeEventListener('change', listener);
++  }, [hydrated, settings.appearance]);
++
++  const setSettings = useCallback(async (nextSettings: AppSettings, options?: { syncRemote?: boolean }) => {
++    const normalized = normalizeSettings(nextSettings);
++    setSettingsState(normalized);
++    saveSettings(normalized);
++    applyTheme(normalized.appearance);
++
++    if (options?.syncRemote) {
++      await api.settings.updateMe(normalized);
++    }
++  }, []);
++
++  const refreshSettings = useCallback(async () => {
++    const remote = normalizeSettings(await api.settings.me() as Partial<AppSettings>);
++    setSettingsState(remote);
++    saveSettings(remote);
++    applyTheme(remote.appearance);
++  }, []);
++
++  const value = useMemo(() => ({ settings, hydrated, setSettings, refreshSettings }), [hydrated, refreshSettings, setSettings, settings]);
++
++  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
++}
++
++export function useWebAppSettings() {
++  return useContext(SettingsContext);
++}
+diff --git a/apps/web/src/providers/WebAuthProvider.tsx b/apps/web/src/providers/WebAuthProvider.tsx
+new file mode 100644
+index 0000000..e9c4251
+--- /dev/null
++++ b/apps/web/src/providers/WebAuthProvider.tsx
+@@ -0,0 +1,98 @@
++'use client';
++
++import type { AuthUser, ForgotPasswordResponse, ResetPasswordResponse } from '@hellowhen/contracts';
++import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
++import { api } from '../lib/api';
++import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/webTokenStore';
++import { useWebAppSettings } from './WebAppSettingsProvider';
++
++type AuthProfilePatch = Partial<NonNullable<AuthUser['profile']>>;
++
++type AuthContextValue = {
++  user: AuthUser | null;
++  hydrated: boolean;
++  isAuthenticated: boolean;
++  login: (email: string, password: string) => Promise<void>;
++  register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; countryCode: string; preferredCurrency: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
++  forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
++  resetPassword: (token: string, password: string, confirmPassword: string) => Promise<ResetPasswordResponse>;
++  updateLocalProfile: (profile: AuthProfilePatch) => void;
++  logout: () => Promise<void>;
++  refreshMe: () => Promise<void>;
++};
++
++const AuthContext = createContext<AuthContextValue | null>(null);
++
++export function WebAuthProvider({ children }: { children: React.ReactNode }) {
++  const { refreshSettings } = useWebAppSettings();
++  const [user, setUser] = useState<AuthUser | null>(null);
++  const [hydrated, setHydrated] = useState(false);
++
++  const refreshMe = useCallback(async () => {
++    const result = await api.auth.me();
++    setAccessToken(result.accessToken);
++    setUser(result.user);
++  }, []);
++
++  useEffect(() => {
++    let mounted = true;
++    async function hydrateSession() {
++      try {
++        const token = getAccessToken();
++        if (!token) return;
++        const result = await api.auth.me();
++        if (!mounted) return;
++        setAccessToken(result.accessToken);
++        setUser(result.user);
++        await refreshSettings().catch(() => undefined);
++      } catch {
++        clearAccessToken();
++        if (mounted) setUser(null);
++      } finally {
++        if (mounted) setHydrated(true);
++      }
++    }
++    void hydrateSession();
++    return () => { mounted = false; };
++  }, [refreshSettings]);
++
++  const value = useMemo<AuthContextValue>(() => ({
++    user,
++    hydrated,
++    isAuthenticated: Boolean(user),
++    async login(email, password) {
++      const result = await api.auth.login({ email, password });
++      setAccessToken(result.accessToken);
++      setUser(result.user);
++      await refreshSettings().catch(() => undefined);
++    },
++    async register(input) {
++      const result = await api.auth.register(input);
++      setAccessToken(result.accessToken);
++      setUser(result.user);
++      await refreshSettings().catch(() => undefined);
++    },
++    forgotPassword(email) {
++      return api.auth.forgotPassword({ email });
++    },
++    resetPassword(token, password, confirmPassword) {
++      return api.auth.resetPassword({ token, password, confirmPassword });
++    },
++    updateLocalProfile(profile) {
++      setUser((current) => current ? { ...current, profile: { ...(current.profile ?? {}), ...profile } } : current);
++    },
++    async logout() {
++      clearAccessToken();
++      setUser(null);
++    },
++    refreshMe,
++  }), [hydrated, refreshMe, refreshSettings, user]);
++
++  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
++}
++
++export function useWebAuth() {
++  const value = useContext(AuthContext);
++  if (!value) throw new Error('useWebAuth must be used within WebAuthProvider');
++  return value;
++}

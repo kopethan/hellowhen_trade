@@ -1,0 +1,171 @@
+'use client';
+
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import type { LedgerEntryDto, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import { api } from '../../lib/api';
+import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+import { useWebAuth } from '../../providers/WebAuthProvider';
+import { fallbackCurrency, formatDateTime, formatMoney, ledgerLabel, moneyDeltaClassName, normalizeLedger, normalizePayouts, normalizeWallet } from './accountPresentation';
+
+type WalletMetric = {
+  label: string;
+  value: string;
+  body: string;
+  tone: string;
+};
+
+function WalletMetricCard({ metric }: { metric: WalletMetric }) {
+  return (
+    <section className="wallet-metric-card">
+      <span className={`semantic-badge ${metric.tone}`}>{metric.label}</span>
+      <strong>{metric.value}</strong>
+      <p>{metric.body}</p>
+    </section>
+  );
+}
+
+function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
+  const cents = entry.amountCents ?? 0;
+  const signed = cents > 0 ? `+${formatMoney(cents, entry.currency)}` : formatMoney(cents, entry.currency);
+  return (
+    <div className="wallet-ledger-row">
+      <span>
+        <strong>{ledgerLabel(entry.type)}</strong>
+        <small>{entry.description || formatDateTime(entry.createdAt)}</small>
+      </span>
+      <em className={`wallet-ledger-row__amount ${moneyDeltaClassName(cents)}`}>{signed}</em>
+    </div>
+  );
+}
+
+export function WalletClient() {
+  const auth = useWebAuth();
+  const [wallet, setWallet] = useState<WalletDto | null>(null);
+  const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
+  const [entries, setEntries] = useState<LedgerEntryDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadWallet() {
+      if (!auth.hydrated) return;
+      if (!auth.isAuthenticated) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setError('');
+      try {
+        const [walletResponse, ledgerResponse, payoutResponse] = await Promise.all([
+          api.wallet.me(),
+          api.wallet.ledger(),
+          api.wallet.payouts(),
+        ]);
+        if (!mounted) return;
+        const payoutData = normalizePayouts(payoutResponse);
+        setWallet(normalizeWallet(walletResponse) ?? payoutData.wallet);
+        setEntries(normalizeLedger(ledgerResponse));
+        setSummary(payoutData.summary);
+      } catch (caughtError) {
+        if (!mounted) return;
+        setError(getFriendlyApiErrorMessage(caughtError));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    void loadWallet();
+    return () => { mounted = false; };
+  }, [auth.hydrated, auth.isAuthenticated]);
+
+  const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
+  const metrics = useMemo<WalletMetric[]>(() => [
+    {
+      label: 'Wallet money',
+      value: formatMoney(wallet?.availableBalanceCents ?? 0, currency),
+      body: 'Optional money available to select under I offer money when creating a trade.',
+      tone: 'money',
+    },
+    {
+      label: 'Held',
+      value: formatMoney(wallet?.heldBalanceCents ?? 0, currency),
+      body: 'Money reserved for trades that are not complete yet.',
+      tone: 'instruction',
+    },
+    {
+      label: 'Available earnings',
+      value: formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency),
+      body: 'Trade earnings currently eligible for the demo payout simulation.',
+      tone: 'success',
+    },
+    {
+      label: 'Payout requests',
+      value: formatMoney(summary?.pendingPayoutRequestsCents ?? 0, currency),
+      body: 'Requested or approved demo payouts that are still being tracked.',
+      tone: 'proposal',
+    },
+  ], [currency, summary?.availableForPayoutCents, summary?.pendingPayoutRequestsCents, wallet?.availableBalanceCents, wallet?.heldBalanceCents, wallet?.pendingPayoutCents]);
+
+  if (!auth.hydrated || loading) {
+    return <section className="mobile-card mobile-card--soft"><p>Loading wallet...</p></section>;
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <section className="mobile-card mobile-card--soft">
+        <span className="semantic-badge instruction">Signed out</span>
+        <h3>Sign in to view wallet money</h3>
+        <p>Wallet money is optional, but your balance and payout simulation are private to your account.</p>
+        <Link href="/auth" className="button primary full">Login or register</Link>
+      </section>
+    );
+  }
+
+  return (
+    <div className="wallet-page">
+      {error ? <p className="notice-box danger">{error}</p> : null}
+
+      <section className="wallet-hero-card">
+        <div>
+          <span className="semantic-badge money">Optional wallet</span>
+          <h2>{formatMoney(wallet?.availableBalanceCents ?? 0, currency)}</h2>
+          <p>Money stays optional. Use it only when a trade needs “I need money” or “I offer money”.</p>
+        </div>
+        <div className="wallet-hero-card__actions">
+          <Link href="/account/wallet/add" className="button primary">Add money</Link>
+          <Link href="/account/payouts" className="button secondary">Payouts</Link>
+        </div>
+      </section>
+
+      <section className="wallet-metric-grid">
+        {metrics.map((metric) => <WalletMetricCard key={metric.label} metric={metric} />)}
+      </section>
+
+      <section className="mobile-card mobile-card--soft">
+        <h3>Money rules</h3>
+        <p>Money is not a separate trade field. It belongs inside the same product language: I need money or I offer money.</p>
+      </section>
+
+      <section className="mobile-card wallet-ledger-card">
+        <div className="trade-section-heading">
+          <div>
+            <p className="eyebrow">Recent activity</p>
+            <h3>Wallet activity</h3>
+          </div>
+          <span className="semantic-badge instruction">Demo safe</span>
+        </div>
+        {entries.length ? (
+          <div className="wallet-ledger-list">
+            {entries.slice(0, 12).map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
+          </div>
+        ) : (
+          <div className="proposal-empty-state">
+            <strong>No wallet activity yet</strong>
+            <span>Try the demo top-up flow to see wallet activity here.</span>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

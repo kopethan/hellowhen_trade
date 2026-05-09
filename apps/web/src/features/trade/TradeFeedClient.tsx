@@ -1,0 +1,151 @@
+'use client';
+
+import Link from 'next/link';
+import type { FormEvent } from 'react';
+import type { TradeDto } from '@hellowhen/contracts';
+import { useEffect, useMemo, useState } from 'react';
+import { api } from '../../lib/api';
+import { mockTrades } from '../../lib/mockData';
+import { TradeDeck } from './TradeDeck';
+
+type FeedFilters = {
+  q: string;
+  mode: string;
+  hasImages: boolean;
+  hasMoney: boolean;
+};
+
+const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false };
+
+function normalizeFeedResponse(value: unknown): TradeDto[] {
+  if (Array.isArray(value)) return value as TradeDto[];
+  if (value && typeof value === 'object' && Array.isArray((value as { trades?: unknown[] }).trades)) return (value as { trades: TradeDto[] }).trades;
+  if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown[] }).items)) return (value as { items: TradeDto[] }).items;
+  return [];
+}
+
+function localFilter(trades: TradeDto[], filters: FeedFilters) {
+  const query = filters.q.trim().toLowerCase();
+  return trades.filter((trade) => {
+    const haystack = [trade.title, trade.description, trade.need?.title, trade.need?.description, trade.offer?.title, trade.offer?.description].filter(Boolean).join(' ').toLowerCase();
+    const mode = trade.need?.mode ?? trade.offer?.mode ?? '';
+    const hasImages = Boolean((trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0));
+    const hasMoney = (trade.amountCents ?? 0) > 0;
+    if (query && !haystack.includes(query)) return false;
+    if (filters.mode && mode !== filters.mode) return false;
+    if (filters.hasImages && !hasImages) return false;
+    if (filters.hasMoney && !hasMoney) return false;
+    return true;
+  });
+}
+
+export function TradeFeedClient() {
+  const [filters, setFilters] = useState<FeedFilters>(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState<FeedFilters>(initialFilters);
+  const [trades, setTrades] = useState<TradeDto[]>(mockTrades);
+  const [loading, setLoading] = useState(true);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadTrades() {
+      setLoading(true);
+      try {
+        const response = await api.trades.feed({
+          q: appliedFilters.q || undefined,
+          mode: appliedFilters.mode || undefined,
+          hasImages: appliedFilters.hasImages || undefined,
+          hasMoney: appliedFilters.hasMoney || undefined,
+          take: 30,
+        });
+        const nextTrades = normalizeFeedResponse(response);
+        if (!mounted) return;
+        setTrades(nextTrades);
+        setUsingFallback(false);
+      } catch {
+        if (!mounted) return;
+        setTrades(localFilter(mockTrades, appliedFilters));
+        setUsingFallback(true);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    void loadTrades();
+    return () => { mounted = false; };
+  }, [appliedFilters]);
+
+  const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
+
+  function applySearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAppliedFilters(filters);
+  }
+
+  function resetFilters() {
+    setFilters(initialFilters);
+    setAppliedFilters(initialFilters);
+  }
+
+  return (
+    <section className="mobile-page">
+      <form className="trade-feed-controls" aria-label="Trade feed controls" onSubmit={applySearch}>
+        <label className="trade-search-field">
+          <span className="sr-only">Search trades</span>
+          <input
+            value={filters.q}
+            onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
+            placeholder="Search trades"
+            type="search"
+          />
+        </label>
+        <button type="button" className="trade-filter-pill" onClick={() => setShowFilters((value) => !value)}>
+          Filter
+        </button>
+        <Link href="/trades/create" className="trade-create-pill" aria-label="Create trade">+</Link>
+        {showFilters ? (
+          <div className="trade-filter-panel">
+            <label>
+              <span>Mode</span>
+              <select value={filters.mode} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value }))}>
+                <option value="">Any mode</option>
+                <option value="remote">Remote</option>
+                <option value="local">Local</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={filters.hasImages} onChange={(event) => setFilters((current) => ({ ...current, hasImages: event.target.checked }))} />
+              Has images
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={filters.hasMoney} onChange={(event) => setFilters((current) => ({ ...current, hasMoney: event.target.checked }))} />
+              Includes wallet money
+            </label>
+            <div className="trade-filter-actions">
+              <button type="submit">Apply</button>
+              <button type="button" className="secondary" onClick={resetFilters}>Reset</button>
+            </div>
+          </div>
+        ) : null}
+      </form>
+
+      <section className="feed-status-row" aria-live="polite">
+        <p>{loading ? 'Loading trades...' : `${filteredTrades.length} active trade${filteredTrades.length === 1 ? '' : 's'}`}</p>
+        {usingFallback ? <span className="semantic-badge instruction">Demo feed</span> : <span className="semantic-badge success">Live feed</span>}
+      </section>
+
+      <div className="trade-feed-list">
+        {filteredTrades.map((trade) => <TradeDeck key={trade.id} trade={trade} />)}
+      </div>
+
+      {!filteredTrades.length ? (
+        <section className="mobile-card mobile-card--soft">
+          <h3>No trades found</h3>
+          <p>Try a different search or clear the filters.</p>
+          <button type="button" className="secondary" onClick={resetFilters}>Clear filters</button>
+        </section>
+      ) : null}
+    </section>
+  );
+}

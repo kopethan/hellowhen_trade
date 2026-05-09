@@ -1,10 +1,13 @@
+import Link from 'next/link';
+
 export default function CreditsSuccessPage() {
   return (
     <section className="card" style={{ display: 'grid', gap: 12 }}>
       <span className="semantic-badge success">Payment completed</span>
-      <h1>Stripe test payment completed</h1>
-      <p className="notice-box info">Return to the Hellowhen mobile app and pull to refresh your Account wallet. The webhook creates a credit_purchase ledger entry after Stripe confirms the test checkout session.</p>
-      <p className="meta">Purchased credits are non-withdrawable fake/test credits. No real payouts or Stripe Connect flows are enabled.</p>
+      <h1>Demo top-up completed</h1>
+      <p className="notice-box info">Return to the Hellowhen app and refresh your Account wallet. This return page is kept for compatibility with existing test checkout URLs.</p>
+      <p className="meta">No real payouts or live Stripe flows are enabled in this web shell phase.</p>
+      <Link href="/account/wallet" className="button primary">Open wallet</Link>
     </section>
   );
 }
