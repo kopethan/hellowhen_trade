@@ -71,15 +71,16 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
       setMessages([]);
       return;
     }
+    const activeProposal = selectedProposal;
     let mounted = true;
     async function loadMessages() {
       try {
-        const response = await api.proposals.messages(selectedProposal.id);
+        const response = await api.proposals.messages(activeProposal.id);
         if (!mounted) return;
         const liveMessages = normalizeMessages(response);
-        setMessages(liveMessages.length ? liveMessages : selectedProposal.messages ?? []);
+        setMessages(liveMessages.length ? liveMessages : activeProposal.messages ?? []);
       } catch {
-        if (mounted) setMessages(selectedProposal.messages ?? []);
+        if (mounted) setMessages(activeProposal.messages ?? []);
       }
     }
     void loadMessages();

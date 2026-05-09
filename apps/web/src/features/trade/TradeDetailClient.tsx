@@ -141,13 +141,14 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     );
   }
 
+  const currentTrade = trade;
   const actorId = auth.user?.id ?? null;
-  const isOwner = actorId === trade.ownerId;
-  const isProvider = Boolean(actorId && trade.providerId === actorId);
-  const payment = trade.payment;
-  const canSubmitDelivery = auth.isAuthenticated && trade.status === 'in_progress' && (payment?.amountCents ? payment.sellerId === actorId : (isOwner || isProvider));
-  const canConfirmCompletion = auth.isAuthenticated && trade.status === 'submitted' && (payment?.amountCents ? payment.buyerId === actorId : (isOwner || isProvider)) && trade.deliverySubmittedById !== actorId;
-  const canReportProblem = auth.isAuthenticated && ['active', 'in_progress', 'submitted', 'completed'].includes(trade.status);
+  const isOwner = actorId === currentTrade.ownerId;
+  const isProvider = Boolean(actorId && currentTrade.providerId === actorId);
+  const payment = currentTrade.payment;
+  const canSubmitDelivery = auth.isAuthenticated && currentTrade.status === 'in_progress' && (payment?.amountCents ? payment.sellerId === actorId : (isOwner || isProvider));
+  const canConfirmCompletion = auth.isAuthenticated && currentTrade.status === 'submitted' && (payment?.amountCents ? payment.buyerId === actorId : (isOwner || isProvider)) && currentTrade.deliverySubmittedById !== actorId;
+  const canReportProblem = auth.isAuthenticated && ['active', 'in_progress', 'submitted', 'completed'].includes(currentTrade.status);
   const completionWarning = payment?.amountCents ? `This will release held wallet money to the other member's pending payout balance. Report a problem before confirming if anything is wrong.` : 'Confirm only when your trade is complete.';
 
   async function updateTradeStatus(status: TradeActionStatus) {
@@ -155,7 +156,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     setActionLoading(status);
     setActionNotice(null);
     try {
-      const response = await api.trades.updateStatus(trade.id, { status });
+      const response = await api.trades.updateStatus(currentTrade.id, { status });
       const nextTrade = normalizeTradeResponse(response);
       if (nextTrade) setTrade(nextTrade);
       setActionNotice(status === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : status === 'completed' ? 'Trade confirmed. Held wallet money was released when applicable.' : status === 'disputed' ? 'Trade reported. Money movement is frozen for admin review.' : 'Trade updated.');
@@ -174,7 +175,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     setActionLoading('report');
     setActionNotice(null);
     try {
-      await api.support.createTicket({ category: 'trade_issue', priority: payment?.amountCents ? 'high' : 'normal', subject: `Problem with trade: ${trade.title}`.slice(0, 140), message, relatedTradeId: trade.id });
+      await api.support.createTicket({ category: 'trade_issue', priority: payment?.amountCents ? 'high' : 'normal', subject: `Problem with trade: ${currentTrade.title}`.slice(0, 140), message, relatedTradeId: currentTrade.id });
       setReportMessage('');
       setReportOpen(false);
       setActionNotice('Report sent. This trade is now frozen for admin review when money is involved.');
@@ -186,26 +187,26 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     }
   }
 
-  const needSide = getNeedSide(trade);
-  const offerSide = getOfferSide(trade);
-  const ownerName = getOwnerName(trade);
-  const exchange = getExchangeLabel(trade);
-  const mode = getTradeMode(trade);
+  const needSide = getNeedSide(currentTrade);
+  const offerSide = getOfferSide(currentTrade);
+  const ownerName = getOwnerName(currentTrade);
+  const exchange = getExchangeLabel(currentTrade);
+  const mode = getTradeMode(currentTrade);
 
   return (
     <article className="trade-detail-page">
       <section className="trade-hero-section">
         <div className="status-row">
-          <span className="semantic-badge trade">{trade.status}</span>
+          <span className="semantic-badge trade">{currentTrade.status}</span>
           <span className="semantic-badge money">{exchange}</span>
           {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
         </div>
-        <h2>{trade.title}</h2>
-        <p>{trade.description}</p>
-        <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(trade.expiresAt)}</p>
+        <h2>{currentTrade.title}</h2>
+        <p>{currentTrade.description}</p>
+        <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
       </section>
 
-      <TradeDetailReferenceDeck trade={trade} />
+      <TradeDetailReferenceDeck trade={currentTrade} />
 
       <SideSection side={needSide} />
       <SideSection side={offerSide} />
@@ -218,11 +219,11 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           </div>
         </div>
         <dl className="trade-detail-list">
-          <div><dt>Status</dt><dd>{trade.status}</dd></div>
+          <div><dt>Status</dt><dd>{currentTrade.status}</dd></div>
           <div><dt>Exchange</dt><dd>{exchange}</dd></div>
           <div><dt>Mode</dt><dd>{mode ?? 'Not specified'}</dd></div>
-          <div><dt>Created</dt><dd>{formatDateLabel(trade.createdAt)}</dd></div>
-          <div><dt>Expires</dt><dd>{formatRelativeExpiry(trade.expiresAt)}</dd></div>
+          <div><dt>Created</dt><dd>{formatDateLabel(currentTrade.createdAt)}</dd></div>
+          <div><dt>Expires</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt)}</dd></div>
         </dl>
       </section>
 
@@ -234,8 +235,8 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           </div>
           {actionLoading ? <span className="semantic-badge instruction">Updating</span> : null}
         </div>
-        <p>{completionHint(trade, actorId)}</p>
-        <p className="meta">You are viewing as {participantLabel(trade, actorId)}.</p>
+        <p>{completionHint(currentTrade, actorId)}</p>
+        <p className="meta">You are viewing as {participantLabel(currentTrade, actorId)}.</p>
         {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
         <div className="trade-action-row">
           {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
@@ -253,7 +254,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         ) : null}
       </section>
 
-      <TradeProposalPanel trade={trade} />
+      <TradeProposalPanel trade={currentTrade} />
     </article>
   );
 }

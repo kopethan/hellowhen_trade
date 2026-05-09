@@ -94,12 +94,13 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
   useEffect(() => {
     if (mode !== 'edit' || !itemId) return;
     if (!auth.hydrated) return;
+    const requestedItemId = itemId;
     let mounted = true;
     async function loadItem() {
       setLoading(true);
       try {
         if (!auth.isAuthenticated) throw new Error('signed_out_demo_inventory');
-        const response = kind === 'need' ? await api.needs.get(itemId) : await api.offers.get(itemId);
+        const response = kind === 'need' ? await api.needs.get(requestedItemId) : await api.offers.get(requestedItemId);
         if (!mounted) return;
         const item = normalizeInventoryItem(response, kind);
         if (item) {
@@ -108,7 +109,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
         }
       } catch {
         if (!mounted) return;
-        const fallback = (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === itemId) ?? null;
+        const fallback = (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null;
         setValues(inventoryToFormValues(fallback));
         setMedia(fallback?.media ?? []);
         setMessage('Using demo data because this item could not be loaded from the API.');

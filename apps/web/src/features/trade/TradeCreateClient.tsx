@@ -217,6 +217,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
       offerKind: (betaFeatures.moneyTradesEnabled && values.offerMode === 'money' ? 'money' : 'offer') as TradeOfferSideKind,
       needId: values.needMode === 'saved' || !betaFeatures.moneyTradesEnabled ? selectedNeed?.id : undefined,
       offerId: values.offerMode === 'saved' || !betaFeatures.moneyTradesEnabled ? selectedOffer?.id : undefined,
+      creditAmount: 0,
       amountCents: betaFeatures.moneyTradesEnabled && usesMoney ? amountCents : 0,
       currency: values.currency,
       expiresAt: toIsoDate(values.expiresAt),

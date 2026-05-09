@@ -123,6 +123,7 @@ export function PayoutsScreen({ navigation }: Props) {
   const payoutConnected = summary?.payoutAccount.status === 'connected';
   const stripeConnectConfigured = Boolean(summary?.stripeConnectConfigured);
   const usingStripeConnect = summary?.payoutAccount.provider === 'stripe_connect_test';
+  const stripeConnectAccount = summary?.payoutAccount.provider === 'stripe_connect_test' ? summary.payoutAccount : null;
   const limits = summary?.limits as WalletLimitsDto | undefined;
   const minimumPayoutCents = limits?.minimumPayoutCents ?? 1000;
   const weeklyRemainingCents = limits ? Math.max(0, limits.weeklyPayoutCapCents - limits.weeklyRequestedPayoutGrossCents) : null;
@@ -257,8 +258,8 @@ export function PayoutsScreen({ navigation }: Props) {
             </View>
             <StatusBadge status={payoutConnected ? 'completed' : 'pending'} size="sm" />
           </View>
-          {usingStripeConnect ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Payouts {summary?.payoutAccount.payoutsEnabled ? 'enabled' : 'not enabled'} · Charges {summary?.payoutAccount.chargesEnabled ? 'enabled' : 'not enabled'}</AppText> : null}
-          {usingStripeConnect && summary?.payoutAccount.currentlyDue?.length ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Due now: {summary.payoutAccount.currentlyDue.join(', ')}</AppText> : null}
+          {stripeConnectAccount ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Payouts {stripeConnectAccount.payoutsEnabled ? 'enabled' : 'not enabled'} · Charges {stripeConnectAccount.chargesEnabled ? 'enabled' : 'not enabled'}</AppText> : null}
+          {stripeConnectAccount?.currentlyDue?.length ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Due now: {stripeConnectAccount.currentlyDue.join(', ')}</AppText> : null}
           <Pressable accessibilityRole="button" disabled={actionLoading === 'connect' || safetyBlocked} onPress={() => { void connectDemoAccount(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: payoutConnected ? theme.color.subtleSurface : theme.semantic.proposal.bg }, actionLoading === 'connect' && styles.disabled, pressed && styles.pressed]}>
             <AppText style={[styles.primaryButtonText, payoutConnected && { color: theme.color.muted }]}>{stripeConnectConfigured ? (payoutConnected ? 'Open onboarding again' : actionLoading === 'connect' ? 'Opening...' : 'Set up Stripe Connect test') : (payoutConnected ? 'Demo account connected' : actionLoading === 'connect' ? 'Connecting...' : 'Set up Stripe demo payout')}</AppText>
           </Pressable>
