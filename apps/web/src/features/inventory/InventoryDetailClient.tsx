@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
-import { formatInventoryDate, getInventoryMetadata, getInventoryTags, kindLabel, mediaSrc, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { formatInventoryDate, getInventoryMetadata, itemTypeLabel, getInventoryTags, kindLabel, mediaSrc, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
 
 type InventoryDetailClientProps = {
   kind: InventoryKind;
@@ -89,7 +89,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
         {metadata ? <p className="meta">{metadata}</p> : null}
         <div className="inventory-detail-actions">
           <Link href={`${baseHref}/${item.id}/edit`} className="button">Edit {noun}</Link>
-          <Link href="/trades/create" className="button secondary">Use in trade</Link>
+          <Link href={kind === 'need' ? `/trades/create?needId=${item.id}` : `/trades/create?offerId=${item.id}`} className="button secondary">Use in trade</Link>
         </div>
       </section>
 
@@ -128,6 +128,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
         </div>
         <dl className="trade-detail-list">
           <div><dt>Status</dt><dd>{item.status}</dd></div>
+          <div><dt>Type</dt><dd>{itemTypeLabel(item.itemType)}</dd></div>
           <div><dt>Category</dt><dd>{item.category ?? 'Not specified'}</dd></div>
           <div><dt>{kind === 'need' ? 'Timing' : 'Availability'}</dt><dd>{timingLabel}</dd></div>
           <div><dt>Mode</dt><dd>{item.mode ?? 'Not specified'}</dd></div>

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { TradeExchangeMode } from '@hellowhen/contracts';
+import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -11,7 +11,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { InventoryPreview, InventoryTextField, ModePicker, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
@@ -19,6 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
 export function CreateOfferScreen({ navigation }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [itemType, setItemType] = useState<InventoryItemType>('service');
   const [category, setCategory] = useState('');
   const [availability, setAvailability] = useState('');
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
@@ -29,7 +30,7 @@ export function CreateOfferScreen({ navigation }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const meta = useMemo(() => [category.trim(), availability.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [availability, category, locationLabel, mode]);
+  const meta = useMemo(() => [itemTypeLabel(itemType), category.trim(), availability.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [availability, category, itemType, locationLabel, mode]);
 
   async function handleCreate() {
     const cleanTitle = title.trim();
@@ -52,6 +53,7 @@ export function CreateOfferScreen({ navigation }: Props) {
       await api.offers.create({
         title: cleanTitle,
         description: cleanDescription,
+        itemType,
         category: optionalText(category),
         availability: optionalText(availability),
         mode,
@@ -76,7 +78,7 @@ export function CreateOfferScreen({ navigation }: Props) {
         <View style={styles.header}>
           <SemanticBadge label="Offer" tone="offer" />
           <AppText style={styles.title}>Save Offer</AppText>
-          <AppText style={styles.subtitle}>Create a reusable service with its own images. You will pair it with a need when publishing a trade.</AppText>
+          <AppText style={styles.subtitle}>Create a reusable service, goods item, or other offer with its own images. You will pair it with a need when publishing a trade.</AppText>
         </View>
 
         {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
@@ -89,6 +91,7 @@ export function CreateOfferScreen({ navigation }: Props) {
 
         <AppCard>
           <AppText style={styles.sectionTitle}>Deck details</AppText>
+          <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
           <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Photography, copywriting, coaching..." disabled={submitting} />
           <InventoryTextField label="Availability" value={availability} onChangeText={setAvailability} placeholder="Weekend, this week, evenings..." disabled={submitting} />
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />

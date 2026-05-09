@@ -1,15 +1,16 @@
 import { MobilePage, PageIntro } from '../../../components/MobilePage';
+import { MoneyOffNotice, betaFeatures } from '../../../lib/betaFeatures';
 import { PayoutsClient } from '../../../features/account/PayoutsClient';
 
 export default function PayoutsPage() {
   return (
     <MobilePage>
       <PageIntro
-        eyebrow="Demo"
+        eyebrow={betaFeatures.payoutsVisible ? "Demo" : "Beta"}
         title="Payouts"
-        body="Connect a demo payout account and simulate payout requests for eligible trade earnings."
+        body={betaFeatures.payoutsVisible ? "Connect a demo payout account and simulate payout requests for eligible trade earnings." : "Payouts are hidden for the beta launch while real-money flows stay disabled."}
       />
-      <PayoutsClient />
+      {betaFeatures.payoutsVisible ? <PayoutsClient /> : <MoneyOffNotice title="Payouts are hidden for beta" />}
     </MobilePage>
   );
 }

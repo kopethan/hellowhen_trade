@@ -1,5 +1,10 @@
 import { InventoryFormClient } from '../../../../features/inventory/InventoryFormClient';
 
-export default function EditNeedPage({ params }: { params: { needId: string } }) {
-  return <InventoryFormClient kind="need" mode="edit" itemId={params.needId} />;
+type EditNeedPageProps = {
+  params: Promise<{ needId: string }>;
+};
+
+export default async function EditNeedPage({ params }: EditNeedPageProps) {
+  const { needId } = await params;
+  return <InventoryFormClient kind="need" mode="edit" itemId={needId} />;
 }

@@ -12,6 +12,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 
 type SettingsResponse = { settings: AppSettings };
@@ -25,6 +26,7 @@ const appearanceOptions: Array<{ label: string; value: AppearanceValue }> = [
 
 export function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const auth = useAuth();
   const { settings, setSettings } = useAppSettings();
   const theme = useThemeTokens();
   const [loading, setLoading] = useState(false);
@@ -47,6 +49,35 @@ export function SettingsScreen() {
   }, [setSettings]);
 
   useFocusEffect(useCallback(() => { void loadSettings(); }, [loadSettings]));
+
+
+  async function requestEmailVerification() {
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      await api.auth.requestEmailVerification();
+      setSaved(true);
+      await auth.refreshMe().catch(() => undefined);
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function logoutAllDevices() {
+    setSaving(true);
+    setSaved(false);
+    setError(null);
+    try {
+      await auth.logoutAll();
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function updateSettings(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
@@ -84,7 +115,7 @@ export function SettingsScreen() {
           <View style={styles.switchRow}>
             <View style={styles.switchCopy}>
               <AppText style={styles.sectionTitle}>Notifications</AppText>
-              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image review, and wallet activity.</AppText>
+              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image review, and support activity.</AppText>
             </View>
             <Switch value={settings.notificationsEnabled} disabled={saving} onValueChange={(value) => { void updateSettings({ notificationsEnabled: value }); }} />
           </View>
@@ -103,6 +134,24 @@ export function SettingsScreen() {
                 onPress={() => { void updateSettings({ appearance: option.value }); }}
               />
             ))}
+          </View>
+        </AppCard>
+
+        <AppCard>
+          <SemanticBadge label="Security" tone="time" size="sm" />
+          <AppText style={styles.sectionTitle}>Account protection</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>Email verification and fresh password confirmation protect payout actions. Authenticator app setup is available on web first.</AppText>
+          <View style={styles.securityRows}>
+            <AppText style={styles.securityLine}>Email: {auth.user?.emailVerifiedAt ? 'verified' : 'not verified'}</AppText>
+            <AppText style={styles.securityLine}>Authenticator: {auth.user?.twoFactorEnabled ? 'enabled' : 'off'}</AppText>
+          </View>
+          <View style={styles.optionRow}>
+            <Pressable accessibilityRole="button" disabled={saving || Boolean(auth.user?.emailVerifiedAt)} onPress={() => { void requestEmailVerification(); }} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (saving || Boolean(auth.user?.emailVerifiedAt)) && styles.disabled, pressed && styles.pressed]}>
+              <AppText style={styles.choiceButtonText}>Verify email</AppText>
+            </Pressable>
+            <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void logoutAllDevices(); }} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, saving && styles.disabled, pressed && styles.pressed]}>
+              <AppText style={styles.choiceButtonText}>Logout all devices</AppText>
+            </Pressable>
           </View>
         </AppCard>
 
@@ -149,6 +198,8 @@ const styles = StyleSheet.create({
   optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   choiceButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
   choiceButtonText: { fontWeight: '900' },
+  securityRows: { gap: 6 },
+  securityLine: { fontWeight: '800' },
   disabled: { opacity: 0.55 },
   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
 });

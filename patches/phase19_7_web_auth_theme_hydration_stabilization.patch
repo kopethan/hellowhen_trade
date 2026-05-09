@@ -1,0 +1,564 @@
+diff --git a/apps/web/src/app/admin/credits/page.tsx b/apps/web/src/app/admin/credits/page.tsx
+index 7796429..588d9d9 100644
+--- a/apps/web/src/app/admin/credits/page.tsx
++++ b/apps/web/src/app/admin/credits/page.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useMemo, useState } from 'react';
+ import type { CreditPurchaseDto, CreditPurchaseStatus } from '@hellowhen/contracts';
++import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
+ 
+ type LoginResponse = { accessToken: string };
+ type AdminPurchaseItem = CreditPurchaseDto & { user?: { email?: string; profile?: { displayName?: string | null } | null } };
+@@ -19,8 +20,7 @@ function statusTone(status: CreditPurchaseStatus | 'all') {
+ }
+ 
+ function money(amountCents: number, currency: string) {
+-  try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100); }
+-  catch { return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`; }
++  return formatWebMoney(amountCents, currency);
+ }
+ 
+ export default function AdminCreditsPage() {
+@@ -82,7 +82,7 @@ export default function AdminCreditsPage() {
+       <div className="card" style={{ overflowX: 'auto' }}>
+         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+           <thead><tr><th align="left">Status</th><th align="left">User</th><th align="left">Credits</th><th align="left">Amount</th><th align="left">Stripe session</th><th align="left">Created</th><th align="left">Paid</th></tr></thead>
+-          <tbody>{items.map((item) => <tr key={item.id}><td><span className={`semantic-badge ${statusTone(item.status)}`}>{item.status}</span></td><td>{item.user?.profile?.displayName ?? item.user?.email ?? item.userId}</td><td>{item.creditAmount}</td><td>{money(item.amountCents, item.currency)}</td><td><code>{item.stripeCheckoutSessionId ?? 'pending'}</code></td><td>{new Date(item.createdAt).toLocaleString()}</td><td>{item.paidAt ? new Date(item.paidAt).toLocaleString() : '—'}</td></tr>)}</tbody>
++          <tbody>{items.map((item) => <tr key={item.id}><td><span className={`semantic-badge ${statusTone(item.status)}`}>{item.status}</span></td><td>{item.user?.profile?.displayName ?? item.user?.email ?? item.userId}</td><td>{item.creditAmount}</td><td>{money(item.amountCents, item.currency)}</td><td><code>{item.stripeCheckoutSessionId ?? 'pending'}</code></td><td>{formatWebDateTime(item.createdAt)}</td><td>{formatWebDateTime(item.paidAt)}</td></tr>)}</tbody>
+         </table>
+         {items.length === 0 ? <p>No credit purchases loaded yet.</p> : null}
+       </div>
+diff --git a/apps/web/src/app/admin/support/page.tsx b/apps/web/src/app/admin/support/page.tsx
+index a5595ec..f9f273f 100644
+--- a/apps/web/src/app/admin/support/page.tsx
++++ b/apps/web/src/app/admin/support/page.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useMemo, useState } from 'react';
+ import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
++import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+ type LoginResponse = { accessToken: string };
+ type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null } | null }; _count?: { messages: number } };
+@@ -148,7 +149,7 @@ export default function AdminSupportPage() {
+         <div className="card">
+           <h2>Tickets</h2>
+           <div style={{ display: 'grid', gap: 10 }}>
+-            {tickets.map((ticket) => <button key={ticket.id} className="support-ticket-button" onClick={() => { void openTicket(ticket.id); }}><span className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</span><span className={`semantic-badge ${categoryTone(ticket.category)}`}>{labelize(ticket.category)}</span><strong>{ticket.subject}</strong><span className="meta">{ticket.user?.profile?.displayName ?? ticket.user?.email ?? ticket.userId} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · {new Date(ticket.updatedAt).toLocaleString()}</span></button>)}
++            {tickets.map((ticket) => <button key={ticket.id} className="support-ticket-button" onClick={() => { void openTicket(ticket.id); }}><span className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</span><span className={`semantic-badge ${categoryTone(ticket.category)}`}>{labelize(ticket.category)}</span><strong>{ticket.subject}</strong><span className="meta">{ticket.user?.profile?.displayName ?? ticket.user?.email ?? ticket.userId} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · {formatWebDateTime(ticket.updatedAt)}</span></button>)}
+             {tickets.length === 0 ? <p>No support tickets loaded yet.</p> : null}
+           </div>
+         </div>
+@@ -159,7 +160,7 @@ export default function AdminSupportPage() {
+             <p className="meta">User: {selectedTicket.user?.profile?.displayName ?? selectedTicket.user?.email ?? selectedTicket.userId}</p>
+             <p>{selectedTicket.message}</p>
+             <div className="status-row">{selectedTicket.relatedTradeId ? <span className="semantic-badge trade">Trade {selectedTicket.relatedTradeId}</span> : null}{selectedTicket.relatedProposalId ? <span className="semantic-badge proposal">Proposal {selectedTicket.relatedProposalId}</span> : null}{selectedTicket.relatedMediaId ? <span className="semantic-badge warning">Media {selectedTicket.relatedMediaId}</span> : null}</div>
+-            <div className="support-thread">{selectedTicket.messages?.map((item) => <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}><div className="status-row"><span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender?.profile?.displayName ?? item.sender?.email ?? 'User')}</span>{item.internal ? <span className="semantic-badge warning">internal</span> : null}</div><p>{item.body}</p><p className="meta">{new Date(item.createdAt).toLocaleString()}</p></article>)}</div>
++            <div className="support-thread">{selectedTicket.messages?.map((item) => <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}><div className="status-row"><span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender?.profile?.displayName ?? item.sender?.email ?? 'User')}</span>{item.internal ? <span className="semantic-badge warning">internal</span> : null}</div><p>{item.body}</p><p className="meta">{formatWebDateTime(item.createdAt)}</p></article>)}</div>
+             <div className="cta-row"><button className="warning" onClick={() => { void updateTicket('in_review'); }} disabled={loading}>Mark in review</button><button className="secondary" onClick={() => { void updateTicket('waiting_for_user'); }} disabled={loading}>Waiting for user</button><button className="success" onClick={() => { void updateTicket('resolved'); }} disabled={loading}>Resolve</button><button className="danger" onClick={() => { void updateTicket('closed'); }} disabled={loading}>Close</button></div>
+             <div style={{ display: 'grid', gap: 10, marginTop: 14 }}><textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} placeholder="Reply to the user or add an internal note" rows={5} /><label className="meta"><input style={{ width: 'auto', marginRight: 8 }} type="checkbox" checked={internal} onChange={(event) => setInternal(event.target.checked)} /> Internal admin note only</label><button onClick={() => { void sendReply(); }} disabled={loading || !replyBody.trim()}>{internal ? 'Add internal note' : 'Send public reply'}</button></div>
+           </> : <p>Select a ticket to read the full conversation.</p>}
+diff --git a/apps/web/src/app/layout.tsx b/apps/web/src/app/layout.tsx
+index 479576e..a8ce3d5 100644
+--- a/apps/web/src/app/layout.tsx
++++ b/apps/web/src/app/layout.tsx
+@@ -1,5 +1,6 @@
+ import './globals.css';
+ import type { ReactNode } from 'react';
++import Script from 'next/script';
+ import { WebMobileShell } from '../components/WebMobileShell';
+ import { WebAppProviders } from '../providers/WebAppProviders';
+ 
+@@ -32,7 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
+   return (
+     <html lang="en" suppressHydrationWarning>
+       <head>
+-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
++        <Script id="hellowhen-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
+       </head>
+       <body>
+         <WebAppProviders><WebMobileShell>{children}</WebMobileShell></WebAppProviders>
+diff --git a/apps/web/src/app/page.tsx b/apps/web/src/app/page.tsx
+index d1817f6..7003115 100644
+--- a/apps/web/src/app/page.tsx
++++ b/apps/web/src/app/page.tsx
+@@ -15,14 +15,20 @@ export default function HomePage() {
+ 
+   if (!auth.hydrated) {
+     return (
+-      <section className="mobile-card mobile-card--soft">
+-        <p className="eyebrow">Hellowhen Trade</p>
+-        <h2>Loading your session...</h2>
++      <section className="auth-page-shell">
++        <section className="mobile-card mobile-card--soft auth-panel">
++          <p className="eyebrow">Hellowhen Trade</p>
++          <h2>Loading your session...</h2>
++        </section>
+       </section>
+     );
+   }
+ 
+   if (auth.isAuthenticated) return null;
+ 
+-  return <WebAuthPanel />;
++  return (
++    <section className="auth-page-shell">
++      <WebAuthPanel />
++    </section>
++  );
+ }
+diff --git a/apps/web/src/features/account/accountPresentation.ts b/apps/web/src/features/account/accountPresentation.ts
+index b46a7aa..cce63a5 100644
+--- a/apps/web/src/features/account/accountPresentation.ts
++++ b/apps/web/src/features/account/accountPresentation.ts
+@@ -1,5 +1,6 @@
+ import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+ import { API_URL } from '../../lib/api';
++import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
+ 
+ export const fallbackCurrency = 'eur';
+ 
+@@ -29,20 +30,11 @@ export function normalizePayouts(payload: unknown) {
+ }
+ 
+ export function formatMoney(cents = 0, currency = fallbackCurrency) {
+-  try {
+-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(cents / 100);
+-  } catch {
+-    return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+-  }
++  return formatWebMoney(cents, currency);
+ }
+ 
+ export function formatDateTime(value?: string | null) {
+-  if (!value) return '—';
+-  try {
+-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+-  } catch {
+-    return value;
+-  }
++  return formatWebDateTime(value, '—');
+ }
+ 
+ export function ledgerLabel(type: string) {
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 3786000..a0cb762 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -91,10 +91,12 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
+ 
+   useEffect(() => {
+     if (mode !== 'edit' || !itemId) return;
++    if (!auth.hydrated) return;
+     let mounted = true;
+     async function loadItem() {
+       setLoading(true);
+       try {
++        if (!auth.isAuthenticated) throw new Error('signed_out_demo_inventory');
+         const response = kind === 'need' ? await api.needs.get(itemId) : await api.offers.get(itemId);
+         if (!mounted) return;
+         const item = normalizeInventoryItem(response, kind);
+@@ -114,7 +116,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
+     }
+     void loadItem();
+     return () => { mounted = false; };
+-  }, [itemId, kind, mode]);
++  }, [auth.hydrated, auth.isAuthenticated, itemId, kind, mode]);
+ 
+   const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
+ 
+@@ -193,12 +195,12 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
+     }
+   }
+ 
+-  if (loading) {
++  if (loading || (mode === 'edit' && !auth.hydrated)) {
+     return (
+       <section className="mobile-page">
+         <section className="mobile-card mobile-card--soft">
+           <span className="semantic-badge instruction">Loading</span>
+-          <h3>Loading {lowerNoun}...</h3>
++          <h3>{!auth.hydrated ? 'Checking your session...' : `Loading ${lowerNoun}...`}</h3>
+         </section>
+       </section>
+     );
+diff --git a/apps/web/src/features/inventory/InventoryListClient.tsx b/apps/web/src/features/inventory/InventoryListClient.tsx
+index b6c2747..044d783 100644
+--- a/apps/web/src/features/inventory/InventoryListClient.tsx
++++ b/apps/web/src/features/inventory/InventoryListClient.tsx
+@@ -54,7 +54,16 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+   useEffect(() => {
+     let mounted = true;
+     async function loadInventory() {
++      if (!auth.hydrated) return;
+       setLoading(true);
++
++      if (!auth.isAuthenticated) {
++        setItems(kind === 'need' ? mockNeeds : mockOffers);
++        setUsingFallback(true);
++        setLoading(false);
++        return;
++      }
++
+       try {
+         const response = kind === 'need' ? await api.needs.mine() : await api.offers.mine();
+         if (!mounted) return;
+@@ -70,7 +79,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+     }
+     void loadInventory();
+     return () => { mounted = false; };
+-  }, [kind]);
++  }, [auth.hydrated, auth.isAuthenticated, kind]);
+ 
+   const filteredItems = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+@@ -94,7 +103,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+ 
+       <section className="feed-status-row" aria-live="polite">
+         <p>{loading ? `Loading ${plural}...` : `${filteredItems.length} ${plural}`}</p>
+-        {usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : <span className="semantic-badge success">Live inventory</span>}
++        {!auth.hydrated || loading ? <span className="semantic-badge instruction">Checking session</span> : usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : <span className="semantic-badge success">Live inventory</span>}
+       </section>
+ 
+       {!auth.isAuthenticated && auth.hydrated ? (
+diff --git a/apps/web/src/features/inventory/inventoryPresentation.ts b/apps/web/src/features/inventory/inventoryPresentation.ts
+index 0a63006..8412a64 100644
+--- a/apps/web/src/features/inventory/inventoryPresentation.ts
++++ b/apps/web/src/features/inventory/inventoryPresentation.ts
+@@ -1,5 +1,6 @@
+ import type { MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+ import { API_URL } from '../../lib/api';
++import { formatWebDate } from '../../lib/webFormat';
+ 
+ export type InventoryKind = 'need' | 'offer';
+ export type InventoryItem = NeedDto | OfferDto;
+@@ -93,12 +94,7 @@ export function toIsoDate(value: string) {
+ }
+ 
+ export function formatInventoryDate(value?: string | null) {
+-  if (!value) return 'No expiry';
+-  try {
+-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
+-  } catch {
+-    return value;
+-  }
++  return formatWebDate(value, 'No expiry');
+ }
+ 
+ export function mediaSrc(media: MediaAssetDto) {
+diff --git a/apps/web/src/features/trade/TradeCard.tsx b/apps/web/src/features/trade/TradeCard.tsx
+index 5c4f783..3e798da 100644
+--- a/apps/web/src/features/trade/TradeCard.tsx
++++ b/apps/web/src/features/trade/TradeCard.tsx
+@@ -1,9 +1,10 @@
+ import Link from 'next/link';
+ import type { TradeDto } from '@hellowhen/contracts';
+-import { formatMoney, truncateText } from '@hellowhen/shared';
++import { truncateText } from '@hellowhen/shared';
++import { formatWebMoney } from '../../lib/webFormat';
+ 
+ function formatTradeExchange(trade: TradeDto) {
+-  if (trade.amountCents > 0) return formatMoney(trade.amountCents, trade.currency);
++  if (trade.amountCents > 0) return formatWebMoney(trade.amountCents, trade.currency);
+   return 'Service-for-service';
+ }
+ 
+diff --git a/apps/web/src/features/trade/tradePresentation.ts b/apps/web/src/features/trade/tradePresentation.ts
+index cbfaa11..be2a786 100644
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -1,5 +1,5 @@
+ import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
+-import { formatMoney } from '@hellowhen/shared';
++import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
+ 
+ export type TradeSide = {
+   label: 'I need' | 'I offer';
+@@ -27,7 +27,7 @@ export function getOwnerName(trade: TradeDto) {
+ }
+ 
+ export function getExchangeLabel(trade: TradeDto) {
+-  if ((trade.amountCents ?? 0) > 0) return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur');
++  if ((trade.amountCents ?? 0) > 0) return formatWebMoney(trade.amountCents ?? 0, trade.currency ?? 'eur');
+   return 'Service-for-service';
+ }
+ 
+@@ -134,21 +134,11 @@ export function getDeckImages(trade: TradeDto): DeckImage[] {
+ }
+ 
+ export function formatDateLabel(value?: string | null) {
+-  if (!value) return 'No date set';
+-  try {
+-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
+-  } catch {
+-    return value;
+-  }
++  return formatWebShortDate(value, 'No date set');
+ }
+ 
+ export function formatRelativeExpiry(value?: string | null) {
+   if (!value) return 'No expiry';
+-  const expires = new Date(value).getTime();
+-  if (Number.isNaN(expires)) return 'Expiry set';
+-  const diffDays = Math.ceil((expires - Date.now()) / 86_400_000);
+-  if (diffDays < 0) return 'Expired';
+-  if (diffDays === 0) return 'Expires today';
+-  if (diffDays === 1) return '1 day left';
+-  return `${diffDays} days left`;
++  const label = formatWebShortDate(value, 'Expiry set');
++  return label === 'Expiry set' ? label : `Expires ${label}`;
+ }
+diff --git a/apps/web/src/lib/mockData.ts b/apps/web/src/lib/mockData.ts
+index 7c842d0..91a1732 100644
+--- a/apps/web/src/lib/mockData.ts
++++ b/apps/web/src/lib/mockData.ts
+@@ -1,8 +1,8 @@
+ import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
+ 
+-const now = new Date().toISOString();
+-const inThreeDays = new Date(Date.now() + 3 * 86_400_000).toISOString();
+-const inSixDays = new Date(Date.now() + 6 * 86_400_000).toISOString();
++const now = '2026-05-09T12:00:00.000Z';
++const inThreeDays = '2026-05-12T23:59:59.000Z';
++const inSixDays = '2026-05-15T23:59:59.000Z';
+ 
+ function demoImage(id: string, ownerId: string, entityType: 'need' | 'offer', entityId: string, label: string, tone: string): MediaAssetDto {
+   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="0 0 900 900"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${tone}"/><stop offset="1" stop-color="#0f172a"/></linearGradient></defs><rect width="900" height="900" fill="url(#g)"/><circle cx="710" cy="180" r="130" fill="rgba(255,255,255,.16)"/><circle cx="160" cy="730" r="210" fill="rgba(255,255,255,.10)"/><text x="72" y="450" fill="white" font-family="Inter, Arial, sans-serif" font-size="58" font-weight="800" letter-spacing="-2">${label}</text></svg>`;
+diff --git a/apps/web/src/lib/webFormat.ts b/apps/web/src/lib/webFormat.ts
+new file mode 100644
+index 0000000..e0ea25d
+--- /dev/null
++++ b/apps/web/src/lib/webFormat.ts
+@@ -0,0 +1,65 @@
++const WEB_LOCALE = 'en-US';
++const WEB_TIME_ZONE = 'UTC';
++
++function toValidDate(value?: string | null) {
++  if (!value) return null;
++  const date = new Date(value);
++  return Number.isNaN(date.getTime()) ? null : date;
++}
++
++export function formatWebDate(value?: string | null, fallback = 'No date set') {
++  const date = toValidDate(value);
++  if (!date) return fallback;
++  try {
++    return new Intl.DateTimeFormat(WEB_LOCALE, {
++      month: 'short',
++      day: 'numeric',
++      year: 'numeric',
++      timeZone: WEB_TIME_ZONE,
++    }).format(date);
++  } catch {
++    return value ?? fallback;
++  }
++}
++
++export function formatWebShortDate(value?: string | null, fallback = 'No date set') {
++  const date = toValidDate(value);
++  if (!date) return fallback;
++  try {
++    return new Intl.DateTimeFormat(WEB_LOCALE, {
++      month: 'short',
++      day: 'numeric',
++      timeZone: WEB_TIME_ZONE,
++    }).format(date);
++  } catch {
++    return value ?? fallback;
++  }
++}
++
++export function formatWebDateTime(value?: string | null, fallback = '—') {
++  const date = toValidDate(value);
++  if (!date) return fallback;
++  try {
++    return new Intl.DateTimeFormat(WEB_LOCALE, {
++      month: 'short',
++      day: 'numeric',
++      year: 'numeric',
++      hour: '2-digit',
++      minute: '2-digit',
++      timeZone: WEB_TIME_ZONE,
++    }).format(date);
++  } catch {
++    return value ?? fallback;
++  }
++}
++
++export function formatWebMoney(cents = 0, currency = 'eur') {
++  try {
++    return new Intl.NumberFormat(WEB_LOCALE, {
++      style: 'currency',
++      currency: currency.toUpperCase(),
++    }).format(cents / 100);
++  } catch {
++    return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
++  }
++}
+diff --git a/apps/web/src/providers/WebAppSettingsProvider.tsx b/apps/web/src/providers/WebAppSettingsProvider.tsx
+index 986d172..f721484 100644
+--- a/apps/web/src/providers/WebAppSettingsProvider.tsx
++++ b/apps/web/src/providers/WebAppSettingsProvider.tsx
+@@ -7,6 +7,8 @@ import { api } from '../lib/api';
+ const SETTINGS_STORAGE_KEY = 'hellowhen_app_settings_v1';
+ const LEGACY_APPEARANCE_KEY = 'hellowhen:appearance';
+ 
++type SettingsResponse = { settings?: Partial<AppSettings> | null };
++
+ const defaultSettings: AppSettings = {
+   appearance: 'system',
+   language: 'en',
+@@ -35,6 +37,13 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
+   };
+ }
+ 
++function unwrapSettingsResponse(value: unknown) {
++  if (value && typeof value === 'object' && 'settings' in value) {
++    return (value as SettingsResponse).settings;
++  }
++  return value as Partial<AppSettings> | null | undefined;
++}
++
+ function resolveTheme(appearance: AppSettings['appearance']) {
+   if (appearance === 'light' || appearance === 'dark') return appearance;
+   if (typeof window === 'undefined') return 'light';
+@@ -92,12 +101,17 @@ export function WebAppSettingsProvider({ children }: { children: React.ReactNode
+     applyTheme(normalized.appearance);
+ 
+     if (options?.syncRemote) {
+-      await api.settings.updateMe(normalized);
++      const response = await api.settings.updateMe(normalized) as SettingsResponse;
++      const remote = normalizeSettings(unwrapSettingsResponse(response));
++      setSettingsState(remote);
++      saveSettings(remote);
++      applyTheme(remote.appearance);
+     }
+   }, []);
+ 
+   const refreshSettings = useCallback(async () => {
+-    const remote = normalizeSettings(await api.settings.me() as Partial<AppSettings>);
++    const response = await api.settings.me() as SettingsResponse;
++    const remote = normalizeSettings(unwrapSettingsResponse(response));
+     setSettingsState(remote);
+     saveSettings(remote);
+     applyTheme(remote.appearance);
+diff --git a/apps/web/src/providers/WebAuthProvider.tsx b/apps/web/src/providers/WebAuthProvider.tsx
+index e9c4251..d94a879 100644
+--- a/apps/web/src/providers/WebAuthProvider.tsx
++++ b/apps/web/src/providers/WebAuthProvider.tsx
+@@ -7,6 +7,10 @@ import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/webToke
+ import { useWebAppSettings } from './WebAppSettingsProvider';
+ 
+ type AuthProfilePatch = Partial<NonNullable<AuthUser['profile']>>;
++type AuthMeResponse = { user: AuthUser; accessToken?: string };
++type ApiLikeError = { status?: number };
++
++const CACHED_USER_STORAGE_KEY = 'hellowhen_auth_user_v1';
+ 
+ type AuthContextValue = {
+   user: AuthUser | null;
+@@ -23,15 +27,42 @@ type AuthContextValue = {
+ 
+ const AuthContext = createContext<AuthContextValue | null>(null);
+ 
++function persistReturnedToken(result: { accessToken?: string }) {
++  if (typeof result.accessToken === 'string' && result.accessToken.length > 0) {
++    setAccessToken(result.accessToken);
++  }
++}
++
++function isAuthError(error: unknown) {
++  return Boolean(error && typeof error === 'object' && (((error as ApiLikeError).status === 401) || ((error as ApiLikeError).status === 403)));
++}
++
++function readCachedUser() {
++  if (typeof window === 'undefined') return null;
++  try {
++    const raw = window.localStorage.getItem(CACHED_USER_STORAGE_KEY);
++    return raw ? JSON.parse(raw) as AuthUser : null;
++  } catch {
++    return null;
++  }
++}
++
++function saveCachedUser(nextUser: AuthUser | null) {
++  if (typeof window === 'undefined') return;
++  if (nextUser) window.localStorage.setItem(CACHED_USER_STORAGE_KEY, JSON.stringify(nextUser));
++  else window.localStorage.removeItem(CACHED_USER_STORAGE_KEY);
++}
++
+ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
+   const { refreshSettings } = useWebAppSettings();
+   const [user, setUser] = useState<AuthUser | null>(null);
+   const [hydrated, setHydrated] = useState(false);
+ 
+   const refreshMe = useCallback(async () => {
+-    const result = await api.auth.me();
+-    setAccessToken(result.accessToken);
++    const result = await api.auth.me() as AuthMeResponse;
++    persistReturnedToken(result);
+     setUser(result.user);
++    saveCachedUser(result.user);
+   }, []);
+ 
+   useEffect(() => {
+@@ -40,14 +71,20 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
+       try {
+         const token = getAccessToken();
+         if (!token) return;
+-        const result = await api.auth.me();
++        const cachedUser = readCachedUser();
++        if (cachedUser && mounted) setUser(cachedUser);
++        const result = await api.auth.me() as AuthMeResponse;
+         if (!mounted) return;
+-        setAccessToken(result.accessToken);
++        persistReturnedToken(result);
+         setUser(result.user);
++        saveCachedUser(result.user);
+         await refreshSettings().catch(() => undefined);
+-      } catch {
+-        clearAccessToken();
+-        if (mounted) setUser(null);
++      } catch (error) {
++        if (isAuthError(error)) {
++          clearAccessToken();
++          saveCachedUser(null);
++          if (mounted) setUser(null);
++        }
+       } finally {
+         if (mounted) setHydrated(true);
+       }
+@@ -64,12 +101,14 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
+       const result = await api.auth.login({ email, password });
+       setAccessToken(result.accessToken);
+       setUser(result.user);
++      saveCachedUser(result.user);
+       await refreshSettings().catch(() => undefined);
+     },
+     async register(input) {
+       const result = await api.auth.register(input);
+       setAccessToken(result.accessToken);
+       setUser(result.user);
++      saveCachedUser(result.user);
+       await refreshSettings().catch(() => undefined);
+     },
+     forgotPassword(email) {
+@@ -79,10 +118,16 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
+       return api.auth.resetPassword({ token, password, confirmPassword });
+     },
+     updateLocalProfile(profile) {
+-      setUser((current) => current ? { ...current, profile: { ...(current.profile ?? {}), ...profile } } : current);
++      setUser((current) => {
++        if (!current) return current;
++        const nextUser = { ...current, profile: { ...(current.profile ?? {}), ...profile } };
++        saveCachedUser(nextUser);
++        return nextUser;
++      });
+     },
+     async logout() {
+       clearAccessToken();
++      saveCachedUser(null);
+       setUser(null);
+     },
+     refreshMe,

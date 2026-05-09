@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
+import { formatWebDateTime } from '../../../lib/webFormat';
 
 type LoginResponse = { accessToken: string };
 type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null } | null }; _count?: { messages: number } };
@@ -148,7 +149,7 @@ export default function AdminSupportPage() {
         <div className="card">
           <h2>Tickets</h2>
           <div style={{ display: 'grid', gap: 10 }}>
-            {tickets.map((ticket) => <button key={ticket.id} className="support-ticket-button" onClick={() => { void openTicket(ticket.id); }}><span className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</span><span className={`semantic-badge ${categoryTone(ticket.category)}`}>{labelize(ticket.category)}</span><strong>{ticket.subject}</strong><span className="meta">{ticket.user?.profile?.displayName ?? ticket.user?.email ?? ticket.userId} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · {new Date(ticket.updatedAt).toLocaleString()}</span></button>)}
+            {tickets.map((ticket) => <button key={ticket.id} className="support-ticket-button" onClick={() => { void openTicket(ticket.id); }}><span className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</span><span className={`semantic-badge ${categoryTone(ticket.category)}`}>{labelize(ticket.category)}</span><strong>{ticket.subject}</strong><span className="meta">{ticket.user?.profile?.displayName ?? ticket.user?.email ?? ticket.userId} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · {formatWebDateTime(ticket.updatedAt)}</span></button>)}
             {tickets.length === 0 ? <p>No support tickets loaded yet.</p> : null}
           </div>
         </div>
@@ -159,7 +160,7 @@ export default function AdminSupportPage() {
             <p className="meta">User: {selectedTicket.user?.profile?.displayName ?? selectedTicket.user?.email ?? selectedTicket.userId}</p>
             <p>{selectedTicket.message}</p>
             <div className="status-row">{selectedTicket.relatedTradeId ? <span className="semantic-badge trade">Trade {selectedTicket.relatedTradeId}</span> : null}{selectedTicket.relatedProposalId ? <span className="semantic-badge proposal">Proposal {selectedTicket.relatedProposalId}</span> : null}{selectedTicket.relatedMediaId ? <span className="semantic-badge warning">Media {selectedTicket.relatedMediaId}</span> : null}</div>
-            <div className="support-thread">{selectedTicket.messages?.map((item) => <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}><div className="status-row"><span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender?.profile?.displayName ?? item.sender?.email ?? 'User')}</span>{item.internal ? <span className="semantic-badge warning">internal</span> : null}</div><p>{item.body}</p><p className="meta">{new Date(item.createdAt).toLocaleString()}</p></article>)}</div>
+            <div className="support-thread">{selectedTicket.messages?.map((item) => <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}><div className="status-row"><span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender?.profile?.displayName ?? item.sender?.email ?? 'User')}</span>{item.internal ? <span className="semantic-badge warning">internal</span> : null}</div><p>{item.body}</p><p className="meta">{formatWebDateTime(item.createdAt)}</p></article>)}</div>
             <div className="cta-row"><button className="warning" onClick={() => { void updateTicket('in_review'); }} disabled={loading}>Mark in review</button><button className="secondary" onClick={() => { void updateTicket('waiting_for_user'); }} disabled={loading}>Waiting for user</button><button className="success" onClick={() => { void updateTicket('resolved'); }} disabled={loading}>Resolve</button><button className="danger" onClick={() => { void updateTicket('closed'); }} disabled={loading}>Close</button></div>
             <div style={{ display: 'grid', gap: 10, marginTop: 14 }}><textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} placeholder="Reply to the user or add an internal note" rows={5} /><label className="meta"><input style={{ width: 'auto', marginRight: 8 }} type="checkbox" checked={internal} onChange={(event) => setInternal(event.target.checked)} /> Internal admin note only</label><button onClick={() => { void sendReply(); }} disabled={loading || !replyBody.trim()}>{internal ? 'Add internal note' : 'Send public reply'}</button></div>
           </> : <p>Select a ticket to read the full conversation.</p>}

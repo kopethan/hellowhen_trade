@@ -6,6 +6,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { env } from '../../config/env.js';
 import { findCreditPackage, getCreditPackages } from './creditPackages.js';
 import { getStripe, isStripeConfigured } from './stripeClient.js';
+import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
 
 export const creditsRoutes = Router();
 
@@ -17,6 +18,10 @@ creditsRoutes.use(requireAuth);
 
 creditsRoutes.post('/checkout-session', asyncRoute(async (req, res) => {
   const input = createCheckoutSessionRequestSchema.parse(req.body);
+  const moneySafety = await buildMoneySafetyStatus(prisma, req.user!.id);
+  const block = getMoneySafetyBlock(moneySafety, 'wallet_top_up');
+  if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
+  if (!moneySafety.realMoneyEnabled) return res.status(403).json({ error: 'wallet_checkout_disabled', message: 'Stripe wallet checkout is disabled until production money launch is explicitly enabled.', moneySafety });
   const creditPackage = findCreditPackage(input.packageId);
   if (!creditPackage) return res.status(404).json({ error: 'package_not_found', message: 'Choose a valid credit package.' });
 

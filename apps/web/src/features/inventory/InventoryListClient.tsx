@@ -46,7 +46,7 @@ function InventoryCard({ item, kind }: { item: InventoryItem; kind: InventoryKin
 
 export function InventoryListClient({ kind }: InventoryListClientProps) {
   const auth = useWebAuth();
-  const [items, setItems] = useState<InventoryItem[]>(kind === 'need' ? mockNeeds : mockOffers);
+  const [items, setItems] = useState<InventoryItem[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -54,7 +54,16 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   useEffect(() => {
     let mounted = true;
     async function loadInventory() {
+      if (!auth.hydrated) return;
       setLoading(true);
+
+      if (!auth.isAuthenticated) {
+        setItems(kind === 'need' ? mockNeeds : mockOffers);
+        setUsingFallback(true);
+        setLoading(false);
+        return;
+      }
+
       try {
         const response = kind === 'need' ? await api.needs.mine() : await api.offers.mine();
         if (!mounted) return;
@@ -70,7 +79,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
     }
     void loadInventory();
     return () => { mounted = false; };
-  }, [kind]);
+  }, [auth.hydrated, auth.isAuthenticated, kind]);
 
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -94,7 +103,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
 
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? `Loading ${plural}...` : `${filteredItems.length} ${plural}`}</p>
-        {usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : <span className="semantic-badge success">Live inventory</span>}
+        {!auth.hydrated || loading ? <span className="semantic-badge instruction">Checking session</span> : usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : <span className="semantic-badge success">Live inventory</span>}
       </section>
 
       {!auth.isAuthenticated && auth.hydrated ? (
@@ -106,7 +115,9 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         </section>
       ) : null}
 
-      {filteredItems.length ? (
+      {loading ? (
+        <InventoryListSkeleton />
+      ) : filteredItems.length ? (
         <div className="inventory-list">
           {filteredItems.map((item) => <InventoryCard key={item.id} item={item} kind={kind} />)}
         </div>
@@ -121,5 +132,23 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         />
       )}
     </section>
+  );
+}
+
+function InventoryListSkeleton() {
+  return (
+    <div className="inventory-list inventory-list--skeleton" aria-hidden="true">
+      {[0, 1, 2].map((item) => (
+        <div className="inventory-card inventory-card--skeleton" key={item}>
+          <div className="inventory-card__media" />
+          <div className="inventory-card__body">
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

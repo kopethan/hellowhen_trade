@@ -5,8 +5,9 @@ import type { FormEvent } from 'react';
 import type { TradeDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { mockTrades } from '../../lib/mockData';
-import { TradeDeck } from './TradeDeck';
+import { TradeDeckGrid } from './TradeDeckGrid';
 
 type FeedFilters = {
   q: string;
@@ -42,7 +43,7 @@ function localFilter(trades: TradeDto[], filters: FeedFilters) {
 export function TradeFeedClient() {
   const [filters, setFilters] = useState<FeedFilters>(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState<FeedFilters>(initialFilters);
-  const [trades, setTrades] = useState<TradeDto[]>(mockTrades);
+  const [trades, setTrades] = useState<TradeDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -56,7 +57,7 @@ export function TradeFeedClient() {
           q: appliedFilters.q || undefined,
           mode: appliedFilters.mode || undefined,
           hasImages: appliedFilters.hasImages || undefined,
-          hasMoney: appliedFilters.hasMoney || undefined,
+          hasMoney: betaFeatures.moneyTradesEnabled ? (appliedFilters.hasMoney || undefined) : undefined,
           take: 30,
         });
         const nextTrades = normalizeFeedResponse(response);
@@ -88,7 +89,7 @@ export function TradeFeedClient() {
   }
 
   return (
-    <section className="mobile-page">
+    <section className="mobile-page trade-feed-page">
       <form className="trade-feed-controls" aria-label="Trade feed controls" onSubmit={applySearch}>
         <label className="trade-search-field">
           <span className="sr-only">Search trades</span>
@@ -118,10 +119,12 @@ export function TradeFeedClient() {
               <input type="checkbox" checked={filters.hasImages} onChange={(event) => setFilters((current) => ({ ...current, hasImages: event.target.checked }))} />
               Has images
             </label>
-            <label className="checkbox-row">
-              <input type="checkbox" checked={filters.hasMoney} onChange={(event) => setFilters((current) => ({ ...current, hasMoney: event.target.checked }))} />
-              Includes wallet money
-            </label>
+            {betaFeatures.moneyTradesEnabled ? (
+              <label className="checkbox-row">
+                <input type="checkbox" checked={filters.hasMoney} onChange={(event) => setFilters((current) => ({ ...current, hasMoney: event.target.checked }))} />
+                Includes wallet money
+              </label>
+            ) : null}
             <div className="trade-filter-actions">
               <button type="submit">Apply</button>
               <button type="button" className="secondary" onClick={resetFilters}>Reset</button>
@@ -132,14 +135,12 @@ export function TradeFeedClient() {
 
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? 'Loading trades...' : `${filteredTrades.length} active trade${filteredTrades.length === 1 ? '' : 's'}`}</p>
-        {usingFallback ? <span className="semantic-badge instruction">Demo feed</span> : <span className="semantic-badge success">Live feed</span>}
+        {loading ? <span className="semantic-badge instruction">Loading</span> : usingFallback ? <span className="semantic-badge instruction">Demo feed</span> : <span className="semantic-badge success">Live feed</span>}
       </section>
 
-      <div className="trade-feed-list">
-        {filteredTrades.map((trade) => <TradeDeck key={trade.id} trade={trade} />)}
-      </div>
+      {loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
 
-      {!filteredTrades.length ? (
+      {!loading && !filteredTrades.length ? (
         <section className="mobile-card mobile-card--soft">
           <h3>No trades found</h3>
           <p>Try a different search or clear the filters.</p>
@@ -147,5 +148,25 @@ export function TradeFeedClient() {
         </section>
       ) : null}
     </section>
+  );
+}
+
+function TradeFeedSkeleton() {
+  return (
+    <div className="trade-deck-grid trade-deck-grid--skeleton" aria-hidden="true">
+      {[0, 1, 2].map((item) => (
+        <div className="trade-stack-deck trade-stack-deck--skeleton" key={item}>
+          <div className="square-stack-deck__surface">
+            <div className="trade-stack-card trade-stack-card--summary trade-stack-card--skeleton">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }

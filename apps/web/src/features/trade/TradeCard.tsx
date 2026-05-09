@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import type { TradeDto } from '@hellowhen/contracts';
-import { formatMoney, truncateText } from '@hellowhen/shared';
+import { truncateText } from '@hellowhen/shared';
+import { formatWebMoney } from '../../lib/webFormat';
 
 function formatTradeExchange(trade: TradeDto) {
-  if (trade.amountCents > 0) return formatMoney(trade.amountCents, trade.currency);
+  if (trade.amountCents > 0) return formatWebMoney(trade.amountCents, trade.currency);
   return 'Service-for-service';
 }
 

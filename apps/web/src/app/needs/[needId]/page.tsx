@@ -1,5 +1,10 @@
 import { InventoryDetailClient } from '../../../features/inventory/InventoryDetailClient';
 
-export default function NeedDetailPage({ params }: { params: { needId: string } }) {
-  return <InventoryDetailClient kind="need" itemId={params.needId} />;
+type NeedDetailPageProps = {
+  params: Promise<{ needId: string }>;
+};
+
+export default async function NeedDetailPage({ params }: NeedDetailPageProps) {
+  const { needId } = await params;
+  return <InventoryDetailClient kind="need" itemId={needId} />;
 }

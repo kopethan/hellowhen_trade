@@ -18,7 +18,7 @@ type CategoryOption = {
 const categoryOptions: CategoryOption[] = [
   { value: 'general_feedback', label: 'General feedback' },
   { value: 'trade_issue', label: 'Trade issue' },
-  { value: 'credits_issue', label: 'Wallet / money issue' },
+  { value: 'credits_issue', label: 'Trade or account issue' },
   { value: 'media_issue', label: 'Image review issue' },
   { value: 'bug_report', label: 'Bug report' },
   { value: 'account_issue', label: 'Account issue' },

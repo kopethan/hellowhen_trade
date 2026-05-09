@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { CreateNeedRequest, CreateOfferRequest, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
+import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -48,6 +48,7 @@ function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): Cre
     title: values.title.trim(),
     description: values.description.trim(),
     status: values.status as NeedDto['status'],
+    itemType: values.itemType,
     category: values.category.trim() || undefined,
     timing: values.timing.trim() || undefined,
     mode: parseMode(values.mode),
@@ -63,6 +64,7 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): Cr
     title: values.title.trim(),
     description: values.description.trim(),
     status: values.status as OfferDto['status'],
+    itemType: values.itemType,
     category: values.category.trim() || undefined,
     availability: values.availability.trim() || undefined,
     mode: parseMode(values.mode),
@@ -91,10 +93,12 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
 
   useEffect(() => {
     if (mode !== 'edit' || !itemId) return;
+    if (!auth.hydrated) return;
     let mounted = true;
     async function loadItem() {
       setLoading(true);
       try {
+        if (!auth.isAuthenticated) throw new Error('signed_out_demo_inventory');
         const response = kind === 'need' ? await api.needs.get(itemId) : await api.offers.get(itemId);
         if (!mounted) return;
         const item = normalizeInventoryItem(response, kind);
@@ -114,11 +118,11 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
     }
     void loadItem();
     return () => { mounted = false; };
-  }, [itemId, kind, mode]);
+  }, [auth.hydrated, auth.isAuthenticated, itemId, kind, mode]);
 
   const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
 
-  function updateField(field: keyof InventoryFormValues, value: string) {
+  function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
     setValues((current) => ({ ...current, [field]: value }));
   }
 
@@ -193,12 +197,12 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
     }
   }
 
-  if (loading) {
+  if (loading || (mode === 'edit' && !auth.hydrated)) {
     return (
       <section className="mobile-page">
         <section className="mobile-card mobile-card--soft">
           <span className="semantic-badge instruction">Loading</span>
-          <h3>Loading {lowerNoun}...</h3>
+          <h3>{!auth.hydrated ? 'Checking your session...' : `Loading ${lowerNoun}...`}</h3>
         </section>
       </section>
     );
@@ -233,6 +237,14 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
             Status
             <select value={values.status} onChange={(event) => updateField('status', event.target.value)}>
               {selectedStatusOptions(kind).map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </label>
+          <label className="field-label">
+            Type
+            <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryItemType)}>
+              <option value="service">Service</option>
+              <option value="goods">Goods</option>
+              <option value="other">Other</option>
             </select>
           </label>
           <label className="field-label">

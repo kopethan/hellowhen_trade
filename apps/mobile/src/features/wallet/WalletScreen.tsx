@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName, ThemeTokens } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
@@ -11,6 +11,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -23,6 +24,10 @@ function formatLedgerType(type: string) { if (type === 'test_credit_grant') retu
 function entryAmount(entry: LedgerEntryDto) { return entry.amountCents ? `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}` : formatMoney(0, entry.currency ?? 'eur'); }
 function ledgerTone(type: string, amountCents: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('payout')) return amountCents < 0 ? 'danger' : 'info'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amountCents < 0) return 'danger'; return 'credits'; }
 function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
+const defaultPayoutPlatformFeeRateBps = 1000;
+function normalizePayoutFeeRateBps(value?: number | null) { if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPayoutPlatformFeeRateBps; return Math.min(Math.max(Math.trunc(value), 0), 5000); }
+function calculatePayoutFeeCents(grossAmountCents: number, platformFeeRateBps = defaultPayoutPlatformFeeRateBps) { const gross = Math.max(0, Math.trunc(grossAmountCents || 0)); const rate = normalizePayoutFeeRateBps(platformFeeRateBps); if (gross <= 0 || rate <= 0) return 0; return Math.min(gross, Math.round((gross * rate) / 10000)); }
+function formatPayoutFeeRate(platformFeeRateBps = defaultPayoutPlatformFeeRateBps) { const rate = normalizePayoutFeeRateBps(platformFeeRateBps); return `${Number((rate / 100).toFixed(2))}%`; }
 
 export function WalletScreen({ navigation }: Props) {
   const theme = useThemeTokens();
@@ -32,6 +37,7 @@ export function WalletScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
 
   const loadWallet = useCallback(async () => {
+    if (!betaFeatures.walletVisible) { setWallet(null); setSummary(null); setError(null); return; }
     setLoading(true); setError(null);
     try {
       const [walletResult, payoutsResult] = await Promise.all([api.wallet.me() as Promise<WalletResponse>, api.wallet.payouts() as Promise<PayoutsResponse>]);
@@ -44,12 +50,26 @@ export function WalletScreen({ navigation }: Props) {
 
   useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
 
+  if (!betaFeatures.walletVisible) {
+    return (
+      <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <InfoNotice tone="info" title="Wallet hidden for beta" body="Hellowhen is launching with service and goods exchanges first. Wallet money, cash trades, and payouts are disabled until the payment provider path is selected." />
+        </ScrollView>
+      </AppFixedHeaderScreen>
+    );
+  }
+
   const currency = wallet?.currency ?? summary?.currency ?? 'eur';
   const available = wallet?.availableBalanceCents ?? 0;
   const held = wallet?.heldBalanceCents ?? 0;
   const availableForPayout = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
-  const pendingPayoutRequests = summary?.pendingPayoutRequestsCents ?? 0;
-  const paidOut = summary?.paidOutCents ?? 0;
+  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+  const estimatedPlatformFee = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(availableForPayout, platformFeeRateBps);
+  const estimatedNetPayout = summary?.estimatedNetPayoutCents ?? Math.max(0, availableForPayout - estimatedPlatformFee);
+  const pendingPayoutRequests = summary?.pendingPayoutRequestsNetCents ?? summary?.pendingPayoutRequestsCents ?? 0;
+  const paidOut = summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0;
+  const limits = summary?.limits as WalletLimitsDto | undefined;
   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits') ?? [];
 
   return (
@@ -84,24 +104,44 @@ export function WalletScreen({ navigation }: Props) {
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
               <AppText style={styles.sectionTitle}>Earnings</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Money earned from completed trades. Demo payouts use Stripe simulation only.</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Money earned from completed trades. Payout requests show the transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee before confirmation.</AppText>
             </View>
             <MoneyPill amountCents={availableForPayout} currency={currency} label="payout" />
           </View>
           <View style={styles.grid}>
-            <Metric label="Available payout" value={availableForPayout} currency={currency} tone="success" />
+            <Metric label="Available earnings" value={availableForPayout} currency={currency} tone="success" />
+            <Metric label="Platform fee" value={estimatedPlatformFee} currency={currency} tone="danger" />
+            <Metric label="Estimated payout" value={estimatedNetPayout} currency={currency} tone="success" />
             <Metric label="Pending payout" value={pendingPayoutRequests} currency={currency} tone="time" />
             <Metric label="Paid out" value={paidOut} currency={currency} tone="info" />
           </View>
           <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Payouts')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Open payouts</AppText></Pressable>
         </AppCard>
 
+        {limits ? (
+          <AppCard>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionCopy}>
+                <AppText style={styles.sectionTitle}>Launch limits</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>Tier: {limits.effectiveTrustTier.replace(/_/g, ' ')}. Limits keep early money flows small.</AppText>
+              </View>
+              <SemanticBadge label="Safety" tone="time" />
+            </View>
+            <View style={styles.grid}>
+              <Metric label="Wallet cap" value={limits.walletBalanceCapCents} currency={currency} tone="credits" />
+              <Metric label="Per money trade" value={limits.perTradeMoneyCapCents} currency={currency} tone="info" />
+              <Metric label="Weekly payout" value={limits.weeklyPayoutCapCents} currency={currency} tone="time" />
+              <Metric label="Minimum payout" value={limits.minimumPayoutCents} currency={currency} tone="info" />
+            </View>
+          </AppCard>
+        ) : null}
+
         <AppCard>
           <AppText style={styles.sectionTitle}>How it works</AppText>
           <View style={styles.steps}>
             <Step theme={theme} number="1" text="Add demo money, then offer it under I offer when creating a trade." />
             <Step theme={theme} number="2" text="When a proposal is accepted, the payer’s money is held until completion." />
-            <Step theme={theme} number="3" text="Completed trade money becomes earnings that can be sent through demo payouts." />
+            <Step theme={theme} number="3" text={`Completed trade money becomes payout-eligible earnings. Hellowhen keeps a ${formatPayoutFeeRate(platformFeeRateBps)} platform fee when you request payout.`} />
           </View>
         </AppCard>
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { CreditPurchaseDto, CreditPurchaseStatus } from '@hellowhen/contracts';
+import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
 
 type LoginResponse = { accessToken: string };
 type AdminPurchaseItem = CreditPurchaseDto & { user?: { email?: string; profile?: { displayName?: string | null } | null } };
@@ -19,8 +20,7 @@ function statusTone(status: CreditPurchaseStatus | 'all') {
 }
 
 function money(amountCents: number, currency: string) {
-  try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100); }
-  catch { return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`; }
+  return formatWebMoney(amountCents, currency);
 }
 
 export default function AdminCreditsPage() {
@@ -82,7 +82,7 @@ export default function AdminCreditsPage() {
       <div className="card" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead><tr><th align="left">Status</th><th align="left">User</th><th align="left">Credits</th><th align="left">Amount</th><th align="left">Stripe session</th><th align="left">Created</th><th align="left">Paid</th></tr></thead>
-          <tbody>{items.map((item) => <tr key={item.id}><td><span className={`semantic-badge ${statusTone(item.status)}`}>{item.status}</span></td><td>{item.user?.profile?.displayName ?? item.user?.email ?? item.userId}</td><td>{item.creditAmount}</td><td>{money(item.amountCents, item.currency)}</td><td><code>{item.stripeCheckoutSessionId ?? 'pending'}</code></td><td>{new Date(item.createdAt).toLocaleString()}</td><td>{item.paidAt ? new Date(item.paidAt).toLocaleString() : '—'}</td></tr>)}</tbody>
+          <tbody>{items.map((item) => <tr key={item.id}><td><span className={`semantic-badge ${statusTone(item.status)}`}>{item.status}</span></td><td>{item.user?.profile?.displayName ?? item.user?.email ?? item.userId}</td><td>{item.creditAmount}</td><td>{money(item.amountCents, item.currency)}</td><td><code>{item.stripeCheckoutSessionId ?? 'pending'}</code></td><td>{formatWebDateTime(item.createdAt)}</td><td>{formatWebDateTime(item.paidAt)}</td></tr>)}</tbody>
         </table>
         {items.length === 0 ? <p>No credit purchases loaded yet.</p> : null}
       </div>

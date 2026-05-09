@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
 import { api } from '../../lib/api';
+import { betaFeatures, MoneyOffNotice } from '../../lib/betaFeatures';
 import { useWebAuth } from '../../providers/WebAuthProvider';
-import { assetUrl, fallbackCurrency, formatMoney, normalizePayouts, normalizeWallet } from './accountPresentation';
+import { assetUrl, fallbackCurrency, formatMoney, formatPayoutFeeRate, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
 
 type AccountHubItem = {
   href: string;
@@ -16,8 +17,8 @@ type AccountHubItem = {
 
 const accountItems: AccountHubItem[] = [
   { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.' },
-  { href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' },
-  { href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account and simulate payout requests.' },
+  ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' }] : []),
+  ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' }] : []),
   { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.' },
   { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.' },
 ];
@@ -30,7 +31,7 @@ export function AccountHubClient() {
   useEffect(() => {
     let mounted = true;
     async function loadPreview() {
-      if (!auth.hydrated || !auth.isAuthenticated) return;
+      if (!auth.hydrated || !auth.isAuthenticated || !betaFeatures.moneyFeaturesVisible) return;
       try {
         const [walletResponse, payoutResponse] = await Promise.all([api.wallet.me(), api.wallet.payouts()]);
         if (!mounted) return;
@@ -48,6 +49,7 @@ export function AccountHubClient() {
   }, [auth.hydrated, auth.isAuthenticated]);
 
   const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
+  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
 
   return (
     <div className="mobile-page">
@@ -64,7 +66,7 @@ export function AccountHubClient() {
         </section>
       ) : null}
 
-      {auth.isAuthenticated ? (
+      {auth.isAuthenticated && betaFeatures.moneyFeaturesVisible ? (
         <section className="wallet-preview-strip">
           <div>
             <span>Wallet money</span>
@@ -73,9 +75,12 @@ export function AccountHubClient() {
           <div>
             <span>Available earnings</span>
             <strong>{formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency)}</strong>
+            <small>{formatPayoutFeeRate(platformFeeRateBps)} payout fee</small>
           </div>
         </section>
       ) : null}
+
+      {!betaFeatures.moneyFeaturesVisible ? <MoneyOffNotice title="Service and goods beta" /> : null}
 
       <div className="mobile-list">
         {accountItems.map((item) => (

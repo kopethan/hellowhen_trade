@@ -1,5 +1,6 @@
 import './globals.css';
 import type { ReactNode } from 'react';
+import Script from 'next/script';
 import { WebMobileShell } from '../components/WebMobileShell';
 import { WebAppProviders } from '../providers/WebAppProviders';
 
@@ -32,7 +33,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <Script id="hellowhen-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
         <WebAppProviders><WebMobileShell>{children}</WebMobileShell></WebAppProviders>

@@ -55,6 +55,26 @@ export async function withOneSupportMessageMedia<T extends SupportMessageWithId>
   return result;
 }
 
+
+async function canReportTrade(actorId: string, tradeId?: string) {
+  if (!tradeId) return null;
+  return prisma.trade.findFirst({
+    where: {
+      id: tradeId,
+      OR: [
+        { ownerId: actorId },
+        { providerId: actorId },
+        { proposals: { some: { applicantId: actorId } } },
+      ],
+    },
+    include: { payment: true },
+  });
+}
+
+function shouldFreezeTrade(category: string) {
+  return category === 'trade_issue' || category === 'safety_concern';
+}
+
 supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
   const tickets = await prisma.supportTicket.findMany({
     where: { userId: req.user!.id },
@@ -66,27 +86,38 @@ supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
 
 supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
   const input = createSupportTicketRequestSchema.parse(req.body);
-  const ticket = await prisma.supportTicket.create({
-    data: {
-      userId: req.user!.id,
-      category: input.category,
-      subject: input.subject,
-      message: input.message,
-      priority: input.priority ?? 'normal',
-      relatedTradeId: input.relatedTradeId ?? null,
-      relatedProposalId: input.relatedProposalId ?? null,
-      relatedMediaId: input.relatedMediaId ?? null,
-      messages: {
-        create: {
-          senderId: req.user!.id,
-          senderRole: 'user',
-          body: input.message,
-        },
+  const actorId = req.user!.id;
+  const relatedTrade = await canReportTrade(actorId, input.relatedTradeId);
+  if (input.relatedTradeId && !relatedTrade) return res.status(403).json({ error: 'forbidden', message: 'You can only report a trade you created, joined, or proposed to.' });
+
+  const ticket = await prisma.$transaction(async (tx) => {
+    const created = await tx.supportTicket.create({
+      data: {
+        userId: actorId,
+        category: input.category,
+        subject: input.subject,
+        message: input.message,
+        priority: input.priority ?? (relatedTrade?.amountCents ? 'high' : 'normal'),
+        relatedTradeId: input.relatedTradeId ?? null,
+        relatedProposalId: input.relatedProposalId ?? null,
+        relatedMediaId: input.relatedMediaId ?? null,
+        messages: { create: { senderId: actorId, senderRole: 'user', body: input.message } },
       },
-    },
-    include: ticketIncludeForUser,
+      include: ticketIncludeForUser,
+    });
+
+    if (relatedTrade && shouldFreezeTrade(input.category) && ['active', 'in_progress', 'submitted', 'completed'].includes(relatedTrade.status)) {
+      await tx.trade.update({ where: { id: relatedTrade.id }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: new Date(), disputeTicketId: created.id } });
+      if (relatedTrade.payment?.sellerId) {
+        await tx.payoutRequest.updateMany({
+          where: { userId: relatedTrade.payment.sellerId, status: { in: ['requested', 'approved'] } },
+          data: { stripeExternalStatus: 'paused_trade_dispute', notes: `Paused because trade ${relatedTrade.id} was reported. Review support ticket ${created.id}.` },
+        });
+      }
+    }
+    return created;
   });
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_ticket', ticket.id);
+  await attachUploadedMediaToEntity(actorId, input.mediaIds, 'support_ticket', ticket.id);
   res.status(201).json({ ticket: await withOneSupportTicketMedia(ticket, 'owner') });
 }));
 

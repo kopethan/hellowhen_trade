@@ -1,0 +1,788 @@
+diff --git a/.env.example b/.env.example
+index 725fcd1..a4cbe80 100644
+--- a/.env.example
++++ b/.env.example
+@@ -23,3 +23,6 @@ GOOGLE_ANDROID_CLIENT_ID=
+ RESEND_API_KEY=
+ EMAIL_FROM=Hellowhen <support@hellowhen.app>
+ PASSWORD_RESET_TTL_MINUTES=45
++
++# Marketplace payout fee. 1000 bps = 10% of payout-eligible earnings.
++PAYOUT_PLATFORM_FEE_RATE_BPS=1000
+diff --git a/apps/api/prisma/migrations/20260509100000_payout_fee_transparency/migration.sql b/apps/api/prisma/migrations/20260509100000_payout_fee_transparency/migration.sql
+new file mode 100644
+index 0000000..b8e65d3
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260509100000_payout_fee_transparency/migration.sql
+@@ -0,0 +1,16 @@
++-- Phase 20.0: payout fee transparency.
++-- Keep amountCents as the requested gross earnings amount for compatibility.
++
++ALTER TABLE "PayoutRequest"
++  ADD COLUMN "grossAmountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "platformFeeCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "netAmountCents" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "platformFeeRateBps" INTEGER NOT NULL DEFAULT 1000;
++
++UPDATE "PayoutRequest"
++SET
++  "grossAmountCents" = CASE WHEN "grossAmountCents" = 0 THEN "amountCents" ELSE "grossAmountCents" END,
++  "netAmountCents" = CASE WHEN "netAmountCents" = 0 THEN "amountCents" ELSE "netAmountCents" END
++WHERE "amountCents" <> 0;
++
++CREATE INDEX "PayoutRequest_status_requestedAt_idx" ON "PayoutRequest"("status", "requestedAt");
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index dae3d47..e42ccf6 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -532,12 +532,16 @@ model TradeEscrow {
+ }
+ 
+ model PayoutRequest {
+-  id          String              @id @default(cuid())
+-  userId      String
+-  amount      Int
+-  amountCents Int                 @default(0)
+-  currency    String              @default("eur")
+-  status      PayoutRequestStatus @default(draft)
++  id                 String              @id @default(cuid())
++  userId             String
++  amount             Int
++  amountCents        Int                 @default(0)
++  grossAmountCents   Int                 @default(0)
++  platformFeeCents   Int                 @default(0)
++  netAmountCents     Int                 @default(0)
++  platformFeeRateBps Int                 @default(1000)
++  currency           String              @default("eur")
++  status             PayoutRequestStatus @default(draft)
+   requestedAt DateTime            @default(now())
+   reviewedAt  DateTime?
+   paidAt      DateTime?
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 84df6e4..f996aa4 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -22,5 +22,6 @@ export const env = {
+   googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID ?? '',
+   resendApiKey: process.env.RESEND_API_KEY ?? '',
+   emailFrom: process.env.EMAIL_FROM ?? 'Hellowhen <support@hellowhen.app>',
+-  passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 45)
++  passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 45),
++  payoutPlatformFeeRateBps: Number(process.env.PAYOUT_PLATFORM_FEE_RATE_BPS ?? 1000)
+ };
+diff --git a/apps/api/src/modules/wallet/wallet.routes.ts b/apps/api/src/modules/wallet/wallet.routes.ts
+index ec3ade3..70f85ba 100644
+--- a/apps/api/src/modules/wallet/wallet.routes.ts
++++ b/apps/api/src/modules/wallet/wallet.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import { demoPayoutRequestSchema, demoTopUpRequestSchema } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+@@ -8,6 +9,31 @@ export const walletRoutes = Router();
+ walletRoutes.use(requireAuth);
+ 
+ const demoPayoutMetadata = { stripeDemoPayoutAccount: true } as const;
++const DEFAULT_PAYOUT_PLATFORM_FEE_RATE_BPS = 1000;
++
++function getPayoutPlatformFeeRateBps() {
++  const value = Number.isFinite(env.payoutPlatformFeeRateBps) ? Math.trunc(env.payoutPlatformFeeRateBps) : DEFAULT_PAYOUT_PLATFORM_FEE_RATE_BPS;
++  return Math.min(Math.max(value, 0), 5000);
++}
++
++function calculatePayoutPlatformFeeCents(amountCents: number, platformFeeRateBps = getPayoutPlatformFeeRateBps()) {
++  if (amountCents <= 0 || platformFeeRateBps <= 0) return 0;
++  return Math.min(amountCents, Math.round((amountCents * platformFeeRateBps) / 10000));
++}
++
++function getPayoutGrossCents(payout: { amountCents: number; grossAmountCents?: number | null }) {
++  return payout.grossAmountCents && payout.grossAmountCents > 0 ? payout.grossAmountCents : payout.amountCents;
++}
++
++function getPayoutFeeCents(payout: { amountCents: number; grossAmountCents?: number | null; platformFeeCents?: number | null; netAmountCents?: number | null; platformFeeRateBps?: number | null }) {
++  if (typeof payout.platformFeeCents === 'number' && (payout.platformFeeCents > 0 || (payout.netAmountCents ?? 0) > 0)) return payout.platformFeeCents;
++  return calculatePayoutPlatformFeeCents(getPayoutGrossCents(payout), payout.platformFeeRateBps ?? getPayoutPlatformFeeRateBps());
++}
++
++function getPayoutNetCents(payout: { amountCents: number; grossAmountCents?: number | null; platformFeeCents?: number | null; netAmountCents?: number | null; platformFeeRateBps?: number | null }) {
++  if (typeof payout.netAmountCents === 'number' && payout.netAmountCents > 0) return payout.netAmountCents;
++  return Math.max(0, getPayoutGrossCents(payout) - getPayoutFeeCents(payout));
++}
+ 
+ async function getPreferredCurrency(userId: string, fallback = 'eur') {
+   const profile = await prisma.profile.findUnique({ where: { userId }, select: { preferredCurrency: true } });
+@@ -36,17 +62,36 @@ async function buildPayoutSummary(userId: string) {
+   const wallet = await ensureWallet(userId);
+   const payouts = await prisma.payoutRequest.findMany({ where: { userId }, orderBy: { requestedAt: 'desc' }, take: 25 });
+   const connectedMarker = await hasDemoPayoutAccount(userId);
+-  const pendingPayoutRequestsCents = payouts.filter((payout) => ['requested', 'approved'].includes(payout.status)).reduce((sum, payout) => sum + payout.amountCents, 0);
+-  const paidOutCents = payouts.filter((payout) => payout.status === 'paid').reduce((sum, payout) => sum + payout.amountCents, 0);
++  const platformFeeRateBps = getPayoutPlatformFeeRateBps();
++  const pendingPayouts = payouts.filter((payout) => ['requested', 'approved'].includes(payout.status));
++  const paidPayouts = payouts.filter((payout) => payout.status === 'paid');
++  const pendingPayoutRequestsGrossCents = pendingPayouts.reduce((sum, payout) => sum + getPayoutGrossCents(payout), 0);
++  const pendingPayoutRequestsFeeCents = pendingPayouts.reduce((sum, payout) => sum + getPayoutFeeCents(payout), 0);
++  const pendingPayoutRequestsNetCents = pendingPayouts.reduce((sum, payout) => sum + getPayoutNetCents(payout), 0);
++  const paidOutGrossCents = paidPayouts.reduce((sum, payout) => sum + getPayoutGrossCents(payout), 0);
++  const paidOutFeeCents = paidPayouts.reduce((sum, payout) => sum + getPayoutFeeCents(payout), 0);
++  const paidOutNetCents = paidPayouts.reduce((sum, payout) => sum + getPayoutNetCents(payout), 0);
++  const estimatedPlatformFeeCents = calculatePayoutPlatformFeeCents(wallet.pendingPayoutCents, platformFeeRateBps);
++  const estimatedNetPayoutCents = Math.max(0, wallet.pendingPayoutCents - estimatedPlatformFeeCents);
+ 
+   return {
+     wallet,
+     payouts,
+     summary: {
+       currency: wallet.currency,
++      platformFeeRateBps,
+       availableForPayoutCents: wallet.pendingPayoutCents,
+-      pendingPayoutRequestsCents,
+-      paidOutCents,
++      availableGrossEarningsCents: wallet.pendingPayoutCents,
++      estimatedPlatformFeeCents,
++      estimatedNetPayoutCents,
++      pendingPayoutRequestsCents: pendingPayoutRequestsNetCents,
++      pendingPayoutRequestsGrossCents,
++      pendingPayoutRequestsFeeCents,
++      pendingPayoutRequestsNetCents,
++      paidOutCents: paidOutNetCents,
++      paidOutGrossCents,
++      paidOutFeeCents,
++      paidOutNetCents,
+       payoutAccount: {
+         provider: 'stripe_demo' as const,
+         status: connectedMarker ? 'connected' as const : 'not_connected' as const,
+@@ -111,10 +156,18 @@ walletRoutes.post('/demo-payout-request', asyncRoute(async (req, res) => {
+   if (currentWallet.currency !== currency) return res.status(400).json({ error: 'currency_mismatch', message: `This wallet uses ${currentWallet.currency.toUpperCase()}. Cross-currency demo payouts are not supported yet.` });
+   if (currentWallet.pendingPayoutCents < input.amountCents) return res.status(400).json({ error: 'insufficient_payout_balance', message: 'You can only request up to your available payout balance.' });
+ 
++  const platformFeeRateBps = getPayoutPlatformFeeRateBps();
++  const grossAmountCents = input.amountCents;
++  const platformFeeCents = calculatePayoutPlatformFeeCents(grossAmountCents, platformFeeRateBps);
++  const netAmountCents = Math.max(0, grossAmountCents - platformFeeCents);
++
+   await prisma.$transaction(async (tx) => {
+-    const wallet = await tx.wallet.update({ where: { id: currentWallet.id }, data: { pendingPayoutCents: { decrement: input.amountCents } } });
+-    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: input.amountCents, currency, status: 'paid', reviewedAt: new Date(), paidAt: new Date(), notes: 'Stripe demo payout simulation. No real bank transfer was sent.' } });
+-    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -input.amountCents, currency, description: 'Stripe demo payout paid from available earnings.', metadata: { stripeDemo: true, payoutId: payout.id } } });
++    const wallet = await tx.wallet.update({ where: { id: currentWallet.id }, data: { pendingPayoutCents: { decrement: grossAmountCents } } });
++    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: 'paid', reviewedAt: new Date(), paidAt: new Date(), notes: 'Stripe demo payout simulation. No real bank transfer was sent.' } });
++    if (platformFeeCents > 0) {
++      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: true, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
++    }
++    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: true, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
+   });
+ 
+   const summary = await buildPayoutSummary(userId);
+diff --git a/apps/mobile/src/features/wallet/PayoutsScreen.tsx b/apps/mobile/src/features/wallet/PayoutsScreen.tsx
+index e858a1e..f3602a9 100644
+--- a/apps/mobile/src/features/wallet/PayoutsScreen.tsx
++++ b/apps/mobile/src/features/wallet/PayoutsScreen.tsx
+@@ -19,6 +19,38 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Payouts'>;
+ type PayoutsResponse = { wallet: WalletDto; payouts: PayoutRequestDto[]; summary: PayoutSummaryDto };
+ 
+ const presetAmounts = [500, 1000, 2500];
++const defaultPayoutPlatformFeeRateBps = 1000;
++
++function normalizePayoutFeeRateBps(value?: number | null) {
++  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPayoutPlatformFeeRateBps;
++  return Math.min(Math.max(Math.trunc(value), 0), 5000);
++}
++
++function calculatePayoutFeeCents(grossAmountCents: number, platformFeeRateBps = defaultPayoutPlatformFeeRateBps) {
++  const gross = Math.max(0, Math.trunc(grossAmountCents || 0));
++  const rate = normalizePayoutFeeRateBps(platformFeeRateBps);
++  if (gross <= 0 || rate <= 0) return 0;
++  return Math.min(gross, Math.round((gross * rate) / 10000));
++}
++
++function formatPayoutFeeRate(platformFeeRateBps = defaultPayoutPlatformFeeRateBps) {
++  const rate = normalizePayoutFeeRateBps(platformFeeRateBps);
++  return `${Number((rate / 100).toFixed(2))}%`;
++}
++
++function getPayoutGrossCents(payout: PayoutRequestDto) {
++  return payout.grossAmountCents && payout.grossAmountCents > 0 ? payout.grossAmountCents : payout.amountCents;
++}
++
++function getPayoutFeeCents(payout: PayoutRequestDto, fallbackRateBps = defaultPayoutPlatformFeeRateBps) {
++  if (typeof payout.platformFeeCents === 'number' && (payout.platformFeeCents > 0 || (payout.netAmountCents ?? 0) > 0)) return payout.platformFeeCents;
++  return calculatePayoutFeeCents(getPayoutGrossCents(payout), payout.platformFeeRateBps ?? fallbackRateBps);
++}
++
++function getPayoutNetCents(payout: PayoutRequestDto, fallbackRateBps = defaultPayoutPlatformFeeRateBps) {
++  if (payout.netAmountCents && payout.netAmountCents > 0) return payout.netAmountCents;
++  return Math.max(0, getPayoutGrossCents(payout) - getPayoutFeeCents(payout, fallbackRateBps));
++}
+ 
+ function formatDate(value?: string | null) {
+   if (!value) return '';
+@@ -63,10 +95,15 @@ export function PayoutsScreen({ navigation }: Props) {
+   const currency = summary?.currency ?? wallet?.currency ?? 'eur';
+   const available = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
+   const pending = summary?.pendingPayoutRequestsCents ?? 0;
+-  const paid = summary?.paidOutCents ?? 0;
++  const paid = summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0;
++  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+   const selectedAmount = useMemo(() => parseMoneyToCents(amountText), [amountText]);
++  const selectedFee = calculatePayoutFeeCents(selectedAmount, platformFeeRateBps);
++  const selectedNet = Math.max(0, selectedAmount - selectedFee);
++  const availableFee = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(available, platformFeeRateBps);
++  const availableNet = summary?.estimatedNetPayoutCents ?? Math.max(0, available - availableFee);
+   const payoutConnected = summary?.payoutAccount.status === 'connected';
+-  const canRequest = payoutConnected && selectedAmount > 0 && selectedAmount <= available;
++  const canRequest = payoutConnected && selectedAmount > 0 && selectedAmount <= available && selectedNet > 0;
+ 
+   async function connectDemoAccount() {
+     setActionLoading('connect'); setNotice(null);
+@@ -85,7 +122,7 @@ export function PayoutsScreen({ navigation }: Props) {
+     try {
+       const result = await api.wallet.requestDemoPayout({ amountCents: selectedAmount, currency }) as PayoutsResponse;
+       setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []); setAmountText('');
+-      setNotice({ tone: 'success', title: 'Demo payout paid', body: `${formatMoney(selectedAmount, currency)} was simulated as a Stripe demo payout. No real bank transfer was sent.` });
++      setNotice({ tone: 'success', title: 'Demo payout paid', body: `${formatMoney(selectedNet, currency)} was simulated as a Stripe demo payout after the ${formatMoney(selectedFee, currency)} platform fee. No real bank transfer was sent.` });
+     } catch (caughtError) {
+       setNotice({ tone: 'danger', title: 'Could not request payout', body: getFriendlyApiErrorMessage(caughtError, 'Check your payout balance and try again.') });
+     } finally { setActionLoading(null); }
+@@ -97,7 +134,7 @@ export function PayoutsScreen({ navigation }: Props) {
+         <View style={styles.headerCopy}>
+           <SemanticBadge label="Stripe demo" tone="success" />
+           <AppText style={styles.title}>Payouts</AppText>
+-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>See what you earned and simulate payout setup without moving real money.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>See what you earned, the {formatPayoutFeeRate(platformFeeRateBps)} platform fee, and simulate payout setup without moving real money.</AppText>
+         </View>
+ 
+         {notice ? <InfoNotice tone={notice.tone} title={notice.title} body={notice.body} /> : null}
+@@ -112,6 +149,8 @@ export function PayoutsScreen({ navigation }: Props) {
+           </View>
+           <View style={styles.metricGrid}>
+             <Metric theme={theme} label="Available" value={available} currency={currency} tone="success" />
++            <Metric theme={theme} label="Platform fee" value={availableFee} currency={currency} tone="danger" />
++            <Metric theme={theme} label="Estimated payout" value={availableNet} currency={currency} tone="success" />
+             <Metric theme={theme} label="Pending payouts" value={pending} currency={currency} tone="time" />
+             <Metric theme={theme} label="Paid out" value={paid} currency={currency} tone="info" />
+           </View>
+@@ -130,11 +169,24 @@ export function PayoutsScreen({ navigation }: Props) {
+           </Pressable>
+         </AppCard>
+ 
++        <AppCard>
++          <View style={styles.sectionHeaderRow}>
++            <View style={styles.sectionCopy}>
++              <AppText style={styles.sectionTitle}>Payout fee</AppText>
++              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Hellowhen keeps a transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. You receive the estimated payout amount.</AppText>
++            </View>
++            <SemanticBadge label={`${formatPayoutFeeRate(platformFeeRateBps)} fee`} tone="credits" />
++          </View>
++          <PayoutBreakdown grossAmountCents={available} currency={currency} platformFeeRateBps={platformFeeRateBps} />
++        </AppCard>
++
+         <AppCard>
+           <AppText style={styles.sectionTitle}>Request demo payout</AppText>
+-          <AppText style={[styles.cardText, { color: theme.color.muted }]}>You can request up to {formatMoney(available, currency)}. This simulation marks the payout as paid instantly.</AppText>
++          <AppText style={[styles.cardText, { color: theme.color.muted }]}>You can request up to {formatMoney(available, currency)} in payout-eligible earnings. This simulation marks the payout as paid instantly.</AppText>
+           <View style={styles.presetRow}>{presetAmounts.map((amount) => <Pressable key={amount} accessibilityRole="button" onPress={() => setAmountText((amount / 100).toFixed(2))} style={({ pressed }) => [styles.presetButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.presetText}>{formatMoney(amount, currency)}</AppText></Pressable>)}</View>
+           <TextInput value={amountText} onChangeText={setAmountText} keyboardType="decimal-pad" placeholder="Amount" placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
++          <PayoutBreakdown grossAmountCents={selectedAmount} currency={currency} platformFeeRateBps={platformFeeRateBps} />
++          <AppText style={[styles.validationText, { color: theme.color.muted }]}>By requesting payout, you agree that Hellowhen keeps a {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. Estimated payout: {formatMoney(selectedNet, currency)}.</AppText>
+           {selectedAmount > available ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Amount is above your available payout balance.</AppText> : null}
+           {!payoutConnected ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Connect the Stripe demo payout account first.</AppText> : null}
+           <Pressable accessibilityRole="button" disabled={!canRequest || actionLoading === 'payout'} onPress={() => { void requestDemoPayout(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.success.bg }, (!canRequest || actionLoading === 'payout') && styles.disabled, pressed && canRequest && styles.pressed]}>
+@@ -151,12 +203,33 @@ export function PayoutsScreen({ navigation }: Props) {
+   );
+ }
+ 
+-function Metric({ theme, label, value, currency, tone }: { theme: ThemeTokens; label: string; value: number; currency: string; tone: 'success' | 'time' | 'info' }) {
++function Metric({ theme, label, value, currency, tone }: { theme: ThemeTokens; label: string; value: number; currency: string; tone: 'success' | 'time' | 'info' | 'danger' }) {
+   return <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>;
+ }
+ 
++function PayoutBreakdown({ grossAmountCents, currency, platformFeeRateBps }: { grossAmountCents: number; currency: string; platformFeeRateBps: number }) {
++  const theme = useThemeTokens();
++  const feeCents = calculatePayoutFeeCents(grossAmountCents, platformFeeRateBps);
++  const netCents = Math.max(0, grossAmountCents - feeCents);
++  return (
++    <View style={[styles.breakdownBox, { borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }]}>
++      <BreakdownRow label="Payout-eligible earnings" value={formatMoney(grossAmountCents, currency)} />
++      <BreakdownRow label={`Platform fee, ${formatPayoutFeeRate(platformFeeRateBps)}`} value={`-${formatMoney(feeCents, currency)}`} danger />
++      <BreakdownRow label="Estimated payout" value={formatMoney(netCents, currency)} total />
++    </View>
++  );
++}
++
++function BreakdownRow({ label, value, danger, total }: { label: string; value: string; danger?: boolean; total?: boolean }) {
++  const theme = useThemeTokens();
++  return <View style={[styles.breakdownRow, { borderTopColor: theme.color.border }, total && { backgroundColor: theme.color.surface }]}><AppText style={[styles.breakdownLabel, { color: total ? theme.color.text : theme.color.muted }]}>{label}</AppText><AppText style={[styles.breakdownValue, danger && { color: theme.semantic.danger.text }, total && styles.breakdownValueTotal]}>{value}</AppText></View>;
++}
++
+ function PayoutRow({ payout, theme }: { payout: PayoutRequestDto; theme: ThemeTokens }) {
+-  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} size="sm" /><AppText style={styles.payoutTitle}>{formatMoney(payout.amountCents, payout.currency)}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatDate(payout.paidAt ?? payout.requestedAt)}</AppText></View>;
++  const grossCents = getPayoutGrossCents(payout);
++  const feeCents = getPayoutFeeCents(payout);
++  const netCents = getPayoutNetCents(payout);
++  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} size="sm" /><AppText style={styles.payoutTitle}>{formatMoney(netCents, payout.currency)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>Gross {formatMoney(grossCents, payout.currency)} · fee {formatMoney(feeCents, payout.currency)}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatDate(payout.paidAt ?? payout.requestedAt)}</AppText></View>;
+ }
+ 
+ const styles = StyleSheet.create({
+@@ -178,6 +251,11 @@ const styles = StyleSheet.create({
+   presetText: { fontWeight: '900' },
+   amountInput: { minHeight: 52, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, fontSize: 18, fontWeight: '900' },
+   validationText: { fontWeight: '800', lineHeight: 19 },
++  breakdownBox: { borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
++  breakdownRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, paddingHorizontal: 13, paddingVertical: 11 },
++  breakdownLabel: { flex: 1, fontSize: 13, fontWeight: '800' },
++  breakdownValue: { fontWeight: '900' },
++  breakdownValueTotal: { fontSize: 18 },
+   payoutRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, paddingTop: 12 },
+   payoutCopy: { flex: 1, gap: 6 },
+   payoutTitle: { fontSize: 18, fontWeight: '900' },
+diff --git a/apps/mobile/src/features/wallet/WalletScreen.tsx b/apps/mobile/src/features/wallet/WalletScreen.tsx
+index 2fb82a8..e677f0d 100644
+--- a/apps/mobile/src/features/wallet/WalletScreen.tsx
++++ b/apps/mobile/src/features/wallet/WalletScreen.tsx
+@@ -23,6 +23,10 @@ function formatLedgerType(type: string) { if (type === 'test_credit_grant') retu
+ function entryAmount(entry: LedgerEntryDto) { return entry.amountCents ? `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}` : formatMoney(0, entry.currency ?? 'eur'); }
+ function ledgerTone(type: string, amountCents: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('payout')) return amountCents < 0 ? 'danger' : 'info'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amountCents < 0) return 'danger'; return 'credits'; }
+ function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
++const defaultPayoutPlatformFeeRateBps = 1000;
++function normalizePayoutFeeRateBps(value?: number | null) { if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPayoutPlatformFeeRateBps; return Math.min(Math.max(Math.trunc(value), 0), 5000); }
++function calculatePayoutFeeCents(grossAmountCents: number, platformFeeRateBps = defaultPayoutPlatformFeeRateBps) { const gross = Math.max(0, Math.trunc(grossAmountCents || 0)); const rate = normalizePayoutFeeRateBps(platformFeeRateBps); if (gross <= 0 || rate <= 0) return 0; return Math.min(gross, Math.round((gross * rate) / 10000)); }
++function formatPayoutFeeRate(platformFeeRateBps = defaultPayoutPlatformFeeRateBps) { const rate = normalizePayoutFeeRateBps(platformFeeRateBps); return `${Number((rate / 100).toFixed(2))}%`; }
+ 
+ export function WalletScreen({ navigation }: Props) {
+   const theme = useThemeTokens();
+@@ -48,8 +52,11 @@ export function WalletScreen({ navigation }: Props) {
+   const available = wallet?.availableBalanceCents ?? 0;
+   const held = wallet?.heldBalanceCents ?? 0;
+   const availableForPayout = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
+-  const pendingPayoutRequests = summary?.pendingPayoutRequestsCents ?? 0;
+-  const paidOut = summary?.paidOutCents ?? 0;
++  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
++  const estimatedPlatformFee = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(availableForPayout, platformFeeRateBps);
++  const estimatedNetPayout = summary?.estimatedNetPayoutCents ?? Math.max(0, availableForPayout - estimatedPlatformFee);
++  const pendingPayoutRequests = summary?.pendingPayoutRequestsNetCents ?? summary?.pendingPayoutRequestsCents ?? 0;
++  const paidOut = summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0;
+   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits') ?? [];
+ 
+   return (
+@@ -84,12 +91,14 @@ export function WalletScreen({ navigation }: Props) {
+           <View style={styles.sectionHeaderRow}>
+             <View style={styles.sectionCopy}>
+               <AppText style={styles.sectionTitle}>Earnings</AppText>
+-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Money earned from completed trades. Demo payouts use Stripe simulation only.</AppText>
++              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Money earned from completed trades. Payout requests show the transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee before confirmation.</AppText>
+             </View>
+             <MoneyPill amountCents={availableForPayout} currency={currency} label="payout" />
+           </View>
+           <View style={styles.grid}>
+-            <Metric label="Available payout" value={availableForPayout} currency={currency} tone="success" />
++            <Metric label="Available earnings" value={availableForPayout} currency={currency} tone="success" />
++            <Metric label="Platform fee" value={estimatedPlatformFee} currency={currency} tone="danger" />
++            <Metric label="Estimated payout" value={estimatedNetPayout} currency={currency} tone="success" />
+             <Metric label="Pending payout" value={pendingPayoutRequests} currency={currency} tone="time" />
+             <Metric label="Paid out" value={paidOut} currency={currency} tone="info" />
+           </View>
+@@ -101,7 +110,7 @@ export function WalletScreen({ navigation }: Props) {
+           <View style={styles.steps}>
+             <Step theme={theme} number="1" text="Add demo money, then offer it under I offer when creating a trade." />
+             <Step theme={theme} number="2" text="When a proposal is accepted, the payer’s money is held until completion." />
+-            <Step theme={theme} number="3" text="Completed trade money becomes earnings that can be sent through demo payouts." />
++            <Step theme={theme} number="3" text={`Completed trade money becomes payout-eligible earnings. Hellowhen keeps a ${formatPayoutFeeRate(platformFeeRateBps)} platform fee when you request payout.`} />
+           </View>
+         </AppCard>
+ 
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 3420b6e..296d11d 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -589,3 +589,57 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+   .trade-stack-card--mobile-parity { padding: 22px; }
+   .trade-stack-card__mobile-section h2 { font-size: 28px; }
+ }
++
++.payout-fee-box {
++  display: grid;
++  gap: 0;
++  overflow: hidden;
++  border: 1px solid var(--border);
++  border-radius: 20px;
++  background: var(--surface-soft);
++}
++
++.payout-fee-row {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 16px;
++  padding: 12px 14px;
++  border-top: 1px solid var(--border);
++  color: var(--muted);
++  font-size: 13px;
++  font-weight: 800;
++}
++
++.payout-fee-row:first-child {
++  border-top: 0;
++}
++
++.payout-fee-row strong {
++  color: var(--text);
++  font-size: 14px;
++  font-weight: 950;
++  white-space: nowrap;
++}
++
++.payout-fee-row.danger strong {
++  color: #B91C1C;
++}
++
++.payout-fee-row.total {
++  background: var(--surface);
++  color: var(--text);
++}
++
++.payout-fee-row.total strong {
++  font-size: 18px;
++}
++
++.meta.danger {
++  color: #B91C1C;
++}
++.wallet-preview-strip small {
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 800;
++}
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index e25a769..933efdc 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
+ import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+ import { api } from '../../lib/api';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+-import { assetUrl, fallbackCurrency, formatMoney, normalizePayouts, normalizeWallet } from './accountPresentation';
++import { assetUrl, fallbackCurrency, formatMoney, formatPayoutFeeRate, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
+ 
+ type AccountHubItem = {
+   href: string;
+@@ -17,7 +17,7 @@ type AccountHubItem = {
+ const accountItems: AccountHubItem[] = [
+   { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.' },
+   { href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' },
+-  { href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account and simulate payout requests.' },
++  { href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' },
+   { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.' },
+   { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.' },
+ ];
+@@ -48,6 +48,7 @@ export function AccountHubClient() {
+   }, [auth.hydrated, auth.isAuthenticated]);
+ 
+   const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
++  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+ 
+   return (
+     <div className="mobile-page">
+@@ -73,6 +74,7 @@ export function AccountHubClient() {
+           <div>
+             <span>Available earnings</span>
+             <strong>{formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency)}</strong>
++            <small>{formatPayoutFeeRate(platformFeeRateBps)} payout fee</small>
+           </div>
+         </section>
+       ) : null}
+diff --git a/apps/web/src/features/account/PayoutsClient.tsx b/apps/web/src/features/account/PayoutsClient.tsx
+index 3f275d9..e2a1dfb 100644
+--- a/apps/web/src/features/account/PayoutsClient.tsx
++++ b/apps/web/src/features/account/PayoutsClient.tsx
+@@ -6,7 +6,44 @@ import type { PayoutRequestDto, PayoutSummaryDto, WalletDto } from '@hellowhen/c
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+-import { fallbackCurrency, formatDateTime, formatMoney, normalizePayouts, parseMoneyInputToCents, payoutStatusLabel } from './accountPresentation';
++import { calculatePayoutFeeCents, fallbackCurrency, formatDateTime, formatMoney, formatPayoutFeeRate, getPayoutFeeCents, getPayoutGrossCents, getPayoutNetCents, normalizePayoutFeeRateBps, normalizePayouts, parseMoneyInputToCents, payoutStatusLabel } from './accountPresentation';
++
++function PayoutFeeBreakdown({ grossAmountCents, currency, platformFeeRateBps }: { grossAmountCents: number; currency: string; platformFeeRateBps: number }) {
++  const feeCents = calculatePayoutFeeCents(grossAmountCents, platformFeeRateBps);
++  const netCents = Math.max(0, grossAmountCents - feeCents);
++  return (
++    <div className="payout-fee-box">
++      <div className="payout-fee-row">
++        <span>Payout-eligible earnings</span>
++        <strong>{formatMoney(grossAmountCents, currency)}</strong>
++      </div>
++      <div className="payout-fee-row danger">
++        <span>Platform fee, {formatPayoutFeeRate(platformFeeRateBps)}</span>
++        <strong>-{formatMoney(feeCents, currency)}</strong>
++      </div>
++      <div className="payout-fee-row total">
++        <span>Estimated payout</span>
++        <strong>{formatMoney(netCents, currency)}</strong>
++      </div>
++    </div>
++  );
++}
++
++function PayoutHistoryRow({ payout, platformFeeRateBps }: { payout: PayoutRequestDto; platformFeeRateBps: number }) {
++  const grossCents = getPayoutGrossCents(payout);
++  const feeCents = getPayoutFeeCents(payout, platformFeeRateBps);
++  const netCents = getPayoutNetCents(payout, platformFeeRateBps);
++  return (
++    <div className="wallet-ledger-row" key={payout.id}>
++      <span>
++        <strong>{payoutStatusLabel(payout.status)}</strong>
++        <small>{payout.notes || formatDateTime(payout.requestedAt)}</small>
++        <small>Gross {formatMoney(grossCents, payout.currency)} · fee {formatMoney(feeCents, payout.currency)}</small>
++      </span>
++      <em>{formatMoney(netCents, payout.currency)}</em>
++    </div>
++  );
++}
+ 
+ export function PayoutsClient() {
+   const auth = useWebAuth();
+@@ -67,14 +104,18 @@ export function PayoutsClient() {
+     setError('');
+     try {
+       const currency = summary?.currency ?? wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
++      const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+       const amountCents = parseMoneyInputToCents(amount);
+       if (amountCents < 100) throw new Error('Enter at least 1.00.');
++      const feeCents = calculatePayoutFeeCents(amountCents, platformFeeRateBps);
++      const netCents = Math.max(0, amountCents - feeCents);
+       const response = await api.wallet.requestDemoPayout({ amountCents, currency });
+       const data = normalizePayouts(response);
+       setWallet(data.wallet);
+       setPayouts(data.payouts);
+       setSummary(data.summary);
+-      setMessage('Demo payout completed. No real bank transfer was sent.');
++      setAmount(data.summary?.availableForPayoutCents ? String((data.summary.availableForPayoutCents / 100).toFixed(2)) : '');
++      setMessage(`Demo payout completed. Estimated payout ${formatMoney(netCents, currency)} after ${formatMoney(feeCents, currency)} platform fee. No real bank transfer was sent.`);
+     } catch (caughtError) {
+       setError(caughtError instanceof Error && caughtError.message === 'Enter at least 1.00.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+     } finally {
+@@ -98,6 +139,10 @@ export function PayoutsClient() {
+   const currency = summary?.currency ?? wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
+   const connected = summary?.payoutAccount.status === 'connected';
+   const available = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
++  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
++  const selectedGrossCents = parseMoneyInputToCents(amount);
++  const selectedFeeCents = calculatePayoutFeeCents(selectedGrossCents, platformFeeRateBps);
++  const selectedNetCents = Math.max(0, selectedGrossCents - selectedFeeCents);
+ 
+   return (
+     <div className="wallet-page">
+@@ -108,8 +153,20 @@ export function PayoutsClient() {
+         <div>
+           <span className="semantic-badge success">Available earnings</span>
+           <h2>{formatMoney(available, currency)}</h2>
+-          <p>Demo payouts use eligible earnings only. No real bank transfer is sent.</p>
++          <p>Demo payouts use eligible earnings only. Hellowhen keeps a {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings.</p>
++        </div>
++      </section>
++
++      <section className="mobile-card wallet-form-card">
++        <div className="trade-section-heading">
++          <div>
++            <p className="eyebrow">Payout fee</p>
++            <h3>Fee preview</h3>
++          </div>
++          <span className="semantic-badge money">{formatPayoutFeeRate(platformFeeRateBps)} fee</span>
+         </div>
++        <p>The platform fee is deducted from payout-eligible earnings when you request a payout. Service-for-service trades remain free.</p>
++        <PayoutFeeBreakdown grossAmountCents={available} currency={currency} platformFeeRateBps={platformFeeRateBps} />
+       </section>
+ 
+       <section className="mobile-card wallet-form-card">
+@@ -127,13 +184,16 @@ export function PayoutsClient() {
+       <section className="mobile-card wallet-form-card">
+         <div className="form-stack">
+           <label className="field-label">
+-            Payout amount
++            Payout-eligible earnings to withdraw
+             <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00" />
+           </label>
+         </div>
+-        <button type="button" onClick={() => { void requestPayout(); }} disabled={saving || !connected || available <= 0}>{saving ? 'Requesting...' : 'Request demo payout'}</button>
++        <PayoutFeeBreakdown grossAmountCents={selectedGrossCents} currency={currency} platformFeeRateBps={platformFeeRateBps} />
++        <p className="meta">By requesting payout, you agree that Hellowhen keeps a {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. Estimated payout: {formatMoney(selectedNetCents, currency)}.</p>
++        <button type="button" onClick={() => { void requestPayout(); }} disabled={saving || !connected || available <= 0 || selectedGrossCents <= 0 || selectedGrossCents > available}>{saving ? 'Requesting...' : 'Request demo payout'}</button>
+         {!connected ? <p className="meta">Connect the demo payout account first.</p> : null}
+         {available <= 0 ? <p className="meta">No payout-eligible earnings yet.</p> : null}
++        {selectedGrossCents > available ? <p className="meta danger">Amount is above your available payout balance.</p> : null}
+       </section>
+ 
+       <section className="mobile-card wallet-ledger-card">
+@@ -142,19 +202,11 @@ export function PayoutsClient() {
+             <p className="eyebrow">History</p>
+             <h3>Recent payouts</h3>
+           </div>
+-          <span className="semantic-badge money">{formatMoney(summary?.paidOutCents ?? 0, currency)} paid</span>
++          <span className="semantic-badge money">{formatMoney(summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0, currency)} paid</span>
+         </div>
+         {payouts.length ? (
+           <div className="wallet-ledger-list">
+-            {payouts.map((payout) => (
+-              <div className="wallet-ledger-row" key={payout.id}>
+-                <span>
+-                  <strong>{payoutStatusLabel(payout.status)}</strong>
+-                  <small>{payout.notes || formatDateTime(payout.requestedAt)}</small>
+-                </span>
+-                <em>{formatMoney(payout.amountCents, payout.currency)}</em>
+-              </div>
+-            ))}
++            {payouts.map((payout) => <PayoutHistoryRow key={payout.id} payout={payout} platformFeeRateBps={platformFeeRateBps} />)}
+           </div>
+         ) : (
+           <div className="proposal-empty-state">
+diff --git a/apps/web/src/features/account/WalletClient.tsx b/apps/web/src/features/account/WalletClient.tsx
+index 19f3053..a2e7a47 100644
+--- a/apps/web/src/features/account/WalletClient.tsx
++++ b/apps/web/src/features/account/WalletClient.tsx
+@@ -6,7 +6,7 @@ import type { LedgerEntryDto, PayoutSummaryDto, WalletDto } from '@hellowhen/con
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+-import { fallbackCurrency, formatDateTime, formatMoney, ledgerLabel, moneyDeltaClassName, normalizeLedger, normalizePayouts, normalizeWallet } from './accountPresentation';
++import { calculatePayoutFeeCents, fallbackCurrency, formatDateTime, formatMoney, formatPayoutFeeRate, ledgerLabel, moneyDeltaClassName, normalizeLedger, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
+ 
+ type WalletMetric = {
+   label: string;
+@@ -80,6 +80,10 @@ export function WalletClient() {
+   }, [auth.hydrated, auth.isAuthenticated]);
+ 
+   const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
++  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
++  const availablePayoutGrossCents = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
++  const estimatedPayoutFeeCents = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(availablePayoutGrossCents, platformFeeRateBps);
++  const estimatedPayoutNetCents = summary?.estimatedNetPayoutCents ?? Math.max(0, availablePayoutGrossCents - estimatedPayoutFeeCents);
+   const metrics = useMemo<WalletMetric[]>(() => [
+     {
+       label: 'Wallet money',
+@@ -95,17 +99,29 @@ export function WalletClient() {
+     },
+     {
+       label: 'Available earnings',
+-      value: formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency),
+-      body: 'Trade earnings currently eligible for the demo payout simulation.',
++      value: formatMoney(availablePayoutGrossCents, currency),
++      body: `Trade earnings before the ${formatPayoutFeeRate(platformFeeRateBps)} payout fee.`,
+       tone: 'success',
+     },
+     {
+       label: 'Payout requests',
+-      value: formatMoney(summary?.pendingPayoutRequestsCents ?? 0, currency),
+-      body: 'Requested or approved demo payouts that are still being tracked.',
++      value: formatMoney(summary?.pendingPayoutRequestsNetCents ?? summary?.pendingPayoutRequestsCents ?? 0, currency),
++      body: 'Requested or approved demo payouts after platform fee.',
+       tone: 'proposal',
+     },
+-  ], [currency, summary?.availableForPayoutCents, summary?.pendingPayoutRequestsCents, wallet?.availableBalanceCents, wallet?.heldBalanceCents, wallet?.pendingPayoutCents]);
++    {
++      label: 'Platform fee',
++      value: formatMoney(estimatedPayoutFeeCents, currency),
++      body: `${formatPayoutFeeRate(platformFeeRateBps)} is kept from payout-eligible earnings when you request payout.`,
++      tone: 'danger',
++    },
++    {
++      label: 'Estimated payout',
++      value: formatMoney(estimatedPayoutNetCents, currency),
++      body: 'Estimated amount you receive after the platform fee.',
++      tone: 'success',
++    },
++  ], [availablePayoutGrossCents, currency, estimatedPayoutFeeCents, estimatedPayoutNetCents, platformFeeRateBps, summary?.pendingPayoutRequestsCents, summary?.pendingPayoutRequestsNetCents, wallet?.availableBalanceCents, wallet?.heldBalanceCents]);
+ 
+   if (!auth.hydrated || loading) {
+     return <section className="mobile-card mobile-card--soft"><p>Loading wallet...</p></section>;
+@@ -144,7 +160,7 @@ export function WalletClient() {
+ 
+       <section className="mobile-card mobile-card--soft">
+         <h3>Money rules</h3>
+-        <p>Money is not a separate trade field. It belongs inside the same product language: I need money or I offer money.</p>
++        <p>Money is not a separate trade field. It belongs inside the same product language: I need money or I offer money. When payout-eligible earnings are withdrawn, Hellowhen keeps a transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee.</p>
+       </section>
+ 
+       <section className="mobile-card wallet-ledger-card">
+diff --git a/apps/web/src/features/account/accountPresentation.ts b/apps/web/src/features/account/accountPresentation.ts
+index cce63a5..75d55e2 100644
+--- a/apps/web/src/features/account/accountPresentation.ts
++++ b/apps/web/src/features/account/accountPresentation.ts
+@@ -4,6 +4,39 @@ import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
+ 
+ export const fallbackCurrency = 'eur';
+ 
++export const defaultPayoutPlatformFeeRateBps = 1000;
++
++export function normalizePayoutFeeRateBps(value?: number | null) {
++  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPayoutPlatformFeeRateBps;
++  return Math.min(Math.max(Math.trunc(value), 0), 5000);
++}
++
++export function calculatePayoutFeeCents(grossAmountCents: number, platformFeeRateBps = defaultPayoutPlatformFeeRateBps) {
++  const gross = Math.max(0, Math.trunc(grossAmountCents || 0));
++  const rate = normalizePayoutFeeRateBps(platformFeeRateBps);
++  if (gross <= 0 || rate <= 0) return 0;
++  return Math.min(gross, Math.round((gross * rate) / 10000));
++}
++
++export function getPayoutGrossCents(payout: PayoutRequestDto) {
++  return payout.grossAmountCents && payout.grossAmountCents > 0 ? payout.grossAmountCents : payout.amountCents;
++}
++
++export function getPayoutFeeCents(payout: PayoutRequestDto, fallbackRateBps = defaultPayoutPlatformFeeRateBps) {
++  if (typeof payout.platformFeeCents === 'number' && (payout.platformFeeCents > 0 || (payout.netAmountCents ?? 0) > 0)) return payout.platformFeeCents;
++  return calculatePayoutFeeCents(getPayoutGrossCents(payout), payout.platformFeeRateBps ?? fallbackRateBps);
++}
++
++export function getPayoutNetCents(payout: PayoutRequestDto, fallbackRateBps = defaultPayoutPlatformFeeRateBps) {
++  if (payout.netAmountCents && payout.netAmountCents > 0) return payout.netAmountCents;
++  return Math.max(0, getPayoutGrossCents(payout) - getPayoutFeeCents(payout, fallbackRateBps));
++}
++
++export function formatPayoutFeeRate(platformFeeRateBps = defaultPayoutPlatformFeeRateBps) {
++  const rate = normalizePayoutFeeRateBps(platformFeeRateBps);
++  return `${Number((rate / 100).toFixed(2))}%`;
++}
++
+ export function normalizeWallet(payload: unknown): WalletDto | null {
+   if (!payload || typeof payload !== 'object') return null;
+   const record = payload as { id?: unknown; wallet?: unknown };
+diff --git a/packages/contracts/src/wallet.ts b/packages/contracts/src/wallet.ts
+index 01cd3d2..cef6dbc 100644
+--- a/packages/contracts/src/wallet.ts
++++ b/packages/contracts/src/wallet.ts
+@@ -31,7 +31,12 @@ export const payoutRequestSchema = z.object({
+   id: z.string(),
+   userId: z.string(),
+   amount: z.number().int(),
++  // amountCents is kept as the requested gross earnings amount for old clients.
+   amountCents: z.number().int(),
++  grossAmountCents: z.number().int().default(0),
++  platformFeeCents: z.number().int().default(0),
++  netAmountCents: z.number().int().default(0),
++  platformFeeRateBps: z.number().int().default(1000),
+   currency: z.string(),
+   status: payoutRequestStatusSchema,
+   requestedAt: z.string(),
+@@ -48,9 +53,19 @@ export const payoutAccountSchema = z.object({
+ 
+ export const payoutSummarySchema = z.object({
+   currency: z.string(),
++  platformFeeRateBps: z.number().int().default(1000),
+   availableForPayoutCents: z.number().int(),
++  availableGrossEarningsCents: z.number().int().default(0),
++  estimatedPlatformFeeCents: z.number().int().default(0),
++  estimatedNetPayoutCents: z.number().int().default(0),
+   pendingPayoutRequestsCents: z.number().int(),
++  pendingPayoutRequestsGrossCents: z.number().int().default(0),
++  pendingPayoutRequestsFeeCents: z.number().int().default(0),
++  pendingPayoutRequestsNetCents: z.number().int().default(0),
+   paidOutCents: z.number().int(),
++  paidOutGrossCents: z.number().int().default(0),
++  paidOutFeeCents: z.number().int().default(0),
++  paidOutNetCents: z.number().int().default(0),
+   payoutAccount: payoutAccountSchema,
+ });
+ 

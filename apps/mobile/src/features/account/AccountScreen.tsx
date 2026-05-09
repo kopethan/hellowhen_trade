@@ -10,6 +10,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -29,10 +30,10 @@ type AccountAction = {
 
 const accountActions: AccountAction[] = [
   { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile' },
-  { title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits', route: 'Wallet' },
-  { title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success', route: 'Payouts' },
+  ...(betaFeatures.walletVisible ? [{ title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute }] : []),
+  ...(betaFeatures.payoutsVisible ? [{ title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute }] : []),
   { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings' },
-  { title: 'Support', description: 'Get help with trades, images, wallet, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter' },
+  { title: 'Support', description: 'Get help with trades, images, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter' },
 ];
 
 function formatLedgerType(type: string) {
@@ -75,6 +76,7 @@ export function AccountScreen() {
   const [loadingWallet, setLoadingWallet] = useState(false);
 
   const loadWallet = useCallback(async () => {
+    if (!betaFeatures.moneyFeaturesVisible) { setWallet(null); setWalletError(null); return; }
     setLoadingWallet(true);
     setWalletError(null);
 
@@ -89,7 +91,7 @@ export function AccountScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { void loadWallet(); }, [loadWallet]));
+  useFocusEffect(useCallback(() => { if (betaFeatures.moneyFeaturesVisible) void loadWallet(); }, [loadWallet]));
 
   const displayName = getDisplayName(auth.user);
   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle';
@@ -107,11 +109,11 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
-  const header = <View style={styles.header}><SemanticBadge label="Account" tone="info" /><AppText style={styles.title}>Account</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, wallet, settings, and support.</AppText></View>;
+  const header = <View style={styles.header}><SemanticBadge label="Account" tone="info" /><AppText style={styles.title}>Account</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, settings, support, and beta trade safety.</AppText></View>;
 
   return (
     <AppFixedHeaderScreen header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { void loadWallet(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.moneyFeaturesVisible) void loadWallet(); }} />}>
         <AppCard>
           <View style={styles.profileHero}>
             <View style={styles.avatar}>
@@ -132,7 +134,7 @@ export function AccountScreen() {
           </Pressable>
         </AppCard>
 
-        <AppCard>
+        {betaFeatures.moneyFeaturesVisible ? <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
               <AppText style={styles.sectionTitle}>Wallet</AppText>
@@ -162,9 +164,9 @@ export function AccountScreen() {
           </View>
 
           {walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}
-        </AppCard>
+        </AppCard> : <AppCard><SemanticBadge label="Beta launch" tone="instruction" /><AppText style={styles.sectionTitle}>Service and goods beta</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]}>Wallet money, cash trades, and payouts are hidden for the first international beta. Use Needs and Offers for service or goods exchanges.</AppText></AppCard>}
 
-        <AppCard>
+        {betaFeatures.moneyFeaturesVisible ? <AppCard>
           <View style={styles.sectionHeaderRow}>
             <AppText style={styles.sectionTitle}>Recent activity</AppText>
             <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
@@ -172,7 +174,7 @@ export function AccountScreen() {
             </Pressable>
           </View>
           {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No wallet activity yet.</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
-        </AppCard>
+        </AppCard> : null}
 
         <View style={styles.menuList}>
           {accountActions.map((action) => <AccountActionRow key={action.title} action={action} onPress={() => navigate(action.route)} />)}

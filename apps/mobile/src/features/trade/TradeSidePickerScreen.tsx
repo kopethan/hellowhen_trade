@@ -7,6 +7,7 @@ import { formatMoney } from '@hellowhen/shared';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
@@ -14,7 +15,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, MoneyPill, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
-import { modeLabel } from './components/InventoryFormFields';
+import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
 import type { NeedItem, OfferItem } from './types';
 import type { TradeCreateSide, TradeCreateSideSelection } from './CreateTradeScreen';
 
@@ -24,8 +25,8 @@ type OffersResponse = { offers: OfferItem[] };
 type WalletResponse = { wallet: WalletDto | null };
 
 function optionalModeLabel(mode?: TradeExchangeMode | null) { return mode ? modeLabel(mode) : undefined; }
-function needMeta(need: NeedItem) { return [need.category, need.timing, optionalModeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details'; }
-function offerMeta(offer: OfferItem) { return [offer.category, offer.availability, optionalModeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details'; }
+function needMeta(need: NeedItem) { return [itemTypeLabel(need.itemType ?? 'service'), need.category, need.timing, optionalModeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details'; }
+function offerMeta(offer: OfferItem) { return [itemTypeLabel(offer.itemType ?? 'service'), offer.category, offer.availability, optionalModeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details'; }
 function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
 function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
 function parseMoneyInput(value: string) { const normalized = value.replace(',', '.').replace(/[^0-9.]/g, ''); const amount = Number(normalized); return Number.isFinite(amount) ? Math.round(amount * 100) : 0; }
@@ -49,7 +50,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
       const [needsResult, offersResult, walletResult] = await Promise.all([
         api.needs.mine() as Promise<NeedsResponse>,
         api.offers.mine() as Promise<OffersResponse>,
-        api.wallet.me() as Promise<WalletResponse>,
+        betaFeatures.moneyFeaturesVisible ? api.wallet.me() as Promise<WalletResponse> : Promise.resolve({ wallet: null } as WalletResponse),
       ]);
       setNeeds(Array.isArray(needsResult.needs) ? needsResult.needs : []);
       setOffers(Array.isArray(offersResult.offers) ? offersResult.offers : []);
@@ -98,7 +99,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
           )}
         </AppCard>
 
-        <AppCard>
+        {betaFeatures.moneyTradesEnabled ? <AppCard>
           <View style={styles.sectionHeader}><SemanticBadge label="Wallet" tone="credits" /><AppText style={styles.sectionTitle}>{side === 'need' ? 'I need money' : 'I offer money'}</AppText></View>
           <AppText style={[styles.body, { color: theme.color.muted }]}>{side === 'need' ? 'Request wallet money as the thing you need from an accepted applicant.' : 'Offer wallet money from your available balance.'}</AppText>
           {side === 'offer' ? <MoneyPill amountCents={wallet?.availableBalanceCents ?? 0} currency={currency} label="available" /> : null}
@@ -106,7 +107,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
           {moneyTooHigh ? <InfoNotice tone="danger" body={`You can only offer up to ${formatMoney(wallet?.availableBalanceCents ?? 0, currency)}.`} /> : null}
           {side === 'offer' && moneyAmountCents > 0 && !moneyTooHigh ? <AppText style={[styles.body, { color: theme.color.muted }]}>Remaining after trade: {formatMoney((wallet?.availableBalanceCents ?? 0) - moneyAmountCents, currency)}</AppText> : null}
           <Pressable accessibilityRole="button" disabled={!canSelectMoney} onPress={chooseMoney} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.proposal.bg }, !canSelectMoney && styles.disabled, pressed && canSelectMoney && styles.pressed]}><AppText style={styles.primaryButtonText}>Select wallet money</AppText></Pressable>
-        </AppCard>
+        </AppCard> : <AppCard><SemanticBadge label="Beta" tone="instruction" size="sm" /><AppText style={styles.sectionTitle}>Service and goods only</AppText><AppText style={[styles.body, { color: theme.color.muted }]}>Wallet money and cash trades are hidden for the first beta. Choose a saved Need or Offer.</AppText></AppCard>}
 
         <AppCard>
           <SemanticBadge label="Later" tone="muted" size="sm" />
@@ -119,7 +120,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
 }
 
 function EmptyInventory({ side, theme, onCreate }: { side: TradeCreateSide; theme: ThemeTokens; onCreate: () => void }) {
-  return <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>No saved {side === 'need' ? 'needs' : 'offers'} yet</AppText><AppText style={[styles.body, { color: theme.color.muted }]}>Create one now, or use wallet money for this side.</AppText><Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Create {side === 'need' ? 'Need' : 'Offer'}</AppText></Pressable></View>;
+  return <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>No saved {side === 'need' ? 'needs' : 'offers'} yet</AppText><AppText style={[styles.body, { color: theme.color.muted }]}>Create one now, then use it in a service or goods exchange.</AppText><Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Create {side === 'need' ? 'Need' : 'Offer'}</AppText></Pressable></View>;
 }
 
 function InventoryRow({ title, description, meta, status, selected, tone, theme, onPress }: { title: string; description: string; meta: string; status: string; selected: boolean; tone: 'need' | 'offer'; theme: ThemeTokens; onPress: () => void }) {

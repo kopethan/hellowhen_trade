@@ -4,15 +4,17 @@ import { mediaAssetSchema } from './media.js';
 export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
 export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
 export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
-export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'completed', 'cancelled']);
+export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
+export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
 export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
 export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
 
 const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 const needMetadataSchema = z.object({
+  itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().trim().min(1).max(80).optional(),
   timing: z.string().trim().min(1).max(80).optional(),
   mode: tradeExchangeModeSchema.optional(),
@@ -20,6 +22,7 @@ const needMetadataSchema = z.object({
   tags: tradeTagsSchema
 });
 const offerMetadataSchema = z.object({
+  itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().trim().min(1).max(80).optional(),
   availability: z.string().trim().min(1).max(80).optional(),
   mode: tradeExchangeModeSchema.optional(),
@@ -80,6 +83,7 @@ const inventoryUpdateBaseSchema = z.object({
   description: z.string().min(10).max(2000).optional(),
   status: z.string().optional(),
   expiresAt: z.string().datetime().nullable().optional(),
+  itemType: inventoryItemTypeSchema.optional(),
   category: z.string().trim().min(1).max(80).nullable().optional(),
   timing: z.string().trim().min(1).max(80).nullable().optional(),
   availability: z.string().trim().min(1).max(80).nullable().optional(),
@@ -101,6 +105,7 @@ export const listTradesFeedQuerySchema = z.object({
   take: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
+export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
 export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
@@ -113,6 +118,7 @@ export const needSchema = z.object({
   ownerId: z.string(),
   title: z.string(),
   description: z.string(),
+  itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
@@ -130,6 +136,7 @@ export const offerSchema = z.object({
   ownerId: z.string(),
   title: z.string(),
   description: z.string(),
+  itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
@@ -142,6 +149,29 @@ export const offerSchema = z.object({
   expiresAt: z.string().nullable().optional(),
   media: z.array(mediaAssetSchema).optional()
 });
+
+
+export const tradePaymentSchema = z.object({
+  id: z.string(),
+  tradeId: z.string().optional(),
+  buyerId: z.string(),
+  sellerId: z.string().nullable().optional(),
+  creditAmount: z.number().int().optional().default(0),
+  amountCents: z.number().int().optional().default(0),
+  currency: z.string().optional().default('eur'),
+  platformFee: z.number().int().optional().default(0),
+  platformFeeCents: z.number().int().optional().default(0),
+  status: z.string(),
+}).passthrough();
+
+export const tradeEscrowSchema = z.object({
+  id: z.string(),
+  tradeId: z.string().optional(),
+  heldCredits: z.number().int().optional().default(0),
+  heldAmountCents: z.number().int().optional().default(0),
+  currency: z.string().optional().default('eur'),
+  holdReleasedAt: z.string().nullable().optional(),
+}).passthrough();
 
 export const tradeSchema = z.object({
   id: z.string(),
@@ -160,10 +190,19 @@ export const tradeSchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   closedAt: z.string().nullable().optional(),
+  deliverySubmittedById: z.string().nullable().optional(),
+  deliverySubmittedAt: z.string().nullable().optional(),
+  confirmedById: z.string().nullable().optional(),
+  confirmedAt: z.string().nullable().optional(),
+  disputedById: z.string().nullable().optional(),
+  disputedAt: z.string().nullable().optional(),
+  disputeTicketId: z.string().nullable().optional(),
   owner: userPreviewSchema.optional(),
   provider: userPreviewSchema.nullable().optional(),
   need: needSchema.nullable().optional(),
   offer: offerSchema.nullable().optional(),
+  payment: tradePaymentSchema.nullable().optional(),
+  escrow: tradeEscrowSchema.nullable().optional(),
   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
   media: z.array(mediaAssetSchema).optional()
 });
@@ -178,6 +217,7 @@ export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+export type InventoryItemType = z.infer<typeof inventoryItemTypeSchema>;
 export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
 export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
 export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
@@ -189,6 +229,7 @@ export type UpdateNeedRequest = z.infer<typeof updateNeedRequestSchema>;
 export type UpdateOfferRequest = z.infer<typeof updateOfferRequestSchema>;
 export type ListTradesFeedQuery = z.infer<typeof listTradesFeedQuerySchema>;
 export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSchema>;
+export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;
 export type CreateTradeProposalRequest = z.infer<typeof createTradeProposalRequestSchema>;
 export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;
 export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;

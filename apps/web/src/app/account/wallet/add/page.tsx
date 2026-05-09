@@ -1,4 +1,5 @@
 import { MobilePage, PageIntro } from '../../../../components/MobilePage';
+import { MoneyOffNotice, betaFeatures } from '../../../../lib/betaFeatures';
 import { AddMoneyClient } from '../../../../features/account/AddMoneyClient';
 
 export default function AddMoneyPage() {
@@ -9,7 +10,7 @@ export default function AddMoneyPage() {
         title="Add money"
         body="Try the wallet top-up simulation. No real Stripe integration or card charge is used in this phase."
       />
-      <AddMoneyClient />
+      {betaFeatures.walletVisible ? <AddMoneyClient /> : <MoneyOffNotice title="Add money is hidden for beta" />}
     </MobilePage>
   );
 }

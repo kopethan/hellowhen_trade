@@ -156,8 +156,8 @@ export default function AccountProfilePage() {
 
             <div className="preference-panel">
               <div>
-                <h3>Money preferences</h3>
-                <p>Country and preferred currency are used for wallet money display and demo payment flows. No full address is collected yet.</p>
+                <h3>Country and currency</h3>
+                <p>Country and preferred currency help localize trade display and keep future money features ready. No full address is collected yet.</p>
               </div>
               <label className="field-label">
                 Country

@@ -136,8 +136,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
             <div className="preference-panel">
               <div>
-                <h3>Money preferences</h3>
-                <p>Used only for wallet money and demo top-up/payout flows. Full address details are not collected here.</p>
+                <h3>Country and currency</h3>
+                <p>Used for local trade display and future payment setup. Full address details are not collected here.</p>
               </div>
               <label className="field-label">
                 Country

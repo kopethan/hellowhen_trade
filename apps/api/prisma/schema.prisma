@@ -12,6 +12,14 @@ enum UserRole {
   admin
 }
 
+enum UserTrustTier {
+  new
+  email_verified
+  stripe_verified
+  trusted
+  restricted
+}
+
 enum AuthIdentityProvider {
   email
   google
@@ -37,6 +45,12 @@ enum TradeExchangeMode {
   remote
   local
   hybrid
+}
+
+enum InventoryItemType {
+  service
+  goods
+  other
 }
 
 enum TradeStatus {
@@ -154,12 +168,39 @@ enum PayoutRequestStatus {
   cancelled
 }
 
+enum StripeConnectAccountStatus {
+  not_started
+  onboarding
+  restricted
+  pending
+  enabled
+  disabled
+}
+
+enum StripeEventProcessingStatus {
+  received
+  processed
+  failed
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
   passwordHash    String?
   role            UserRole  @default(user)
+  trustTier       UserTrustTier @default(new)
+  trustTierUpdatedAt DateTime?
+  trustTierNote   String?
   emailVerifiedAt DateTime?
+  emailVerificationRequestedAt DateTime?
+  twoFactorEnabled Boolean @default(false)
+  twoFactorSecretEncrypted String?
+  twoFactorConfirmedAt DateTime?
+  twoFactorRecoveryCodes Json?
+  twoFactorLastUsedStep Int?
+  forceTwoFactor Boolean @default(false)
+  sensitiveActionVerifiedAt DateTime?
+  sessionRevokedAt DateTime?
   lastLoginAt     DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -169,6 +210,8 @@ model User {
   sessions     Session[]
   identities    UserIdentity[]
   passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  twoFactorChallenges TwoFactorChallenge[]
   needs        Need[]
   offers       Offer[]
   trades       Trade[] @relation("OwnedTrades")
@@ -184,7 +227,11 @@ model User {
   wallet       Wallet?
   ledger       CreditLedgerEntry[]
   payoutRequests PayoutRequest[]
+  reviewedPayoutEvents AdminPayoutEvent[] @relation("ReviewedPayoutEvents")
+  stripeConnectAccount StripeConnectAccount?
+  moneyPolicyAcknowledgements MoneyPolicyAcknowledgement[]
 }
+
 
 
 model UserIdentity {
@@ -216,16 +263,49 @@ model PasswordResetToken {
   @@index([expiresAt])
 }
 
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model TwoFactorChallenge {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
 model Session {
   id           String   @id @default(cuid())
   userId       String
   refreshToken String   @unique
+  userAgent    String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
   expiresAt    DateTime
+  revokedAt    DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([expiresAt])
+  @@index([revokedAt])
 }
 
 model Profile {
@@ -264,6 +344,7 @@ model Need {
   ownerId       String
   title         String
   description   String
+  itemType      InventoryItemType @default(service)
   category      String?
   timing        String?
   mode          TradeExchangeMode?
@@ -279,6 +360,7 @@ model Need {
 
   @@index([ownerId, status])
   @@index([category])
+  @@index([itemType])
   @@index([mode])
 }
 
@@ -287,6 +369,7 @@ model Offer {
   ownerId       String
   title         String
   description   String
+  itemType      InventoryItemType @default(service)
   category      String?
   availability  String?
   mode          TradeExchangeMode?
@@ -303,6 +386,7 @@ model Offer {
 
   @@index([ownerId, status])
   @@index([category])
+  @@index([itemType])
   @@index([mode])
 }
 
@@ -323,6 +407,13 @@ model Trade {
   updatedAt    DateTime    @updatedAt
   expiresAt    DateTime?
   closedAt     DateTime?
+  deliverySubmittedById String?
+  deliverySubmittedAt   DateTime?
+  confirmedById         String?
+  confirmedAt           DateTime?
+  disputedById          String?
+  disputedAt            DateTime?
+  disputeTicketId       String?
 
   owner    User      @relation("OwnedTrades", fields: [ownerId], references: [id], onDelete: Cascade)
   provider User?     @relation("ProvidedTrades", fields: [providerId], references: [id], onDelete: SetNull)
@@ -338,6 +429,8 @@ model Trade {
   @@index([providerId, status])
   @@index([needId])
   @@index([offerId])
+  @@index([disputedAt])
+  @@index([disputeTicketId])
 }
 
 model TradeProposal {
@@ -532,18 +625,121 @@ model TradeEscrow {
 }
 
 model PayoutRequest {
-  id          String              @id @default(cuid())
-  userId      String
-  amount      Int
-  amountCents Int                 @default(0)
-  currency    String              @default("eur")
-  status      PayoutRequestStatus @default(draft)
+  id                 String              @id @default(cuid())
+  userId             String
+  amount             Int
+  amountCents        Int                 @default(0)
+  grossAmountCents   Int                 @default(0)
+  platformFeeCents   Int                 @default(0)
+  netAmountCents     Int                 @default(0)
+  platformFeeRateBps Int                 @default(1000)
+  currency           String              @default("eur")
+  status             PayoutRequestStatus @default(draft)
   requestedAt DateTime            @default(now())
   reviewedAt  DateTime?
   paidAt      DateTime?
   notes       String?
+  stripeConnectAccountId String?
+  stripeTransferId String?
+  stripePayoutId String?
+  stripeEventId String?
+  stripeFailureCode String?
+  stripeFailureMessage String?
+  stripeExternalStatus String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeConnectAccount StripeConnectAccount? @relation(fields: [stripeConnectAccountId], references: [id], onDelete: SetNull)
+  adminEvents AdminPayoutEvent[]
+
+  @@index([userId, status])
+  @@index([stripeConnectAccountId, status])
+  @@index([stripeTransferId])
+  @@index([stripePayoutId])
+}
+
+model AdminPayoutEvent {
+  id              String              @id @default(cuid())
+  payoutRequestId String
+  adminId         String
+  action          String
+  note            String?
+  previousStatus  PayoutRequestStatus?
+  nextStatus      PayoutRequestStatus?
+  metadata        Json?
+  createdAt       DateTime            @default(now())
+
+  payoutRequest PayoutRequest @relation(fields: [payoutRequestId], references: [id], onDelete: Cascade)
+  admin         User          @relation("ReviewedPayoutEvents", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([payoutRequestId, createdAt])
+  @@index([adminId, createdAt])
+  @@index([action, createdAt])
+}
+
+
+model MoneyPolicyAcknowledgement {
+  id                   String   @id @default(cuid())
+  userId               String
+  policyVersion        String
+  walletTermsVersion   String
+  payoutTermsVersion   String
+  refundPolicyVersion  String
+  disputePolicyVersion String
+  launchMode           String
+  ipAddress            String?
+  userAgent            String?
+  acknowledgedAt       DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, status])
+  @@unique([userId, policyVersion])
+  @@index([userId, acknowledgedAt])
+  @@index([policyVersion, acknowledgedAt])
+}
+
+model StripeConnectAccount {
+  id                       String                     @id @default(cuid())
+  userId                   String                     @unique
+  stripeAccountId           String                     @unique
+  status                   StripeConnectAccountStatus @default(onboarding)
+  chargesEnabled            Boolean                    @default(false)
+  payoutsEnabled            Boolean                    @default(false)
+  detailsSubmitted          Boolean                    @default(false)
+  currentlyDue              String[]                   @default([])
+  eventuallyDue             String[]                   @default([])
+  pastDue                   String[]                   @default([])
+  disabledReason            String?
+  defaultCurrency           String?
+  country                   String?
+  onboardingStartedAt       DateTime?
+  onboardingCompletedAt     DateTime?
+  lastSyncedAt              DateTime?
+  lastWebhookEventAt        DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payoutRequests PayoutRequest[]
+
+  @@index([status, updatedAt])
+  @@index([payoutsEnabled, status])
+}
+
+model StripeEvent {
+  id                     String                      @id @default(cuid())
+  stripeEventId          String                      @unique
+  type                   String
+  livemode               Boolean                     @default(false)
+  stripeAccountId        String?
+  stripeConnectAccountId String?
+  objectId               String?
+  processingStatus       StripeEventProcessingStatus @default(received)
+  payload                Json?
+  error                  String?
+  processedAt            DateTime?
+  createdAt              DateTime                    @default(now())
+
+  @@index([type, createdAt])
+  @@index([stripeAccountId, createdAt])
+  @@index([stripeConnectAccountId, createdAt])
 }

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { TradeExchangeMode } from '@hellowhen/contracts';
+import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -11,7 +11,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { InventoryPreview, InventoryTextField, ModePicker, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
@@ -19,6 +19,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
 export function CreateNeedScreen({ navigation }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [itemType, setItemType] = useState<InventoryItemType>('service');
   const [category, setCategory] = useState('');
   const [timing, setTiming] = useState('');
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
@@ -28,7 +29,7 @@ export function CreateNeedScreen({ navigation }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const meta = useMemo(() => [category.trim(), timing.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [category, locationLabel, mode, timing]);
+  const meta = useMemo(() => [itemTypeLabel(itemType), category.trim(), timing.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [category, itemType, locationLabel, mode, timing]);
 
   async function handleCreate() {
     const cleanTitle = title.trim();
@@ -51,6 +52,7 @@ export function CreateNeedScreen({ navigation }: Props) {
       await api.needs.create({
         title: cleanTitle,
         description: cleanDescription,
+        itemType,
         category: optionalText(category),
         timing: optionalText(timing),
         mode,
@@ -74,7 +76,7 @@ export function CreateNeedScreen({ navigation }: Props) {
         <View style={styles.header}>
           <SemanticBadge label="Need" tone="need" />
           <AppText style={styles.title}>Save Need</AppText>
-          <AppText style={styles.subtitle}>Create a reusable request with its own images. You will choose it later when publishing a trade.</AppText>
+          <AppText style={styles.subtitle}>Create a reusable service, goods, or other request with its own images. You will choose it later when publishing a trade.</AppText>
         </View>
 
         {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
@@ -87,6 +89,7 @@ export function CreateNeedScreen({ navigation }: Props) {
 
         <AppCard>
           <AppText style={styles.sectionTitle}>Deck details</AppText>
+          <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
           <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={submitting} />
           <InventoryTextField label="Timing" value={timing} onChangeText={setTiming} placeholder="This week, weekend, today..." disabled={submitting} />
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />

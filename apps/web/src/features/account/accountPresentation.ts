@@ -1,7 +1,41 @@
-import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
 import { API_URL } from '../../lib/api';
+import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
 
 export const fallbackCurrency = 'eur';
+
+export const defaultPayoutPlatformFeeRateBps = 1000;
+
+export function normalizePayoutFeeRateBps(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPayoutPlatformFeeRateBps;
+  return Math.min(Math.max(Math.trunc(value), 0), 5000);
+}
+
+export function calculatePayoutFeeCents(grossAmountCents: number, platformFeeRateBps = defaultPayoutPlatformFeeRateBps) {
+  const gross = Math.max(0, Math.trunc(grossAmountCents || 0));
+  const rate = normalizePayoutFeeRateBps(platformFeeRateBps);
+  if (gross <= 0 || rate <= 0) return 0;
+  return Math.min(gross, Math.round((gross * rate) / 10000));
+}
+
+export function getPayoutGrossCents(payout: PayoutRequestDto) {
+  return payout.grossAmountCents && payout.grossAmountCents > 0 ? payout.grossAmountCents : payout.amountCents;
+}
+
+export function getPayoutFeeCents(payout: PayoutRequestDto, fallbackRateBps = defaultPayoutPlatformFeeRateBps) {
+  if (typeof payout.platformFeeCents === 'number' && (payout.platformFeeCents > 0 || (payout.netAmountCents ?? 0) > 0)) return payout.platformFeeCents;
+  return calculatePayoutFeeCents(getPayoutGrossCents(payout), payout.platformFeeRateBps ?? fallbackRateBps);
+}
+
+export function getPayoutNetCents(payout: PayoutRequestDto, fallbackRateBps = defaultPayoutPlatformFeeRateBps) {
+  if (payout.netAmountCents && payout.netAmountCents > 0) return payout.netAmountCents;
+  return Math.max(0, getPayoutGrossCents(payout) - getPayoutFeeCents(payout, fallbackRateBps));
+}
+
+export function formatPayoutFeeRate(platformFeeRateBps = defaultPayoutPlatformFeeRateBps) {
+  const rate = normalizePayoutFeeRateBps(platformFeeRateBps);
+  return `${Number((rate / 100).toFixed(2))}%`;
+}
 
 export function normalizeWallet(payload: unknown): WalletDto | null {
   if (!payload || typeof payload !== 'object') return null;
@@ -29,20 +63,11 @@ export function normalizePayouts(payload: unknown) {
 }
 
 export function formatMoney(cents = 0, currency = fallbackCurrency) {
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.toUpperCase() }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
-  }
+  return formatWebMoney(cents, currency);
 }
 
 export function formatDateTime(value?: string | null) {
-  if (!value) return '—';
-  try {
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
-  } catch {
-    return value;
-  }
+  return formatWebDateTime(value, '—');
 }
 
 export function ledgerLabel(type: string) {
@@ -80,6 +105,30 @@ export function assetUrl(value?: string | null) {
   const base = API_URL.replace(/\/$/, '');
   const path = value.startsWith('/') ? value : `/${value}`;
   return `${base}${path}`;
+}
+
+
+export function trustTierLabel(tier?: string | null) {
+  const labels: Record<string, string> = {
+    new: 'New account',
+    email_verified: 'Email verified',
+    stripe_verified: 'Payout verified',
+    trusted: 'Trusted',
+    restricted: 'Restricted',
+  };
+  return tier ? labels[tier] ?? tier.replace(/_/g, ' ') : 'New account';
+}
+
+export function formatLimitCount(used = 0, limit = 0) {
+  if (limit <= 0) return `${used} / 0`;
+  return `${used} / ${limit}`;
+}
+
+export function normalizeLimits(payload: unknown): WalletLimitsDto | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as { limits?: unknown; effectiveTrustTier?: unknown };
+  if (record.limits && typeof record.limits === 'object') return record.limits as WalletLimitsDto;
+  return typeof record.effectiveTrustTier === 'string' ? payload as WalletLimitsDto : null;
 }
 
 export function parseMoneyInputToCents(value: string) {

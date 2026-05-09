@@ -1,5 +1,6 @@
-import type { MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
 import { API_URL } from '../../lib/api';
+import { formatWebDate } from '../../lib/webFormat';
 
 export type InventoryKind = 'need' | 'offer';
 export type InventoryItem = NeedDto | OfferDto;
@@ -8,6 +9,7 @@ export type InventoryFormValues = {
   title: string;
   description: string;
   status: string;
+  itemType: InventoryItemType;
   category: string;
   timing: string;
   availability: string;
@@ -22,6 +24,7 @@ export const emptyInventoryFormValues: InventoryFormValues = {
   title: '',
   description: '',
   status: 'active',
+  itemType: 'service',
   category: '',
   timing: '',
   availability: '',
@@ -44,13 +47,19 @@ export function sideLabel(kind: InventoryKind) {
   return kind === 'need' ? 'I need' : 'I offer';
 }
 
+export function itemTypeLabel(itemType?: InventoryItemType | null) {
+  if (itemType === 'goods') return 'Goods';
+  if (itemType === 'other') return 'Other';
+  return 'Service';
+}
+
 export function sideClassName(kind: InventoryKind) {
   return kind === 'need' ? 'need' : 'offer';
 }
 
 export function getInventoryMetadata(item: InventoryItem) {
   const timing = isNeed(item) ? item.timing : item.availability;
-  return [item.category, timing, item.mode, item.locationLabel]
+  return [itemTypeLabel(item.itemType), item.category, timing, item.mode, item.locationLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }
@@ -67,6 +76,7 @@ export function inventoryToFormValues(item?: InventoryItem | null): InventoryFor
     title: item.title ?? '',
     description: item.description ?? '',
     status: item.status ?? 'active',
+    itemType: item.itemType ?? 'service',
     category: item.category ?? '',
     timing: isNeed(item) ? item.timing ?? '' : '',
     availability: isNeed(item) ? '' : item.availability ?? '',
@@ -93,12 +103,7 @@ export function toIsoDate(value: string) {
 }
 
 export function formatInventoryDate(value?: string | null) {
-  if (!value) return 'No expiry';
-  try {
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
-  } catch {
-    return value;
-  }
+  return formatWebDate(value, 'No expiry');
 }
 
 export function mediaSrc(media: MediaAssetDto) {

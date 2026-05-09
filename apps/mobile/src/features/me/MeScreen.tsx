@@ -151,12 +151,12 @@ export function ProfileScreen({ navigation }: Props) {
         </AppCard>
 
         <AppCard>
-          <SemanticBadge label="Money preferences" tone="credits" size="sm" />
+          <SemanticBadge label="Country + currency" tone="info" size="sm" />
           <AppText style={styles.sectionTitle}>Country and currency</AppText>
-          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for wallet money, payouts, and future Stripe setup. Full address/KYC comes later only when needed.</AppText>
+          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for local trade display and future payment setup. Full address/KYC comes later only when needed.</AppText>
           <AppSelect
             label="Country"
-            helper="Used for wallet and payout rules"
+            helper="Used for country and currency defaults"
             value={countryCode}
             options={countrySelectOptions}
             disabled={saving}

@@ -1,0 +1,860 @@
+diff --git a/apps/api/prisma/migrations/20260509130000_trade_confirmation_disputes/migration.sql b/apps/api/prisma/migrations/20260509130000_trade_confirmation_disputes/migration.sql
+new file mode 100644
+index 0000000..c0316ad
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260509130000_trade_confirmation_disputes/migration.sql
+@@ -0,0 +1,11 @@
++ALTER TABLE "Trade"
++  ADD COLUMN "deliverySubmittedById" TEXT,
++  ADD COLUMN "deliverySubmittedAt" TIMESTAMP(3),
++  ADD COLUMN "confirmedById" TEXT,
++  ADD COLUMN "confirmedAt" TIMESTAMP(3),
++  ADD COLUMN "disputedById" TEXT,
++  ADD COLUMN "disputedAt" TIMESTAMP(3),
++  ADD COLUMN "disputeTicketId" TEXT;
++
++CREATE INDEX "Trade_disputedAt_idx" ON "Trade"("disputedAt");
++CREATE INDEX "Trade_disputeTicketId_idx" ON "Trade"("disputeTicketId");
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 9f8fdcf..a052633 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -397,6 +397,13 @@ model Trade {
+   updatedAt    DateTime    @updatedAt
+   expiresAt    DateTime?
+   closedAt     DateTime?
++  deliverySubmittedById String?
++  deliverySubmittedAt   DateTime?
++  confirmedById         String?
++  confirmedAt           DateTime?
++  disputedById          String?
++  disputedAt            DateTime?
++  disputeTicketId       String?
+ 
+   owner    User      @relation("OwnedTrades", fields: [ownerId], references: [id], onDelete: Cascade)
+   provider User?     @relation("ProvidedTrades", fields: [providerId], references: [id], onDelete: SetNull)
+@@ -412,6 +419,8 @@ model Trade {
+   @@index([providerId, status])
+   @@index([needId])
+   @@index([offerId])
++  @@index([disputedAt])
++  @@index([disputeTicketId])
+ }
+ 
+ model TradeProposal {
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 84e3ebf..4eb17eb 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
++import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -8,6 +8,7 @@ import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+ import { buildAdminMoneySafetySummary } from '../money/moneySafety.js';
+ import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
++import { refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+ 
+ export const adminRoutes = Router();
+ const mediaUserSelect = { id: true, email: true, profile: true } as const;
+@@ -83,6 +84,45 @@ adminRoutes.get('/money-safety', asyncRoute(async (_req, res) => {
+ }));
+ 
+ 
++adminRoutes.get('/trades/disputes', asyncRoute(async (_req, res) => {
++  const trades = await prisma.trade.findMany({
++    where: { status: 'disputed' },
++    include: { ...tradeInclude, proposals: { where: { status: 'accepted' }, include: { applicant: { select: { id: true, email: true, profile: true } } } } },
++    orderBy: { disputedAt: 'desc' },
++    take: 100,
++  });
++  const tickets = await prisma.supportTicket.findMany({
++    where: { relatedTradeId: { in: trades.map((trade) => trade.id) } },
++    include: { user: { select: { id: true, email: true, profile: true } }, assignedAdmin: { select: { id: true, email: true, profile: true } }, _count: { select: { messages: true } } },
++    orderBy: { updatedAt: 'desc' },
++  });
++  res.json({ trades: await Promise.all(trades.map((trade) => withOneTradeDeckMedia(trade, 'owner'))), supportTickets: await withSupportTicketMedia(tickets, 'admin') });
++}));
++
++adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
++  const input = adminTradeDisputeActionRequestSchema.parse(req.body);
++  const trade = await prisma.trade.findUnique({ where: { id: req.params.tradeId }, include: tradeInclude });
++  if (!trade) return res.status(404).json({ error: 'not_found' });
++  if (trade.status !== 'disputed') return res.status(409).json({ error: 'trade_not_disputed', message: 'Only disputed trades can be resolved through this action.' });
++  const note = input.note?.trim();
++  const updated = await prisma.$transaction(async (tx) => {
++    if (input.action === 'refund_payer') {
++      await refundHeldWalletMoney(tx, trade, req.user!.id);
++      return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', closedAt: new Date(), confirmedById: req.user!.id, confirmedAt: new Date() }, include: tradeInclude });
++    }
++    if (input.action === 'release_seller') {
++      await releaseHeldWalletMoney(tx, trade);
++      return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', closedAt: new Date(), confirmedById: req.user!.id, confirmedAt: new Date() }, include: tradeInclude });
++    }
++    return tx.trade.update({ where: { id: trade.id }, data: { status: 'closed', closedAt: new Date(), confirmedById: req.user!.id, confirmedAt: new Date() }, include: tradeInclude });
++  });
++  if (note || trade.disputeTicketId) {
++    await prisma.supportTicketMessage.create({ data: { ticketId: trade.disputeTicketId ?? '', senderId: req.user!.id, senderRole: 'admin', internal: true, body: note || `Admin resolved dispute with action: ${input.action}` } }).catch(() => null);
++  }
++  res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
++}));
++
++
+ function payoutGrossCents(payout: { amountCents: number; grossAmountCents?: number | null }) {
+   return payout.grossAmountCents && payout.grossAmountCents > 0 ? payout.grossAmountCents : payout.amountCents;
+ }
+diff --git a/apps/api/src/modules/support/support.routes.ts b/apps/api/src/modules/support/support.routes.ts
+index 0dceb93..7d9dc79 100644
+--- a/apps/api/src/modules/support/support.routes.ts
++++ b/apps/api/src/modules/support/support.routes.ts
+@@ -55,6 +55,26 @@ export async function withOneSupportMessageMedia<T extends SupportMessageWithId>
+   return result;
+ }
+ 
++
++async function canReportTrade(actorId: string, tradeId?: string) {
++  if (!tradeId) return null;
++  return prisma.trade.findFirst({
++    where: {
++      id: tradeId,
++      OR: [
++        { ownerId: actorId },
++        { providerId: actorId },
++        { proposals: { some: { applicantId: actorId } } },
++      ],
++    },
++    include: { payment: true },
++  });
++}
++
++function shouldFreezeTrade(category: string) {
++  return category === 'trade_issue' || category === 'safety_concern';
++}
++
+ supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
+   const tickets = await prisma.supportTicket.findMany({
+     where: { userId: req.user!.id },
+@@ -66,27 +86,38 @@ supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
+ 
+ supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
+   const input = createSupportTicketRequestSchema.parse(req.body);
+-  const ticket = await prisma.supportTicket.create({
+-    data: {
+-      userId: req.user!.id,
+-      category: input.category,
+-      subject: input.subject,
+-      message: input.message,
+-      priority: input.priority ?? 'normal',
+-      relatedTradeId: input.relatedTradeId ?? null,
+-      relatedProposalId: input.relatedProposalId ?? null,
+-      relatedMediaId: input.relatedMediaId ?? null,
+-      messages: {
+-        create: {
+-          senderId: req.user!.id,
+-          senderRole: 'user',
+-          body: input.message,
+-        },
++  const actorId = req.user!.id;
++  const relatedTrade = await canReportTrade(actorId, input.relatedTradeId);
++  if (input.relatedTradeId && !relatedTrade) return res.status(403).json({ error: 'forbidden', message: 'You can only report a trade you created, joined, or proposed to.' });
++
++  const ticket = await prisma.$transaction(async (tx) => {
++    const created = await tx.supportTicket.create({
++      data: {
++        userId: actorId,
++        category: input.category,
++        subject: input.subject,
++        message: input.message,
++        priority: input.priority ?? (relatedTrade?.amountCents ? 'high' : 'normal'),
++        relatedTradeId: input.relatedTradeId ?? null,
++        relatedProposalId: input.relatedProposalId ?? null,
++        relatedMediaId: input.relatedMediaId ?? null,
++        messages: { create: { senderId: actorId, senderRole: 'user', body: input.message } },
+       },
+-    },
+-    include: ticketIncludeForUser,
++      include: ticketIncludeForUser,
++    });
++
++    if (relatedTrade && shouldFreezeTrade(input.category) && ['active', 'in_progress', 'submitted', 'completed'].includes(relatedTrade.status)) {
++      await tx.trade.update({ where: { id: relatedTrade.id }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: new Date(), disputeTicketId: created.id } });
++      if (relatedTrade.payment?.sellerId) {
++        await tx.payoutRequest.updateMany({
++          where: { userId: relatedTrade.payment.sellerId, status: { in: ['requested', 'approved'] } },
++          data: { stripeExternalStatus: 'paused_trade_dispute', notes: `Paused because trade ${relatedTrade.id} was reported. Review support ticket ${created.id}.` },
++        });
++      }
++    }
++    return created;
+   });
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'support_ticket', ticket.id);
++  await attachUploadedMediaToEntity(actorId, input.mediaIds, 'support_ticket', ticket.id);
+   res.status(201).json({ ticket: await withOneSupportTicketMedia(ticket, 'owner') });
+ }));
+ 
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index b0913d2..c174495 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -243,6 +243,49 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res
+   });
+   res.status(existing ? 200 : 201).json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
+ }));
++export async function releaseHeldWalletMoney(tx: Prisma.TransactionClient, trade: { id: string; title: string; providerId?: string | null }) {
++  const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
++  if (!payment || payment.status !== 'held' || payment.amountCents <= 0) return;
++  const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
++  if (!buyerWallet) throw new Error('missing_buyer_wallet');
++  const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
++  let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
++  if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId, currency: payment.currency } });
++  await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents } } });
++  await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold released after payer confirmation for trade: ${trade.title}`, metadata: { providerId: sellerId, walletMoney: true, releasedByPayerConfirmation: true } } });
++  await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { increment: payment.amountCents }, currency: payment.currency } });
++  await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money pending payout after confirmed trade: ${trade.title}`, metadata: { payoutEligibleLater: true, walletMoney: true } } });
++  await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
++  await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
++}
++
++export async function refundHeldWalletMoney(tx: Prisma.TransactionClient, trade: { id: string; title: string }, actorId: string) {
++  const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
++  if (!payment || payment.amountCents <= 0) return;
++  const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
++  if (payment.status === 'held') {
++    if (buyerWallet) {
++      const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents }, availableBalanceCents: { increment: payment.amountCents } } });
++      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold refunded for cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
++      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
++    }
++  } else if (payment.status === 'released') {
++    const sellerId = payment.sellerId;
++    const sellerWallet = sellerId ? await tx.wallet.findUnique({ where: { userId: sellerId } }) : null;
++    if (!sellerWallet || !buyerWallet || sellerWallet.pendingPayoutCents < payment.amountCents) throw Object.assign(new Error('released_money_not_reversible'), { code: 'RELEASED_MONEY_NOT_REVERSIBLE' });
++    {
++      await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { decrement: payment.amountCents } } });
++      await tx.creditLedgerEntry.create({ data: { userId: sellerId!, walletId: sellerWallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'earned_pending', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Admin reversed pending payout for disputed trade: ${trade.title}`, metadata: { reversedBy: actorId, walletMoney: true } } });
++      const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { availableBalanceCents: { increment: payment.amountCents } } });
++      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after admin dispute resolution: ${trade.title}`, metadata: { reversedBy: actorId, walletMoney: true } } });
++    }
++  } else {
++    return;
++  }
++  await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
++  await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
++}
++
+ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) => {
+   const input = updateTradeStatusRequestSchema.parse(req.body);
+   const actorId = req.user!.id;
+@@ -252,43 +295,45 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res)
+   const isProvider = trade.providerId === actorId;
+   if (!isOwner && !isProvider) return res.status(403).json({ error: 'forbidden' });
+   if (input.status === trade.status) return res.json({ trade: await withOneTradeDeckMedia(trade, 'owner') });
++  if (trade.status === 'disputed' && input.status !== 'cancelled') return res.status(409).json({ error: 'trade_disputed', message: 'This trade is disputed. Admin must resolve the money flow before it can continue.' });
++
++  if (input.status === 'submitted') {
++    if (trade.status !== 'in_progress') return res.status(409).json({ error: 'invalid_trade_status_transition' });
++    const payment = trade.payment;
++    if (payment?.status === 'held' && payment.amountCents > 0 && payment.sellerId !== actorId) {
++      return res.status(403).json({ error: 'payer_cannot_submit_delivery', message: 'The person receiving wallet money must mark delivery first. The payer confirms and releases money after reviewing it.' });
++    }
++    const updated = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'submitted', deliverySubmittedById: actorId, deliverySubmittedAt: new Date() }, include: tradeInclude });
++    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
++  }
++
+   if (input.status === 'completed') {
+-    if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete this trade.' });
+-    if (!['in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
++    if (trade.status !== 'submitted') return res.status(409).json({ error: 'delivery_confirmation_required', message: 'The provider must mark delivery before the other party can confirm completion.' });
++    const payment = trade.payment;
++    if (payment?.status === 'held' && payment.amountCents > 0 && payment.buyerId !== actorId) {
++      return res.status(403).json({ error: 'payer_confirmation_required', message: 'Only the wallet-money payer can confirm and release held money.' });
++    }
++    if (trade.deliverySubmittedById === actorId) {
++      return res.status(403).json({ error: 'self_confirmation_blocked', message: 'The person who marked delivery cannot also confirm completion.' });
++    }
+     const updated = await prisma.$transaction(async (tx) => {
+-      const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
+-      if (payment?.status === 'held' && payment.amountCents > 0) {
+-        const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+-        if (!buyerWallet) throw new Error('missing_buyer_wallet');
+-        const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
+-        let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
+-        if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId, currency: payment.currency } });
+-        await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents } } });
+-        await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold released for completed trade: ${trade.title}`, metadata: { providerId: sellerId, walletMoney: true } } });
+-        await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { increment: payment.amountCents }, currency: payment.currency } });
+-        await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money pending payout for completed trade: ${trade.title}`, metadata: { payoutEligibleLater: true, walletMoney: true } } });
+-        await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
+-        await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+-      }
+-      return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
++      await releaseHeldWalletMoney(tx, trade);
++      return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date(), confirmedById: actorId, confirmedAt: new Date() }, include: tradeInclude });
+     });
+     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
+   }
++
++  if (input.status === 'disputed') {
++    if (!['active', 'in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
++    const updated = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: new Date() }, include: tradeInclude });
++    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
++  }
++
+   if (input.status === 'cancelled') {
+-    if (!isOwner && !(isProvider && trade.status === 'in_progress')) return res.status(403).json({ error: 'forbidden' });
++    if (!isOwner && !(isProvider && ['in_progress', 'submitted'].includes(trade.status))) return res.status(403).json({ error: 'forbidden' });
+     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+     const updated = await prisma.$transaction(async (tx) => {
+-      const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
+-      if (payment?.status === 'held' && payment.amountCents > 0) {
+-        const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+-        if (buyerWallet) {
+-          const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents }, availableBalanceCents: { increment: payment.amountCents } } });
+-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold refunded for cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
+-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
+-        }
+-        await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
+-        await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+-      }
++      await refundHeldWalletMoney(tx, trade, actorId);
+       await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+       return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: new Date() }, include: tradeInclude });
+     });
+diff --git a/apps/api/src/modules/wallet/wallet.routes.ts b/apps/api/src/modules/wallet/wallet.routes.ts
+index 332e670..480273f 100644
+--- a/apps/api/src/modules/wallet/wallet.routes.ts
++++ b/apps/api/src/modules/wallet/wallet.routes.ts
+@@ -244,6 +244,12 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
+   const stripeConnectReady = Boolean(stripeConnectAccount?.payoutsEnabled && ['enabled', 'pending'].includes(stripeConnectAccount.status));
+   if (!connected && !stripeConnectReady) return res.status(400).json({ error: 'payout_account_required', message: isStripeConnectConfigured() ? 'Complete Stripe Connect test onboarding first.' : 'Connect the Stripe demo payout account first.' });
+ 
++  const openDispute = await prisma.trade.findFirst({
++    where: { status: 'disputed', payment: { is: { sellerId: userId, status: { in: ['held', 'released'] } } } },
++    select: { id: true, title: true, disputeTicketId: true },
++  });
++  if (openDispute) return res.status(409).json({ error: 'payout_blocked_by_trade_dispute', message: 'A reported money trade is under admin review. Payouts are paused until the dispute is resolved.', tradeId: openDispute.id, ticketId: openDispute.disputeTicketId });
++
+   const currentWallet = await prisma.wallet.findUnique({ where: { userId } });
+   if (!currentWallet) return res.status(400).json({ error: 'wallet_not_found', message: 'No wallet balance is available for payout yet.' });
+   if (currentWallet.currency !== currency) return res.status(400).json({ error: 'currency_mismatch', message: `This wallet uses ${currentWallet.currency.toUpperCase()}. Cross-currency demo payouts are not supported yet.` });
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index d67d7ba..09c14da 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { MediaAssetDto, ProposalActionStatus, TradeActionStatus, TradeStatus } from '@hellowhen/contracts';
+ import { formatMoney } from '@hellowhen/shared';
+@@ -79,7 +79,9 @@ function formatStatus(status: string) { return status.replace(/_/g, ' '); }
+ 
+ function statusHint(trade: TradeDeckItem, role: DetailRole) {
+   if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review each private proposal thread before accepting someone.' : 'Send a private proposal to ask for this trade.';
+-  if (trade.status === 'in_progress') return 'In progress. Coordinate in the accepted proposal conversation below.';
++  if (trade.status === 'in_progress') return 'In progress. The provider should mark delivered first. The payer confirms before wallet money is released.';
++  if (trade.status === 'submitted') return 'Delivery was marked. The other party should confirm only if everything is okay.';
++  if (trade.status === 'disputed') return 'Reported. Money movement is frozen while admin reviews this trade.';
+   if (trade.status === 'completed') return 'Completed. Wallet money is pending payout when this trade included an amount.';
+   if (trade.status === 'cancelled') return 'Cancelled. Held wallet money was refunded when applicable.';
+   return 'Review the current trade status before taking action.';
+@@ -109,7 +111,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   const [loading, setLoading] = useState(false);
+   const [creatingProposal, setCreatingProposal] = useState(false);
+   const [replyingProposalId, setReplyingProposalId] = useState<string | null>(null);
+-  const [actionLoading, setActionLoading] = useState<TradeActionStatus | null>(null);
++  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
+   const [proposalActionLoading, setProposalActionLoading] = useState<{ proposalId: string; status: ProposalActionStatus } | null>(null);
+ 
+   const role = useMemo<DetailRole>(() => {
+@@ -145,22 +147,48 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   useEffect(() => { void loadTrade(); }, [loadTrade]);
+ 
+   const actions = useMemo(() => {
+-    if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark completed' }, { status: 'cancelled' as const, label: 'Cancel / refund' }];
+-    if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel trade' }];
+-    if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel trade' }];
+-    return [];
+-  }, [role, trade.status]);
++    const payment = trade.payment;
++    const userId = auth.user?.id;
++    const canSubmit = trade.status === 'in_progress' && (payment?.amountCents ? payment.sellerId === userId : ['owner', 'provider'].includes(role));
++    const canConfirm = trade.status === 'submitted' && (payment?.amountCents ? payment.buyerId === userId : ['owner', 'provider'].includes(role)) && trade.deliverySubmittedById !== userId;
++    const list: Array<{ status: TradeActionStatus; label: string; variant?: 'primary' | 'danger' | 'ghost' }> = [];
++    if (canSubmit) list.push({ status: 'submitted', label: 'Mark delivered', variant: 'primary' });
++    if (canConfirm) list.push({ status: 'completed', label: payment?.amountCents ? 'Confirm and release money' : 'Confirm completed', variant: 'primary' });
++    if (role === 'owner' && trade.status === 'active') list.push({ status: 'cancelled', label: 'Cancel trade', variant: 'danger' });
++    if (role === 'provider' && ['in_progress', 'submitted'].includes(trade.status)) list.push({ status: 'cancelled', label: 'Cancel trade', variant: 'danger' });
++    if (['active', 'in_progress', 'submitted', 'completed'].includes(trade.status) && auth.user) list.push({ status: 'disputed', label: 'Report problem', variant: 'danger' });
++    return list;
++  }, [auth.user, role, trade.deliverySubmittedById, trade.payment, trade.status]);
+ 
+   const updateStatus = useCallback(async (status: TradeActionStatus) => {
+-    setActionLoading(status); setError(null); setMessage(null);
+-    try {
+-      const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse;
+-      setTrade(result.trade);
+-      setMessage(status === 'completed' ? 'Trade completed. Held wallet money moved into pending payout when applicable.' : status === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.');
+-      await loadTrade();
+-    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); }
+-    finally { setActionLoading(null); }
+-  }, [loadTrade, trade.id]);
++    const runStatusUpdate = async (nextStatus: TradeActionStatus) => {
++      setActionLoading(nextStatus); setError(null); setMessage(null);
++      try {
++        const result = await api.trades.updateStatus(trade.id, { status: nextStatus }) as TradeResponse;
++        setTrade(result.trade);
++        setMessage(nextStatus === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : nextStatus === 'completed' ? 'Trade confirmed. Held wallet money moved into pending payout when applicable.' : nextStatus === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.');
++        await loadTrade();
++      } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); }
++      finally { setActionLoading(null); }
++    };
++    if (status === 'completed' && (trade.payment?.amountCents ?? 0) > 0) {
++      return Alert.alert('Confirm and release wallet money?', 'Only confirm if the delivery is okay. This releases held wallet money to the other member’s pending payout balance. Report a problem instead if anything is wrong.', [
++        { text: 'Cancel', style: 'cancel' },
++        { text: 'Release money', style: 'destructive', onPress: () => { void runStatusUpdate('completed'); } },
++      ]);
++    }
++    if (status === 'disputed') {
++      setActionLoading('report'); setError(null); setMessage(null);
++      try {
++        await api.support.createTicket({ category: 'trade_issue', priority: (trade.amountCents ?? 0) > 0 ? 'high' : 'normal', subject: `Problem with trade: ${trade.title}`.slice(0, 140), message: 'I need admin help with this trade. Please freeze or review the money flow before anything is released.', relatedTradeId: trade.id });
++        setMessage('Report sent. Admin can review this trade and money movement is frozen when applicable.');
++        await loadTrade();
++      } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not report this trade. Try again from Account > Support.')); }
++      finally { setActionLoading(null); }
++      return;
++    }
++    await runStatusUpdate(status);
++  }, [loadTrade, trade.amountCents, trade.id, trade.payment?.amountCents, trade.title]);
+ 
+   const createProposal = useCallback(async () => {
+     const trimmed = proposalDraft.trim();
+@@ -213,7 +241,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     <InventorySection eyebrow="I offer" title={offerTitle(trade)} description={offerDescription(trade)} meta={offerMeta(trade.offer, trade)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.offer?.media)} theme={theme} />
+ 
+     <Separator theme={theme} />
+-    <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{(trade.amountCents ?? 0) > 0 ? <DetailRow label="Payment" value={trade.payment?.status ? formatStatus(trade.payment.status) : 'Not held yet'} theme={theme} /> : null}{(trade.amountCents ?? 0) > 0 && trade.escrow ? <DetailRow label="Escrow" value={formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur')} theme={theme} /> : null}{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status ? 'Updating...' : action.label} variant={action.status === 'cancelled' ? 'danger' : 'primary'} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
++    <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{(trade.amountCents ?? 0) > 0 ? <DetailRow label="Payment" value={trade.payment?.status ? formatStatus(trade.payment.status) : 'Not held yet'} theme={theme} /> : null}{(trade.amountCents ?? 0) > 0 && trade.escrow ? <DetailRow label="Escrow" value={formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur')} theme={theme} /> : null}{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? 'Updating...' : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
+ 
+     <Separator theme={theme} />
+     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? 'Proposals' : myProposal ? 'Your proposal' : 'Ask to trade'}</AppText>{error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}{message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>Refreshing trade detail...</AppText> : null}{role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} theme={theme} /> : null}{role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>This trade is not accepting new proposals.</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No proposals yet. New private proposals will appear here.</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title="Accepted conversation" body="Only you and the accepted applicant can see this thread." /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} />)}</View></View>
+diff --git a/apps/web/src/app/admin/disputes/page.tsx b/apps/web/src/app/admin/disputes/page.tsx
+new file mode 100644
+index 0000000..3a8345f
+--- /dev/null
++++ b/apps/web/src/app/admin/disputes/page.tsx
+@@ -0,0 +1,116 @@
++'use client';
++
++import { useState } from 'react';
++import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
++
++type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
++type DisputeTrade = { id: string; title: string; status: string; amountCents?: number; currency?: string; ownerId: string; providerId?: string | null; disputedAt?: string | null; disputedById?: string | null; disputeTicketId?: string | null; payment?: { buyerId: string; sellerId?: string | null; amountCents?: number; currency?: string; status: string } | null; owner?: { email?: string; profile?: { displayName?: string | null } | null }; provider?: { email?: string; profile?: { displayName?: string | null } | null } | null };
++type SupportTicket = { id: string; relatedTradeId?: string | null; subject: string; status: string; priority: string; category: string; updatedAt: string; user?: { email?: string; profile?: { displayName?: string | null } | null } | null };
++type DisputesResponse = { trades: DisputeTrade[]; supportTickets: SupportTicket[] };
++
++const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
++
++function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
++  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
++}
++
++function personLabel(user?: { email?: string; profile?: { displayName?: string | null } | null } | null) {
++  return user?.profile?.displayName || user?.email || 'Unknown member';
++}
++
++export default function AdminDisputesPage() {
++  const [email, setEmail] = useState('admin@hellowhen.app');
++  const [password, setPassword] = useState('password123');
++  const [token, setToken] = useState('');
++  const [trades, setTrades] = useState<DisputeTrade[]>([]);
++  const [tickets, setTickets] = useState<SupportTicket[]>([]);
++  const [note, setNote] = useState('');
++  const [message, setMessage] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
++
++  async function login() {
++    setLoading(true); setMessage(null);
++    try {
++      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
++      if (!response.ok) throw new Error('Login failed');
++      const data = await response.json() as LoginResponse;
++      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification.');
++      setToken(data.accessToken);
++      setMessage('Admin logged in. Load disputed trades to review frozen money flow.');
++    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
++    finally { setLoading(false); }
++  }
++
++  async function loadDisputes() {
++    if (!token) { setMessage('Log in as admin first.'); return; }
++    setLoading(true); setMessage(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/trades/disputes`, { headers });
++      if (!response.ok) throw new Error('Could not load disputes.');
++      const data = await response.json() as DisputesResponse;
++      setTrades(data.trades);
++      setTickets(data.supportTickets);
++    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load disputes'); }
++    finally { setLoading(false); }
++  }
++
++  async function resolve(tradeId: string, action: 'refund_payer' | 'release_seller' | 'mark_resolved') {
++    if (!token) return;
++    setLoading(true); setMessage(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/trades/${tradeId}/dispute`, { method: 'PATCH', headers, body: JSON.stringify({ action, note }) });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string } | null;
++        throw new Error(body?.message || 'Could not resolve dispute.');
++      }
++      setNote('');
++      setMessage('Dispute action saved.');
++      await loadDisputes();
++    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not resolve dispute'); }
++    finally { setLoading(false); }
++  }
++
++  return (
++    <main className="admin-console">
++      <section className="admin-console__hero app-card">
++        <div>
++          <p className="eyebrow">Admin</p>
++          <h1>Trade disputes</h1>
++          <p>Review reported trades, frozen wallet holds, and payout risk before money leaves the platform.</p>
++        </div>
++        <div className="admin-console__login-grid">
++          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
++          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
++          <button type="button" onClick={login} disabled={loading}>Log in</button>
++          <button type="button" onClick={loadDisputes} disabled={loading || !token}>Load disputes</button>
++        </div>
++        {message ? <p className="notice-box info">{message}</p> : null}
++      </section>
++
++      <section className="admin-payout-layout">
++        <div className="admin-payout-list">
++          {trades.length === 0 ? <div className="app-card"><strong>No disputed trades loaded.</strong><p>Reported trades will appear here.</p></div> : null}
++          {trades.map((trade) => {
++            const ticket = tickets.find((item) => item.relatedTradeId === trade.id || item.id === trade.disputeTicketId);
++            return (
++              <article key={trade.id} className="app-card admin-action-card">
++                <div className="status-row"><span className="semantic-badge danger">{trade.status}</span><span className="semantic-badge money">{formatWebMoney(trade.payment?.amountCents ?? trade.amountCents ?? 0, trade.payment?.currency ?? trade.currency ?? 'eur')}</span></div>
++                <h2>{trade.title}</h2>
++                <p>Owner: {personLabel(trade.owner)} · Provider: {personLabel(trade.provider)}</p>
++                <p className="meta">Payment: {trade.payment?.status ?? 'none'} · Disputed {formatWebDateTime(trade.disputedAt)}</p>
++                {ticket ? <p className="notice-box warning">Ticket: {ticket.subject} · {ticket.priority} · {ticket.status}</p> : null}
++                <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Internal resolution note" rows={3} />
++                <div className="admin-action-grid">
++                  <button type="button" onClick={() => void resolve(trade.id, 'refund_payer')} disabled={loading}>Refund payer</button>
++                  <button type="button" onClick={() => void resolve(trade.id, 'release_seller')} disabled={loading}>Release seller</button>
++                  <button type="button" onClick={() => void resolve(trade.id, 'mark_resolved')} disabled={loading}>Close only</button>
++                </div>
++              </article>
++            );
++          })}
++        </div>
++      </section>
++    </main>
++  );
++}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index a102b7e..41a5451 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -769,3 +769,23 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ }
+ .admin-trust-controls { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr) auto; gap: 8px; margin-top: 12px; }
+ @media (max-width: 900px) { .admin-trust-controls { grid-template-columns: 1fr; } }
++
++/* Phase 20.6: trade confirmation and dispute safety */
++.trade-action-row {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++  align-items: center;
++}
++.trade-action-row button,
++.proposal-composer button.success {
++  min-height: 44px;
++}
++.trade-action-row .success {
++  background: var(--proposal-bg);
++  border-color: var(--proposal-bg);
++  color: #fff;
++}
++.danger-text {
++  color: var(--danger-text) !important;
++}
+diff --git a/apps/web/src/features/trade/TradeDetailClient.tsx b/apps/web/src/features/trade/TradeDetailClient.tsx
+index 48bb715..24bf9c8 100644
+--- a/apps/web/src/features/trade/TradeDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeDetailClient.tsx
+@@ -1,8 +1,10 @@
+ 'use client';
+ 
+-import type { TradeDto } from '@hellowhen/contracts';
++import type { TradeActionStatus, TradeDto } from '@hellowhen/contracts';
++import type { FormEvent } from 'react';
+ import { useEffect, useState } from 'react';
+ import { api } from '../../lib/api';
++import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { mockTrades } from '../../lib/mockData';
+ import { TradeDetailReferenceDeck } from './TradeDetailReferenceDeck';
+ import { TradeImageGrid } from './TradeImageGrid';
+@@ -16,6 +18,29 @@ function normalizeTradeResponse(value: unknown): TradeDto | null {
+   return null;
+ }
+ 
++
++function participantLabel(trade: TradeDto, userId?: string | null) {
++  if (!userId) return 'member';
++  if (trade.ownerId === userId) return 'creator';
++  if (trade.providerId === userId) return 'accepted trader';
++  return 'member';
++}
++
++function completionHint(trade: TradeDto, userId?: string | null) {
++  const payment = trade.payment;
++  if (trade.status === 'in_progress') {
++    if (payment?.amountCents && payment.sellerId === userId) return 'Mark delivered when your side is done. The wallet-money payer must confirm before funds are released.';
++    if (payment?.amountCents && payment.buyerId === userId) return 'Wait for delivery, then confirm only if everything is okay. Report a problem before releasing money.';
++    return 'One party should mark delivered, then the other confirms completion.';
++  }
++  if (trade.status === 'submitted') {
++    if (payment?.amountCents && payment.buyerId === userId) return 'Review the delivery. Confirming will release held wallet money into the other member’s pending payout balance.';
++    return 'Waiting for the other party to confirm completion.';
++  }
++  if (trade.status === 'disputed') return 'Money flow is frozen while admin reviews the report.';
++  return 'Accepted trades use delivery confirmation before money is released.';
++}
++
+ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
+   const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : side.kind === 'money' ? 'money' : 'instruction';
+ 
+@@ -41,9 +66,32 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
+ }
+ 
+ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; initialTrade?: TradeDto | null }) {
++  const auth = useWebAuth();
+   const [trade, setTrade] = useState<TradeDto | null>(initialTrade ?? mockTrades.find((item) => item.id === tradeId) ?? null);
+   const [loading, setLoading] = useState(true);
+   const [usingFallback, setUsingFallback] = useState(Boolean(initialTrade));
++  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
++  const [actionNotice, setActionNotice] = useState<string | null>(null);
++  const [reportOpen, setReportOpen] = useState(false);
++  const [reportMessage, setReportMessage] = useState('');
++
++  async function loadLiveTrade() {
++    setLoading(true);
++    try {
++      const response = await api.trades.get(tradeId);
++      const liveTrade = normalizeTradeResponse(response);
++      if (liveTrade) {
++        setTrade(liveTrade);
++        setUsingFallback(false);
++      }
++    } catch {
++      const fallback = mockTrades.find((item) => item.id === tradeId) ?? initialTrade ?? null;
++      setTrade(fallback);
++      setUsingFallback(Boolean(fallback));
++    } finally {
++      setLoading(false);
++    }
++  }
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -93,6 +141,51 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+     );
+   }
+ 
++  const actorId = auth.user?.id ?? null;
++  const isOwner = actorId === trade.ownerId;
++  const isProvider = Boolean(actorId && trade.providerId === actorId);
++  const payment = trade.payment;
++  const canSubmitDelivery = auth.isAuthenticated && trade.status === 'in_progress' && (payment?.amountCents ? payment.sellerId === actorId : (isOwner || isProvider));
++  const canConfirmCompletion = auth.isAuthenticated && trade.status === 'submitted' && (payment?.amountCents ? payment.buyerId === actorId : (isOwner || isProvider)) && trade.deliverySubmittedById !== actorId;
++  const canReportProblem = auth.isAuthenticated && ['active', 'in_progress', 'submitted', 'completed'].includes(trade.status);
++  const completionWarning = payment?.amountCents ? `This will release held wallet money to the other member's pending payout balance. Report a problem before confirming if anything is wrong.` : 'Confirm only when your trade is complete.';
++
++  async function updateTradeStatus(status: TradeActionStatus) {
++    if (status === 'completed' && !window.confirm(completionWarning)) return;
++    setActionLoading(status);
++    setActionNotice(null);
++    try {
++      const response = await api.trades.updateStatus(trade.id, { status });
++      const nextTrade = normalizeTradeResponse(response);
++      if (nextTrade) setTrade(nextTrade);
++      setActionNotice(status === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : status === 'completed' ? 'Trade confirmed. Held wallet money was released when applicable.' : status === 'disputed' ? 'Trade reported. Money movement is frozen for admin review.' : 'Trade updated.');
++      await loadLiveTrade();
++    } catch {
++      setActionNotice('Could not update the trade yet. Check the current status and try again.');
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
++  async function submitReport(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    const message = reportMessage.trim();
++    if (message.length < 10) return;
++    setActionLoading('report');
++    setActionNotice(null);
++    try {
++      await api.support.createTicket({ category: 'trade_issue', priority: payment?.amountCents ? 'high' : 'normal', subject: `Problem with trade: ${trade.title}`.slice(0, 140), message, relatedTradeId: trade.id });
++      setReportMessage('');
++      setReportOpen(false);
++      setActionNotice('Report sent. This trade is now frozen for admin review when money is involved.');
++      await loadLiveTrade();
++    } catch {
++      setActionNotice('Could not send the report yet. Try again from Account > Support.');
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
+   const needSide = getNeedSide(trade);
+   const offerSide = getOfferSide(trade);
+   const ownerName = getOwnerName(trade);
+@@ -133,6 +226,33 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         </dl>
+       </section>
+ 
++      <section className="trade-social-section trade-social-section--compact">
++        <div className="trade-section-heading">
++          <div>
++            <p className="eyebrow">Confirmation</p>
++            <h2>Delivery and money release</h2>
++          </div>
++          {actionLoading ? <span className="semantic-badge instruction">Updating</span> : null}
++        </div>
++        <p>{completionHint(trade, actorId)}</p>
++        <p className="meta">You are viewing as {participantLabel(trade, actorId)}.</p>
++        {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
++        <div className="trade-action-row">
++          {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
++          {canConfirmCompletion ? <button type="button" className="success" onClick={() => void updateTradeStatus('completed')} disabled={Boolean(actionLoading)}>Confirm and release</button> : null}
++          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}>Report problem</button> : null}
++        </div>
++        {reportOpen ? (
++          <form className="proposal-composer" onSubmit={submitReport}>
++            <label className="field-label">
++              What happened?
++              <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder="Explain what went wrong. Admin will use this to pause or review money movement." rows={4} />
++            </label>
++            <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>Send report and freeze trade</button>
++          </form>
++        ) : null}
++      </section>
++
+       <TradeProposalPanel trade={trade} />
+     </article>
+   );
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index b7f2654..dc51d18 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AcknowledgeMoneySafetyRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -22,7 +22,7 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events') },
++    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events') },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }) }
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 63cacb6..8893274 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -4,7 +4,7 @@ import { mediaAssetSchema } from './media.js';
+ export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
+ export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
+ export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
+-export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'completed', 'cancelled']);
++export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
+ export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
+ export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
+ export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
+@@ -101,6 +101,7 @@ export const listTradesFeedQuerySchema = z.object({
+   take: z.coerce.number().int().min(1).max(100).optional(),
+ });
+ export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
++export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
+ export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
+ export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
+ export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
+@@ -143,6 +144,29 @@ export const offerSchema = z.object({
+   media: z.array(mediaAssetSchema).optional()
+ });
+ 
++
++export const tradePaymentSchema = z.object({
++  id: z.string(),
++  tradeId: z.string().optional(),
++  buyerId: z.string(),
++  sellerId: z.string().nullable().optional(),
++  creditAmount: z.number().int().optional().default(0),
++  amountCents: z.number().int().optional().default(0),
++  currency: z.string().optional().default('eur'),
++  platformFee: z.number().int().optional().default(0),
++  platformFeeCents: z.number().int().optional().default(0),
++  status: z.string(),
++}).passthrough();
++
++export const tradeEscrowSchema = z.object({
++  id: z.string(),
++  tradeId: z.string().optional(),
++  heldCredits: z.number().int().optional().default(0),
++  heldAmountCents: z.number().int().optional().default(0),
++  currency: z.string().optional().default('eur'),
++  holdReleasedAt: z.string().nullable().optional(),
++}).passthrough();
++
+ export const tradeSchema = z.object({
+   id: z.string(),
+   ownerId: z.string(),
+@@ -160,10 +184,19 @@ export const tradeSchema = z.object({
+   updatedAt: z.string(),
+   expiresAt: z.string().nullable().optional(),
+   closedAt: z.string().nullable().optional(),
++  deliverySubmittedById: z.string().nullable().optional(),
++  deliverySubmittedAt: z.string().nullable().optional(),
++  confirmedById: z.string().nullable().optional(),
++  confirmedAt: z.string().nullable().optional(),
++  disputedById: z.string().nullable().optional(),
++  disputedAt: z.string().nullable().optional(),
++  disputeTicketId: z.string().nullable().optional(),
+   owner: userPreviewSchema.optional(),
+   provider: userPreviewSchema.nullable().optional(),
+   need: needSchema.nullable().optional(),
+   offer: offerSchema.nullable().optional(),
++  payment: tradePaymentSchema.nullable().optional(),
++  escrow: tradeEscrowSchema.nullable().optional(),
+   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
+   media: z.array(mediaAssetSchema).optional()
+ });
+@@ -189,6 +222,7 @@ export type UpdateNeedRequest = z.infer<typeof updateNeedRequestSchema>;
+ export type UpdateOfferRequest = z.infer<typeof updateOfferRequestSchema>;
+ export type ListTradesFeedQuery = z.infer<typeof listTradesFeedQuerySchema>;
+ export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSchema>;
++export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;
+ export type CreateTradeProposalRequest = z.infer<typeof createTradeProposalRequestSchema>;
+ export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;
+ export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;

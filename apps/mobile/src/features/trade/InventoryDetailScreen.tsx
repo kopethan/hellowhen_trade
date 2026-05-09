@@ -10,8 +10,10 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
+import { InventoryTypePicker, itemTypeLabel } from './components/InventoryFormFields';
 import { DangerButton, ExistingMediaManager, getOptionalString, getStringArray, InventoryModePicker, InventoryTextField, joinCsv, modeLabel, normalizeMode, optionalText, parseCsv, PrimaryButton, SecondaryButton, type InventoryMode } from './components/InventoryDetailFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+import type { InventoryItemType } from '@hellowhen/contracts';
 import type { NeedItem, OfferItem } from './types';
 
 type InventoryKind = 'need' | 'offer';
@@ -22,6 +24,7 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation 
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [itemType, setItemType] = useState<InventoryItemType>('service');
   const [category, setCategory] = useState('');
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
   const [mode, setMode] = useState<InventoryMode>('remote');
@@ -45,6 +48,7 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation 
     setItem(nextItem);
     setTitle(nextItem.title ?? '');
     setDescription(nextItem.description ?? '');
+    setItemType((nextItem.itemType as InventoryItemType | undefined) ?? 'service');
     setCategory(getOptionalString(nextItem, 'category'));
     setTimingOrAvailability(isNeed ? getOptionalString(nextItem, 'timing') : getOptionalString(nextItem, 'availability'));
     setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
@@ -82,6 +86,7 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation 
       const payload = {
         title: title.trim(),
         description: description.trim(),
+        itemType,
         category: optionalText(category),
         mode,
         locationLabel: optionalText(locationLabel),
@@ -141,7 +146,7 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation 
     }
   }
 
-  const meta = [category, timingOrAvailability, modeLabel(mode), locationLabel].filter(Boolean).join(' · ');
+  const meta = [itemTypeLabel(itemType), category, timingOrAvailability, modeLabel(mode), locationLabel].filter(Boolean).join(' · ');
 
   return (
     <AppScreen>
@@ -152,7 +157,7 @@ export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation 
         </View>
         {error ? <InfoNotice tone="warning" body={error} /> : null}
         {!item && !loading ? <InfoNotice tone="danger" title={`${label} unavailable`} body={`This ${label.toLowerCase()} could not be loaded.`} /> : null}
-        {item ? <><AppCard><View style={styles.statusRow}><StatusBadge status={item.status} size="sm" /><AppText style={styles.updatedText}>Updated {new Date(item.updatedAt).toLocaleDateString()}</AppText></View>{editing ? <View style={styles.form}><InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder={titlePlaceholder} disabled={saving} /><InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder={`Describe this ${label.toLowerCase()}.`} multiline disabled={saving} /><InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={saving} /><InventoryTextField label={timingLabel} value={timingOrAvailability} onChangeText={setTimingOrAvailability} placeholder={timingPlaceholder} disabled={saving} /><InventoryModePicker value={mode} onChange={setMode} disabled={saving} /><InventoryTextField label="Location" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, Paris, local pickup..." disabled={saving} />{!isNeed ? <InventoryTextField label="Includes" value={includesInput} onChangeText={setIncludesInput} placeholder="10 edited shots, 1 revision" disabled={saving} /> : null}<InventoryTextField label="Tags" value={tagsInput} onChangeText={setTagsInput} placeholder="brand, figma, urgent" disabled={saving} /></View> : <View style={styles.readOnly}><AppText style={styles.readTitle}>{item.title}</AppText><AppText style={styles.readDescription}>{item.description}</AppText>{meta ? <AppText style={styles.metaText}>{meta}</AppText> : null}</View>}</AppCard><AppCard><AppText style={styles.sectionTitle}>Images</AppText><ExistingMediaManager media={item.media} disabled={saving} onRemove={removeImage} />{editing ? <ImagePickerField images={newImages} onChange={setNewImages} disabled={saving} /> : null}</AppCard><View style={styles.actions}>{editing ? <PrimaryButton label={saving ? 'Saving...' : 'Save Changes'} disabled={saving} onPress={() => { void saveItem(); }} /> : <PrimaryButton label={`Edit ${label}`} disabled={saving} onPress={() => setEditing(true)} />}{editing ? <SecondaryButton label="Cancel" disabled={saving} onPress={() => { hydrateForm(item); setEditing(false); }} /> : null}{item.status !== 'active' ? <SecondaryButton label="Mark Active" disabled={saving} onPress={() => { void saveItem('active'); }} /> : <SecondaryButton label={`Close ${label}`} disabled={saving} onPress={() => { void saveItem('closed'); }} />}<DangerButton label={`Delete ${label}`} disabled={saving} onPress={confirmDelete} /></View></> : null}
+        {item ? <><AppCard><View style={styles.statusRow}><StatusBadge status={item.status} size="sm" /><AppText style={styles.updatedText}>Updated {new Date(item.updatedAt).toLocaleDateString()}</AppText></View>{editing ? <View style={styles.form}><InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder={titlePlaceholder} disabled={saving} /><InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder={`Describe this ${label.toLowerCase()}.`} multiline disabled={saving} /><InventoryTypePicker value={itemType} onChange={setItemType} disabled={saving} /><InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={saving} /><InventoryTextField label={timingLabel} value={timingOrAvailability} onChangeText={setTimingOrAvailability} placeholder={timingPlaceholder} disabled={saving} /><InventoryModePicker value={mode} onChange={setMode} disabled={saving} /><InventoryTextField label="Location" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, Paris, local pickup..." disabled={saving} />{!isNeed ? <InventoryTextField label="Includes" value={includesInput} onChangeText={setIncludesInput} placeholder="10 edited shots, 1 revision" disabled={saving} /> : null}<InventoryTextField label="Tags" value={tagsInput} onChangeText={setTagsInput} placeholder="brand, figma, urgent" disabled={saving} /></View> : <View style={styles.readOnly}><AppText style={styles.readTitle}>{item.title}</AppText><AppText style={styles.readDescription}>{item.description}</AppText>{meta ? <AppText style={styles.metaText}>{meta}</AppText> : null}</View>}</AppCard><AppCard><AppText style={styles.sectionTitle}>Images</AppText><ExistingMediaManager media={item.media} disabled={saving} onRemove={removeImage} />{editing ? <ImagePickerField images={newImages} onChange={setNewImages} disabled={saving} /> : null}</AppCard><View style={styles.actions}>{editing ? <PrimaryButton label={saving ? 'Saving...' : 'Save Changes'} disabled={saving} onPress={() => { void saveItem(); }} /> : <PrimaryButton label={`Edit ${label}`} disabled={saving} onPress={() => setEditing(true)} />}{editing ? <SecondaryButton label="Cancel" disabled={saving} onPress={() => { hydrateForm(item); setEditing(false); }} /> : null}{item.status !== 'active' ? <SecondaryButton label="Mark Active" disabled={saving} onPress={() => { void saveItem('active'); }} /> : <SecondaryButton label={`Close ${label}`} disabled={saving} onPress={() => { void saveItem('closed'); }} />}<DangerButton label={`Delete ${label}`} disabled={saving} onPress={confirmDelete} /></View></> : null}
       </ScrollView>
     </AppScreen>
   );

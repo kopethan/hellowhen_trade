@@ -15,14 +15,20 @@ export default function HomePage() {
 
   if (!auth.hydrated) {
     return (
-      <section className="mobile-card mobile-card--soft">
-        <p className="eyebrow">Hellowhen Trade</p>
-        <h2>Loading your session...</h2>
+      <section className="auth-page-shell">
+        <section className="mobile-card mobile-card--soft auth-panel">
+          <p className="eyebrow">Hellowhen Trade</p>
+          <h2>Loading your session...</h2>
+        </section>
       </section>
     );
   }
 
   if (auth.isAuthenticated) return null;
 
-  return <WebAuthPanel />;
+  return (
+    <section className="auth-page-shell">
+      <WebAuthPanel />
+    </section>
+  );
 }

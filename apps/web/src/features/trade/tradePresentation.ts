@@ -1,5 +1,5 @@
 import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
-import { formatMoney } from '@hellowhen/shared';
+import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
 
 export type TradeSide = {
   label: 'I need' | 'I offer';
@@ -27,7 +27,7 @@ export function getOwnerName(trade: TradeDto) {
 }
 
 export function getExchangeLabel(trade: TradeDto) {
-  if ((trade.amountCents ?? 0) > 0) return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur');
+  if ((trade.amountCents ?? 0) > 0) return formatWebMoney(trade.amountCents ?? 0, trade.currency ?? 'eur');
   return 'Service-for-service';
 }
 
@@ -134,21 +134,11 @@ export function getDeckImages(trade: TradeDto): DeckImage[] {
 }
 
 export function formatDateLabel(value?: string | null) {
-  if (!value) return 'No date set';
-  try {
-    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
-  } catch {
-    return value;
-  }
+  return formatWebShortDate(value, 'No date set');
 }
 
 export function formatRelativeExpiry(value?: string | null) {
   if (!value) return 'No expiry';
-  const expires = new Date(value).getTime();
-  if (Number.isNaN(expires)) return 'Expiry set';
-  const diffDays = Math.ceil((expires - Date.now()) / 86_400_000);
-  if (diffDays < 0) return 'Expired';
-  if (diffDays === 0) return 'Expires today';
-  if (diffDays === 1) return '1 day left';
-  return `${diffDays} days left`;
+  const label = formatWebShortDate(value, 'Expiry set');
+  return label === 'Expiry set' ? label : `Expires ${label}`;
 }

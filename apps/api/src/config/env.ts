@@ -4,6 +4,10 @@ import dotenv from 'dotenv';
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
+function parseCsv(value: string | undefined) {
+  return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
@@ -15,6 +19,11 @@ export const env = {
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
   stripeCurrency: (process.env.STRIPE_CURRENCY ?? 'eur').toLowerCase(),
+  stripeConnectEnabled: (process.env.STRIPE_CONNECT_ENABLED ?? 'false').toLowerCase() === 'true',
+  stripeConnectCountry: (process.env.STRIPE_CONNECT_COUNTRY ?? 'US').toUpperCase(),
+  stripeConnectRefreshPath: process.env.STRIPE_CONNECT_REFRESH_PATH ?? '/account/payouts?stripe_connect=refresh',
+  stripeConnectReturnPath: process.env.STRIPE_CONNECT_RETURN_PATH ?? '/account/payouts?stripe_connect=return',
+  stripeConnectTransferMode: (process.env.STRIPE_CONNECT_TRANSFER_MODE ?? 'false').toLowerCase() === 'true',
   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
@@ -22,5 +31,48 @@ export const env = {
   googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID ?? '',
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFrom: process.env.EMAIL_FROM ?? 'Hellowhen <support@hellowhen.app>',
-  passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 45)
+  passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 45),
+  refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30),
+  emailVerificationTtlMinutes: Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES ?? 60),
+  twoFactorEncryptionSecret: process.env.TWO_FACTOR_ENCRYPTION_SECRET ?? '',
+  twoFactorChallengeTtlMinutes: Number(process.env.TWO_FACTOR_CHALLENGE_TTL_MINUTES ?? 10),
+  sensitiveActionTtlMinutes: Number(process.env.SENSITIVE_ACTION_TTL_MINUTES ?? 10),
+  adminRequireTwoFactor: (process.env.ADMIN_REQUIRE_TWO_FACTOR ?? 'true').toLowerCase() !== 'false',
+  payoutPlatformFeeRateBps: Number(process.env.PAYOUT_PLATFORM_FEE_RATE_BPS ?? 1000),
+  limitNewActiveServiceTrades: Number(process.env.LIMIT_NEW_ACTIVE_SERVICE_TRADES ?? 3),
+  limitNewActiveMoneyTrades: Number(process.env.LIMIT_NEW_ACTIVE_MONEY_TRADES ?? 0),
+  limitNewPerTradeMoneyCents: Number(process.env.LIMIT_NEW_PER_TRADE_MONEY_CENTS ?? 0),
+  limitNewWalletBalanceCents: Number(process.env.LIMIT_NEW_WALLET_BALANCE_CENTS ?? 0),
+  limitNewWeeklyPayoutCents: Number(process.env.LIMIT_NEW_WEEKLY_PAYOUT_CENTS ?? 0),
+  limitEmailActiveServiceTrades: Number(process.env.LIMIT_EMAIL_ACTIVE_SERVICE_TRADES ?? 5),
+  limitEmailActiveMoneyTrades: Number(process.env.LIMIT_EMAIL_ACTIVE_MONEY_TRADES ?? 1),
+  limitEmailPerTradeMoneyCents: Number(process.env.LIMIT_EMAIL_PER_TRADE_MONEY_CENTS ?? 2500),
+  limitEmailWalletBalanceCents: Number(process.env.LIMIT_EMAIL_WALLET_BALANCE_CENTS ?? 5000),
+  limitEmailWeeklyPayoutCents: Number(process.env.LIMIT_EMAIL_WEEKLY_PAYOUT_CENTS ?? 0),
+  limitStripeActiveServiceTrades: Number(process.env.LIMIT_STRIPE_ACTIVE_SERVICE_TRADES ?? 10),
+  limitStripeActiveMoneyTrades: Number(process.env.LIMIT_STRIPE_ACTIVE_MONEY_TRADES ?? 3),
+  limitStripePerTradeMoneyCents: Number(process.env.LIMIT_STRIPE_PER_TRADE_MONEY_CENTS ?? 5000),
+  limitStripeWalletBalanceCents: Number(process.env.LIMIT_STRIPE_WALLET_BALANCE_CENTS ?? 10000),
+  limitStripeWeeklyPayoutCents: Number(process.env.LIMIT_STRIPE_WEEKLY_PAYOUT_CENTS ?? 10000),
+  limitTrustedActiveServiceTrades: Number(process.env.LIMIT_TRUSTED_ACTIVE_SERVICE_TRADES ?? 25),
+  limitTrustedActiveMoneyTrades: Number(process.env.LIMIT_TRUSTED_ACTIVE_MONEY_TRADES ?? 10),
+  limitTrustedPerTradeMoneyCents: Number(process.env.LIMIT_TRUSTED_PER_TRADE_MONEY_CENTS ?? 25000),
+  limitTrustedWalletBalanceCents: Number(process.env.LIMIT_TRUSTED_WALLET_BALANCE_CENTS ?? 50000),
+  limitTrustedWeeklyPayoutCents: Number(process.env.LIMIT_TRUSTED_WEEKLY_PAYOUT_CENTS ?? 100000),
+  limitMinimumPayoutCents: Number(process.env.LIMIT_MINIMUM_PAYOUT_CENTS ?? 1000),
+  moneyLaunchMode: process.env.MONEY_LAUNCH_MODE ?? 'disabled',
+  moneyProductionEnabled: (process.env.MONEY_PRODUCTION_ENABLED ?? 'false').toLowerCase() === 'true',
+  moneyPrivateBetaUserIds: parseCsv(process.env.MONEY_PRIVATE_BETA_USER_IDS),
+  moneyPolicyAckRequired: (process.env.MONEY_POLICY_ACK_REQUIRED ?? 'true').toLowerCase() !== 'false',
+  moneyPolicyVersion: process.env.MONEY_POLICY_VERSION ?? '2026-05-09',
+  moneyWalletTermsVersion: process.env.MONEY_WALLET_TERMS_VERSION ?? process.env.MONEY_POLICY_VERSION ?? '2026-05-09',
+  moneyPayoutTermsVersion: process.env.MONEY_PAYOUT_TERMS_VERSION ?? process.env.MONEY_POLICY_VERSION ?? '2026-05-09',
+  moneyRefundPolicyVersion: process.env.MONEY_REFUND_POLICY_VERSION ?? process.env.MONEY_POLICY_VERSION ?? '2026-05-09',
+  moneyDisputePolicyVersion: process.env.MONEY_DISPUTE_POLICY_VERSION ?? process.env.MONEY_POLICY_VERSION ?? '2026-05-09',
+  moneyRequireManualPayoutReview: (process.env.MONEY_REQUIRE_MANUAL_PAYOUT_REVIEW ?? 'true').toLowerCase() !== 'false',
+  moneyFeaturesVisible: (process.env.MONEY_FEATURES_VISIBLE ?? 'false').toLowerCase() === 'true',
+  walletVisible: (process.env.WALLET_VISIBLE ?? 'false').toLowerCase() === 'true',
+  payoutsVisible: (process.env.PAYOUTS_VISIBLE ?? 'false').toLowerCase() === 'true',
+  moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+  cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true'
 };

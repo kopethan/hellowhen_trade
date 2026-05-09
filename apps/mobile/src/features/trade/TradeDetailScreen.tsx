@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MediaAssetDto, ProposalActionStatus, TradeActionStatus, TradeStatus } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
@@ -79,7 +79,9 @@ function formatStatus(status: string) { return status.replace(/_/g, ' '); }
 
 function statusHint(trade: TradeDeckItem, role: DetailRole) {
   if (trade.status === 'active') return role === 'owner' ? 'Open for proposals. Review each private proposal thread before accepting someone.' : 'Send a private proposal to ask for this trade.';
-  if (trade.status === 'in_progress') return 'In progress. Coordinate in the accepted proposal conversation below.';
+  if (trade.status === 'in_progress') return 'In progress. The provider should mark delivered first. The payer confirms before wallet money is released.';
+  if (trade.status === 'submitted') return 'Delivery was marked. The other party should confirm only if everything is okay.';
+  if (trade.status === 'disputed') return 'Reported. Money movement is frozen while admin reviews this trade.';
   if (trade.status === 'completed') return 'Completed. Wallet money is pending payout when this trade included an amount.';
   if (trade.status === 'cancelled') return 'Cancelled. Held wallet money was refunded when applicable.';
   return 'Review the current trade status before taking action.';
@@ -109,7 +111,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
   const [replyingProposalId, setReplyingProposalId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<TradeActionStatus | null>(null);
+  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
   const [proposalActionLoading, setProposalActionLoading] = useState<{ proposalId: string; status: ProposalActionStatus } | null>(null);
 
   const role = useMemo<DetailRole>(() => {
@@ -145,22 +147,48 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   useEffect(() => { void loadTrade(); }, [loadTrade]);
 
   const actions = useMemo(() => {
-    if (role === 'owner' && (trade.status === 'in_progress' || trade.status === 'submitted')) return [{ status: 'completed' as const, label: 'Mark completed' }, { status: 'cancelled' as const, label: 'Cancel / refund' }];
-    if (role === 'owner' && trade.status === 'active') return [{ status: 'cancelled' as const, label: 'Cancel trade' }];
-    if (role === 'provider' && trade.status === 'in_progress') return [{ status: 'cancelled' as const, label: 'Cancel trade' }];
-    return [];
-  }, [role, trade.status]);
+    const payment = trade.payment;
+    const userId = auth.user?.id;
+    const canSubmit = trade.status === 'in_progress' && (payment?.amountCents ? payment.sellerId === userId : ['owner', 'provider'].includes(role));
+    const canConfirm = trade.status === 'submitted' && (payment?.amountCents ? payment.buyerId === userId : ['owner', 'provider'].includes(role)) && trade.deliverySubmittedById !== userId;
+    const list: Array<{ status: TradeActionStatus; label: string; variant?: 'primary' | 'danger' | 'ghost' }> = [];
+    if (canSubmit) list.push({ status: 'submitted', label: 'Mark delivered', variant: 'primary' });
+    if (canConfirm) list.push({ status: 'completed', label: payment?.amountCents ? 'Confirm and release money' : 'Confirm completed', variant: 'primary' });
+    if (role === 'owner' && trade.status === 'active') list.push({ status: 'cancelled', label: 'Cancel trade', variant: 'danger' });
+    if (role === 'provider' && ['in_progress', 'submitted'].includes(trade.status)) list.push({ status: 'cancelled', label: 'Cancel trade', variant: 'danger' });
+    if (['active', 'in_progress', 'submitted', 'completed'].includes(trade.status) && auth.user) list.push({ status: 'disputed', label: 'Report problem', variant: 'danger' });
+    return list;
+  }, [auth.user, role, trade.deliverySubmittedById, trade.payment, trade.status]);
 
   const updateStatus = useCallback(async (status: TradeActionStatus) => {
-    setActionLoading(status); setError(null); setMessage(null);
-    try {
-      const result = await api.trades.updateStatus(trade.id, { status }) as TradeResponse;
-      setTrade(result.trade);
-      setMessage(status === 'completed' ? 'Trade completed. Held wallet money moved into pending payout when applicable.' : status === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.');
-      await loadTrade();
-    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); }
-    finally { setActionLoading(null); }
-  }, [loadTrade, trade.id]);
+    const runStatusUpdate = async (nextStatus: TradeActionStatus) => {
+      setActionLoading(nextStatus); setError(null); setMessage(null);
+      try {
+        const result = await api.trades.updateStatus(trade.id, { status: nextStatus }) as TradeResponse;
+        setTrade(result.trade);
+        setMessage(nextStatus === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : nextStatus === 'completed' ? 'Trade confirmed. Held wallet money moved into pending payout when applicable.' : nextStatus === 'cancelled' ? 'Trade cancelled. Held wallet money was refunded when applicable.' : 'Trade updated.');
+        await loadTrade();
+      } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this trade. Please try again.')); }
+      finally { setActionLoading(null); }
+    };
+    if (status === 'completed' && (trade.payment?.amountCents ?? 0) > 0) {
+      return Alert.alert('Confirm and release wallet money?', 'Only confirm if the delivery is okay. This releases held wallet money to the other member’s pending payout balance. Report a problem instead if anything is wrong.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Release money', style: 'destructive', onPress: () => { void runStatusUpdate('completed'); } },
+      ]);
+    }
+    if (status === 'disputed') {
+      setActionLoading('report'); setError(null); setMessage(null);
+      try {
+        await api.support.createTicket({ category: 'trade_issue', priority: (trade.amountCents ?? 0) > 0 ? 'high' : 'normal', subject: `Problem with trade: ${trade.title}`.slice(0, 140), message: 'I need admin help with this trade. Please freeze or review the money flow before anything is released.', relatedTradeId: trade.id });
+        setMessage('Report sent. Admin can review this trade and money movement is frozen when applicable.');
+        await loadTrade();
+      } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not report this trade. Try again from Account > Support.')); }
+      finally { setActionLoading(null); }
+      return;
+    }
+    await runStatusUpdate(status);
+  }, [loadTrade, trade.amountCents, trade.id, trade.payment?.amountCents, trade.title]);
 
   const createProposal = useCallback(async () => {
     const trimmed = proposalDraft.trim();
@@ -213,7 +241,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     <InventorySection eyebrow="I offer" title={offerTitle(trade)} description={offerDescription(trade)} meta={offerMeta(trade.offer, trade)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.offer?.media)} theme={theme} />
 
     <Separator theme={theme} />
-    <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{(trade.amountCents ?? 0) > 0 ? <DetailRow label="Payment" value={trade.payment?.status ? formatStatus(trade.payment.status) : 'Not held yet'} theme={theme} /> : null}{(trade.amountCents ?? 0) > 0 && trade.escrow ? <DetailRow label="Escrow" value={formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur')} theme={theme} /> : null}{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status ? 'Updating...' : action.label} variant={action.status === 'cancelled' ? 'danger' : 'primary'} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
+    <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{(trade.amountCents ?? 0) > 0 ? <DetailRow label="Payment" value={trade.payment?.status ? formatStatus(trade.payment.status) : 'Not held yet'} theme={theme} /> : null}{(trade.amountCents ?? 0) > 0 && trade.escrow ? <DetailRow label="Escrow" value={formatMoney(trade.escrow.heldAmountCents ?? 0, trade.escrow.currency ?? trade.currency ?? 'eur')} theme={theme} /> : null}{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? 'Updating...' : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
 
     <Separator theme={theme} />
     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? 'Proposals' : myProposal ? 'Your proposal' : 'Ask to trade'}</AppText>{error ? <InfoNotice tone="danger" title="Trade error" body={error} /> : null}{message ? <InfoNotice tone="success" title="Updated" body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>Refreshing trade detail...</AppText> : null}{role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} theme={theme} /> : null}{role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>This trade is not accepting new proposals.</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No proposals yet. New private proposals will appear here.</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title="Accepted conversation" body="Only you and the accepted applicant can see this thread." /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} />)}</View></View>

@@ -4,6 +4,8 @@ import { createTradeProposalRequestSchema, createTradeRequestSchema, listTradesF
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
+import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 
 export const tradesRoutes = Router();
@@ -185,6 +187,18 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   if (!offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
   if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
   if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
+  const limits = await buildLaunchLimits(prisma, actorId);
+  const isMoneyTrade = input.amountCents > 0 || needIsMoney || offerIsMoney;
+  if (isMoneyTrade) {
+    const moneySafety = await buildMoneySafetyStatus(prisma, actorId);
+    const block = getMoneySafetyBlock(moneySafety, 'money_trade');
+    if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
+  }
+  const activeCount = isMoneyTrade ? limits.activeMoneyTradeCount : limits.activeServiceTradeCount;
+  const activeLimit = isMoneyTrade ? limits.moneyActiveTradeLimit : limits.serviceActiveTradeLimit;
+  if (activeCount >= activeLimit) return res.status(409).json(limitExceeded(isMoneyTrade ? 'You reached your active money-trade launch limit. Complete trades or verify your account to raise the limit.' : 'You reached your active service-trade launch limit. Complete trades or verify your account to raise the limit.', { trustTier: limits.effectiveTrustTier, activeCount, activeLimit }));
+  if (isMoneyTrade && !limits.moneyTradesEnabled) return res.status(403).json(limitExceeded('Money trades are disabled for the beta launch. Create service, goods, or other exchange trades instead.', { trustTier: limits.effectiveTrustTier }));
+  if (isMoneyTrade && input.amountCents > limits.perTradeMoneyCapCents) return res.status(409).json(limitExceeded(`Money trades are limited to ${(limits.perTradeMoneyCapCents / 100).toFixed(2)} ${input.currency.toUpperCase()} for your current trust tier.`, { trustTier: limits.effectiveTrustTier, perTradeMoneyCapCents: limits.perTradeMoneyCapCents }));
   if (offerIsMoney && input.amountCents > 0 && (!wallet || wallet.availableBalanceCents < input.amountCents)) return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'You can only offer money that is available in your wallet.' });
   const moneyLabel = moneyTitle(input.amountCents, input.currency);
   const needTitle = needIsMoney ? moneyLabel : need!.title;
@@ -229,6 +243,49 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res
   });
   res.status(existing ? 200 : 201).json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
 }));
+export async function releaseHeldWalletMoney(tx: Prisma.TransactionClient, trade: { id: string; title: string; providerId?: string | null }) {
+  const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
+  if (!payment || payment.status !== 'held' || payment.amountCents <= 0) return;
+  const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+  if (!buyerWallet) throw new Error('missing_buyer_wallet');
+  const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
+  let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
+  if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId, currency: payment.currency } });
+  await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents } } });
+  await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold released after payer confirmation for trade: ${trade.title}`, metadata: { providerId: sellerId, walletMoney: true, releasedByPayerConfirmation: true } } });
+  await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { increment: payment.amountCents }, currency: payment.currency } });
+  await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money pending payout after confirmed trade: ${trade.title}`, metadata: { payoutEligibleLater: true, walletMoney: true } } });
+  await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
+  await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+}
+
+export async function refundHeldWalletMoney(tx: Prisma.TransactionClient, trade: { id: string; title: string }, actorId: string) {
+  const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
+  if (!payment || payment.amountCents <= 0) return;
+  const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
+  if (payment.status === 'held') {
+    if (buyerWallet) {
+      const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents }, availableBalanceCents: { increment: payment.amountCents } } });
+      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold refunded for cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
+      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
+    }
+  } else if (payment.status === 'released') {
+    const sellerId = payment.sellerId;
+    const sellerWallet = sellerId ? await tx.wallet.findUnique({ where: { userId: sellerId } }) : null;
+    if (!sellerWallet || !buyerWallet || sellerWallet.pendingPayoutCents < payment.amountCents) throw Object.assign(new Error('released_money_not_reversible'), { code: 'RELEASED_MONEY_NOT_REVERSIBLE' });
+    {
+      await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { decrement: payment.amountCents } } });
+      await tx.creditLedgerEntry.create({ data: { userId: sellerId!, walletId: sellerWallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'earned_pending', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Admin reversed pending payout for disputed trade: ${trade.title}`, metadata: { reversedBy: actorId, walletMoney: true } } });
+      const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { availableBalanceCents: { increment: payment.amountCents } } });
+      await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after admin dispute resolution: ${trade.title}`, metadata: { reversedBy: actorId, walletMoney: true } } });
+    }
+  } else {
+    return;
+  }
+  await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
+  await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
+}
+
 tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) => {
   const input = updateTradeStatusRequestSchema.parse(req.body);
   const actorId = req.user!.id;
@@ -238,43 +295,45 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
   const isProvider = trade.providerId === actorId;
   if (!isOwner && !isProvider) return res.status(403).json({ error: 'forbidden' });
   if (input.status === trade.status) return res.json({ trade: await withOneTradeDeckMedia(trade, 'owner') });
+  if (trade.status === 'disputed' && input.status !== 'cancelled') return res.status(409).json({ error: 'trade_disputed', message: 'This trade is disputed. Admin must resolve the money flow before it can continue.' });
+
+  if (input.status === 'submitted') {
+    if (trade.status !== 'in_progress') return res.status(409).json({ error: 'invalid_trade_status_transition' });
+    const payment = trade.payment;
+    if (payment?.status === 'held' && payment.amountCents > 0 && payment.sellerId !== actorId) {
+      return res.status(403).json({ error: 'payer_cannot_submit_delivery', message: 'The person receiving wallet money must mark delivery first. The payer confirms and releases money after reviewing it.' });
+    }
+    const updated = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'submitted', deliverySubmittedById: actorId, deliverySubmittedAt: new Date() }, include: tradeInclude });
+    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
+  }
+
   if (input.status === 'completed') {
-    if (!isOwner) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can complete this trade.' });
-    if (!['in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+    if (trade.status !== 'submitted') return res.status(409).json({ error: 'delivery_confirmation_required', message: 'The provider must mark delivery before the other party can confirm completion.' });
+    const payment = trade.payment;
+    if (payment?.status === 'held' && payment.amountCents > 0 && payment.buyerId !== actorId) {
+      return res.status(403).json({ error: 'payer_confirmation_required', message: 'Only the wallet-money payer can confirm and release held money.' });
+    }
+    if (trade.deliverySubmittedById === actorId) {
+      return res.status(403).json({ error: 'self_confirmation_blocked', message: 'The person who marked delivery cannot also confirm completion.' });
+    }
     const updated = await prisma.$transaction(async (tx) => {
-      const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
-      if (payment?.status === 'held' && payment.amountCents > 0) {
-        const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
-        if (!buyerWallet) throw new Error('missing_buyer_wallet');
-        const sellerId = payment.sellerId ?? trade.providerId ?? payment.buyerId;
-        let sellerWallet = await tx.wallet.findUnique({ where: { userId: sellerId } });
-        if (!sellerWallet) sellerWallet = await tx.wallet.create({ data: { userId: sellerId, currency: payment.currency } });
-        await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents } } });
-        await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: buyerWallet.id, tradeId: trade.id, type: 'trade_release', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold released for completed trade: ${trade.title}`, metadata: { providerId: sellerId, walletMoney: true } } });
-        await tx.wallet.update({ where: { id: sellerWallet.id }, data: { pendingPayoutCents: { increment: payment.amountCents }, currency: payment.currency } });
-        await tx.creditLedgerEntry.create({ data: { userId: sellerId, walletId: sellerWallet.id, tradeId: trade.id, type: 'earned_pending', balanceType: 'earned_pending', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money pending payout for completed trade: ${trade.title}`, metadata: { payoutEligibleLater: true, walletMoney: true } } });
-        await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'released' } });
-        await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
-      }
-      return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
+      await releaseHeldWalletMoney(tx, trade);
+      return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date(), confirmedById: actorId, confirmedAt: new Date() }, include: tradeInclude });
     });
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
+
+  if (input.status === 'disputed') {
+    if (!['active', 'in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+    const updated = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: new Date() }, include: tradeInclude });
+    return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
+  }
+
   if (input.status === 'cancelled') {
-    if (!isOwner && !(isProvider && trade.status === 'in_progress')) return res.status(403).json({ error: 'forbidden' });
+    if (!isOwner && !(isProvider && ['in_progress', 'submitted'].includes(trade.status))) return res.status(403).json({ error: 'forbidden' });
     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
     const updated = await prisma.$transaction(async (tx) => {
-      const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
-      if (payment?.status === 'held' && payment.amountCents > 0) {
-        const buyerWallet = await tx.wallet.findUnique({ where: { userId: payment.buyerId } });
-        if (buyerWallet) {
-          const wallet = await tx.wallet.update({ where: { id: buyerWallet.id }, data: { heldBalanceCents: { decrement: payment.amountCents }, availableBalanceCents: { increment: payment.amountCents } } });
-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'held', amount: 0, amountCents: -payment.amountCents, currency: payment.currency, description: `Wallet hold refunded for cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
-          await tx.creditLedgerEntry.create({ data: { userId: payment.buyerId, walletId: wallet.id, tradeId: trade.id, type: 'trade_refund', balanceType: 'purchased', amount: 0, amountCents: payment.amountCents, currency: payment.currency, description: `Wallet money returned after cancelled trade: ${trade.title}`, metadata: { cancelledBy: actorId, walletMoney: true } } });
-        }
-        await tx.tradePayment.update({ where: { id: payment.id }, data: { status: 'refunded' } });
-        await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
-      }
+      await refundHeldWalletMoney(tx, trade, actorId);
       await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: new Date() }, include: tradeInclude });
     });

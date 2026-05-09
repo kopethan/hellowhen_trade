@@ -1,9 +1,10 @@
 import React from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import type { TradeExchangeMode } from '@hellowhen/contracts';
+import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
+export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
 export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
 
 export function optionalText(value: string) {
@@ -25,6 +26,12 @@ export function parseInventoryList(value: string, maxItems = 8) {
   }
 
   return items;
+}
+
+export function itemTypeLabel(itemType: InventoryItemType) {
+  if (itemType === 'goods') return 'Goods';
+  if (itemType === 'other') return 'Other';
+  return 'Service';
 }
 
 export function modeLabel(mode: TradeExchangeMode) {
@@ -67,6 +74,31 @@ export function InventoryTextField({
         textAlignVertical={multiline ? 'top' : 'center'}
         style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
       />
+    </View>
+  );
+}
+
+
+export function InventoryTypePicker({ value, onChange, disabled }: { value: InventoryItemType; onChange: (itemType: InventoryItemType) => void; disabled?: boolean }) {
+  const theme = useThemeTokens();
+  return (
+    <View style={styles.field}>
+      <AppText style={styles.label}>Type</AppText>
+      <View style={styles.modeRow}>
+        {inventoryItemTypes.map((itemType) => {
+          const selected = value === itemType;
+          return (
+            <Pressable
+              key={itemType}
+              disabled={disabled}
+              onPress={() => onChange(itemType)}
+              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+            >
+              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{itemTypeLabel(itemType)}</AppText>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }

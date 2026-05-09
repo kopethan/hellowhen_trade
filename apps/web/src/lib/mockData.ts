@@ -1,8 +1,8 @@
 import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
 
-const now = new Date().toISOString();
-const inThreeDays = new Date(Date.now() + 3 * 86_400_000).toISOString();
-const inSixDays = new Date(Date.now() + 6 * 86_400_000).toISOString();
+const now = '2026-05-09T12:00:00.000Z';
+const inThreeDays = '2026-05-12T23:59:59.000Z';
+const inSixDays = '2026-05-15T23:59:59.000Z';
 
 function demoImage(id: string, ownerId: string, entityType: 'need' | 'offer', entityId: string, label: string, tone: string): MediaAssetDto {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="0 0 900 900"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${tone}"/><stop offset="1" stop-color="#0f172a"/></linearGradient></defs><rect width="900" height="900" fill="url(#g)"/><circle cx="710" cy="180" r="130" fill="rgba(255,255,255,.16)"/><circle cx="160" cy="730" r="210" fill="rgba(255,255,255,.10)"/><text x="72" y="450" fill="white" font-family="Inter, Arial, sans-serif" font-size="58" font-weight="800" letter-spacing="-2">${label}</text></svg>`;
@@ -28,6 +28,7 @@ export const mockNeeds: NeedDto[] = [
     ownerId: 'demo-user-1',
     title: 'Landing page design',
     description: 'I need a clean landing page for a small product launch with hero copy, sections, and a simple CTA.',
+    itemType: 'service',
     category: 'Design',
     timing: 'This week',
     mode: 'remote',
@@ -44,6 +45,7 @@ export const mockNeeds: NeedDto[] = [
     ownerId: 'demo-user-2',
     title: 'Short launch video edit',
     description: 'Looking for someone to polish a 45-second launch video and export it for mobile and social.',
+    itemType: 'service',
     category: 'Video',
     timing: '24–48 hours',
     mode: 'remote',
@@ -60,6 +62,7 @@ export const mockNeeds: NeedDto[] = [
     ownerId: 'demo-user-3',
     title: 'Email launch copy',
     description: 'I need three concise emails for a small product launch: announcement, reminder, and last call.',
+    itemType: 'service',
     category: 'Copywriting',
     timing: 'Next week',
     mode: 'remote',
@@ -79,6 +82,7 @@ export const mockOffers: OfferDto[] = [
     ownerId: 'demo-user-1',
     title: 'Product photography',
     description: 'I can shoot and edit a clean set of ecommerce-style product photos for your website or social launch.',
+    itemType: 'service',
     category: 'Photography',
     availability: 'Weekend',
     mode: 'local',
@@ -96,6 +100,7 @@ export const mockOffers: OfferDto[] = [
     ownerId: 'demo-user-3',
     title: 'SEO audit',
     description: 'I can review one site and send a prioritized SEO checklist with technical and content quick wins.',
+    itemType: 'service',
     category: 'Marketing',
     availability: 'This month',
     mode: 'remote',
@@ -145,6 +150,7 @@ export const mockTrades: TradeDto[] = [
       ownerId: 'demo-user-1',
       title: 'Landing page design',
       description: 'I need a clean landing page for a small product launch with hero copy, sections, and a simple CTA.',
+      itemType: 'service',
       category: 'Design',
       timing: 'This week',
       mode: 'remote',
@@ -161,6 +167,7 @@ export const mockTrades: TradeDto[] = [
       ownerId: 'demo-user-1',
       title: 'Product photography',
       description: 'I can shoot and edit a clean set of ecommerce-style product photos for your website or social launch.',
+      itemType: 'service',
       category: 'Photography',
       availability: 'Weekend',
       mode: 'local',
@@ -177,10 +184,10 @@ export const mockTrades: TradeDto[] = [
   {
     id: 'demo-trade-2',
     ownerId: 'demo-user-2',
-    title: 'Short launch video edit ↔ Wallet money',
-    description: 'I need help polishing a short launch video and I offer optional wallet money for the work.',
+    title: 'Short launch video edit ↔ Product samples',
+    description: 'I need help polishing a short launch video and I offer product samples for content testing.',
     creditAmount: 0,
-    amountCents: 3500,
+    amountCents: 0,
     currency: 'eur',
     status: 'active',
     isPublic: true,
@@ -193,6 +200,7 @@ export const mockTrades: TradeDto[] = [
       ownerId: 'demo-user-2',
       title: 'Short launch video edit',
       description: 'Looking for someone to polish a 45-second launch video and export it for mobile and social.',
+      itemType: 'service',
       category: 'Video',
       timing: '24–48 hours',
       mode: 'remote',
@@ -204,7 +212,24 @@ export const mockTrades: TradeDto[] = [
       expiresAt: inSixDays,
       media: needVideoMedia,
     },
-    offer: null,
+    offer: {
+      id: 'demo-offer-2',
+      ownerId: 'demo-user-2',
+      title: 'Product samples',
+      description: 'I can send small product samples for content testing or styling reference.',
+      itemType: 'goods',
+      category: 'Goods',
+      availability: 'This week',
+      mode: 'local',
+      locationLabel: 'Local pickup',
+      includes: ['Sample pack', 'Pickup details after acceptance'],
+      tags: ['samples', 'goods'],
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: null,
+      media: [],
+    },
   },
   {
     id: 'demo-trade-3',
@@ -225,6 +250,7 @@ export const mockTrades: TradeDto[] = [
       ownerId: 'demo-user-3',
       title: 'Email launch copy',
       description: 'I need three concise emails for a small product launch: announcement, reminder, and last call.',
+      itemType: 'service',
       category: 'Copywriting',
       timing: 'Next week',
       mode: 'remote',
@@ -241,6 +267,7 @@ export const mockTrades: TradeDto[] = [
       ownerId: 'demo-user-3',
       title: 'SEO audit',
       description: 'I can review one site and send a prioritized SEO checklist with technical and content quick wins.',
+      itemType: 'service',
       category: 'Marketing',
       availability: 'This month',
       mode: 'remote',

@@ -1,0 +1,790 @@
+diff --git a/.env.example b/.env.example
+index c24e60e..d46c970 100644
+--- a/.env.example
++++ b/.env.example
+@@ -13,6 +13,11 @@ CREDITS_MODE=fake
+ STRIPE_SECRET_KEY=
+ STRIPE_WEBHOOK_SECRET=
+ STRIPE_CURRENCY=eur
++STRIPE_CONNECT_ENABLED=false
++STRIPE_CONNECT_COUNTRY=US
++STRIPE_CONNECT_REFRESH_PATH=/account/payouts?stripe_connect=refresh
++STRIPE_CONNECT_RETURN_PATH=/account/payouts?stripe_connect=return
++STRIPE_CONNECT_TRANSFER_MODE=false
+ WEB_APP_URL=http://localhost:3000
+ MOBILE_APP_URL=hellowhen://
+ 
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index ddd2828..5859358 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -162,6 +162,21 @@ enum PayoutRequestStatus {
+   cancelled
+ }
+ 
++enum StripeConnectAccountStatus {
++  not_started
++  onboarding
++  restricted
++  pending
++  enabled
++  disabled
++}
++
++enum StripeEventProcessingStatus {
++  received
++  processed
++  failed
++}
++
+ model User {
+   id           String    @id @default(cuid())
+   email        String    @unique
+@@ -206,6 +221,7 @@ model User {
+   wallet       Wallet?
+   ledger       CreditLedgerEntry[]
+   payoutRequests PayoutRequest[]
++  stripeConnectAccount StripeConnectAccount?
+ }
+ 
+ 
+@@ -601,8 +617,66 @@ model PayoutRequest {
+   reviewedAt  DateTime?
+   paidAt      DateTime?
+   notes       String?
++  stripeConnectAccountId String?
++  stripeTransferId String?
++  stripePayoutId String?
++  stripeEventId String?
++  stripeFailureCode String?
++  stripeFailureMessage String?
++  stripeExternalStatus String?
+ 
+   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
++  stripeConnectAccount StripeConnectAccount? @relation(fields: [stripeConnectAccountId], references: [id], onDelete: SetNull)
+ 
+   @@index([userId, status])
++  @@index([stripeConnectAccountId, status])
++  @@index([stripeTransferId])
++  @@index([stripePayoutId])
++}
++
++model StripeConnectAccount {
++  id                       String                     @id @default(cuid())
++  userId                   String                     @unique
++  stripeAccountId           String                     @unique
++  status                   StripeConnectAccountStatus @default(onboarding)
++  chargesEnabled            Boolean                    @default(false)
++  payoutsEnabled            Boolean                    @default(false)
++  detailsSubmitted          Boolean                    @default(false)
++  currentlyDue              String[]                   @default([])
++  eventuallyDue             String[]                   @default([])
++  pastDue                   String[]                   @default([])
++  disabledReason            String?
++  defaultCurrency           String?
++  country                   String?
++  onboardingStartedAt       DateTime?
++  onboardingCompletedAt     DateTime?
++  lastSyncedAt              DateTime?
++  lastWebhookEventAt        DateTime?
++  createdAt                 DateTime                   @default(now())
++  updatedAt                 DateTime                   @updatedAt
++
++  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
++  payoutRequests PayoutRequest[]
++
++  @@index([status, updatedAt])
++  @@index([payoutsEnabled, status])
++}
++
++model StripeEvent {
++  id                     String                      @id @default(cuid())
++  stripeEventId          String                      @unique
++  type                   String
++  livemode               Boolean                     @default(false)
++  stripeAccountId        String?
++  stripeConnectAccountId String?
++  objectId               String?
++  processingStatus       StripeEventProcessingStatus @default(received)
++  payload                Json?
++  error                  String?
++  processedAt            DateTime?
++  createdAt              DateTime                    @default(now())
++
++  @@index([type, createdAt])
++  @@index([stripeAccountId, createdAt])
++  @@index([stripeConnectAccountId, createdAt])
+ }
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 95890d0..4946617 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -15,6 +15,11 @@ export const env = {
+   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
+   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+   stripeCurrency: (process.env.STRIPE_CURRENCY ?? 'eur').toLowerCase(),
++  stripeConnectEnabled: (process.env.STRIPE_CONNECT_ENABLED ?? 'false').toLowerCase() === 'true',
++  stripeConnectCountry: (process.env.STRIPE_CONNECT_COUNTRY ?? 'US').toUpperCase(),
++  stripeConnectRefreshPath: process.env.STRIPE_CONNECT_REFRESH_PATH ?? '/account/payouts?stripe_connect=refresh',
++  stripeConnectReturnPath: process.env.STRIPE_CONNECT_RETURN_PATH ?? '/account/payouts?stripe_connect=return',
++  stripeConnectTransferMode: (process.env.STRIPE_CONNECT_TRANSFER_MODE ?? 'false').toLowerCase() === 'true',
+   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
+   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 1b68734..a067e75 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -76,6 +76,29 @@ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
+   res.json({ user: { ...user, limits: await buildLaunchLimits(prisma, user.id) } });
+ }));
+ 
++adminRoutes.get('/payouts', asyncRoute(async (_req, res) => {
++  const payouts = await prisma.payoutRequest.findMany({
++    include: { user: { select: { id: true, email: true, profile: true, trustTier: true } }, stripeConnectAccount: true },
++    orderBy: { requestedAt: 'desc' },
++    take: 100
++  });
++  res.json({ payouts });
++}));
++
++adminRoutes.get('/stripe/connect-accounts', asyncRoute(async (_req, res) => {
++  const accounts = await prisma.stripeConnectAccount.findMany({
++    include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } },
++    orderBy: { updatedAt: 'desc' },
++    take: 100
++  });
++  res.json({ accounts });
++}));
++
++adminRoutes.get('/stripe/events', asyncRoute(async (_req, res) => {
++  const events = await prisma.stripeEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
++  res.json({ events });
++}));
++
+ adminRoutes.get('/media', asyncRoute(async (req, res) => {
+   const input = adminListMediaQuerySchema.parse(req.query);
+   const where = {
+diff --git a/apps/api/src/modules/stripe/stripeWebhook.routes.ts b/apps/api/src/modules/stripe/stripeWebhook.routes.ts
+index 266d86c..3c4411b 100644
+--- a/apps/api/src/modules/stripe/stripeWebhook.routes.ts
++++ b/apps/api/src/modules/stripe/stripeWebhook.routes.ts
+@@ -3,9 +3,14 @@ import Stripe from 'stripe';
+ import { env } from '../../config/env.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { getStripe } from '../credits/stripeClient.js';
++import { syncStripeConnectAccountByAccountId } from './stripeConnect.js';
+ 
+ export const stripeWebhookRoutes = Router();
+ 
++function jsonPayload(value: unknown) {
++  return JSON.parse(JSON.stringify(value));
++}
++
+ async function markPurchasePaid(session: Stripe.Checkout.Session) {
+   const purchaseId = session.metadata?.purchaseId ?? session.client_reference_id ?? undefined;
+   if (!purchaseId) return { handled: false, reason: 'missing_purchase_id' };
+@@ -67,6 +72,56 @@ async function markPurchaseStatus(session: Stripe.Checkout.Session, status: 'fai
+   });
+ }
+ 
++async function recordStripeEvent(event: Stripe.Event) {
++  const object = event.data.object as { id?: string };
++  const stripeAccountId = typeof event.account === 'string' ? event.account : null;
++  const connectAccount = stripeAccountId ? await prisma.stripeConnectAccount.findUnique({ where: { stripeAccountId } }) : null;
++  const existing = await prisma.stripeEvent.findUnique({ where: { stripeEventId: event.id } });
++  if (existing?.processingStatus === 'processed') return { record: existing, duplicate: true };
++  const record = await prisma.stripeEvent.upsert({
++    where: { stripeEventId: event.id },
++    create: { stripeEventId: event.id, type: event.type, livemode: event.livemode, stripeAccountId, stripeConnectAccountId: connectAccount?.id ?? null, objectId: object.id ?? null, payload: jsonPayload(event), processingStatus: 'received' },
++    update: { type: event.type, livemode: event.livemode, stripeAccountId, stripeConnectAccountId: connectAccount?.id ?? null, objectId: object.id ?? null, payload: jsonPayload(event), processingStatus: 'received', error: null }
++  });
++  return { record, duplicate: false };
++}
++
++async function handleConnectEvent(event: Stripe.Event) {
++  if (event.type === 'account.updated') {
++    const account = event.data.object as Stripe.Account;
++    const updated = await syncStripeConnectAccountByAccountId(account.id, { fromWebhook: true });
++    return { handled: Boolean(updated), reason: updated ? 'account_synced' : 'account_not_found' };
++  }
++
++  if (event.type === 'account.application.deauthorized') {
++    const accountId = typeof event.account === 'string' ? event.account : (event.data.object as { id?: string }).id;
++    if (!accountId) return { handled: false, reason: 'missing_account_id' };
++    await prisma.stripeConnectAccount.updateMany({ where: { stripeAccountId: accountId }, data: { status: 'disabled', payoutsEnabled: false, chargesEnabled: false, disabledReason: 'account.application.deauthorized', lastWebhookEventAt: new Date() } });
++    return { handled: true, reason: 'account_deauthorized' };
++  }
++
++  if (event.type === 'transfer.created' || event.type === 'transfer.reversed') {
++    const transfer = event.data.object as Stripe.Transfer;
++    await prisma.payoutRequest.updateMany({ where: { stripeTransferId: transfer.id }, data: { stripeExternalStatus: event.type === 'transfer.created' ? 'transfer_created' : 'transfer_reversed', stripeEventId: event.id } });
++    return { handled: true, reason: 'transfer_recorded' };
++  }
++
++  if (event.type === 'payout.failed' || event.type === 'payout.canceled' || event.type === 'payout.paid') {
++    const payout = event.data.object as Stripe.Payout;
++    const status = event.type === 'payout.paid' ? 'payout_paid' : event.type === 'payout.canceled' ? 'payout_canceled' : 'payout_failed';
++    await prisma.payoutRequest.updateMany({
++      where: { stripePayoutId: payout.id },
++      data: { stripeExternalStatus: status, stripeEventId: event.id, stripeFailureCode: payout.failure_code ?? null, stripeFailureMessage: payout.failure_message ?? null, ...(event.type === 'payout.failed' ? { status: 'rejected' as const } : {}) }
++    });
++    if (event.type === 'payout.failed' && typeof event.account === 'string') {
++      await syncStripeConnectAccountByAccountId(event.account, { fromWebhook: true }).catch(() => null);
++    }
++    return { handled: true, reason: status };
++  }
++
++  return { handled: false, reason: 'ignored' };
++}
++
+ stripeWebhookRoutes.post('/webhook', async (req, res) => {
+   const stripe = getStripe();
+   if (!stripe || !env.stripeWebhookSecret || env.stripeWebhookSecret.includes('replace_me')) {
+@@ -86,6 +141,9 @@ stripeWebhookRoutes.post('/webhook', async (req, res) => {
+     return res.status(400).json({ error: 'stripe_signature_error', message });
+   }
+ 
++  const { record, duplicate } = await recordStripeEvent(event);
++  if (duplicate) return res.json({ received: true, duplicate: true });
++
+   try {
+     if (event.type === 'checkout.session.completed') {
+       await markPurchasePaid(event.data.object as Stripe.Checkout.Session);
+@@ -93,10 +151,15 @@ stripeWebhookRoutes.post('/webhook', async (req, res) => {
+       await markPurchaseStatus(event.data.object as Stripe.Checkout.Session, 'expired');
+     } else if (event.type === 'checkout.session.async_payment_failed') {
+       await markPurchaseStatus(event.data.object as Stripe.Checkout.Session, 'failed');
++    } else {
++      await handleConnectEvent(event);
+     }
++    await prisma.stripeEvent.update({ where: { id: record.id }, data: { processingStatus: 'processed', processedAt: new Date(), error: null } });
+     return res.json({ received: true });
+   } catch (error) {
++    const message = error instanceof Error ? error.message : 'Stripe webhook processing failed';
+     console.error('Stripe webhook processing failed', error);
++    await prisma.stripeEvent.update({ where: { id: record.id }, data: { processingStatus: 'failed', error: message } }).catch(() => null);
+     return res.status(500).json({ error: 'stripe_webhook_processing_failed' });
+   }
+ });
+diff --git a/apps/api/src/modules/wallet/wallet.routes.ts b/apps/api/src/modules/wallet/wallet.routes.ts
+index 1f2de0e..c1503ff 100644
+--- a/apps/api/src/modules/wallet/wallet.routes.ts
++++ b/apps/api/src/modules/wallet/wallet.routes.ts
+@@ -5,6 +5,7 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
+ import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
++import { createStripeConnectOnboardingLink, createStripeTransferForPayout, isStripeConnectConfigured, syncStripeConnectAccountByAccountId } from '../stripe/stripeConnect.js';
+ 
+ export const walletRoutes = Router();
+ walletRoutes.use(requireAuth);
+@@ -59,10 +60,42 @@ async function hasDemoPayoutAccount(userId: string) {
+   return marker;
+ }
+ 
++function mapStripeConnectPayoutAccount(account: null | { status: string; payoutsEnabled: boolean; chargesEnabled: boolean; detailsSubmitted: boolean; createdAt: Date; onboardingCompletedAt: Date | null; stripeAccountId: string; currentlyDue: string[]; eventuallyDue: string[]; pastDue: string[]; disabledReason: string | null; defaultCurrency: string | null; country: string | null; lastSyncedAt: Date | null }) {
++  if (!account) return null;
++  const status = account.status === 'enabled' && account.payoutsEnabled
++    ? 'connected'
++    : account.status === 'onboarding'
++      ? 'onboarding'
++      : account.status === 'pending'
++        ? 'pending'
++        : account.status === 'restricted'
++          ? 'restricted'
++          : account.status === 'disabled'
++            ? 'disabled'
++            : 'not_connected';
++  return {
++    provider: 'stripe_connect_test' as const,
++    status,
++    connectedAt: account.onboardingCompletedAt ? account.onboardingCompletedAt.toISOString() : account.createdAt.toISOString(),
++    stripeAccountId: account.stripeAccountId,
++    chargesEnabled: account.chargesEnabled,
++    payoutsEnabled: account.payoutsEnabled,
++    detailsSubmitted: account.detailsSubmitted,
++    currentlyDue: account.currentlyDue,
++    eventuallyDue: account.eventuallyDue,
++    pastDue: account.pastDue,
++    disabledReason: account.disabledReason,
++    defaultCurrency: account.defaultCurrency,
++    country: account.country,
++    lastSyncedAt: account.lastSyncedAt ? account.lastSyncedAt.toISOString() : null,
++  };
++}
++
+ async function buildPayoutSummary(userId: string) {
+   const wallet = await ensureWallet(userId);
+   const payouts = await prisma.payoutRequest.findMany({ where: { userId }, orderBy: { requestedAt: 'desc' }, take: 25 });
+   const connectedMarker = await hasDemoPayoutAccount(userId);
++  const stripeConnectAccount = await prisma.stripeConnectAccount.findUnique({ where: { userId } });
+   const platformFeeRateBps = getPayoutPlatformFeeRateBps();
+   const limits = await buildLaunchLimits(prisma, userId);
+   const pendingPayouts = payouts.filter((payout) => ['requested', 'approved'].includes(payout.status));
+@@ -94,11 +127,13 @@ async function buildPayoutSummary(userId: string) {
+       paidOutGrossCents,
+       paidOutFeeCents,
+       paidOutNetCents,
+-      payoutAccount: {
++      payoutAccount: mapStripeConnectPayoutAccount(stripeConnectAccount) ?? {
+         provider: 'stripe_demo' as const,
+         status: connectedMarker ? 'connected' as const : 'not_connected' as const,
+         connectedAt: connectedMarker ? connectedMarker.createdAt.toISOString() : null,
+       },
++      stripeConnectConfigured: isStripeConnectConfigured(),
++      stripeConnectTransferMode: env.stripeConnectTransferMode,
+       limits
+     }
+   };
+@@ -124,6 +159,24 @@ walletRoutes.get('/payouts', asyncRoute(async (req, res) => {
+   res.json({ wallet, payouts, summary });
+ }));
+ 
++walletRoutes.get('/stripe-connect', asyncRoute(async (req, res) => {
++  const account = await prisma.stripeConnectAccount.findUnique({ where: { userId: req.user!.id } });
++  res.json({ stripeConnectConfigured: isStripeConnectConfigured(), account: mapStripeConnectPayoutAccount(account) });
++}));
++
++walletRoutes.post('/stripe-connect/account-link', requireFreshSensitiveAction, asyncRoute(async (req, res) => {
++  const result = await createStripeConnectOnboardingLink(req.user!.id);
++  const account = await prisma.stripeConnectAccount.findUnique({ where: { id: result.account.id } });
++  res.status(201).json({ url: result.url, expiresAt: result.expiresAt, account: mapStripeConnectPayoutAccount(account), stripeConnectConfigured: isStripeConnectConfigured() });
++}));
++
++walletRoutes.post('/stripe-connect/sync', asyncRoute(async (req, res) => {
++  const current = await prisma.stripeConnectAccount.findUnique({ where: { userId: req.user!.id } });
++  const account = current ? await syncStripeConnectAccountByAccountId(current.stripeAccountId) : null;
++  const summary = await buildPayoutSummary(req.user!.id);
++  res.json({ ...summary, stripeConnect: { account: mapStripeConnectPayoutAccount(account ?? current), configured: isStripeConnectConfigured() } });
++}));
++
+ walletRoutes.post('/demo-top-up', asyncRoute(async (req, res) => {
+   const input = demoTopUpRequestSchema.parse(req.body);
+   const userId = req.user!.id;
+@@ -163,7 +216,9 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
+   const userId = req.user!.id;
+   const currency = input.currency.toLowerCase();
+   const connected = await hasDemoPayoutAccount(userId);
+-  if (!connected) return res.status(400).json({ error: 'payout_account_required', message: 'Connect the Stripe demo payout account first.' });
++  const stripeConnectAccount = await prisma.stripeConnectAccount.findUnique({ where: { userId } });
++  const stripeConnectReady = Boolean(stripeConnectAccount?.payoutsEnabled && ['enabled', 'pending'].includes(stripeConnectAccount.status));
++  if (!connected && !stripeConnectReady) return res.status(400).json({ error: 'payout_account_required', message: isStripeConnectConfigured() ? 'Complete Stripe Connect test onboarding first.' : 'Connect the Stripe demo payout account first.' });
+ 
+   const currentWallet = await prisma.wallet.findUnique({ where: { userId } });
+   if (!currentWallet) return res.status(400).json({ error: 'wallet_not_found', message: 'No wallet balance is available for payout yet.' });
+@@ -180,15 +235,28 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
+   const platformFeeCents = calculatePayoutPlatformFeeCents(grossAmountCents, platformFeeRateBps);
+   const netAmountCents = Math.max(0, grossAmountCents - platformFeeCents);
+ 
+-  await prisma.$transaction(async (tx) => {
++  const payout = await prisma.$transaction(async (tx) => {
+     const wallet = await tx.wallet.update({ where: { id: currentWallet.id }, data: { pendingPayoutCents: { decrement: grossAmountCents } } });
+-    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: 'paid', reviewedAt: new Date(), paidAt: new Date(), notes: 'Stripe demo payout simulation. No real bank transfer was sent.' } });
++    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: 'paid', reviewedAt: new Date(), paidAt: new Date(), notes: stripeConnectReady && env.stripeConnectTransferMode ? 'Stripe Connect test transfer requested. No live bank payout was sent.' : 'Stripe demo payout simulation. No real bank transfer was sent.', stripeConnectAccountId: stripeConnectAccount?.id ?? null, stripeExternalStatus: stripeConnectReady ? 'connect_ready' : 'demo_paid' } });
+     if (platformFeeCents > 0) {
+-      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: true, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
++      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: !stripeConnectReady, stripeConnectTest: stripeConnectReady, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
+     }
+-    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: true, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
++    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: stripeConnectReady && env.stripeConnectTransferMode ? 'Stripe Connect test transfer after platform fee.' : 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: !stripeConnectReady, stripeConnectTest: stripeConnectReady, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
++    return payout;
+   });
+ 
++  if (stripeConnectReady && env.stripeConnectTransferMode) {
++    try {
++      const transfer = await createStripeTransferForPayout({ userId, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, currency });
++      if (transfer) {
++        await prisma.payoutRequest.update({ where: { id: payout.id }, data: { notes: 'Stripe Connect test transfer created. Connected account payout timing is managed by Stripe test mode.', stripeExternalStatus: 'transfer_created' } });
++      }
++    } catch (error) {
++      const message = error instanceof Error ? error.message : 'Stripe transfer failed';
++      await prisma.payoutRequest.update({ where: { id: payout.id }, data: { stripeExternalStatus: 'transfer_failed', stripeFailureMessage: message } }).catch(() => null);
++    }
++  }
++
+   const summary = await buildPayoutSummary(userId);
+   res.status(201).json(summary);
+ }));
+diff --git a/apps/mobile/src/features/wallet/PayoutsScreen.tsx b/apps/mobile/src/features/wallet/PayoutsScreen.tsx
+index 65d7164..efcba83 100644
+--- a/apps/mobile/src/features/wallet/PayoutsScreen.tsx
++++ b/apps/mobile/src/features/wallet/PayoutsScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useMemo, useState } from 'react';
+-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
+@@ -107,6 +107,8 @@ export function PayoutsScreen({ navigation }: Props) {
+   const availableFee = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(available, platformFeeRateBps);
+   const availableNet = summary?.estimatedNetPayoutCents ?? Math.max(0, available - availableFee);
+   const payoutConnected = summary?.payoutAccount.status === 'connected';
++  const stripeConnectConfigured = Boolean(summary?.stripeConnectConfigured);
++  const usingStripeConnect = summary?.payoutAccount.provider === 'stripe_connect_test';
+   const limits = summary?.limits as WalletLimitsDto | undefined;
+   const minimumPayoutCents = limits?.minimumPayoutCents ?? 1000;
+   const weeklyRemainingCents = limits ? Math.max(0, limits.weeklyPayoutCapCents - limits.weeklyRequestedPayoutGrossCents) : null;
+@@ -122,15 +124,34 @@ export function PayoutsScreen({ navigation }: Props) {
+     setActionLoading('connect'); setNotice(null);
+     try {
+       await confirmFreshAuth();
+-      const result = await api.wallet.connectDemoPayoutAccount() as PayoutsResponse;
+-      setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []);
+-      setFreshPassword(''); setFreshCode('');
+-      setNotice({ tone: 'success', title: 'Stripe demo connected', body: 'Your demo payout account is ready. No real bank account was linked.' });
++      if (summary?.stripeConnectConfigured) {
++        const result = await api.wallet.createStripeConnectAccountLink() as { url?: string };
++        if (!result.url) throw new Error('Stripe did not return an onboarding link.');
++        setFreshPassword(''); setFreshCode('');
++        setNotice({ tone: 'success', title: 'Opening Stripe Connect', body: 'Complete the Stripe test onboarding in your browser, then return and pull to refresh.' });
++        await Linking.openURL(result.url);
++      } else {
++        const result = await api.wallet.connectDemoPayoutAccount() as PayoutsResponse;
++        setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []);
++        setFreshPassword(''); setFreshCode('');
++        setNotice({ tone: 'success', title: 'Stripe demo connected', body: 'Your demo payout account is ready. No real bank account was linked.' });
++      }
+     } catch (caughtError) {
+       setNotice({ tone: 'danger', title: 'Could not connect payout account', body: caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError) });
+     } finally { setActionLoading(null); }
+   }
+ 
++  async function syncStripeConnect() {
++    setActionLoading('connect'); setNotice(null);
++    try {
++      const result = await api.wallet.syncStripeConnect() as PayoutsResponse;
++      setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []);
++      setNotice({ tone: 'success', title: 'Stripe status synced', body: 'Payout verification status was refreshed from Stripe test mode.' });
++    } catch (caughtError) {
++      setNotice({ tone: 'danger', title: 'Could not sync Stripe status', body: getFriendlyApiErrorMessage(caughtError) });
++    } finally { setActionLoading(null); }
++  }
++
+   async function requestDemoPayout() {
+     if (!canRequest) return;
+     setActionLoading('payout'); setNotice(null);
+@@ -138,7 +159,7 @@ export function PayoutsScreen({ navigation }: Props) {
+       await confirmFreshAuth();
+       const result = await api.wallet.requestDemoPayout({ amountCents: selectedAmount, currency }) as PayoutsResponse;
+       setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []); setAmountText(''); setFreshPassword(''); setFreshCode('');
+-      setNotice({ tone: 'success', title: 'Demo payout paid', body: `${formatMoney(selectedNet, currency)} was simulated as a Stripe demo payout after the ${formatMoney(selectedFee, currency)} platform fee. No real bank transfer was sent.` });
++      setNotice({ tone: 'success', title: summary?.payoutAccount.provider === 'stripe_connect_test' ? 'Stripe Connect test payout requested' : 'Demo payout paid', body: `${formatMoney(selectedNet, currency)} was simulated after the ${formatMoney(selectedFee, currency)} platform fee.` });
+     } catch (caughtError) {
+       setNotice({ tone: 'danger', title: 'Could not request payout', body: caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError, 'Check your payout balance and try again.') });
+     } finally { setActionLoading(null); }
+@@ -148,9 +169,9 @@ export function PayoutsScreen({ navigation }: Props) {
+     <AppFixedHeaderScreen header={<AppHeader title="Payouts" onBack={() => navigation.goBack()} />}>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+         <View style={styles.headerCopy}>
+-          <SemanticBadge label="Stripe demo" tone="success" />
++          <SemanticBadge label={stripeConnectConfigured ? "Stripe Connect test" : "Stripe demo"} tone="success" />
+           <AppText style={styles.title}>Payouts</AppText>
+-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>See what you earned, the {formatPayoutFeeRate(platformFeeRateBps)} platform fee, and simulate payout setup without moving real money.</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>See what you earned, the {formatPayoutFeeRate(platformFeeRateBps)} platform fee, and test payout setup before live money launch.</AppText>
+         </View>
+ 
+         {notice ? <InfoNotice tone={notice.tone} title={notice.title} body={notice.body} /> : null}
+@@ -188,13 +209,16 @@ export function PayoutsScreen({ navigation }: Props) {
+           <View style={styles.sectionHeaderRow}>
+             <View style={styles.sectionCopy}>
+               <AppText style={styles.sectionTitle}>Stripe payout setup</AppText>
+-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{payoutConnected ? 'Demo payout account connected.' : 'Connect a simulated Stripe payout account before requesting payouts.'}</AppText>
++              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{payoutConnected ? (usingStripeConnect ? 'Stripe Connect test account is ready.' : 'Demo payout account connected.') : (stripeConnectConfigured ? 'Complete Stripe Connect test onboarding before requesting payouts.' : 'Connect a simulated payout account before requesting payouts.')}</AppText>
+             </View>
+             <StatusBadge status={payoutConnected ? 'completed' : 'pending'} size="sm" />
+           </View>
+-          <Pressable accessibilityRole="button" disabled={payoutConnected || actionLoading === 'connect'} onPress={() => { void connectDemoAccount(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: payoutConnected ? theme.color.subtleSurface : theme.semantic.proposal.bg }, (payoutConnected || actionLoading === 'connect') && styles.disabled, pressed && !payoutConnected && styles.pressed]}>
+-            <AppText style={[styles.primaryButtonText, payoutConnected && { color: theme.color.muted }]}>{payoutConnected ? 'Demo account connected' : actionLoading === 'connect' ? 'Connecting...' : 'Set up Stripe demo payout'}</AppText>
++          {usingStripeConnect ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Payouts {summary?.payoutAccount.payoutsEnabled ? 'enabled' : 'not enabled'} · Charges {summary?.payoutAccount.chargesEnabled ? 'enabled' : 'not enabled'}</AppText> : null}
++          {usingStripeConnect && summary?.payoutAccount.currentlyDue?.length ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Due now: {summary.payoutAccount.currentlyDue.join(', ')}</AppText> : null}
++          <Pressable accessibilityRole="button" disabled={actionLoading === 'connect'} onPress={() => { void connectDemoAccount(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: payoutConnected ? theme.color.subtleSurface : theme.semantic.proposal.bg }, actionLoading === 'connect' && styles.disabled, pressed && styles.pressed]}>
++            <AppText style={[styles.primaryButtonText, payoutConnected && { color: theme.color.muted }]}>{stripeConnectConfigured ? (payoutConnected ? 'Open onboarding again' : actionLoading === 'connect' ? 'Opening...' : 'Set up Stripe Connect test') : (payoutConnected ? 'Demo account connected' : actionLoading === 'connect' ? 'Connecting...' : 'Set up Stripe demo payout')}</AppText>
+           </Pressable>
++          {usingStripeConnect ? <Pressable accessibilityRole="button" disabled={actionLoading === 'connect'} onPress={() => { void syncStripeConnect(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Sync Stripe status</AppText></Pressable> : null}
+         </AppCard>
+ 
+         {limits ? (
+@@ -227,19 +251,19 @@ export function PayoutsScreen({ navigation }: Props) {
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Request demo payout</AppText>
++          <AppText style={styles.sectionTitle}>{stripeConnectConfigured ? 'Request test payout' : 'Request demo payout'}</AppText>
+           <AppText style={[styles.cardText, { color: theme.color.muted }]}>You can request up to {formatMoney(available, currency)} in payout-eligible earnings. This simulation marks the payout as paid instantly.</AppText>
+           <View style={styles.presetRow}>{presetAmounts.map((amount) => <Pressable key={amount} accessibilityRole="button" onPress={() => setAmountText((amount / 100).toFixed(2))} style={({ pressed }) => [styles.presetButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.presetText}>{formatMoney(amount, currency)}</AppText></Pressable>)}</View>
+           <TextInput value={amountText} onChangeText={setAmountText} keyboardType="decimal-pad" placeholder="Amount" placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+           <PayoutBreakdown grossAmountCents={selectedAmount} currency={currency} platformFeeRateBps={platformFeeRateBps} />
+           <AppText style={[styles.validationText, { color: theme.color.muted }]}>By requesting payout, you agree that Hellowhen keeps a {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. Estimated payout: {formatMoney(selectedNet, currency)}.</AppText>
+           {selectedAmount > available ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Amount is above your available payout balance.</AppText> : null}
+-          {!payoutConnected ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Connect the Stripe demo payout account first.</AppText> : null}
++          {!payoutConnected ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>{stripeConnectConfigured ? 'Complete Stripe Connect test onboarding first.' : 'Connect the Stripe demo payout account first.'}</AppText> : null}
+           {limits && !limits.payoutsEnabled ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Payouts are disabled for your current trust tier.</AppText> : null}
+           {limits && selectedAmount > 0 && selectedAmount < minimumPayoutCents ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Minimum payout is {formatMoney(minimumPayoutCents, currency)}.</AppText> : null}
+           {weeklyRemainingCents !== null && selectedAmount > weeklyRemainingCents ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>This amount is above your remaining weekly payout limit.</AppText> : null}
+           <Pressable accessibilityRole="button" disabled={!canRequest || actionLoading === 'payout'} onPress={() => { void requestDemoPayout(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.success.bg }, (!canRequest || actionLoading === 'payout') && styles.disabled, pressed && canRequest && styles.pressed]}>
+-            <AppText style={styles.primaryButtonText}>{actionLoading === 'payout' ? 'Sending...' : 'Request demo payout'}</AppText>
++            <AppText style={styles.primaryButtonText}>{actionLoading === 'payout' ? 'Sending...' : (stripeConnectConfigured ? 'Request test payout' : 'Request demo payout')}</AppText>
+           </Pressable>
+         </AppCard>
+ 
+@@ -297,6 +321,8 @@ const styles = StyleSheet.create({
+   metricValue: { fontSize: 18, fontWeight: '900' },
+   primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' },
+   primaryButtonText: { color: '#FFFFFF', fontWeight: '900' },
++  secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' },
++  secondaryButtonText: { fontWeight: '900' },
+   presetRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   presetButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+   presetText: { fontWeight: '900' },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 86e2e20..a8002f7 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -712,3 +712,23 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+   gap: 8px;
+ }
++
++.wallet-action-row {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++  align-items: center;
++}
++
++.connect-status-list {
++  display: grid;
++  gap: 7px;
++  color: var(--muted);
++  font-size: 0.9rem;
++  line-height: 1.45;
++}
++
++.connect-status-list strong {
++  color: var(--text);
++  font-weight: 900;
++}
+diff --git a/apps/web/src/features/account/PayoutsClient.tsx b/apps/web/src/features/account/PayoutsClient.tsx
+index 572343c..0b8178f 100644
+--- a/apps/web/src/features/account/PayoutsClient.tsx
++++ b/apps/web/src/features/account/PayoutsClient.tsx
+@@ -84,11 +84,67 @@ export function PayoutsClient() {
+ 
+   useEffect(() => { void loadPayouts(); }, [auth.hydrated, auth.isAuthenticated]);
+ 
++  useEffect(() => {
++    if (!auth.hydrated || !auth.isAuthenticated) return;
++    const params = new URLSearchParams(window.location.search);
++    if (params.get('stripe_connect') !== 'return' && params.get('stripe_connect') !== 'refresh') return;
++    void (async () => {
++      try {
++        const response = await api.wallet.syncStripeConnect();
++        const data = normalizePayouts(response);
++        setWallet(data.wallet);
++        setPayouts(data.payouts);
++        setSummary(data.summary);
++        setLimits(data.summary?.limits ?? null);
++        setMessage(params.get('stripe_connect') === 'return' ? 'Stripe Connect test onboarding status synced.' : 'Stripe Connect onboarding link refreshed.');
++        window.history.replaceState(null, '', window.location.pathname);
++      } catch (caughtError) {
++        setError(getFriendlyApiErrorMessage(caughtError));
++      }
++    })();
++  }, [auth.hydrated, auth.isAuthenticated]);
++
+   async function confirmFreshAuth() {
+     if (!freshPassword.trim() && !freshCode.trim()) throw new Error('Confirm your password or authenticator code first.');
+     await auth.reauthenticate({ password: freshPassword.trim() || undefined, code: freshCode.trim() || undefined });
+   }
+ 
++  async function connectStripeAccount() {
++    setSaving(true);
++    setMessage('');
++    setError('');
++    try {
++      await confirmFreshAuth();
++      const response = await api.wallet.createStripeConnectAccountLink() as { url?: string };
++      if (!response.url) throw new Error('Stripe did not return an onboarding link.');
++      setFreshPassword('');
++      setFreshCode('');
++      window.location.assign(response.url);
++    } catch (caughtError) {
++      setError(caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
++      setSaving(false);
++    }
++  }
++
++  async function syncStripeConnect() {
++    setSaving(true);
++    setMessage('');
++    setError('');
++    try {
++      const response = await api.wallet.syncStripeConnect();
++      const data = normalizePayouts(response);
++      setWallet(data.wallet);
++      setPayouts(data.payouts);
++      setSummary(data.summary);
++      setLimits(data.summary?.limits ?? null);
++      setMessage('Stripe Connect test status synced.');
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   async function connectDemoAccount() {
+     setSaving(true);
+     setMessage('');
+@@ -132,7 +188,7 @@ export function PayoutsClient() {
+       setAmount(data.summary?.availableForPayoutCents ? String((data.summary.availableForPayoutCents / 100).toFixed(2)) : '');
+       setFreshPassword('');
+       setFreshCode('');
+-      setMessage(`Demo payout completed. Estimated payout ${formatMoney(netCents, currency)} after ${formatMoney(feeCents, currency)} platform fee. No real bank transfer was sent.`);
++      setMessage(`${summary?.payoutAccount.provider === 'stripe_connect_test' ? 'Stripe Connect test payout requested' : 'Demo payout completed'}. Estimated payout ${formatMoney(netCents, currency)} after ${formatMoney(feeCents, currency)} platform fee.`);
+     } catch (caughtError) {
+       setError(caughtError instanceof Error && caughtError.message === 'Enter at least 1.00.' ? caughtError.message : caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+     } finally {
+@@ -154,7 +210,10 @@ export function PayoutsClient() {
+   }
+ 
+   const currency = summary?.currency ?? wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
+-  const connected = summary?.payoutAccount.status === 'connected';
++  const payoutAccount = summary?.payoutAccount;
++  const connected = payoutAccount?.status === 'connected';
++  const stripeConnectConfigured = Boolean(summary?.stripeConnectConfigured);
++  const usingStripeConnect = payoutAccount?.provider === 'stripe_connect_test';
+   const available = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
+   const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+   const selectedGrossCents = parseMoneyInputToCents(amount);
+@@ -234,12 +293,26 @@ export function PayoutsClient() {
+         <div className="trade-section-heading">
+           <div>
+             <p className="eyebrow">Payout setup</p>
+-            <h3>{connected ? 'Demo payout account connected' : 'Connect demo payout account'}</h3>
++            <h3>{connected ? (usingStripeConnect ? 'Stripe Connect test account ready' : 'Demo payout account connected') : (stripeConnectConfigured ? 'Set up Stripe Connect test' : 'Connect demo payout account')}</h3>
+           </div>
+           <span className={`semantic-badge ${connected ? 'success' : 'instruction'}`}>{connected ? 'Connected' : 'Required'}</span>
+         </div>
+-        <p>This only creates a test marker in your wallet activity. It does not collect bank details.</p>
+-        <button type="button" className="secondary" onClick={() => { void connectDemoAccount(); }} disabled={saving || connected}>{connected ? 'Already connected' : 'Connect demo payout account'}</button>
++        {usingStripeConnect ? (
++          <div className="connect-status-list">
++            <p>Stripe account: <strong>{payoutAccount.stripeAccountId}</strong></p>
++            <p>Charges: <strong>{payoutAccount.chargesEnabled ? 'enabled' : 'not enabled'}</strong> · Payouts: <strong>{payoutAccount.payoutsEnabled ? 'enabled' : 'not enabled'}</strong></p>
++            {payoutAccount.currentlyDue?.length ? <p className="meta danger">Due now: {payoutAccount.currentlyDue.join(', ')}</p> : null}
++            {payoutAccount.disabledReason ? <p className="meta danger">Disabled: {payoutAccount.disabledReason}</p> : null}
++          </div>
++        ) : stripeConnectConfigured ? (
++          <p>Use Stripe-hosted Connect onboarding in test mode. This can collect simulated payout verification and sync payout readiness back into Hellowhen.</p>
++        ) : (
++          <p>Stripe Connect is not configured locally, so this creates a test marker in wallet activity instead of collecting bank details.</p>
++        )}
++        <div className="wallet-action-row">
++          {stripeConnectConfigured ? <button type="button" className="secondary" onClick={() => { void connectStripeAccount(); }} disabled={saving}>{connected ? 'Open onboarding again' : 'Start Stripe Connect test'}</button> : <button type="button" className="secondary" onClick={() => { void connectDemoAccount(); }} disabled={saving || connected}>{connected ? 'Already connected' : 'Connect demo payout account'}</button>}
++          {usingStripeConnect ? <button type="button" className="ghost-button" onClick={() => { void syncStripeConnect(); }} disabled={saving}>Sync status</button> : null}
++        </div>
+       </section>
+ 
+       <section className="mobile-card wallet-form-card">
+@@ -251,8 +324,8 @@ export function PayoutsClient() {
+         </div>
+         <PayoutFeeBreakdown grossAmountCents={selectedGrossCents} currency={currency} platformFeeRateBps={platformFeeRateBps} />
+         <p className="meta">By requesting payout, you agree that Hellowhen keeps a {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. Estimated payout: {formatMoney(selectedNetCents, currency)}.</p>
+-        <button type="button" onClick={() => { void requestPayout(); }} disabled={payoutButtonDisabled}>{saving ? 'Requesting...' : 'Request demo payout'}</button>
+-        {!connected ? <p className="meta">Connect the demo payout account first.</p> : null}
++        <button type="button" onClick={() => { void requestPayout(); }} disabled={payoutButtonDisabled}>{saving ? 'Requesting...' : (stripeConnectConfigured ? 'Request test payout' : 'Request demo payout')}</button>
++        {!connected ? <p className="meta">{stripeConnectConfigured ? 'Complete Stripe Connect test onboarding first.' : 'Connect the demo payout account first.'}</p> : null}
+         {available <= 0 ? <p className="meta">No payout-eligible earnings yet.</p> : null}
+         {selectedGrossCents > available ? <p className="meta danger">Amount is above your available payout balance.</p> : null}
+         {limits && !limits.payoutsEnabled ? <p className="meta danger">Payouts are disabled for your current trust tier.</p> : null}
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 43a1f43..8820cfc 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -22,10 +22,10 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }) },
++    admin: { media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/admin/payouts'), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events') },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+-    wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }) }
++    wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }) }
+   };
+ }
+ export type HellowhenApiClient = ReturnType<typeof createApiClient>;
+diff --git a/packages/contracts/src/wallet.ts b/packages/contracts/src/wallet.ts
+index 858a095..edec349 100644
+--- a/packages/contracts/src/wallet.ts
++++ b/packages/contracts/src/wallet.ts
+@@ -69,12 +69,46 @@ export const payoutRequestSchema = z.object({
+   reviewedAt: z.string().nullable().optional(),
+   paidAt: z.string().nullable().optional(),
+   notes: z.string().nullable().optional(),
++  stripeConnectAccountId: z.string().nullable().optional(),
++  stripeTransferId: z.string().nullable().optional(),
++  stripePayoutId: z.string().nullable().optional(),
++  stripeEventId: z.string().nullable().optional(),
++  stripeFailureCode: z.string().nullable().optional(),
++  stripeFailureMessage: z.string().nullable().optional(),
++  stripeExternalStatus: z.string().nullable().optional(),
+ });
+ 
+-export const payoutAccountSchema = z.object({
+-  provider: z.literal('stripe_demo'),
+-  status: z.enum(['not_connected', 'connected']),
++export const stripeConnectPayoutAccountSchema = z.object({
++  provider: z.literal('stripe_connect_test'),
++  status: z.enum(['not_connected', 'onboarding', 'pending', 'connected', 'restricted', 'disabled']),
+   connectedAt: z.string().nullable().optional(),
++  stripeAccountId: z.string().optional(),
++  chargesEnabled: z.boolean().optional().default(false),
++  payoutsEnabled: z.boolean().optional().default(false),
++  detailsSubmitted: z.boolean().optional().default(false),
++  currentlyDue: z.array(z.string()).optional().default([]),
++  eventuallyDue: z.array(z.string()).optional().default([]),
++  pastDue: z.array(z.string()).optional().default([]),
++  disabledReason: z.string().nullable().optional(),
++  defaultCurrency: z.string().nullable().optional(),
++  country: z.string().nullable().optional(),
++  lastSyncedAt: z.string().nullable().optional(),
++});
++
++export const payoutAccountSchema = z.discriminatedUnion('provider', [
++  z.object({
++    provider: z.literal('stripe_demo'),
++    status: z.enum(['not_connected', 'connected']),
++    connectedAt: z.string().nullable().optional(),
++  }),
++  stripeConnectPayoutAccountSchema,
++]);
++
++export const stripeConnectAccountLinkResponseSchema = z.object({
++  url: z.string().url(),
++  expiresAt: z.string().nullable().optional(),
++  account: stripeConnectPayoutAccountSchema.nullable().optional(),
++  stripeConnectConfigured: z.boolean().optional().default(false),
+ });
+ 
+ export const payoutSummarySchema = z.object({
+@@ -93,6 +127,8 @@ export const payoutSummarySchema = z.object({
+   paidOutFeeCents: z.number().int().default(0),
+   paidOutNetCents: z.number().int().default(0),
+   payoutAccount: payoutAccountSchema,
++  stripeConnectConfigured: z.boolean().optional().default(false),
++  stripeConnectTransferMode: z.boolean().optional().default(false),
+   limits: walletLimitsSchema.optional(),
+ });
+ 
+@@ -105,5 +141,7 @@ export type DemoTopUpRequest = z.infer<typeof demoTopUpRequestSchema>;
+ export type DemoPayoutRequest = z.infer<typeof demoPayoutRequestSchema>;
+ export type PayoutRequestStatus = z.infer<typeof payoutRequestStatusSchema>;
+ export type PayoutRequestDto = z.infer<typeof payoutRequestSchema>;
++export type StripeConnectPayoutAccountDto = z.infer<typeof stripeConnectPayoutAccountSchema>;
++export type StripeConnectAccountLinkResponse = z.infer<typeof stripeConnectAccountLinkResponseSchema>;
+ export type PayoutAccountDto = z.infer<typeof payoutAccountSchema>;
+ export type PayoutSummaryDto = z.infer<typeof payoutSummarySchema>;

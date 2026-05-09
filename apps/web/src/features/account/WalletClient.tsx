@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { LedgerEntryDto, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import type { LedgerEntryDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
-import { fallbackCurrency, formatDateTime, formatMoney, ledgerLabel, moneyDeltaClassName, normalizeLedger, normalizePayouts, normalizeWallet } from './accountPresentation';
+import { calculatePayoutFeeCents, fallbackCurrency, formatDateTime, formatMoney, formatLimitCount, formatPayoutFeeRate, ledgerLabel, moneyDeltaClassName, normalizeLedger, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
 
 type WalletMetric = {
   label: string;
@@ -44,6 +44,7 @@ export function WalletClient() {
   const [wallet, setWallet] = useState<WalletDto | null>(null);
   const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
   const [entries, setEntries] = useState<LedgerEntryDto[]>([]);
+  const [limits, setLimits] = useState<WalletLimitsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -65,6 +66,7 @@ export function WalletClient() {
         ]);
         if (!mounted) return;
         const payoutData = normalizePayouts(payoutResponse);
+        setLimits(payoutData.summary?.limits ?? null);
         setWallet(normalizeWallet(walletResponse) ?? payoutData.wallet);
         setEntries(normalizeLedger(ledgerResponse));
         setSummary(payoutData.summary);
@@ -80,6 +82,10 @@ export function WalletClient() {
   }, [auth.hydrated, auth.isAuthenticated]);
 
   const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
+  const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+  const availablePayoutGrossCents = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
+  const estimatedPayoutFeeCents = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(availablePayoutGrossCents, platformFeeRateBps);
+  const estimatedPayoutNetCents = summary?.estimatedNetPayoutCents ?? Math.max(0, availablePayoutGrossCents - estimatedPayoutFeeCents);
   const metrics = useMemo<WalletMetric[]>(() => [
     {
       label: 'Wallet money',
@@ -95,17 +101,29 @@ export function WalletClient() {
     },
     {
       label: 'Available earnings',
-      value: formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency),
-      body: 'Trade earnings currently eligible for the demo payout simulation.',
+      value: formatMoney(availablePayoutGrossCents, currency),
+      body: `Trade earnings before the ${formatPayoutFeeRate(platformFeeRateBps)} payout fee.`,
       tone: 'success',
     },
     {
       label: 'Payout requests',
-      value: formatMoney(summary?.pendingPayoutRequestsCents ?? 0, currency),
-      body: 'Requested or approved demo payouts that are still being tracked.',
+      value: formatMoney(summary?.pendingPayoutRequestsNetCents ?? summary?.pendingPayoutRequestsCents ?? 0, currency),
+      body: 'Requested or approved demo payouts after platform fee.',
       tone: 'proposal',
     },
-  ], [currency, summary?.availableForPayoutCents, summary?.pendingPayoutRequestsCents, wallet?.availableBalanceCents, wallet?.heldBalanceCents, wallet?.pendingPayoutCents]);
+    {
+      label: 'Platform fee',
+      value: formatMoney(estimatedPayoutFeeCents, currency),
+      body: `${formatPayoutFeeRate(platformFeeRateBps)} is kept from payout-eligible earnings when you request payout.`,
+      tone: 'danger',
+    },
+    {
+      label: 'Estimated payout',
+      value: formatMoney(estimatedPayoutNetCents, currency),
+      body: 'Estimated amount you receive after the platform fee.',
+      tone: 'success',
+    },
+  ], [availablePayoutGrossCents, currency, estimatedPayoutFeeCents, estimatedPayoutNetCents, platformFeeRateBps, summary?.pendingPayoutRequestsCents, summary?.pendingPayoutRequestsNetCents, wallet?.availableBalanceCents, wallet?.heldBalanceCents]);
 
   if (!auth.hydrated || loading) {
     return <section className="mobile-card mobile-card--soft"><p>Loading wallet...</p></section>;
@@ -142,9 +160,28 @@ export function WalletClient() {
         {metrics.map((metric) => <WalletMetricCard key={metric.label} metric={metric} />)}
       </section>
 
+      {limits ? (
+        <section className="mobile-card mobile-card--soft">
+          <div className="trade-section-heading">
+            <div>
+              <p className="eyebrow">Launch limits</p>
+              <h3>{limits.effectiveTrustTier.replace(/_/g, ' ')}</h3>
+            </div>
+            <span className="semantic-badge instruction">Safety</span>
+          </div>
+          <div className="wallet-limit-grid">
+            <span><strong>{formatLimitCount(limits.activeServiceTradeCount, limits.serviceActiveTradeLimit)}</strong><small>active service trades</small></span>
+            <span><strong>{formatLimitCount(limits.activeMoneyTradeCount, limits.moneyActiveTradeLimit)}</strong><small>active money trades</small></span>
+            <span><strong>{formatMoney(limits.perTradeMoneyCapCents, currency)}</strong><small>per money trade</small></span>
+            <span><strong>{formatMoney(limits.walletBalanceCapCents, currency)}</strong><small>wallet cap</small></span>
+          </div>
+          <p>Launch limits keep early money flows small. Verify your payout account or contact support when you need higher limits.</p>
+        </section>
+      ) : null}
+
       <section className="mobile-card mobile-card--soft">
         <h3>Money rules</h3>
-        <p>Money is not a separate trade field. It belongs inside the same product language: I need money or I offer money.</p>
+        <p>Money is not a separate trade field. It belongs inside the same product language: I need money or I offer money. When payout-eligible earnings are withdrawn, Hellowhen keeps a transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee.</p>
       </section>
 
       <section className="mobile-card wallet-ledger-card">

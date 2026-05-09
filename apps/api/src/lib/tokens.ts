@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 export type AccessTokenPayload = {
   sub: string;
   email: string;
+  sid?: string;
 };
 
 export function signAccessToken(payload: AccessTokenPayload) {

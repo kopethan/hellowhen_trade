@@ -1,17 +1,34 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
-import { forgotPasswordRequestSchema, googleAuthRequestSchema, loginRequestSchema, registerRequestSchema, resetPasswordRequestSchema } from '@hellowhen/contracts';
+import {
+  disableTwoFactorRequestSchema,
+  forgotPasswordRequestSchema,
+  googleAuthRequestSchema,
+  loginRequestSchema,
+  logoutRequestSchema,
+  reauthenticateRequestSchema,
+  refreshSessionRequestSchema,
+  registerRequestSchema,
+  resetPasswordRequestSchema,
+  twoFactorChallengeRequestSchema,
+  twoFactorCodeRequestSchema,
+  verifyEmailRequestSchema,
+} from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { signAccessToken } from '../../lib/tokens.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { buildOtpAuthUrl, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotpCode } from './totp.js';
 
 export const authRoutes = Router();
 
 const STARTING_CREDITS = 100;
 const RESET_TOKEN_BYTES = 32;
+const REFRESH_TOKEN_BYTES = 48;
+const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
+const TWO_FACTOR_CHALLENGE_BYTES = 32;
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -23,6 +40,43 @@ function hashToken(token: string) {
 
 function publicUserInclude() {
   return { profile: true, settings: true, wallet: true } as const;
+}
+
+function refreshTokenExpiresAt() {
+  return new Date(Date.now() + env.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
+}
+
+function emailVerificationExpiresAt() {
+  return new Date(Date.now() + env.emailVerificationTtlMinutes * 60 * 1000);
+}
+
+function twoFactorChallengeExpiresAt() {
+  return new Date(Date.now() + env.twoFactorChallengeTtlMinutes * 60 * 1000);
+}
+
+function sensitiveActionExpiresAt() {
+  return new Date(Date.now() + env.sensitiveActionTtlMinutes * 60 * 1000);
+}
+
+async function createSession(userId: string, userAgent?: string) {
+  const rawRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
+  const session = await prisma.session.create({
+    data: {
+      userId,
+      refreshToken: hashToken(rawRefreshToken),
+      userAgent: userAgent?.slice(0, 300) || null,
+      expiresAt: refreshTokenExpiresAt(),
+    }
+  });
+  return { session, refreshToken: rawRefreshToken };
+}
+
+function authResponse(user: any, sessionId: string, refreshToken?: string) {
+  return {
+    accessToken: signAccessToken({ sub: user.id, email: user.email, sid: sessionId }),
+    refreshToken,
+    user,
+  };
 }
 
 async function createStartingLedger(userId: string, walletId: string, description = 'Legacy demo balance created for older test accounts') {
@@ -59,44 +113,46 @@ async function ensureUserBootstrap(userId: string, displayName?: string | null) 
 }
 
 async function markLogin(userId: string) {
-  return prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() }, include: { profile: true } });
+  return prisma.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() }, include: publicUserInclude() });
 }
 
-function authResponse(user: NonNullable<Awaited<ReturnType<typeof markLogin>>>) {
-  return {
-    accessToken: signAccessToken({ sub: user.id, email: user.email }),
-    user
-  };
-}
-
-async function sendPasswordResetEmail(email: string, resetUrl: string) {
+async function sendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text: string }) {
   if (!env.resendApiKey) return { sent: false, reason: 'resend_not_configured' };
-
   let response: Response;
   try {
     response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${env.resendApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: env.emailFrom,
-        to: email,
-        subject: 'Reset your Hellowhen password',
-        html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a"><h1>Reset your Hellowhen password</h1><p>Use this link to set a new password. It expires in ${env.passwordResetTtlMinutes} minutes.</p><p><a href="${resetUrl}" style="display:inline-block;background:#0f766e;color:white;padding:12px 16px;border-radius:10px;text-decoration:none;font-weight:700">Reset password</a></p><p>If you did not request this, you can ignore this email.</p></div>`,
-        text: `Reset your Hellowhen password: ${resetUrl}\n\nThis link expires in ${env.passwordResetTtlMinutes} minutes.`
-      })
+      body: JSON.stringify({ from: env.emailFrom, to, subject, html, text })
     });
   } catch (error) {
-    console.error('Resend password reset request failed', error);
+    console.error('Resend request failed', error);
     return { sent: false, reason: 'resend_request_failed' };
   }
-
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    console.error('Resend password reset failed', response.status, body);
+    console.error('Resend email failed', response.status, body);
     return { sent: false, reason: 'resend_request_failed' };
   }
-
   return { sent: true };
+}
+
+async function sendPasswordResetEmail(email: string, resetUrl: string) {
+  return sendEmail({
+    to: email,
+    subject: 'Reset your Hellowhen password',
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a"><h1>Reset your Hellowhen password</h1><p>Use this link to set a new password. It expires in ${env.passwordResetTtlMinutes} minutes.</p><p><a href="${resetUrl}" style="display:inline-block;background:#0f766e;color:white;padding:12px 16px;border-radius:10px;text-decoration:none;font-weight:700">Reset password</a></p><p>If you did not request this, you can ignore this email.</p></div>`,
+    text: `Reset your Hellowhen password: ${resetUrl}\n\nThis link expires in ${env.passwordResetTtlMinutes} minutes.`
+  });
+}
+
+async function sendVerificationEmail(email: string, verificationUrl: string) {
+  return sendEmail({
+    to: email,
+    subject: 'Verify your Hellowhen email',
+    html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#0f172a"><h1>Verify your email</h1><p>Verify your email before using money features or requesting higher launch limits. This link expires in ${env.emailVerificationTtlMinutes} minutes.</p><p><a href="${verificationUrl}" style="display:inline-block;background:#0f766e;color:white;padding:12px 16px;border-radius:10px;text-decoration:none;font-weight:700">Verify email</a></p><p>If you did not request this, you can ignore this email.</p></div>`,
+    text: `Verify your Hellowhen email: ${verificationUrl}\n\nThis link expires in ${env.emailVerificationTtlMinutes} minutes.`
+  });
 }
 
 type GoogleTokenInfo = {
@@ -138,6 +194,46 @@ async function verifyGoogleIdToken(idToken: string) {
   return { sub: info.sub, email: normalizeEmail(info.email), displayName: info.name ?? null, avatarUrl: info.picture ?? null };
 }
 
+async function issueTwoFactorChallenge(userId: string) {
+  await prisma.twoFactorChallenge.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
+  const rawToken = crypto.randomBytes(TWO_FACTOR_CHALLENGE_BYTES).toString('base64url');
+  await prisma.twoFactorChallenge.create({ data: { userId, tokenHash: hashToken(rawToken), expiresAt: twoFactorChallengeExpiresAt() } });
+  return rawToken;
+}
+
+async function finishLogin(userId: string, userAgent?: string) {
+  const loggedInUser = await markLogin(userId);
+  const { session, refreshToken } = await createSession(userId, userAgent);
+  return authResponse(loggedInUser, session.id, refreshToken);
+}
+
+function needsTwoFactor(user: { twoFactorEnabled: boolean; role: 'user' | 'admin'; forceTwoFactor: boolean }) {
+  return user.twoFactorEnabled || user.forceTwoFactor || (user.role === 'admin' && env.adminRequireTwoFactor);
+}
+
+async function verifyUserTwoFactor(user: { id: string; twoFactorSecretEncrypted: string | null; twoFactorLastUsedStep: number | null; twoFactorRecoveryCodes: unknown }, code: string) {
+  const cleanCode = code.trim();
+  const recoveryCodes = Array.isArray(user.twoFactorRecoveryCodes) ? user.twoFactorRecoveryCodes as string[] : [];
+  const recoveryHash = hashRecoveryCode(cleanCode);
+  const recoveryIndex = recoveryCodes.findIndex((item) => item === recoveryHash);
+  if (recoveryIndex >= 0) {
+    const nextCodes = recoveryCodes.filter((_, index) => index !== recoveryIndex);
+    await prisma.user.update({ where: { id: user.id }, data: { twoFactorRecoveryCodes: nextCodes } });
+    return true;
+  }
+
+  if (!user.twoFactorSecretEncrypted) return false;
+  const secret = decryptTotpSecret(user.twoFactorSecretEncrypted);
+  const result = verifyTotpCode(secret, cleanCode, user.twoFactorLastUsedStep);
+  if (!result.ok || result.step === null) return false;
+  await prisma.user.update({ where: { id: user.id }, data: { twoFactorLastUsedStep: result.step } });
+  return true;
+}
+
+function freshAuthPayload() {
+  return { ok: true as const, sensitiveActionExpiresAt: sensitiveActionExpiresAt().toISOString() };
+}
+
 authRoutes.post('/register', asyncRoute(async (req, res) => {
   const input = registerRequestSchema.parse(req.body);
   const email = normalizeEmail(input.email);
@@ -160,8 +256,8 @@ authRoutes.post('/register', asyncRoute(async (req, res) => {
   });
 
   await createStartingLedger(user.id, user.wallet!.id);
-
-  res.status(201).json({ accessToken: signAccessToken({ sub: user.id, email: user.email }), user });
+  const { session, refreshToken } = await createSession(user.id, req.headers['user-agent']);
+  res.status(201).json(authResponse(user, session.id, refreshToken));
 }));
 
 authRoutes.post('/login', asyncRoute(async (req, res) => {
@@ -173,8 +269,25 @@ authRoutes.post('/login', asyncRoute(async (req, res) => {
     return res.status(401).json({ error: 'invalid_credentials' });
   }
 
-  const loggedInUser = await markLogin(user.id);
-  res.json(authResponse(loggedInUser));
+  if (needsTwoFactor(user)) {
+    if (!user.twoFactorEnabled) return res.status(403).json({ error: 'two_factor_required', message: 'Authenticator app verification is required before this account can continue.' });
+    const challengeToken = await issueTwoFactorChallenge(user.id);
+    return res.json({ requiresTwoFactor: true, challengeToken, message: 'Enter your authenticator app code to finish logging in.' });
+  }
+
+  res.json(await finishLogin(user.id, req.headers['user-agent']));
+}));
+
+authRoutes.post('/login/2fa', asyncRoute(async (req, res) => {
+  const input = twoFactorChallengeRequestSchema.parse(req.body);
+  const challenge = await prisma.twoFactorChallenge.findUnique({ where: { tokenHash: hashToken(input.challengeToken) } });
+  if (!challenge || challenge.usedAt || challenge.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+  const user = await prisma.user.findUnique({ where: { id: challenge.userId } });
+  if (!user || !user.twoFactorEnabled) return res.status(401).json({ error: 'invalid_two_factor_challenge' });
+  const ok = await verifyUserTwoFactor(user, input.code);
+  if (!ok) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted.' });
+  await prisma.twoFactorChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } });
+  res.json(await finishLogin(user.id, req.headers['user-agent']));
 }));
 
 authRoutes.post('/google', asyncRoute(async (req, res) => {
@@ -203,6 +316,9 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
           email: googleUser.email,
           passwordHash: null,
           emailVerifiedAt: new Date(),
+          trustTier: 'email_verified',
+          trustTierUpdatedAt: new Date(),
+          trustTierNote: 'Email verified by Google sign-in.',
           lastLoginAt: new Date(),
           profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
           settings: { create: {} },
@@ -217,13 +333,37 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
   }
 
   if (!userId) throw new Error('auth_google_user_missing');
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  if (needsTwoFactor(user)) {
+    if (!user.twoFactorEnabled) return res.status(403).json({ error: 'two_factor_required', message: 'Authenticator app verification is required before this account can continue.' });
+    const challengeToken = await issueTwoFactorChallenge(user.id);
+    return res.json({ requiresTwoFactor: true, challengeToken, message: 'Enter your authenticator app code to finish logging in.' });
+  }
 
   const bootstrapped = await ensureUserBootstrap(userId, googleUser.displayName);
   if (googleUser.avatarUrl && bootstrapped?.profile && !bootstrapped.profile.avatarUrl) {
     await prisma.profile.update({ where: { userId }, data: { avatarUrl: googleUser.avatarUrl } });
   }
-  const loggedInUser = await markLogin(userId);
-  res.json(authResponse(loggedInUser));
+  res.json(await finishLogin(userId, req.headers['user-agent']));
+}));
+
+authRoutes.post('/refresh', asyncRoute(async (req, res) => {
+  const input = refreshSessionRequestSchema.parse(req.body);
+  const tokenHash = hashToken(input.refreshToken);
+  const session = await prisma.session.findUnique({ where: { refreshToken: tokenHash }, include: { user: { include: publicUserInclude() } } });
+  if (!session || session.revokedAt || session.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_refresh_token' });
+  if (session.user.sessionRevokedAt && session.createdAt < session.user.sessionRevokedAt) return res.status(401).json({ error: 'session_revoked' });
+  const nextRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
+  const updated = await prisma.session.update({ where: { id: session.id }, data: { refreshToken: hashToken(nextRefreshToken), expiresAt: refreshTokenExpiresAt(), userAgent: req.headers['user-agent']?.slice(0, 300) || session.userAgent } });
+  res.json(authResponse(session.user, updated.id, nextRefreshToken));
+}));
+
+authRoutes.post('/logout', asyncRoute(async (req, res) => {
+  const input = logoutRequestSchema.parse(req.body ?? {});
+  if (input.refreshToken) {
+    await prisma.session.updateMany({ where: { refreshToken: hashToken(input.refreshToken), revokedAt: null }, data: { revokedAt: new Date() } });
+  }
+  res.json({ ok: true });
 }));
 
 authRoutes.post('/forgot-password', asyncRoute(async (req, res) => {
@@ -261,7 +401,8 @@ authRoutes.post('/reset-password', asyncRoute(async (req, res) => {
   if (!user) return res.status(400).json({ error: 'invalid_or_expired_reset_token', message: 'This reset link is invalid or expired. Request a new one from the login screen.' });
 
   await prisma.$transaction([
-    prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+    prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash, sessionRevokedAt: new Date(), sensitiveActionVerifiedAt: null } }),
+    prisma.session.updateMany({ where: { userId: resetToken.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
     prisma.userIdentity.upsert({ where: { provider_providerUserId: { provider: 'email', providerUserId: user.email } }, update: { userId: user.id, email: user.email }, create: { userId: user.id, provider: 'email', providerUserId: user.email, email: user.email } }),
     prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } })
   ]);
@@ -272,8 +413,101 @@ authRoutes.post('/reset-password', asyncRoute(async (req, res) => {
 authRoutes.get('/me', requireAuth, asyncRoute(async (req, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
-    include: { profile: true, settings: true, wallet: true }
+    include: publicUserInclude()
   });
 
+  if (!user) return res.status(401).json({ error: 'unauthorized' });
   res.json({ user });
+}));
+
+authRoutes.post('/verify-email/request', requireAuth, asyncRoute(async (req, res) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (user.emailVerifiedAt) return res.json({ ok: true, message: 'Email is already verified.', emailSent: false });
+  await prisma.emailVerificationToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
+  const rawToken = crypto.randomBytes(EMAIL_VERIFICATION_TOKEN_BYTES).toString('base64url');
+  await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash: hashToken(rawToken), expiresAt: emailVerificationExpiresAt() } });
+  await prisma.user.update({ where: { id: user.id }, data: { emailVerificationRequestedAt: new Date() } });
+  const verificationUrl = `${env.webAppUrl.replace(/\/$/, '')}/auth/verify-email?token=${encodeURIComponent(rawToken)}`;
+  const emailResult = await sendVerificationEmail(user.email, verificationUrl);
+  const devVerificationUrl = env.nodeEnv === 'development' && !emailResult.sent ? verificationUrl : undefined;
+  res.json({ ok: true, message: 'If email delivery is configured, a verification link has been sent.', emailSent: emailResult.sent, devVerificationUrl });
+}));
+
+authRoutes.post('/verify-email/confirm', asyncRoute(async (req, res) => {
+  const input = verifyEmailRequestSchema.parse(req.body);
+  const token = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(input.token) } });
+  if (!token || token.usedAt || token.expiresAt < new Date()) return res.status(400).json({ error: 'invalid_or_expired_verification_token', message: 'This email verification link is invalid or expired.' });
+  const now = new Date();
+  const user = await prisma.user.update({
+    where: { id: token.userId },
+    data: { emailVerifiedAt: now, trustTier: 'email_verified', trustTierUpdatedAt: now, trustTierNote: 'Email verified.' },
+    include: publicUserInclude()
+  });
+  await prisma.emailVerificationToken.update({ where: { id: token.id }, data: { usedAt: now } });
+  res.json({ ok: true, message: 'Email verified.', user });
+}));
+
+authRoutes.post('/2fa/setup', requireAuth, asyncRoute(async (req, res) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (user.twoFactorEnabled) return res.status(409).json({ error: 'two_factor_already_enabled', message: 'Authenticator app verification is already enabled.' });
+  const secret = generateTotpSecret();
+  await prisma.user.update({ where: { id: user.id }, data: { twoFactorSecretEncrypted: encryptTotpSecret(secret), twoFactorConfirmedAt: null, twoFactorRecoveryCodes: [] } });
+  res.json({ secret, otpauthUrl: buildOtpAuthUrl(user.email, secret), message: 'Add this secret to an authenticator app, then confirm the 6-digit code.' });
+}));
+
+authRoutes.post('/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
+  const input = twoFactorCodeRequestSchema.parse(req.body);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (!user.twoFactorSecretEncrypted) return res.status(400).json({ error: 'two_factor_setup_required', message: 'Start two-step setup first.' });
+  const secret = decryptTotpSecret(user.twoFactorSecretEncrypted);
+  const result = verifyTotpCode(secret, input.code, user.twoFactorLastUsedStep);
+  if (!result.ok || result.step === null) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted.' });
+  const recoveryCodes = generateRecoveryCodes();
+  await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true, twoFactorConfirmedAt: new Date(), twoFactorLastUsedStep: result.step, twoFactorRecoveryCodes: recoveryCodes.map(hashRecoveryCode) } });
+  res.json({ ok: true, recoveryCodes });
+}));
+
+authRoutes.post('/2fa/disable', requireAuth, asyncRoute(async (req, res) => {
+  const input = disableTwoFactorRequestSchema.parse(req.body);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (user.passwordHash) {
+    if (!input.password || !(await bcrypt.compare(input.password, user.passwordHash))) return res.status(401).json({ error: 'invalid_credentials', message: 'Enter your password to disable two-step verification.' });
+  }
+  if (user.twoFactorEnabled) {
+    if (!input.code) return res.status(401).json({ error: 'two_factor_code_required', message: 'Enter an authenticator or recovery code.' });
+    const ok = await verifyUserTwoFactor(user, input.code);
+    if (!ok) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted.' });
+  }
+  await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecretEncrypted: null, twoFactorConfirmedAt: null, twoFactorRecoveryCodes: [], twoFactorLastUsedStep: null } });
+  res.json({ ok: true });
+}));
+
+authRoutes.post('/reauthenticate', requireAuth, asyncRoute(async (req, res) => {
+  const input = reauthenticateRequestSchema.parse(req.body);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  let ok = false;
+  if (input.password && user.passwordHash) ok = await bcrypt.compare(input.password, user.passwordHash);
+  if (!ok && input.code && user.twoFactorEnabled) ok = await verifyUserTwoFactor(user, input.code);
+  if (!ok) return res.status(401).json({ error: 'reauthentication_failed', message: 'Fresh verification failed. Enter your password or authenticator code and try again.' });
+  await prisma.user.update({ where: { id: user.id }, data: { sensitiveActionVerifiedAt: new Date() } });
+  res.json(freshAuthPayload());
+}));
+
+authRoutes.get('/sessions', requireAuth, asyncRoute(async (req, res) => {
+  const sessions = await prisma.session.findMany({ where: { userId: req.user!.id }, orderBy: { createdAt: 'desc' }, take: 50 });
+  res.json({ sessions: sessions.map((session) => ({ id: session.id, createdAt: session.createdAt, updatedAt: session.updatedAt, expiresAt: session.expiresAt, revokedAt: session.revokedAt, userAgent: session.userAgent })) });
+}));
+
+authRoutes.delete('/sessions/:sessionId', requireAuth, asyncRoute(async (req, res) => {
+  await prisma.session.updateMany({ where: { id: req.params.sessionId, userId: req.user!.id, revokedAt: null }, data: { revokedAt: new Date() } });
+  res.json({ ok: true });
+}));
+
+authRoutes.post('/logout-all', requireAuth, asyncRoute(async (req, res) => {
+  const now = new Date();
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: req.user!.id }, data: { sessionRevokedAt: now, sensitiveActionVerifiedAt: null } }),
+    prisma.session.updateMany({ where: { userId: req.user!.id, revokedAt: null }, data: { revokedAt: now } })
+  ]);
+  res.json({ ok: true });
 }));

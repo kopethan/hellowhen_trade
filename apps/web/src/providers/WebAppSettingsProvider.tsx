@@ -7,6 +7,8 @@ import { api } from '../lib/api';
 const SETTINGS_STORAGE_KEY = 'hellowhen_app_settings_v1';
 const LEGACY_APPEARANCE_KEY = 'hellowhen:appearance';
 
+type SettingsResponse = { settings?: Partial<AppSettings> | null };
+
 const defaultSettings: AppSettings = {
   appearance: 'system',
   language: 'en',
@@ -33,6 +35,13 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     language: value?.language || defaultSettings.language,
     notificationsEnabled: typeof value?.notificationsEnabled === 'boolean' ? value.notificationsEnabled : defaultSettings.notificationsEnabled,
   };
+}
+
+function unwrapSettingsResponse(value: unknown) {
+  if (value && typeof value === 'object' && 'settings' in value) {
+    return (value as SettingsResponse).settings;
+  }
+  return value as Partial<AppSettings> | null | undefined;
 }
 
 function resolveTheme(appearance: AppSettings['appearance']) {
@@ -92,12 +101,17 @@ export function WebAppSettingsProvider({ children }: { children: React.ReactNode
     applyTheme(normalized.appearance);
 
     if (options?.syncRemote) {
-      await api.settings.updateMe(normalized);
+      const response = await api.settings.updateMe(normalized) as SettingsResponse;
+      const remote = normalizeSettings(unwrapSettingsResponse(response));
+      setSettingsState(remote);
+      saveSettings(remote);
+      applyTheme(remote.appearance);
     }
   }, []);
 
   const refreshSettings = useCallback(async () => {
-    const remote = normalizeSettings(await api.settings.me() as Partial<AppSettings>);
+    const response = await api.settings.me() as SettingsResponse;
+    const remote = normalizeSettings(unwrapSettingsResponse(response));
     setSettingsState(remote);
     saveSettings(remote);
     applyTheme(remote.appearance);

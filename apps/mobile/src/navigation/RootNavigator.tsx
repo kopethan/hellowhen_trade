@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { ActivityIndicator, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountScreen } from '../features/account/AccountScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
@@ -81,6 +82,11 @@ function TradeTabs() {
 
 export function RootNavigator() {
   const auth = useAuth();
+  const theme = useThemeTokens();
+
+  if (!auth.hydrated) {
+    return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.background }}><ActivityIndicator /></View>;
+  }
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
