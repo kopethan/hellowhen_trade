@@ -1,7 +1,8 @@
 import { env } from '../../config/env.js';
+import { buildMoneyProviderStatus } from './providers/moneyProviderRegistry.js';
 
 type MoneyLaunchMode = 'disabled' | 'demo' | 'private_beta' | 'production';
-type MoneySafetyAction = 'money_trade' | 'wallet_top_up' | 'payout_account' | 'payout_request' | 'stripe_transfer';
+type MoneySafetyAction = 'money_trade' | 'wallet_top_up' | 'wallet_balance_sync' | 'payout_account' | 'payout_request' | 'provider_trade_money' | 'provider_transfer' | 'stripe_transfer';
 type PrismaLike = {
   moneyPolicyAcknowledgement: {
     findFirst(args: unknown): Promise<any>;
@@ -34,9 +35,34 @@ export function buildGlobalMoneySafetyConfig() {
   const payoutsVisible = moneyFeaturesVisible && Boolean(env.payoutsVisible);
   const moneyTradesEnabled = moneyFeaturesVisible && Boolean(env.moneyTradesEnabled);
   const cashTradesEnabled = moneyFeaturesVisible && Boolean(env.cashTradesEnabled);
-  const realMoneyEnabled = moneyFeaturesVisible && launchMode === 'production' && productionSwitchEnabled;
+  const providerStatus = buildMoneyProviderStatus();
+  const providerIsNone = providerStatus.provider === 'none';
+  const providerConfigured = providerStatus.configured;
+  const realMoneyEnabled = moneyFeaturesVisible && launchMode === 'production' && productionSwitchEnabled && !providerIsNone && providerConfigured;
+  const providerTradeMoneyEnabled = moneyFeaturesVisible
+    && Boolean(env.moneyProviderTradeMoneyEnabled)
+    && !providerIsNone
+    && providerConfigured
+    && providerStatus.capabilities.includes('trade_holds');
+  const providerPayoutsFlagEnabled = moneyFeaturesVisible
+    && Boolean(env.moneyProviderPayoutsEnabled)
+    && !providerIsNone
+    && providerConfigured
+    && providerStatus.capabilities.includes('payouts');
+  const providerCanMovePayouts = providerStatus.provider === 'stripe'
+    ? Boolean(env.stripeConnectTransferMode)
+    : providerStatus.provider === 'airwallex';
+  const sandboxPayoutsAllowed = providerStatus.sandboxOnly && (launchMode === 'demo' || launchMode === 'private_beta');
+  const providerTransfersEnabled = providerPayoutsFlagEnabled
+    && providerCanMovePayouts
+    && (realMoneyEnabled || sandboxPayoutsAllowed);
   return {
     launchMode,
+    moneyProvider: providerStatus.provider,
+    moneyProviderEnvironment: providerStatus.environment,
+    moneyProviderConfigured: providerConfigured,
+    moneyProviderSandboxOnly: providerStatus.sandboxOnly,
+    moneyProviderCapabilities: providerStatus.capabilities,
     policyVersion: env.moneyPolicyVersion,
     walletTermsVersion: env.moneyWalletTermsVersion,
     payoutTermsVersion: env.moneyPayoutTermsVersion,
@@ -52,7 +78,10 @@ export function buildGlobalMoneySafetyConfig() {
     realMoneyEnabled,
     productionSwitchEnabled,
     privateBetaAllowlistCount: privateBetaUserIds.length,
-    stripeTransfersEnabled: realMoneyEnabled && env.stripeConnectTransferMode,
+    providerTradeMoneyEnabled,
+    providerTransfersEnabled,
+    providerWalletSyncEnabled: moneyFeaturesVisible && Boolean(env.moneyProviderWalletSyncEnabled) && !providerIsNone && providerConfigured,
+    stripeTransfersEnabled: providerStatus.provider === 'stripe' && providerTransfersEnabled,
     demoMoneyEnabled: moneyFeaturesVisible && (launchMode === 'demo' || launchMode === 'private_beta' || launchMode === 'production'),
   };
 }
@@ -67,7 +96,10 @@ export async function buildMoneySafetyStatus(prisma: PrismaLike, userId: string)
   const policyAcknowledged = !config.policyAcknowledgementRequired || Boolean(acknowledgement);
   const realMoneyEnabled = config.realMoneyEnabled && privateBetaAllowed;
   const demoMoneyEnabled = config.demoMoneyEnabled && privateBetaAllowed;
-  const stripeTransfersEnabled = realMoneyEnabled && env.stripeConnectTransferMode;
+  const providerTradeMoneyEnabled = config.providerTradeMoneyEnabled && privateBetaAllowed && policyAcknowledged;
+  const providerTransfersEnabled = config.providerTransfersEnabled && privateBetaAllowed;
+  const providerWalletSyncEnabled = config.providerWalletSyncEnabled && privateBetaAllowed;
+  const stripeTransfersEnabled = config.moneyProvider === 'stripe' && providerTransfersEnabled;
   const message = config.launchMode === 'disabled'
     ? 'Money features are disabled for this launch.'
     : !privateBetaAllowed
@@ -84,6 +116,9 @@ export async function buildMoneySafetyStatus(prisma: PrismaLike, userId: string)
     acknowledgedAt: acknowledgement?.acknowledgedAt ? acknowledgement.acknowledgedAt.toISOString() : null,
     realMoneyEnabled,
     demoMoneyEnabled,
+    providerTradeMoneyEnabled,
+    providerTransfersEnabled,
+    providerWalletSyncEnabled,
     stripeTransfersEnabled,
     message,
   };
@@ -124,8 +159,13 @@ export function getMoneySafetyBlock(status: Awaited<ReturnType<typeof buildMoney
   if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return { statusCode: 403, error: 'money_policy_acknowledgement_required', message: 'Review and accept the wallet, payout, refund, and dispute policies before using money features.' };
   if (action === 'money_trade' && !status.moneyTradesEnabled) return { statusCode: 403, error: 'money_trades_disabled', message: 'Money trades are disabled for the beta launch.' };
   if (action === 'wallet_top_up' && !status.walletVisible) return { statusCode: 403, error: 'wallet_disabled', message: 'Wallet top-ups are disabled for the beta launch.' };
+  if (action === 'wallet_balance_sync' && !status.walletVisible) return { statusCode: 403, error: 'wallet_disabled', message: 'Provider wallet balance sync is disabled for the beta launch.' };
   if ((action === 'payout_account' || action === 'payout_request') && !status.payoutsVisible) return { statusCode: 403, error: 'payouts_disabled', message: 'Payouts are disabled for the beta launch.' };
-  if ((action === 'wallet_top_up' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request') && !status.demoMoneyEnabled) return { statusCode: 403, error: 'money_features_unavailable', message: 'Money features are not available in the current launch mode.' };
+  if ((action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request') && !status.demoMoneyEnabled) return { statusCode: 403, error: 'money_features_unavailable', message: 'Money features are not available in the current launch mode.' };
+  if (status.moneyProvider === 'none' && (action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request' || action === 'provider_trade_money' || action === 'provider_transfer' || action === 'stripe_transfer')) return { statusCode: 403, error: 'money_provider_none', message: 'Money provider is set to none for the beta money-off launch.' };
+  if (action === 'wallet_balance_sync' && !status.providerWalletSyncEnabled) return { statusCode: 403, error: 'provider_wallet_sync_disabled', message: 'Provider wallet balance sync is disabled by launch safety settings.' };
+  if (action === 'provider_trade_money' && !status.providerTradeMoneyEnabled) return { statusCode: 403, error: 'provider_trade_money_disabled', message: 'Provider trade-money sandbox movement is disabled by launch safety settings.' };
+  if (action === 'provider_transfer' && !status.providerTransfersEnabled) return { statusCode: 403, error: 'provider_transfers_disabled', message: 'Provider transfers are disabled by launch safety settings.' };
   if (action === 'stripe_transfer' && !status.stripeTransfersEnabled) return { statusCode: 403, error: 'stripe_transfers_disabled', message: 'Stripe transfers are disabled by launch safety settings.' };
   return null;
 }

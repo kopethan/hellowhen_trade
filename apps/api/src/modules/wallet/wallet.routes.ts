@@ -1,11 +1,13 @@
-import { Router } from 'express';
-import { acknowledgeMoneySafetyRequestSchema, demoPayoutRequestSchema, demoTopUpRequestSchema } from '@hellowhen/contracts';
+import { Router, type Response } from 'express';
+import { acknowledgeMoneySafetyRequestSchema, demoPayoutRequestSchema, demoTopUpRequestSchema, moneyProviderOnboardingLinkRequestSchema, moneyProviderWalletBalancesSyncRequestSchema } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
 import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
 import { acknowledgeMoneySafety, buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
+import { getActiveMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { createStripeConnectOnboardingLink, createStripeTransferForPayout, isStripeConnectConfigured, syncStripeConnectAccountByAccountId } from '../stripe/stripeConnect.js';
 
 export const walletRoutes = Router();
@@ -61,6 +63,15 @@ async function hasDemoPayoutAccount(userId: string) {
   return marker;
 }
 
+async function getActiveProviderAccountRecordForUser(userId: string) {
+  const provider = getActiveMoneyProvider();
+  if (provider.provider === 'none' || provider.provider === 'stripe') return null;
+  return prisma.moneyProviderAccount.findFirst({
+    where: { userId, provider: provider.provider, status: { in: ['pending', 'active'] } },
+    orderBy: { updatedAt: 'desc' },
+  });
+}
+
 function mapStripeConnectPayoutAccount(account: null | { status: string; payoutsEnabled: boolean; chargesEnabled: boolean; detailsSubmitted: boolean; createdAt: Date; onboardingCompletedAt: Date | null; stripeAccountId: string; currentlyDue: string[]; eventuallyDue: string[]; pastDue: string[]; disabledReason: string | null; defaultCurrency: string | null; country: string | null; lastSyncedAt: Date | null }) {
   if (!account) return null;
   const status = account.status === 'enabled' && account.payoutsEnabled
@@ -97,6 +108,13 @@ async function buildPayoutSummary(userId: string) {
   const payouts = await prisma.payoutRequest.findMany({ where: { userId }, orderBy: { requestedAt: 'desc' }, take: 25 });
   const connectedMarker = await hasDemoPayoutAccount(userId);
   const stripeConnectAccount = await prisma.stripeConnectAccount.findUnique({ where: { userId } });
+  const activeProvider = getActiveMoneyProvider();
+  const activeProviderAccount = activeProvider.provider === 'stripe'
+    ? null
+    : await activeProvider.getConnectedAccount(userId).catch(() => null);
+  const activeProviderBalances = activeProvider.provider === 'none'
+    ? []
+    : (await activeProvider.getWalletBalances({ userId }).catch(() => ({ balances: [] }))).balances;
   const platformFeeRateBps = getPayoutPlatformFeeRateBps();
   const limits = await buildLaunchLimits(prisma, userId);
   const pendingPayouts = payouts.filter((payout) => ['requested', 'approved'].includes(payout.status));
@@ -109,6 +127,7 @@ async function buildPayoutSummary(userId: string) {
   const paidOutNetCents = paidPayouts.reduce((sum, payout) => sum + getPayoutNetCents(payout), 0);
   const estimatedPlatformFeeCents = calculatePayoutPlatformFeeCents(wallet.pendingPayoutCents, platformFeeRateBps);
   const estimatedNetPayoutCents = Math.max(0, wallet.pendingPayoutCents - estimatedPlatformFeeCents);
+  const moneySafety = await buildMoneySafetyStatus(prisma, userId);
 
   return {
     wallet,
@@ -128,22 +147,29 @@ async function buildPayoutSummary(userId: string) {
       paidOutGrossCents,
       paidOutFeeCents,
       paidOutNetCents,
-      payoutAccount: mapStripeConnectPayoutAccount(stripeConnectAccount) ?? {
+      payoutAccount: activeProviderAccount ?? mapStripeConnectPayoutAccount(stripeConnectAccount) ?? {
         provider: 'stripe_demo' as const,
         status: connectedMarker ? 'connected' as const : 'not_connected' as const,
         connectedAt: connectedMarker ? connectedMarker.createdAt.toISOString() : null,
       },
+      moneyProviderConfigured: activeProvider.isConfigured(),
+      providerTransferMode: moneySafety.providerTransfersEnabled,
+      providerWalletBalances: activeProviderBalances,
       stripeConnectConfigured: isStripeConnectConfigured(),
       stripeConnectTransferMode: env.stripeConnectTransferMode,
       limits,
-      moneySafety: await buildMoneySafetyStatus(prisma, userId)
+      moneySafety
     }
   };
 }
 
 walletRoutes.get('/me', asyncRoute(async (req, res) => {
   const wallet = await ensureWallet(req.user!.id);
-  res.json({ wallet });
+  const provider = getActiveMoneyProvider();
+  const providerBalances = provider.provider === 'none'
+    ? []
+    : (await provider.getWalletBalances({ userId: req.user!.id }).catch(() => ({ balances: [] }))).balances;
+  res.json({ wallet, provider: provider.getPublicStatus(), providerBalances });
 }));
 
 walletRoutes.get('/ledger', asyncRoute(async (req, res) => {
@@ -169,6 +195,71 @@ walletRoutes.post('/money-safety/acknowledge', asyncRoute(async (req, res) => {
 walletRoutes.get('/payouts', asyncRoute(async (req, res) => {
   const { wallet, payouts, summary } = await buildPayoutSummary(req.user!.id);
   res.json({ wallet, payouts, summary });
+}));
+
+function providerErrorResponse(res: Response, error: unknown) {
+  if (error instanceof MoneyProviderError) {
+    return res.status(error.statusCode).json({ error: error.code, message: error.publicMessage });
+  }
+  throw error;
+}
+
+walletRoutes.get('/provider-account', asyncRoute(async (req, res) => {
+  const provider = getActiveMoneyProvider();
+  const account = await provider.getConnectedAccount(req.user!.id);
+  res.json({ provider: provider.getPublicStatus(), account });
+}));
+
+walletRoutes.post('/provider-account/onboarding-link', requireFreshSensitiveAction, asyncRoute(async (req, res) => {
+  const userId = req.user!.id;
+  const moneySafety = await buildMoneySafetyStatus(prisma, userId);
+  const block = getMoneySafetyBlock(moneySafety, 'payout_account');
+  if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
+  const provider = getActiveMoneyProvider();
+  try {
+    const input = moneyProviderOnboardingLinkRequestSchema.parse(req.body ?? {});
+    const result = await provider.createOnboardingLink({ userId, returnUrl: input.returnUrl, refreshUrl: input.refreshUrl });
+    res.status(201).json({ ...result, providerConfigured: provider.isConfigured() });
+  } catch (error) {
+    return providerErrorResponse(res, error);
+  }
+}));
+
+walletRoutes.post('/provider-account/sync', asyncRoute(async (req, res) => {
+  const provider = getActiveMoneyProvider();
+  try {
+    const account = await provider.syncConnectedAccountStatus({ userId: req.user!.id });
+    const summary = await buildPayoutSummary(req.user!.id);
+    res.json({ ...summary, provider: provider.getPublicStatus(), providerAccount: account });
+  } catch (error) {
+    return providerErrorResponse(res, error);
+  }
+}));
+
+
+walletRoutes.get('/provider-balances', asyncRoute(async (req, res) => {
+  const provider = getActiveMoneyProvider();
+  try {
+    const result = await provider.getWalletBalances({ userId: req.user!.id });
+    res.json({ provider: provider.getPublicStatus(), ...result, moneySafety: await buildMoneySafetyStatus(prisma, req.user!.id) });
+  } catch (error) {
+    return providerErrorResponse(res, error);
+  }
+}));
+
+walletRoutes.post('/provider-balances/sync', requireFreshSensitiveAction, asyncRoute(async (req, res) => {
+  const userId = req.user!.id;
+  const moneySafety = await buildMoneySafetyStatus(prisma, userId);
+  const block = getMoneySafetyBlock(moneySafety, 'wallet_balance_sync');
+  if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
+  const provider = getActiveMoneyProvider();
+  try {
+    const input = moneyProviderWalletBalancesSyncRequestSchema.parse(req.body ?? {});
+    const result = await provider.syncWalletBalances({ userId, scaToken: input.scaToken });
+    res.json({ provider: provider.getPublicStatus(), ...result, moneySafety });
+  } catch (error) {
+    return providerErrorResponse(res, error);
+  }
 }));
 
 walletRoutes.get('/stripe-connect', asyncRoute(async (req, res) => {
@@ -240,9 +331,17 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
   if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
   const currency = input.currency.toLowerCase();
   const connected = await hasDemoPayoutAccount(userId);
-  const stripeConnectAccount = await prisma.stripeConnectAccount.findUnique({ where: { userId } });
-  const stripeConnectReady = Boolean(stripeConnectAccount?.payoutsEnabled && ['enabled', 'pending'].includes(stripeConnectAccount.status));
-  if (!connected && !stripeConnectReady) return res.status(400).json({ error: 'payout_account_required', message: isStripeConnectConfigured() ? 'Complete Stripe Connect test onboarding first.' : 'Connect the Stripe demo payout account first.' });
+  const activeProvider = getActiveMoneyProvider();
+  const [stripeConnectAccount, providerAccount] = await Promise.all([
+    prisma.stripeConnectAccount.findUnique({ where: { userId } }),
+    getActiveProviderAccountRecordForUser(userId),
+  ]);
+  const stripeConnectReady = activeProvider.provider === 'stripe' && Boolean(stripeConnectAccount?.payoutsEnabled && ['enabled', 'pending'].includes(stripeConnectAccount.status));
+  const providerReady = Boolean(providerAccount && activeProvider.provider !== 'none' && activeProvider.provider !== 'stripe');
+  if (!connected && !stripeConnectReady && !providerReady) {
+    const providerLabel = activeProvider.provider === 'airwallex' ? 'Airwallex sandbox connected account' : isStripeConnectConfigured() ? 'Stripe Connect test onboarding' : 'Stripe demo payout account';
+    return res.status(400).json({ error: 'payout_account_required', message: `Complete ${providerLabel} first.` });
+  }
 
   const openDispute = await prisma.trade.findFirst({
     where: { status: 'disputed', payment: { is: { sellerId: userId, status: { in: ['held', 'released'] } } } },
@@ -269,23 +368,23 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
 
   const payout = await prisma.$transaction(async (tx) => {
     const wallet = await tx.wallet.update({ where: { id: currentWallet.id }, data: { pendingPayoutCents: { decrement: grossAmountCents } } });
-    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: manualReview ? 'requested' : 'paid', reviewedAt: manualReview ? null : new Date(), paidAt: manualReview ? null : new Date(), notes: manualReview ? 'Manual payout review required by launch safety settings.' : stripeConnectReady && moneySafety.stripeTransfersEnabled ? 'Stripe Connect test transfer requested. No live bank payout was sent.' : 'Stripe demo payout simulation. No real bank transfer was sent.', stripeConnectAccountId: stripeConnectAccount?.id ?? null, stripeExternalStatus: manualReview ? 'manual_review_requested' : stripeConnectReady ? 'connect_ready' : 'demo_paid' } });
+    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: manualReview ? 'requested' : 'paid', reviewedAt: manualReview ? null : new Date(), paidAt: manualReview ? null : new Date(), notes: manualReview ? 'Manual payout review required by launch safety settings.' : (stripeConnectReady || providerReady) && moneySafety.providerTransfersEnabled ? 'Provider sandbox transfer requested. No production bank payout was sent.' : 'Stripe demo payout simulation. No real bank transfer was sent.', stripeConnectAccountId: stripeConnectAccount?.id ?? null, stripeExternalStatus: manualReview ? 'manual_review_requested' : stripeConnectReady ? 'connect_ready' : 'demo_paid', provider: providerReady ? activeProvider.provider : stripeConnectReady ? 'stripe' : undefined, providerAccountId: providerAccount?.id ?? null, providerExternalStatus: manualReview ? 'manual_review_requested' : providerReady ? 'provider_ready' : null } });
     if (platformFeeCents > 0) {
-      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: !stripeConnectReady, stripeConnectTest: stripeConnectReady, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
+      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: !stripeConnectReady && !providerReady, stripeConnectTest: stripeConnectReady, provider: providerReady ? activeProvider.provider : null, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
     }
-    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: manualReview ? 'Payout request held for manual review after platform fee.' : stripeConnectReady && moneySafety.stripeTransfersEnabled ? 'Stripe Connect test transfer after platform fee.' : 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: !stripeConnectReady, stripeConnectTest: stripeConnectReady, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
+    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: manualReview ? 'Payout request held for manual review after platform fee.' : (stripeConnectReady || providerReady) && moneySafety.providerTransfersEnabled ? 'Provider sandbox payout transfer after platform fee.' : 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: !stripeConnectReady && !providerReady, stripeConnectTest: stripeConnectReady, provider: providerReady ? activeProvider.provider : null, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
     return payout;
   });
 
-  if (!manualReview && stripeConnectReady && moneySafety.stripeTransfersEnabled) {
+  if (!manualReview && (stripeConnectReady || providerReady) && moneySafety.providerTransfersEnabled) {
     try {
-      const transfer = await createStripeTransferForPayout({ userId, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, currency });
+      const transfer = await activeProvider.createPayoutTransfer({ userId, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, currency, requestedById: userId });
       if (transfer) {
-        await prisma.payoutRequest.update({ where: { id: payout.id }, data: { notes: 'Stripe Connect test transfer created. Connected account payout timing is managed by Stripe test mode.', stripeExternalStatus: 'transfer_created' } });
+        await prisma.payoutRequest.update({ where: { id: payout.id }, data: { notes: 'Provider sandbox transfer created. Connected account payout timing is managed by the selected provider test mode.', stripeExternalStatus: activeProvider.provider === 'stripe' ? 'transfer_created' : undefined, providerExternalStatus: transfer.externalStatus ?? transfer.status, providerTransferId: transfer.providerTransactionId ?? transfer.id, providerPayoutId: transfer.id } });
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Stripe transfer failed';
-      await prisma.payoutRequest.update({ where: { id: payout.id }, data: { stripeExternalStatus: 'transfer_failed', stripeFailureMessage: message } }).catch(() => null);
+      const message = error instanceof Error ? error.message : 'Provider transfer failed';
+      await prisma.payoutRequest.update({ where: { id: payout.id }, data: { stripeExternalStatus: activeProvider.provider === 'stripe' ? 'transfer_failed' : undefined, stripeFailureMessage: activeProvider.provider === 'stripe' ? message : undefined, providerExternalStatus: activeProvider.provider !== 'stripe' ? 'transfer_failed' : undefined, providerFailureMessage: activeProvider.provider !== 'stripe' ? message : undefined } }).catch(() => null);
     }
   }
 

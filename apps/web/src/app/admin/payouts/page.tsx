@@ -34,14 +34,47 @@ type AdminPayoutEvent = {
   createdAt: string;
   admin?: { email?: string; profile?: { displayName?: string | null } | null } | null;
 };
-type AdminPayout = PayoutRequestDto & { user?: AdminUser; stripeConnectAccount?: StripeConnectAccount | null; adminEvents?: AdminPayoutEvent[] };
+type ProviderAccount = {
+  id: string;
+  provider: string;
+  providerAccountId: string;
+  status: string;
+  accountType?: string | null;
+  defaultCurrency?: string | null;
+  country?: string | null;
+  lastSyncedAt?: string | null;
+};
+type ProviderTransaction = {
+  id: string;
+  provider: string;
+  providerTransactionId: string;
+  type: string;
+  status: string;
+  amountCents: number;
+  currency: string;
+  payoutRequestId?: string | null;
+  rawProviderStatus?: unknown;
+  createdAt: string;
+};
+type ProviderEvent = {
+  id: string;
+  provider: string;
+  providerEventId: string;
+  eventType: string;
+  processingStatus?: string;
+  status?: string;
+  providerAccountId?: string | null;
+  error?: string | null;
+  createdAt: string;
+};
+type AdminPayout = PayoutRequestDto & { user?: AdminUser; stripeConnectAccount?: StripeConnectAccount | null; providerAccount?: ProviderAccount | null; providerTransactions?: ProviderTransaction[]; adminEvents?: AdminPayoutEvent[] };
 type LedgerEntry = { id: string; type: string; balanceType: string; amountCents: number; currency: string; description?: string | null; createdAt: string };
 type SupportTicket = { id: string; subject: string; status: string; priority: string; category: string; updatedAt: string; _count?: { messages: number } };
 type StripeEvent = { id: string; stripeEventId: string; type: string; processingStatus: string; stripeAccountId?: string | null; objectId?: string | null; error?: string | null; createdAt: string };
 type Limits = { trustTier: string; effectiveTrustTier: string; weeklyPayoutCapCents: number; weeklyRequestedPayoutGrossCents: number; minimumPayoutCents: number; payoutsEnabled: boolean };
 type PayoutsResponse = { payouts: AdminPayout[]; summary?: { byStatus?: Array<{ status: PayoutRequestStatus; _count: { _all: number }; _sum: { grossAmountCents?: number | null; platformFeeCents?: number | null; netAmountCents?: number | null } }> } };
-type DetailResponse = { payout: AdminPayout; ledgerEntries: LedgerEntry[]; supportTickets: SupportTicket[]; stripeEvents: StripeEvent[]; userLimits?: Limits };
-type MoneySafetyAdmin = { config: { launchMode: string; policyVersion: string; realMoneyEnabled: boolean; stripeTransfersEnabled: boolean; requiresManualPayoutReview: boolean; productionSwitchEnabled: boolean; privateBetaAllowlistCount: number }; metrics?: { acknowledgementCount?: number; walletCount?: number; walletAggregate?: { _sum?: { availableBalanceCents?: number | null; heldBalanceCents?: number | null; pendingPayoutCents?: number | null } }; payoutsByStatus?: Array<{ status: string; _count: { _all: number } }> } };
+type DetailResponse = { payout: AdminPayout; ledgerEntries: LedgerEntry[]; supportTickets: SupportTicket[]; stripeEvents: StripeEvent[]; providerEvents?: ProviderEvent[]; providerTransactions?: ProviderTransaction[]; userLimits?: Limits };
+type MoneySafetyAdmin = { config: { launchMode: string; moneyProvider?: string; moneyProviderEnvironment?: string; moneyProviderSandboxOnly?: boolean; policyVersion: string; realMoneyEnabled: boolean; providerTransfersEnabled?: boolean; stripeTransfersEnabled: boolean; requiresManualPayoutReview: boolean; productionSwitchEnabled: boolean; privateBetaAllowlistCount: number }; metrics?: { acknowledgementCount?: number; walletCount?: number; walletAggregate?: { _sum?: { availableBalanceCents?: number | null; heldBalanceCents?: number | null; pendingPayoutCents?: number | null } }; payoutsByStatus?: Array<{ status: string; _count: { _all: number } }> } };
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const statuses: AdminPayoutStatusFilter[] = ['all', 'requested', 'approved', 'paid', 'rejected', 'cancelled', 'draft'];
@@ -86,6 +119,7 @@ export default function AdminPayoutsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailResponse | null>(null);
   const [note, setNote] = useState('');
+  const [scaToken, setScaToken] = useState('');
   const [trustTier, setTrustTier] = useState<UserTrustTier>('new');
   const [trustNote, setTrustNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -155,17 +189,38 @@ export default function AdminPayoutsPage() {
     setLoading(true);
     setMessage(null);
     try {
-      const response = await fetch(`${apiBase}/admin/payouts/${detail.payout.id}/action`, { method: 'PATCH', headers, body: JSON.stringify({ action, note }) });
+      const response = await fetch(`${apiBase}/admin/payouts/${detail.payout.id}/action`, { method: 'PATCH', headers, body: JSON.stringify({ action, note, scaToken: scaToken.trim() || undefined }) });
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { message?: string } | null;
         throw new Error(body?.message ?? `Could not run payout action: ${action}`);
       }
       setNote('');
+      setScaToken('');
       setMessage(`Payout action saved: ${action}.`);
       await loadPayouts(status);
       await loadDetail(detail.payout.id);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not update payout');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function syncProviderPayout() {
+    if (!token || !detail) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`${apiBase}/admin/payouts/${detail.payout.id}/provider-sync`, { method: 'POST', headers, body: JSON.stringify({ scaToken: scaToken.trim() || undefined }) });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(body?.message ?? 'Could not sync provider payout.');
+      }
+      setMessage('Provider payout status synced.');
+      await loadPayouts(status);
+      await loadDetail(detail.payout.id);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not sync provider payout');
     } finally {
       setLoading(false);
     }
@@ -194,7 +249,7 @@ export default function AdminPayoutsPage() {
         <div>
           <span className="semantic-badge admin">Admin payouts</span>
           <h1>Payout console</h1>
-          <p className="notice-box admin">Review payout requests, Stripe Connect test status, related support tickets, ledger entries, and admin audit notes before real-money launch.</p>
+          <p className="notice-box admin">Review payout requests, provider sandbox status, related support tickets, ledger entries, and admin audit notes before real-money launch.</p>
         </div>
         <div className="form-row">
           <div className="admin-console__login-grid">
@@ -222,7 +277,7 @@ export default function AdminPayoutsPage() {
           <article className="admin-metric-card">
             <span className={`semantic-badge ${moneySafety.config.realMoneyEnabled ? 'danger' : 'success'}`}>Production money</span>
             <strong>{moneySafety.config.realMoneyEnabled ? 'On' : 'Off'}</strong>
-            <p>Stripe transfers {moneySafety.config.stripeTransfersEnabled ? 'enabled' : 'disabled'} · production switch {moneySafety.config.productionSwitchEnabled ? 'on' : 'off'}</p>
+            <p>Provider {moneySafety.config.moneyProvider ?? 'none'} · transfers {moneySafety.config.providerTransfersEnabled ? 'enabled' : 'disabled'} · production switch {moneySafety.config.productionSwitchEnabled ? 'on' : 'off'}</p>
           </article>
           <article className="admin-metric-card">
             <span className="semantic-badge warning">Manual review</span>
@@ -273,17 +328,21 @@ export default function AdminPayoutsPage() {
                   <span><small>Net payout</small><strong>{formatWebMoney(selectedPayout.netAmountCents, selectedPayout.currency)}</strong></span>
                 </div>
                 <p className="meta">Requested {formatWebDateTime(selectedPayout.requestedAt)} · Reviewed {formatWebDateTime(selectedPayout.reviewedAt)} · Paid {formatWebDateTime(selectedPayout.paidAt)}</p>
+                {selectedPayout.provider ? <p className="notice-box info">Provider: {selectedPayout.provider} · status {selectedPayout.providerExternalStatus ?? 'not synced'} · transfer {selectedPayout.providerTransferId ?? selectedPayout.providerPayoutId ?? 'not created'}</p> : null}
+                {selectedPayout.providerFailureMessage ? <p className="notice-box danger">{selectedPayout.providerFailureCode ? `${selectedPayout.providerFailureCode}: ` : ''}{selectedPayout.providerFailureMessage}</p> : null}
                 {selectedPayout.stripeExternalStatus ? <p className="notice-box info">Stripe/external status: {selectedPayout.stripeExternalStatus}</p> : null}
                 {selectedPayout.stripeFailureMessage ? <p className="notice-box danger">{selectedPayout.stripeFailureCode ? `${selectedPayout.stripeFailureCode}: ` : ''}{selectedPayout.stripeFailureMessage}</p> : null}
               </div>
 
               <div className="card admin-action-card">
                 <span className="semantic-badge admin">Decision</span>
-                <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} placeholder="Admin note, reason, support ticket reference, or Stripe event context" />
+                <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} placeholder="Admin note, reason, support ticket reference, or provider event context" />
+                <input value={scaToken} onChange={(event) => setScaToken(event.target.value)} placeholder="Optional provider SCA token for sandbox payout calls" />
                 <div className="admin-action-grid">
                   {actions.map((item) => <button key={item.action} className={item.tone} onClick={() => { void runAction(item.action); }} disabled={loading} title={item.hint}>{item.label}</button>)}
+                  <button className="secondary" onClick={() => { void syncProviderPayout(); }} disabled={loading || !selectedPayout.providerTransferId}>Sync provider payout</button>
                 </div>
-                <p className="meta">Reject/cancel returns the gross payout-eligible earnings to the user wallet. Mark paid only when the payout is truly completed or simulated in test mode.</p>
+                <p className="meta">Reject/cancel returns the gross payout-eligible earnings to the user wallet. Approve/retry can create an Airwallex sandbox payout transfer when provider payouts are enabled. Mark paid only when the payout is truly completed or simulated in test mode.</p>
               </div>
 
               <div className="admin-detail-grid">
@@ -302,8 +361,12 @@ export default function AdminPayoutsPage() {
                   </div>
                 </div>
                 <div className="card">
-                  <span className="semantic-badge admin">Stripe Connect</span>
-                  {selectedPayout.stripeConnectAccount ? <><p>Status: <strong>{selectedPayout.stripeConnectAccount.status}</strong></p><p>Payouts enabled: <strong>{selectedPayout.stripeConnectAccount.payoutsEnabled ? 'yes' : 'no'}</strong></p><p>Account: <code>{selectedPayout.stripeConnectAccount.stripeAccountId}</code></p>{selectedPayout.stripeConnectAccount.disabledReason ? <p className="notice-box warning">{selectedPayout.stripeConnectAccount.disabledReason}</p> : null}</> : <p>No Stripe Connect account attached. This may be a demo payout.</p>}
+                  <span className="semantic-badge money">Money provider</span>
+                  {selectedPayout.providerAccount ? <><p>Provider: <strong>{selectedPayout.providerAccount.provider}</strong></p><p>Status: <strong>{selectedPayout.providerAccount.status}</strong></p><p>Account: <code>{selectedPayout.providerAccount.providerAccountId}</code></p><p>Currency: <strong>{selectedPayout.providerAccount.defaultCurrency ?? selectedPayout.currency}</strong></p></> : <p>No provider account attached. This may be a demo or legacy Stripe payout.</p>}
+                </div>
+                <div className="card">
+                  <span className="semantic-badge admin">Stripe Connect fallback</span>
+                  {selectedPayout.stripeConnectAccount ? <><p>Status: <strong>{selectedPayout.stripeConnectAccount.status}</strong></p><p>Payouts enabled: <strong>{selectedPayout.stripeConnectAccount.payoutsEnabled ? 'yes' : 'no'}</strong></p><p>Account: <code>{selectedPayout.stripeConnectAccount.stripeAccountId}</code></p>{selectedPayout.stripeConnectAccount.disabledReason ? <p className="notice-box warning">{selectedPayout.stripeConnectAccount.disabledReason}</p> : null}</> : <p>No Stripe Connect account attached. Stripe remains a disabled fallback/reference.</p>}
                 </div>
               </div>
 
@@ -327,8 +390,21 @@ export default function AdminPayoutsPage() {
                   {!selectedPayout.adminEvents?.length ? <p>No admin actions yet.</p> : null}
                 </div>
                 <div className="card admin-table-card">
+                  <span className="semantic-badge money">Provider transactions</span>
+                  <table><tbody>{detail?.providerTransactions?.map((transaction) => <tr key={transaction.id}><td>{transaction.provider}</td><td>{transaction.type}</td><td>{transaction.status}</td><td>{formatWebMoney(transaction.amountCents, transaction.currency)}</td><td>{formatWebDateTime(transaction.createdAt)}</td></tr>)}</tbody></table>
+                  {!detail?.providerTransactions?.length ? <p>No matching provider transactions loaded.</p> : null}
+                </div>
+              </div>
+
+              <div className="admin-detail-grid">
+                <div className="card admin-table-card">
+                  <span className="semantic-badge info">Provider events</span>
+                  <table><tbody>{detail?.providerEvents?.map((event) => <tr key={event.id}><td>{event.provider}</td><td>{event.eventType}</td><td>{event.processingStatus ?? event.status ?? 'received'}</td><td>{event.providerAccountId ?? '—'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
+                  {!detail?.providerEvents?.length ? <p>No matching provider events loaded.</p> : null}
+                </div>
+                <div className="card admin-table-card">
                   <span className="semantic-badge info">Stripe events</span>
-                  <table><tbody>{detail?.stripeEvents?.map((event) => <tr key={event.id}><td>{event.type}</td><td>{event.processingStatus}</td><td>{event.objectId ?? event.stripeAccountId ?? '—'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
+                  <table><tbody>{detail?.stripeEvents?.map((event) => <tr key={event.id}><td>{event.type}</td><td>{event.processingStatus ?? 'received'}</td><td>{event.objectId ?? event.stripeAccountId ?? '—'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
                   {!detail?.stripeEvents?.length ? <p>No matching Stripe events loaded.</p> : null}
                 </div>
               </div>

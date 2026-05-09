@@ -1,0 +1,1129 @@
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index cee3aff..5a901b4 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
++import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -7,7 +7,8 @@ import { requireAuth } from '../../middleware/auth.js';
+ import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+ import { buildAdminMoneySafetySummary } from '../money/moneySafety.js';
+-import { buildMoneyProviderStatus } from '../money/providers/moneyProviderRegistry.js';
++import { buildMoneyProviderStatus, getMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
++import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
+ import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
+ import { refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+ 
+@@ -311,6 +312,60 @@ adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+   });
+ }));
+ 
++
++adminRoutes.get('/money/provider-balances', asyncRoute(async (_req, res) => {
++  const provider = buildMoneyProviderStatus();
++  const balances = await prisma.moneyProviderWalletBalance.findMany({
++    include: { account: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } } } },
++    orderBy: [{ updatedAt: 'desc' }, { currency: 'asc' }],
++    take: 250,
++  });
++  res.json({
++    provider,
++    balances: balances.map((balance) => ({
++      id: balance.id,
++      provider: balance.provider,
++      providerAccountId: balance.account.providerAccountId,
++      moneyProviderAccountId: balance.moneyProviderAccountId,
++      currency: balance.currency,
++      availableCents: balance.availableCents,
++      reservedCents: balance.reservedCents,
++      pendingCents: balance.pendingCents,
++      totalCents: balance.availableCents + balance.reservedCents + balance.pendingCents,
++      externalUpdatedAt: balance.externalUpdatedAt,
++      lastSyncedAt: balance.lastSyncedAt,
++      createdAt: balance.createdAt,
++      updatedAt: balance.updatedAt,
++      account: {
++        id: balance.account.id,
++        provider: balance.account.provider,
++        status: balance.account.status,
++        accountType: balance.account.accountType,
++        country: balance.account.country,
++        defaultCurrency: balance.account.defaultCurrency,
++        user: balance.account.user,
++      },
++    })),
++  });
++}));
++
++adminRoutes.post('/money/provider-accounts/:accountId/sync-balances', asyncRoute(async (req, res) => {
++  const input = moneyProviderWalletBalancesSyncRequestSchema.parse(req.body ?? {});
++  const account = await prisma.moneyProviderAccount.findUnique({
++    where: { id: req.params.accountId },
++    include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } },
++  });
++  if (!account) return res.status(404).json({ error: 'provider_account_not_found', message: 'Provider account was not found.' });
++  const provider = getMoneyProvider(account.provider);
++  try {
++    const result = await provider.syncWalletBalances({ providerAccountId: account.providerAccountId, scaToken: input.scaToken });
++    res.json({ provider: provider.getPublicStatus(), ...result });
++  } catch (error) {
++    if (error instanceof MoneyProviderError) return res.status(error.statusCode).json({ error: error.code, message: error.publicMessage });
++    throw error;
++  }
++}));
++
+ adminRoutes.get('/money/provider-events', asyncRoute(async (_req, res) => {
+   const provider = buildMoneyProviderStatus();
+   const [providerEvents, legacyStripeEvents] = await Promise.all([
+diff --git a/apps/api/src/modules/money/moneySafety.ts b/apps/api/src/modules/money/moneySafety.ts
+index 434eb64..284231d 100644
+--- a/apps/api/src/modules/money/moneySafety.ts
++++ b/apps/api/src/modules/money/moneySafety.ts
+@@ -2,7 +2,7 @@ import { env } from '../../config/env.js';
+ import { buildMoneyProviderStatus } from './providers/moneyProviderRegistry.js';
+ 
+ type MoneyLaunchMode = 'disabled' | 'demo' | 'private_beta' | 'production';
+-type MoneySafetyAction = 'money_trade' | 'wallet_top_up' | 'payout_account' | 'payout_request' | 'provider_transfer' | 'stripe_transfer';
++type MoneySafetyAction = 'money_trade' | 'wallet_top_up' | 'wallet_balance_sync' | 'payout_account' | 'payout_request' | 'provider_transfer' | 'stripe_transfer';
+ type PrismaLike = {
+   moneyPolicyAcknowledgement: {
+     findFirst(args: unknown): Promise<any>;
+@@ -65,6 +65,7 @@ export function buildGlobalMoneySafetyConfig() {
+     productionSwitchEnabled,
+     privateBetaAllowlistCount: privateBetaUserIds.length,
+     providerTransfersEnabled,
++    providerWalletSyncEnabled: moneyFeaturesVisible && Boolean(env.moneyProviderWalletSyncEnabled) && !providerIsNone && providerConfigured,
+     stripeTransfersEnabled: providerStatus.provider === 'stripe' && providerTransfersEnabled,
+     demoMoneyEnabled: moneyFeaturesVisible && (launchMode === 'demo' || launchMode === 'private_beta' || launchMode === 'production'),
+   };
+@@ -81,6 +82,7 @@ export async function buildMoneySafetyStatus(prisma: PrismaLike, userId: string)
+   const realMoneyEnabled = config.realMoneyEnabled && privateBetaAllowed;
+   const demoMoneyEnabled = config.demoMoneyEnabled && privateBetaAllowed;
+   const providerTransfersEnabled = config.providerTransfersEnabled && privateBetaAllowed;
++  const providerWalletSyncEnabled = config.providerWalletSyncEnabled && privateBetaAllowed;
+   const stripeTransfersEnabled = config.moneyProvider === 'stripe' && providerTransfersEnabled;
+   const message = config.launchMode === 'disabled'
+     ? 'Money features are disabled for this launch.'
+@@ -99,6 +101,7 @@ export async function buildMoneySafetyStatus(prisma: PrismaLike, userId: string)
+     realMoneyEnabled,
+     demoMoneyEnabled,
+     providerTransfersEnabled,
++    providerWalletSyncEnabled,
+     stripeTransfersEnabled,
+     message,
+   };
+@@ -139,9 +142,11 @@ export function getMoneySafetyBlock(status: Awaited<ReturnType<typeof buildMoney
+   if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return { statusCode: 403, error: 'money_policy_acknowledgement_required', message: 'Review and accept the wallet, payout, refund, and dispute policies before using money features.' };
+   if (action === 'money_trade' && !status.moneyTradesEnabled) return { statusCode: 403, error: 'money_trades_disabled', message: 'Money trades are disabled for the beta launch.' };
+   if (action === 'wallet_top_up' && !status.walletVisible) return { statusCode: 403, error: 'wallet_disabled', message: 'Wallet top-ups are disabled for the beta launch.' };
++  if (action === 'wallet_balance_sync' && !status.walletVisible) return { statusCode: 403, error: 'wallet_disabled', message: 'Provider wallet balance sync is disabled for the beta launch.' };
+   if ((action === 'payout_account' || action === 'payout_request') && !status.payoutsVisible) return { statusCode: 403, error: 'payouts_disabled', message: 'Payouts are disabled for the beta launch.' };
+-  if ((action === 'wallet_top_up' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request') && !status.demoMoneyEnabled) return { statusCode: 403, error: 'money_features_unavailable', message: 'Money features are not available in the current launch mode.' };
+-  if (status.moneyProvider === 'none' && (action === 'wallet_top_up' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request' || action === 'provider_transfer' || action === 'stripe_transfer')) return { statusCode: 403, error: 'money_provider_none', message: 'Money provider is set to none for the beta money-off launch.' };
++  if ((action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request') && !status.demoMoneyEnabled) return { statusCode: 403, error: 'money_features_unavailable', message: 'Money features are not available in the current launch mode.' };
++  if (status.moneyProvider === 'none' && (action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request' || action === 'provider_transfer' || action === 'stripe_transfer')) return { statusCode: 403, error: 'money_provider_none', message: 'Money provider is set to none for the beta money-off launch.' };
++  if (action === 'wallet_balance_sync' && !status.providerWalletSyncEnabled) return { statusCode: 403, error: 'provider_wallet_sync_disabled', message: 'Provider wallet balance sync is disabled by launch safety settings.' };
+   if (action === 'provider_transfer' && !status.providerTransfersEnabled) return { statusCode: 403, error: 'provider_transfers_disabled', message: 'Provider transfers are disabled by launch safety settings.' };
+   if (action === 'stripe_transfer' && !status.stripeTransfersEnabled) return { statusCode: 403, error: 'stripe_transfers_disabled', message: 'Stripe transfers are disabled by launch safety settings.' };
+   return null;
+diff --git a/apps/api/src/modules/money/providers/airwallexClient.ts b/apps/api/src/modules/money/providers/airwallexClient.ts
+index 277fdda..4b3b903 100644
+--- a/apps/api/src/modules/money/providers/airwallexClient.ts
++++ b/apps/api/src/modules/money/providers/airwallexClient.ts
+@@ -17,7 +17,7 @@ function airwallexBaseUrl() {
+ function assertAirwallexSandbox() {
+   if (env.airwallexEnv === 'production' || !airwallexBaseUrl().includes('api-demo.airwallex.com')) {
+     if (env.moneyProviderSandboxOnly) {
+-      throw new MoneyProviderError('sandbox_only', 'Airwallex production API access is blocked. Phase 21.2 only supports sandbox/demo connected accounts.', 403);
++      throw new MoneyProviderError('sandbox_only', 'Airwallex production API access is blocked. Airwallex provider scaffolding only supports sandbox/demo access right now.', 403);
+     }
+   }
+ }
+@@ -81,6 +81,8 @@ export type AirwallexRequestOptions = {
+   method?: 'GET' | 'POST' | 'PATCH';
+   body?: unknown;
+   headers?: Record<string, string>;
++  onBehalfOf?: string;
++  scaToken?: string;
+ };
+ 
+ export async function airwallexRequest<T>(path: string, options: AirwallexRequestOptions = {}): Promise<T> {
+@@ -90,6 +92,8 @@ export async function airwallexRequest<T>(path: string, options: AirwallexReques
+     headers: {
+       Authorization: `Bearer ${token}`,
+       ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
++      ...(options.onBehalfOf ? { 'x-on-behalf-of': options.onBehalfOf } : {}),
++      ...(options.scaToken ? { 'x-sca-token': options.scaToken } : {}),
+       ...options.headers,
+     },
+     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+diff --git a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+index d088885..f72b014 100644
+--- a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+@@ -2,7 +2,7 @@ import type { MoneyProviderAccount, Prisma } from '@prisma/client';
+ import { env } from '../../../config/env.js';
+ import { prisma } from '../../../lib/prisma.js';
+ import { airwallexRequest } from './airwallexClient.js';
+-import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type MoneyProviderAdapter, type ProviderAccountDto, type ProviderOnboardingLinkResult, type SyncAccountStatusInput } from './moneyProvider.types.js';
++import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type MoneyProviderAdapter, type ProviderAccountDto, type ProviderOnboardingLinkResult, type ProviderWalletBalanceDto, type ProviderWalletBalanceSyncResult, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ type AirwallexAccountResponse = {
+   id?: string;
+@@ -30,19 +30,38 @@ type AirwallexHostedFlowResponse = {
+   [key: string]: unknown;
+ };
+ 
++type NormalizedAirwallexBalance = {
++  currency: string;
++  availableCents: number;
++  reservedCents: number;
++  pendingCents: number;
++  externalUpdatedAt: Date | null;
++};
++
+ function isAirwallexSandboxBlocked() {
+   return env.moneyProviderSandboxOnly && (env.airwallexEnv === 'production' || !env.airwallexBaseUrl.includes('api-demo.airwallex.com'));
+ }
+ 
+-function requireAirwallexSandboxConfigured() {
++function requireAirwallexSandboxApiConfigured(message = 'Airwallex sandbox is not configured. Add sandbox API credentials before using provider features.') {
+   if (!env.airwallexEnabled || !env.airwallexClientId || !env.airwallexApiKey) {
+-    throw new MoneyProviderError('provider_not_configured', 'Airwallex sandbox is not configured. Add sandbox API credentials before creating connected accounts.', 503);
+-  }
+-  if (!env.airwallexConnectedAccountsEnabled || !env.moneyProviderAccountCreationEnabled) {
+-    throw new MoneyProviderError('provider_not_enabled', 'Airwallex connected-account creation is disabled by feature flags.', 403);
++    throw new MoneyProviderError('provider_not_configured', message, 503);
+   }
+   if (isAirwallexSandboxBlocked()) {
+-    throw new MoneyProviderError('sandbox_only', 'Airwallex production access is blocked. Phase 21.2 only supports sandbox/demo connected accounts.', 403);
++    throw new MoneyProviderError('sandbox_only', 'Airwallex production access is blocked. These provider scaffolding phases only support sandbox/demo access.', 403);
++  }
++}
++
++function requireAirwallexConnectedAccountsAccess() {
++  requireAirwallexSandboxApiConfigured('Airwallex sandbox is not configured. Add sandbox API credentials before using connected accounts.');
++  if (!env.airwallexConnectedAccountsEnabled) {
++    throw new MoneyProviderError('provider_not_enabled', 'Airwallex connected accounts are disabled by AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED.', 403);
++  }
++}
++
++function requireAirwallexSandboxConfigured() {
++  requireAirwallexConnectedAccountsAccess();
++  if (!env.moneyProviderAccountCreationEnabled) {
++    throw new MoneyProviderError('provider_not_enabled', 'Airwallex connected-account creation is disabled by feature flags.', 403);
+   }
+ }
+ 
+@@ -145,6 +164,170 @@ function webUrl(pathname: string | undefined, fallbackPath: string) {
+   return new URL(pathname || fallbackPath, env.webAppUrl).toString();
+ }
+ 
++
++function requireAirwallexWalletSyncEnabled() {
++  requireAirwallexConnectedAccountsAccess();
++  if (!env.moneyProviderWalletSyncEnabled) {
++    throw new MoneyProviderError('provider_not_enabled', 'Airwallex wallet-balance sync is disabled by MONEY_PROVIDER_WALLET_SYNC_ENABLED.', 403);
++  }
++}
++
++function amountToCents(value: unknown) {
++  if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value * 100);
++  if (typeof value === 'string') {
++    const normalized = value.replace(/,/g, '').trim();
++    if (!normalized) return 0;
++    const parsed = Number(normalized);
++    if (Number.isFinite(parsed)) return Math.round(parsed * 100);
++  }
++  return 0;
++}
++
++function firstAmount(record: Record<string, unknown>, keys: string[]) {
++  for (const key of keys) {
++    if (record[key] !== undefined && record[key] !== null) return amountToCents(record[key]);
++  }
++  return 0;
++}
++
++function dateFrom(value: unknown) {
++  if (typeof value !== 'string') return null;
++  const parsed = Date.parse(value);
++  return Number.isFinite(parsed) ? new Date(parsed) : null;
++}
++
++function balanceRowsFromResponse(payload: unknown): Record<string, unknown>[] {
++  if (Array.isArray(payload)) return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
++  if (!payload || typeof payload !== 'object') return [];
++  const record = payload as Record<string, unknown>;
++  for (const key of ['balances', 'items', 'data']) {
++    const value = record[key];
++    if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
++  }
++  if (typeof record.currency === 'string') return [record];
++
++  const mapKeys = ['available_amount', 'available_balance', 'reserved_amount', 'reserve_amount', 'pending_amount', 'pending_balance', 'account_balance'];
++  const currencies = new Set<string>();
++  for (const key of mapKeys) {
++    const maybeMap = record[key];
++    if (maybeMap && typeof maybeMap === 'object' && !Array.isArray(maybeMap)) {
++      for (const currency of Object.keys(maybeMap as Record<string, unknown>)) currencies.add(currency.toUpperCase());
++    }
++  }
++  if (currencies.size > 0) {
++    return Array.from(currencies).map((currency) => {
++      const row: Record<string, unknown> = { currency };
++      for (const key of mapKeys) {
++        const maybeMap = record[key];
++        if (maybeMap && typeof maybeMap === 'object' && !Array.isArray(maybeMap)) row[key] = (maybeMap as Record<string, unknown>)[currency] ?? (maybeMap as Record<string, unknown>)[currency.toLowerCase()];
++      }
++      return row;
++    });
++  }
++  return [];
++}
++
++function normalizeAirwallexBalances(payload: unknown): NormalizedAirwallexBalance[] {
++  return balanceRowsFromResponse(payload).map((row) => {
++    const currency = String(row.currency ?? row.currency_code ?? row.ccy ?? '').toLowerCase();
++    if (!/^[a-z]{3}$/.test(currency)) return null;
++    const availableCents = firstAmount(row, ['available_amount', 'available_balance', 'available', 'amount_available', 'balance']);
++    const reservedCents = firstAmount(row, ['reserved_amount', 'reserve_amount', 'reserved_balance', 'reserved', 'reserve']);
++    const pendingCents = firstAmount(row, ['pending_amount', 'pending_balance', 'pending']);
++    const externalUpdatedAt = dateFrom(row.updated_at ?? row.as_at ?? row.as_of ?? row.created_at);
++    return { currency, availableCents, reservedCents, pendingCents, externalUpdatedAt };
++  }).filter((item): item is NormalizedAirwallexBalance => Boolean(item));
++}
++
++function balanceToDto(balance: { currency: string; availableCents: number; reservedCents: number; pendingCents: number; externalUpdatedAt: Date | null; lastSyncedAt: Date | null }, account: MoneyProviderAccount, source: ProviderWalletBalanceDto['source']): ProviderWalletBalanceDto {
++  return {
++    provider: 'airwallex_demo',
++    providerAccountId: account.providerAccountId,
++    currency: balance.currency,
++    availableCents: balance.availableCents,
++    reservedCents: balance.reservedCents,
++    pendingCents: balance.pendingCents,
++    totalCents: balance.availableCents + balance.reservedCents + balance.pendingCents,
++    externalUpdatedAt: balance.externalUpdatedAt ? balance.externalUpdatedAt.toISOString() : null,
++    lastSyncedAt: balance.lastSyncedAt ? balance.lastSyncedAt.toISOString() : null,
++    source,
++    sandboxOnly: true,
++  };
++}
++
++async function getAccountForBalanceInput(input: SyncWalletBalancesInput) {
++  if (input.providerAccountId) return prisma.moneyProviderAccount.findUnique({ where: { provider_providerAccountId: { provider: 'airwallex', providerAccountId: input.providerAccountId } } });
++  if (input.userId) return getStoredAccount(input.userId);
++  return null;
++}
++
++async function getStoredWalletBalancesForAccount(account: MoneyProviderAccount | null, source: ProviderWalletBalanceDto['source'] = 'stored'): Promise<ProviderWalletBalanceDto[]> {
++  if (!account) return [];
++  const balances = await prisma.moneyProviderWalletBalance.findMany({ where: { moneyProviderAccountId: account.id }, orderBy: { currency: 'asc' } });
++  return balances.map((balance) => balanceToDto(balance, account, source));
++}
++
++async function syncAirwallexWalletBalances(input: SyncWalletBalancesInput): Promise<ProviderWalletBalanceSyncResult> {
++  requireAirwallexWalletSyncEnabled();
++  const account = await getAccountForBalanceInput(input);
++  if (!account) {
++    return { account: null, balances: [], syncedAt: null, message: 'No Airwallex sandbox connected account exists yet.' };
++  }
++
++  const rawBalances = await airwallexRequest<unknown>('/api/v1/balances/current', {
++    onBehalfOf: account.providerAccountId,
++    scaToken: input.scaToken,
++  });
++  const normalized = normalizeAirwallexBalances(rawBalances);
++  const syncedAt = new Date();
++
++  const updated = await prisma.$transaction(async (tx) => {
++    const updatedBalances = [];
++    for (const balance of normalized) {
++      updatedBalances.push(await tx.moneyProviderWalletBalance.upsert({
++        where: { moneyProviderAccountId_currency: { moneyProviderAccountId: account.id, currency: balance.currency } },
++        update: {
++          provider: 'airwallex',
++          availableCents: balance.availableCents,
++          reservedCents: balance.reservedCents,
++          pendingCents: balance.pendingCents,
++          externalUpdatedAt: balance.externalUpdatedAt ?? null,
++          lastSyncedAt: syncedAt,
++        },
++        create: {
++          moneyProviderAccountId: account.id,
++          provider: 'airwallex',
++          currency: balance.currency,
++          availableCents: balance.availableCents,
++          reservedCents: balance.reservedCents,
++          pendingCents: balance.pendingCents,
++          externalUpdatedAt: balance.externalUpdatedAt ?? null,
++          lastSyncedAt: syncedAt,
++        },
++      }));
++    }
++    await tx.moneyProviderAccount.update({
++      where: { id: account.id },
++      data: {
++        rawProviderStatus: jsonValue({
++          ...(account.rawProviderStatus && typeof account.rawProviderStatus === 'object' ? account.rawProviderStatus as Record<string, unknown> : {}),
++          lastBalanceSync: { syncedAt: syncedAt.toISOString(), balanceCount: normalized.length, raw: rawBalances },
++        }),
++        lastSyncedAt: syncedAt,
++      },
++    });
++    return updatedBalances;
++  });
++
++  const refreshed = await prisma.moneyProviderAccount.findUnique({ where: { id: account.id } });
++  return {
++    account: toProviderDto(refreshed),
++    balances: updated.map((balance) => balanceToDto(balance, refreshed ?? account, 'provider_sync')),
++    syncedAt: syncedAt.toISOString(),
++    message: normalized.length ? 'Airwallex sandbox wallet balances synced.' : 'Airwallex returned no wallet balances for this sandbox account.',
++  };
++}
++
+ async function createHostedFlow(input: { accountId: string; userId: string; returnUrl?: string; refreshUrl?: string }) {
+   if (!env.airwallexHostedFlowTemplateId) {
+     throw new MoneyProviderError('airwallex_hosted_flow_template_missing', 'AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID is required for hosted onboarding links.', 503);
+@@ -174,7 +357,7 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+   provider: 'airwallex',
+   environment: env.airwallexEnv,
+   sandboxOnly: true,
+-  capabilities: ['connected_accounts', 'onboarding_links', 'webhooks'],
++  capabilities: ['connected_accounts', 'onboarding_links', 'wallet_balances', 'webhooks'],
+ 
+   isConfigured() {
+     return Boolean(env.airwallexEnabled && env.airwallexClientId && env.airwallexApiKey && !isAirwallexSandboxBlocked());
+@@ -258,7 +441,7 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+   },
+ 
+   async syncConnectedAccountStatus(input: SyncAccountStatusInput) {
+-    requireAirwallexSandboxConfigured();
++    requireAirwallexConnectedAccountsAccess();
+     const stored = input.providerAccountId
+       ? await prisma.moneyProviderAccount.findUnique({ where: { provider_providerAccountId: { provider: 'airwallex', providerAccountId: input.providerAccountId } } })
+       : input.userId
+@@ -276,6 +459,20 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     return toProviderDto(updated);
+   },
+ 
++  async getWalletBalances(input: SyncWalletBalancesInput) {
++    const account = await getAccountForBalanceInput(input);
++    return {
++      account: toProviderDto(account),
++      balances: await getStoredWalletBalancesForAccount(account),
++      syncedAt: account?.lastSyncedAt ? account.lastSyncedAt.toISOString() : null,
++      message: account ? 'Stored Airwallex sandbox wallet balances loaded.' : 'No Airwallex sandbox connected account exists yet.',
++    };
++  },
++
++  async syncWalletBalances(input: SyncWalletBalancesInput) {
++    return syncAirwallexWalletBalances(input);
++  },
++
+   async createPayoutTransfer(_input: CreatePayoutTransferInput) {
+     throw new MoneyProviderError('not_implemented', 'Airwallex payouts are intentionally blocked until Phase 21.5 sandbox payouts.', 501);
+   },
+diff --git a/apps/api/src/modules/money/providers/moneyProvider.types.ts b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+index 56e27ef..3a3acc1 100644
+--- a/apps/api/src/modules/money/providers/moneyProvider.types.ts
++++ b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+@@ -55,6 +55,20 @@ export type ProviderAccountDto = {
+   message?: string;
+ };
+ 
++export type ProviderWalletBalanceDto = {
++  provider: MoneyProviderName | 'stripe_connect_test' | 'airwallex_demo';
++  providerAccountId?: string;
++  currency: string;
++  availableCents: number;
++  reservedCents: number;
++  pendingCents: number;
++  totalCents: number;
++  externalUpdatedAt?: string | null;
++  lastSyncedAt?: string | null;
++  source: 'stored' | 'provider_sync' | 'not_supported';
++  sandboxOnly?: boolean;
++};
++
+ export type CreateConnectedAccountInput = {
+   userId: string;
+   accountType?: 'individual' | 'business' | 'brand';
+@@ -79,6 +93,19 @@ export type SyncAccountStatusInput = {
+   providerAccountId?: string;
+ };
+ 
++export type SyncWalletBalancesInput = {
++  userId?: string;
++  providerAccountId?: string;
++  scaToken?: string;
++};
++
++export type ProviderWalletBalanceSyncResult = {
++  account: ProviderAccountDto | null;
++  balances: ProviderWalletBalanceDto[];
++  syncedAt?: string | null;
++  message?: string;
++};
++
+ export type CreatePayoutTransferInput = {
+   userId: string;
+   payoutId: string;
+@@ -113,5 +140,7 @@ export interface MoneyProviderAdapter {
+   createConnectedAccount(input: CreateConnectedAccountInput): Promise<ProviderAccountDto>;
+   createOnboardingLink(input: CreateOnboardingLinkInput): Promise<ProviderOnboardingLinkResult>;
+   syncConnectedAccountStatus(input: SyncAccountStatusInput): Promise<ProviderAccountDto | null>;
++  getWalletBalances(input: SyncWalletBalancesInput): Promise<ProviderWalletBalanceSyncResult>;
++  syncWalletBalances(input: SyncWalletBalancesInput): Promise<ProviderWalletBalanceSyncResult>;
+   createPayoutTransfer(input: CreatePayoutTransferInput): Promise<ProviderTransferResult | null>;
+ }
+diff --git a/apps/api/src/modules/money/providers/noneMoneyProvider.ts b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+index f94e367..5ba7a18 100644
+--- a/apps/api/src/modules/money/providers/noneMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+@@ -1,4 +1,4 @@
+-import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type MoneyProviderAdapter, type ProviderAccountDto, type SyncAccountStatusInput } from './moneyProvider.types.js';
++import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type MoneyProviderAdapter, type ProviderAccountDto, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ function unavailable(): never {
+   throw new MoneyProviderError('provider_none', 'Money provider is set to none. Wallets, onboarding, transfers, and payouts are disabled for this launch.', 403);
+@@ -46,6 +46,19 @@ export const noneMoneyProvider: MoneyProviderAdapter = {
+     return this.getConnectedAccount('none');
+   },
+ 
++  async getWalletBalances(_input: SyncWalletBalancesInput) {
++    return {
++      account: await this.getConnectedAccount('none'),
++      balances: [],
++      syncedAt: null,
++      message: 'Money provider is none. No provider wallet balances exist for the beta money-off launch.',
++    };
++  },
++
++  async syncWalletBalances(_input: SyncWalletBalancesInput) {
++    return unavailable();
++  },
++
+   async createPayoutTransfer(_input: CreatePayoutTransferInput) {
+     return unavailable();
+   },
+diff --git a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+index f48c2ca..e9d1ce4 100644
+--- a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+@@ -1,6 +1,6 @@
+ import { prisma } from '../../../lib/prisma.js';
+ import { createStripeConnectOnboardingLink, createStripeTransferForPayout, isStripeConnectConfigured, syncStripeConnectAccountByAccountId } from '../../stripe/stripeConnect.js';
+-import type { CreateConnectedAccountInput, CreateOnboardingLinkInput, CreatePayoutTransferInput, MoneyProviderAdapter, ProviderAccountDto, SyncAccountStatusInput } from './moneyProvider.types.js';
++import type { CreateConnectedAccountInput, CreateOnboardingLinkInput, CreatePayoutTransferInput, MoneyProviderAdapter, ProviderAccountDto, SyncAccountStatusInput, SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ function mapStripeConnectPayoutAccount(account: null | { status: string; payoutsEnabled: boolean; chargesEnabled: boolean; detailsSubmitted: boolean; createdAt: Date; onboardingCompletedAt: Date | null; stripeAccountId: string; currentlyDue: string[]; eventuallyDue: string[]; pastDue: string[]; disabledReason: string | null; defaultCurrency: string | null; country: string | null; lastSyncedAt: Date | null }): ProviderAccountDto | null {
+   if (!account) return null;
+@@ -89,6 +89,19 @@ export const stripeMoneyProvider: MoneyProviderAdapter = {
+     return mapStripeConnectPayoutAccount(account);
+   },
+ 
++  async getWalletBalances(_input: SyncWalletBalancesInput) {
++    return {
++      account: null,
++      balances: [],
++      syncedAt: null,
++      message: 'Stripe provider wallet-balance sync is not part of Phase 21.3. Use legacy Stripe Connect views for test payout account status.',
++    };
++  },
++
++  async syncWalletBalances(_input: SyncWalletBalancesInput) {
++    return this.getWalletBalances(_input);
++  },
++
+   async createPayoutTransfer(input: CreatePayoutTransferInput) {
+     const transfer = await createStripeTransferForPayout(input);
+     if (!transfer) return null;
+diff --git a/apps/api/src/modules/wallet/wallet.routes.ts b/apps/api/src/modules/wallet/wallet.routes.ts
+index d665f20..f8de607 100644
+--- a/apps/api/src/modules/wallet/wallet.routes.ts
++++ b/apps/api/src/modules/wallet/wallet.routes.ts
+@@ -1,5 +1,5 @@
+ import { Router, type Response } from 'express';
+-import { acknowledgeMoneySafetyRequestSchema, demoPayoutRequestSchema, demoTopUpRequestSchema, moneyProviderOnboardingLinkRequestSchema } from '@hellowhen/contracts';
++import { acknowledgeMoneySafetyRequestSchema, demoPayoutRequestSchema, demoTopUpRequestSchema, moneyProviderOnboardingLinkRequestSchema, moneyProviderWalletBalancesSyncRequestSchema } from '@hellowhen/contracts';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -103,6 +103,9 @@ async function buildPayoutSummary(userId: string) {
+   const activeProviderAccount = activeProvider.provider === 'stripe'
+     ? null
+     : await activeProvider.getConnectedAccount(userId).catch(() => null);
++  const activeProviderBalances = activeProvider.provider === 'none'
++    ? []
++    : (await activeProvider.getWalletBalances({ userId }).catch(() => ({ balances: [] }))).balances;
+   const platformFeeRateBps = getPayoutPlatformFeeRateBps();
+   const limits = await buildLaunchLimits(prisma, userId);
+   const pendingPayouts = payouts.filter((payout) => ['requested', 'approved'].includes(payout.status));
+@@ -141,6 +144,7 @@ async function buildPayoutSummary(userId: string) {
+       },
+       moneyProviderConfigured: activeProvider.isConfigured(),
+       providerTransferMode: env.moneyProviderPayoutsEnabled,
++      providerWalletBalances: activeProviderBalances,
+       stripeConnectConfigured: isStripeConnectConfigured(),
+       stripeConnectTransferMode: env.stripeConnectTransferMode,
+       limits,
+@@ -151,7 +155,11 @@ async function buildPayoutSummary(userId: string) {
+ 
+ walletRoutes.get('/me', asyncRoute(async (req, res) => {
+   const wallet = await ensureWallet(req.user!.id);
+-  res.json({ wallet });
++  const provider = getActiveMoneyProvider();
++  const providerBalances = provider.provider === 'none'
++    ? []
++    : (await provider.getWalletBalances({ userId: req.user!.id }).catch(() => ({ balances: [] }))).balances;
++  res.json({ wallet, provider: provider.getPublicStatus(), providerBalances });
+ }));
+ 
+ walletRoutes.get('/ledger', asyncRoute(async (req, res) => {
+@@ -218,6 +226,32 @@ walletRoutes.post('/provider-account/sync', asyncRoute(async (req, res) => {
+   }
+ }));
+ 
++
++walletRoutes.get('/provider-balances', asyncRoute(async (req, res) => {
++  const provider = getActiveMoneyProvider();
++  try {
++    const result = await provider.getWalletBalances({ userId: req.user!.id });
++    res.json({ provider: provider.getPublicStatus(), ...result, moneySafety: await buildMoneySafetyStatus(prisma, req.user!.id) });
++  } catch (error) {
++    return providerErrorResponse(res, error);
++  }
++}));
++
++walletRoutes.post('/provider-balances/sync', requireFreshSensitiveAction, asyncRoute(async (req, res) => {
++  const userId = req.user!.id;
++  const moneySafety = await buildMoneySafetyStatus(prisma, userId);
++  const block = getMoneySafetyBlock(moneySafety, 'wallet_balance_sync');
++  if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
++  const provider = getActiveMoneyProvider();
++  try {
++    const input = moneyProviderWalletBalancesSyncRequestSchema.parse(req.body ?? {});
++    const result = await provider.syncWalletBalances({ userId, scaToken: input.scaToken });
++    res.json({ provider: provider.getPublicStatus(), ...result, moneySafety });
++  } catch (error) {
++    return providerErrorResponse(res, error);
++  }
++}));
++
+ walletRoutes.get('/stripe-connect', asyncRoute(async (req, res) => {
+   const account = await prisma.stripeConnectAccount.findUnique({ where: { userId: req.user!.id } });
+   res.json({ stripeConnectConfigured: isStripeConnectConfigured(), account: mapStripeConnectPayoutAccount(account) });
+diff --git a/apps/mobile/src/features/wallet/WalletScreen.tsx b/apps/mobile/src/features/wallet/WalletScreen.tsx
+index e6825a6..a9ffaf1 100644
+--- a/apps/mobile/src/features/wallet/WalletScreen.tsx
++++ b/apps/mobile/src/features/wallet/WalletScreen.tsx
+@@ -71,6 +71,7 @@ export function WalletScreen({ navigation }: Props) {
+   const paidOut = summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0;
+   const limits = summary?.limits as WalletLimitsDto | undefined;
+   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits') ?? [];
++  const providerBalances = summary?.providerWalletBalances ?? [];
+ 
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
+@@ -118,6 +119,24 @@ export function WalletScreen({ navigation }: Props) {
+           <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Payouts')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Open payouts</AppText></Pressable>
+         </AppCard>
+ 
++
++        {providerBalances.length ? (
++          <AppCard>
++            <View style={styles.sectionHeaderRow}>
++              <View style={styles.sectionCopy}>
++                <AppText style={styles.sectionTitle}>Provider balance snapshot</AppText>
++                <AppText style={[styles.cardText, { color: theme.color.muted }]}>Airwallex sandbox balances are read-only reconciliation snapshots. Hellowhen's ledger remains the product source of truth.</AppText>
++              </View>
++              <SemanticBadge label="Read-only" tone="info" />
++            </View>
++            <View style={styles.grid}>
++              {providerBalances.map((balance) => (
++                <Metric key={`${balance.providerAccountId ?? 'provider'}-${balance.currency}`} label={`${balance.currency.toUpperCase()} available`} value={balance.availableCents} currency={balance.currency} tone="info" />
++              ))}
++            </View>
++          </AppCard>
++        ) : null}
++
+         {limits ? (
+           <AppCard>
+             <View style={styles.sectionHeaderRow}>
+diff --git a/apps/web/src/app/admin/money/page.tsx b/apps/web/src/app/admin/money/page.tsx
+index e92e94b..51679c0 100644
+--- a/apps/web/src/app/admin/money/page.tsx
++++ b/apps/web/src/app/admin/money/page.tsx
+@@ -29,8 +29,24 @@ type ProviderEvent = {
+   processedAt?: string | null;
+   error?: string | null;
+ };
++type ProviderBalance = {
++  id: string;
++  provider: string;
++  providerAccountId?: string;
++  moneyProviderAccountId: string;
++  currency: string;
++  availableCents: number;
++  reservedCents: number;
++  pendingCents: number;
++  totalCents: number;
++  externalUpdatedAt?: string | null;
++  lastSyncedAt?: string | null;
++  updatedAt?: string;
++  account?: { user?: { email?: string; profile?: { displayName?: string | null } | null } };
++};
+ type AccountsResponse = { provider: ProviderSummary; accounts: ProviderAccount[] };
+ type EventsResponse = { provider: ProviderSummary; events: ProviderEvent[] };
++type BalancesResponse = { provider: ProviderSummary; balances: ProviderBalance[] };
+ 
+ const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+ 
+@@ -45,6 +61,14 @@ function userLabel(account: ProviderAccount) {
+   return account.user?.profile?.displayName ?? account.user?.email ?? 'Unknown user';
+ }
+ 
++function balanceUserLabel(balance: ProviderBalance) {
++  return balance.account?.user?.profile?.displayName ?? balance.account?.user?.email ?? 'Unknown user';
++}
++
++function formatMoney(cents: number, currency: string) {
++  return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
++}
++
+ export default function AdminMoneyProviderPage() {
+   const [email, setEmail] = useState('admin@hellowhen.app');
+   const [password, setPassword] = useState('password123');
+@@ -52,6 +76,7 @@ export default function AdminMoneyProviderPage() {
+   const [provider, setProvider] = useState<ProviderSummary | null>(null);
+   const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
+   const [events, setEvents] = useState<ProviderEvent[]>([]);
++  const [balances, setBalances] = useState<ProviderBalance[]>([]);
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+@@ -72,27 +97,47 @@ export default function AdminMoneyProviderPage() {
+     if (!token) { setMessage('Log in as admin first.'); return; }
+     setLoading(true); setMessage(null);
+     try {
+-      const [accountsResponse, eventsResponse] = await Promise.all([
++      const [accountsResponse, eventsResponse, balancesResponse] = await Promise.all([
+         fetch(`${apiBase}/admin/money/provider-accounts`, { headers }),
+         fetch(`${apiBase}/admin/money/provider-events`, { headers }),
++        fetch(`${apiBase}/admin/money/provider-balances`, { headers }),
+       ]);
+-      if (!accountsResponse.ok || !eventsResponse.ok) throw new Error('Could not load provider data. Make sure this account has admin role.');
++      if (!accountsResponse.ok || !eventsResponse.ok || !balancesResponse.ok) throw new Error('Could not load provider data. Make sure this account has admin role.');
+       const accountsData = await accountsResponse.json() as AccountsResponse;
+       const eventsData = await eventsResponse.json() as EventsResponse;
++      const balancesData = await balancesResponse.json() as BalancesResponse;
+       setProvider(accountsData.provider);
+       setAccounts(accountsData.accounts);
+       setEvents(eventsData.events);
+-      setMessage('Provider records loaded. Airwallex should remain sandbox-only until production review is complete.');
++      setBalances(balancesData.balances);
++      setMessage('Provider records loaded. Airwallex wallet balances are read-only sandbox sync records.');
+     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load provider data'); }
+     finally { setLoading(false); }
+   }
+ 
++
++  async function syncBalances(accountId?: string) {
++    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!accountId) { setMessage('Only provider-neutral accounts can sync balances. Legacy Stripe rows are read-only here.'); return; }
++    setLoading(true); setMessage(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', headers, body: JSON.stringify({}) });
++      if (!response.ok) {
++        const error = await response.json().catch(() => null) as { message?: string } | null;
++        throw new Error(error?.message ?? 'Could not sync provider balances.');
++      }
++      setMessage('Provider balances synced. Reloading balance records.');
++      await loadMoneyProviderData();
++    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not sync provider balances'); }
++    finally { setLoading(false); }
++  }
++
+   return (
+     <section style={{ display: 'grid', gap: 16 }}>
+       <div className="card">
+         <span className="semantic-badge admin">Money provider admin</span>
+         <h1>Provider accounts</h1>
+-        <p className="notice-box warning">Phase 21.2 is sandbox connected-account scaffolding only. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
++        <p className="notice-box warning">Phase 21.3 adds read-only Airwallex sandbox wallet-balance sync. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
+         <div className="form-row">
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+             <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+@@ -110,12 +155,23 @@ export default function AdminMoneyProviderPage() {
+       <div className="card" style={{ overflowX: 'auto' }}>
+         <h2>Connected accounts</h2>
+         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+-          <thead><tr><th align="left">Provider</th><th align="left">Status</th><th align="left">User</th><th align="left">Account ID</th><th align="left">Country</th><th align="left">Currency</th><th align="left">Last sync</th></tr></thead>
+-          <tbody>{accounts.map((account, index) => <tr key={`${account.provider}-${account.providerAccountId ?? index}`}><td>{account.provider}</td><td><span className={`semantic-badge ${statusTone(account.status)}`}>{account.status ?? 'unknown'}</span></td><td>{userLabel(account)}</td><td><code>{account.providerAccountId ?? account.legacyStripeAccountId ?? '—'}</code></td><td>{account.country ?? '—'}</td><td>{account.defaultCurrency ?? '—'}</td><td>{formatWebDateTime(account.lastSyncedAt ?? account.updatedAt ?? account.createdAt)}</td></tr>)}</tbody>
++          <thead><tr><th align="left">Provider</th><th align="left">Status</th><th align="left">User</th><th align="left">Account ID</th><th align="left">Country</th><th align="left">Currency</th><th align="left">Last sync</th><th align="left">Balances</th></tr></thead>
++          <tbody>{accounts.map((account, index) => <tr key={`${account.provider}-${account.providerAccountId ?? index}`}><td>{account.provider}</td><td><span className={`semantic-badge ${statusTone(account.status)}`}>{account.status ?? 'unknown'}</span></td><td>{userLabel(account)}</td><td><code>{account.providerAccountId ?? account.legacyStripeAccountId ?? '—'}</code></td><td>{account.country ?? '—'}</td><td>{account.defaultCurrency ?? '—'}</td><td>{formatWebDateTime(account.lastSyncedAt ?? account.updatedAt ?? account.createdAt)}</td><td><button className="secondary" onClick={() => { void syncBalances(account.id); }} disabled={loading || !account.id || account.provider === 'stripe_legacy'}>Sync</button></td></tr>)}</tbody>
+         </table>
+         {accounts.length === 0 ? <p>No provider accounts loaded yet.</p> : null}
+       </div>
+ 
++
++      <div className="card" style={{ overflowX: 'auto' }}>
++        <h2>Provider wallet balances</h2>
++        <p className="notice-box info">These are provider snapshots for sandbox reconciliation only. Hellowhen's own ledger remains the product source of truth.</p>
++        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
++          <thead><tr><th align="left">Provider</th><th align="left">User</th><th align="left">Currency</th><th align="left">Available</th><th align="left">Reserved</th><th align="left">Pending</th><th align="left">Total</th><th align="left">Last sync</th></tr></thead>
++          <tbody>{balances.map((balance) => <tr key={balance.id}><td>{balance.provider}</td><td>{balanceUserLabel(balance)}</td><td>{balance.currency.toUpperCase()}</td><td>{formatMoney(balance.availableCents, balance.currency)}</td><td>{formatMoney(balance.reservedCents, balance.currency)}</td><td>{formatMoney(balance.pendingCents, balance.currency)}</td><td>{formatMoney(balance.totalCents, balance.currency)}</td><td>{formatWebDateTime(balance.lastSyncedAt ?? balance.updatedAt)}</td></tr>)}</tbody>
++        </table>
++        {balances.length === 0 ? <p>No provider wallet balances synced yet.</p> : null}
++      </div>
++
+       <div className="card" style={{ overflowX: 'auto' }}>
+         <h2>Provider events</h2>
+         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+diff --git a/apps/web/src/features/account/WalletClient.tsx b/apps/web/src/features/account/WalletClient.tsx
+index eb4f794..54be4a9 100644
+--- a/apps/web/src/features/account/WalletClient.tsx
++++ b/apps/web/src/features/account/WalletClient.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from 'next/link';
+ import { useEffect, useMemo, useState } from 'react';
+-import type { LedgerEntryDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
++import type { LedgerEntryDto, MoneyProviderWalletBalanceDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+@@ -25,6 +25,19 @@ function WalletMetricCard({ metric }: { metric: WalletMetric }) {
+   );
+ }
+ 
++
++function ProviderBalanceRow({ balance }: { balance: MoneyProviderWalletBalanceDto }) {
++  return (
++    <div className="wallet-ledger-row">
++      <span>
++        <strong>{balance.currency.toUpperCase()}</strong>
++        <small>Provider snapshot · {balance.lastSyncedAt ? formatDateTime(balance.lastSyncedAt) : 'not synced'}</small>
++      </span>
++      <em className="wallet-ledger-row__amount">{formatMoney(balance.availableCents, balance.currency)}</em>
++    </div>
++  );
++}
++
+ function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
+   const cents = entry.amountCents ?? 0;
+   const signed = cents > 0 ? `+${formatMoney(cents, entry.currency)}` : formatMoney(cents, entry.currency);
+@@ -86,6 +99,7 @@ export function WalletClient() {
+   const availablePayoutGrossCents = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
+   const estimatedPayoutFeeCents = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(availablePayoutGrossCents, platformFeeRateBps);
+   const estimatedPayoutNetCents = summary?.estimatedNetPayoutCents ?? Math.max(0, availablePayoutGrossCents - estimatedPayoutFeeCents);
++  const providerBalances = summary?.providerWalletBalances ?? [];
+   const metrics = useMemo<WalletMetric[]>(() => [
+     {
+       label: 'Wallet money',
+@@ -179,6 +193,23 @@ export function WalletClient() {
+         </section>
+       ) : null}
+ 
++
++      {providerBalances.length ? (
++        <section className="mobile-card wallet-ledger-card">
++          <div className="trade-section-heading">
++            <div>
++              <p className="eyebrow">Provider balance snapshot</p>
++              <h3>Airwallex sandbox balances</h3>
++            </div>
++            <span className="semantic-badge instruction">Read-only</span>
++          </div>
++          <p>Provider balances are reconciliation snapshots only. Hellowhen's ledger remains the product source of truth.</p>
++          <div className="wallet-ledger-list">
++            {providerBalances.map((balance) => <ProviderBalanceRow key={`${balance.providerAccountId ?? 'provider'}-${balance.currency}`} balance={balance} />)}
++          </div>
++        </section>
++      ) : null}
++
+       <section className="mobile-card mobile-card--soft">
+         <h3>Money rules</h3>
+         <p>Money is not a separate trade field. It belongs inside the same product language: I need money or I offer money. When payout-eligible earnings are withdrawn, Hellowhen keeps a transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee.</p>
+diff --git a/docs/phase-21-3-airwallex-wallet-balance-sync.md b/docs/phase-21-3-airwallex-wallet-balance-sync.md
+new file mode 100644
+index 0000000..5af90e4
+--- /dev/null
++++ b/docs/phase-21-3-airwallex-wallet-balance-sync.md
+@@ -0,0 +1,175 @@
++# Phase 21.3 — Airwallex sandbox wallet balance sync
++
++Phase 21.3 adds read-only provider wallet-balance sync scaffolding for Airwallex sandbox connected accounts.
++
++This phase does **not** enable first-beta money features.
++
++## Launch safety position
++
++The first beta remains money-off:
++
++- no wallet for normal users
++- no payouts for normal users
++- no money trades
++- no cash/off-platform money flow
++- service / goods / other Need+Offer exchanges only
++
++Airwallex remains sandbox/demo-only until provider, legal, compliance, and country launch questions are answered.
++
++## What this phase adds
++
++### Provider interface
++
++`MoneyProviderAdapter` now includes wallet-balance methods:
++
++```ts
++getWalletBalances(input)
++syncWalletBalances(input)
++```
++
++These methods are provider-neutral, so later Stripe or another provider can expose balance snapshots without changing wallet routes.
++
++### Airwallex sandbox balance sync
++
++The Airwallex provider can now call:
++
++```txt
++GET /api/v1/balances/current
++```
++
++with:
++
++```txt
++x-on-behalf-of: <connected account id>
++x-sca-token: <optional Airwallex SCA token>
++```
++
++The response is normalized into provider-agnostic balance rows:
++
++```txt
++currency
++availableCents
++reservedCents
++pendingCents
++totalCents
++externalUpdatedAt
++lastSyncedAt
++```
++
++Balances are stored in the existing Phase 21.2 model:
++
++```txt
++MoneyProviderWalletBalance
++```
++
++No database migration is needed in this phase because Phase 21.2 already introduced the balance table.
++
++### API routes
++
++User routes:
++
++```txt
++GET  /wallet/provider-balances
++POST /wallet/provider-balances/sync
++```
++
++Admin routes:
++
++```txt
++GET  /admin/money/provider-balances
++POST /admin/money/provider-accounts/:accountId/sync-balances
++```
++
++### Contracts/client
++
++New shared schemas/types:
++
++```txt
++moneyProviderWalletBalanceSchema
++moneyProviderWalletBalancesSyncRequestSchema
++moneyProviderWalletBalancesResponseSchema
++MoneyProviderWalletBalanceDto
++MoneyProviderWalletBalancesSyncRequest
++MoneyProviderWalletBalancesResponse
++```
++
++New API client methods:
++
++```txt
++wallet.providerBalances()
++wallet.syncProviderBalances()
++admin.moneyProviderBalances()
++admin.syncMoneyProviderBalances()
++```
++
++### Admin UI
++
++`/admin/money` now includes:
++
++- provider accounts
++- provider wallet balances
++- provider events
++- manual sandbox balance sync button per provider-neutral account
++
++Legacy Stripe rows stay visible, but they are read-only in the provider-neutral balance sync table.
++
++### User wallet UI
++
++Web and mobile wallet screens can show provider balance snapshots when wallet features are intentionally enabled for sandbox testing. The first beta still hides those screens by default.
++
++## Safety gates
++
++Balance sync requires:
++
++```txt
++MONEY_PROVIDER=airwallex
++MONEY_LAUNCH_MODE=demo or private_beta
++MONEY_FEATURES_VISIBLE=true
++WALLET_VISIBLE=true
++MONEY_PROVIDER_WALLET_SYNC_ENABLED=true
++AIRWALLEX_ENABLED=true
++AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED=true
++AIRWALLEX_ENV=demo
++AIRWALLEX_BASE_URL=https://api-demo.airwallex.com
++```
++
++Default `.env.example` remains safe:
++
++```txt
++MONEY_PROVIDER=none
++MONEY_LAUNCH_MODE=disabled
++MONEY_FEATURES_VISIBLE=false
++WALLET_VISIBLE=false
++MONEY_PROVIDER_WALLET_SYNC_ENABLED=false
++```
++
++So direct beta users cannot access wallet balance sync unless the developer intentionally enables sandbox flags.
++
++## SCA note
++
++Airwallex may require Strong Customer Authentication for recent balance and transaction data retrieval. Phase 21.3 accepts an optional `scaToken` in sync requests, but it does not implement the embedded SCA component yet. If Airwallex returns an SCA-required error, the API surfaces the provider error and the next phase should add a dedicated SCA client flow.
++
++## Ledger rule
++
++Hellowhen's own ledger remains the product source of truth.
++
++Provider wallet balances are snapshots for reconciliation only. They should not be used as the sole source of user-facing product balances, trade settlement state, payout eligibility, or dispute decisions.
++
++## What remains blocked
++
++Phase 21.3 still blocks:
++
++- Airwallex pay-ins
++- trade money holds
++- trade money releases
++- platform fee movement
++- payouts
++- refunds
++- production Airwallex access
++- lifetime real user balances
++
++Those remain for later sandbox phases.
++
++## Next phase
++
++Phase 21.4 should add Airwallex trade money sandbox modelling only after the team decides the exact sandbox pay-in and hold model.
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 625e41b..1435049 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -22,10 +22,10 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events') },
++    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+-    wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }) }
++    wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }), providerBalances: () => requestJson(options, '/wallet/provider-balances'), syncProviderBalances: (body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, '/wallet/provider-balances/sync', { method: 'POST', body: JSON.stringify(body ?? {}) }) }
+   };
+ }
+ export type HellowhenApiClient = ReturnType<typeof createApiClient>;
+diff --git a/packages/contracts/src/wallet.ts b/packages/contracts/src/wallet.ts
+index 00efb8a..0412f54 100644
+--- a/packages/contracts/src/wallet.ts
++++ b/packages/contracts/src/wallet.ts
+@@ -33,6 +33,7 @@ export const moneySafetyStatusSchema = z.object({
+   realMoneyEnabled: z.boolean(),
+   demoMoneyEnabled: z.boolean(),
+   providerTransfersEnabled: z.boolean().optional().default(false),
++  providerWalletSyncEnabled: z.boolean().optional().default(false),
+   stripeTransfersEnabled: z.boolean(),
+   productionSwitchEnabled: z.boolean().optional().default(false),
+   privateBetaAllowlistCount: z.number().int().optional().default(0),
+@@ -146,6 +147,40 @@ export const moneyProviderAccountSchema = z.object({
+   message: z.string().optional(),
+ });
+ 
++
++export const moneyProviderWalletBalanceSchema = z.object({
++  provider: z.enum(['none', 'stripe', 'airwallex', 'stripe_connect_test', 'airwallex_demo']),
++  providerAccountId: z.string().optional(),
++  currency: z.string().length(3),
++  availableCents: z.number().int().default(0),
++  reservedCents: z.number().int().default(0),
++  pendingCents: z.number().int().default(0),
++  totalCents: z.number().int().default(0),
++  externalUpdatedAt: z.string().nullable().optional(),
++  lastSyncedAt: z.string().nullable().optional(),
++  source: z.enum(['stored', 'provider_sync', 'not_supported']).default('stored'),
++  sandboxOnly: z.boolean().optional().default(true),
++});
++
++export const moneyProviderWalletBalancesSyncRequestSchema = z.object({
++  scaToken: z.string().trim().min(1).max(2000).optional(),
++});
++
++export const moneyProviderWalletBalancesResponseSchema = z.object({
++  provider: z.object({
++    provider: moneyProviderSchema,
++    environment: moneyProviderEnvironmentSchema,
++    configured: z.boolean(),
++    sandboxOnly: z.boolean(),
++    capabilities: z.array(moneyProviderCapabilitySchema),
++  }),
++  account: moneyProviderAccountSchema.nullable().optional(),
++  balances: z.array(moneyProviderWalletBalanceSchema).default([]),
++  syncedAt: z.string().nullable().optional(),
++  moneySafety: moneySafetyStatusSchema.optional(),
++  message: z.string().optional(),
++});
++
+ export const moneyProviderOnboardingLinkRequestSchema = z.object({
+   returnUrl: z.string().url().optional(),
+   refreshUrl: z.string().url().optional(),
+@@ -209,6 +244,7 @@ export const payoutSummarySchema = z.object({
+   payoutAccount: payoutAccountSchema.or(moneyProviderAccountSchema),
+   moneyProviderConfigured: z.boolean().optional().default(false),
+   providerTransferMode: z.boolean().optional().default(false),
++  providerWalletBalances: z.array(moneyProviderWalletBalanceSchema).optional().default([]),
+   stripeConnectConfigured: z.boolean().optional().default(false),
+   stripeConnectTransferMode: z.boolean().optional().default(false),
+   limits: walletLimitsSchema.optional(),
+@@ -233,6 +269,9 @@ export type AdminPayoutActionRequest = z.infer<typeof adminPayoutActionRequestSc
+ export type AdminPayoutStatusFilter = z.infer<typeof adminPayoutStatusFilterSchema>;
+ export type PayoutRequestDto = z.infer<typeof payoutRequestSchema>;
+ export type MoneyProviderAccountDto = z.infer<typeof moneyProviderAccountSchema>;
++export type MoneyProviderWalletBalanceDto = z.infer<typeof moneyProviderWalletBalanceSchema>;
++export type MoneyProviderWalletBalancesSyncRequest = z.infer<typeof moneyProviderWalletBalancesSyncRequestSchema>;
++export type MoneyProviderWalletBalancesResponse = z.infer<typeof moneyProviderWalletBalancesResponseSchema>;
+ export type MoneyProviderOnboardingLinkRequest = z.infer<typeof moneyProviderOnboardingLinkRequestSchema>;
+ export type MoneyProviderOnboardingLinkResponse = z.infer<typeof moneyProviderOnboardingLinkResponseSchema>;
+ export type StripeConnectPayoutAccountDto = z.infer<typeof stripeConnectPayoutAccountSchema>;

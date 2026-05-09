@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { LedgerEntryDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
+import type { LedgerEntryDto, MoneyProviderWalletBalanceDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -22,6 +22,19 @@ function WalletMetricCard({ metric }: { metric: WalletMetric }) {
       <strong>{metric.value}</strong>
       <p>{metric.body}</p>
     </section>
+  );
+}
+
+
+function ProviderBalanceRow({ balance }: { balance: MoneyProviderWalletBalanceDto }) {
+  return (
+    <div className="wallet-ledger-row">
+      <span>
+        <strong>{balance.currency.toUpperCase()}</strong>
+        <small>Provider snapshot · {balance.lastSyncedAt ? formatDateTime(balance.lastSyncedAt) : 'not synced'}</small>
+      </span>
+      <em className="wallet-ledger-row__amount">{formatMoney(balance.availableCents, balance.currency)}</em>
+    </div>
   );
 }
 
@@ -86,6 +99,7 @@ export function WalletClient() {
   const availablePayoutGrossCents = summary?.availableForPayoutCents ?? wallet?.pendingPayoutCents ?? 0;
   const estimatedPayoutFeeCents = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(availablePayoutGrossCents, platformFeeRateBps);
   const estimatedPayoutNetCents = summary?.estimatedNetPayoutCents ?? Math.max(0, availablePayoutGrossCents - estimatedPayoutFeeCents);
+  const providerBalances = summary?.providerWalletBalances ?? [];
   const metrics = useMemo<WalletMetric[]>(() => [
     {
       label: 'Wallet money',
@@ -176,6 +190,23 @@ export function WalletClient() {
             <span><strong>{formatMoney(limits.walletBalanceCapCents, currency)}</strong><small>wallet cap</small></span>
           </div>
           <p>Launch limits keep early money flows small. Verify your payout account or contact support when you need higher limits.</p>
+        </section>
+      ) : null}
+
+
+      {providerBalances.length ? (
+        <section className="mobile-card wallet-ledger-card">
+          <div className="trade-section-heading">
+            <div>
+              <p className="eyebrow">Provider balance snapshot</p>
+              <h3>Airwallex sandbox balances</h3>
+            </div>
+            <span className="semantic-badge instruction">Read-only</span>
+          </div>
+          <p>Provider balances are reconciliation snapshots only. Hellowhen's ledger remains the product source of truth.</p>
+          <div className="wallet-ledger-list">
+            {providerBalances.map((balance) => <ProviderBalanceRow key={`${balance.providerAccountId ?? 'provider'}-${balance.currency}`} balance={balance} />)}
+          </div>
         </section>
       ) : null}
 

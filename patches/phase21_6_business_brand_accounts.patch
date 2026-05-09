@@ -1,0 +1,860 @@
+diff --git a/.env.example b/.env.example
+index 7f12572..7497e5e 100644
+--- a/.env.example
++++ b/.env.example
+@@ -38,8 +38,11 @@ AIRWALLEX_CLIENT_ID=
+ AIRWALLEX_API_KEY=
+ AIRWALLEX_WEBHOOK_SECRET=
+ AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID=
++AIRWALLEX_BUSINESS_HOSTED_FLOW_TEMPLATE_ID=
+ AIRWALLEX_ONBOARDING_RETURN_PATH=/account/payouts?airwallex=return
+ AIRWALLEX_ONBOARDING_ERROR_PATH=/account/payouts?airwallex=error
++AIRWALLEX_BUSINESS_ONBOARDING_RETURN_PATH=/account/business?airwallex=return
++AIRWALLEX_BUSINESS_ONBOARDING_ERROR_PATH=/account/business?airwallex=error
+ AIRWALLEX_PLATFORM_ACCOUNT_ID=
+ AIRWALLEX_DEFAULT_CURRENCY=eur
+ AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED=false
+@@ -125,3 +128,8 @@ EXPO_PUBLIC_WALLET_VISIBLE=false
+ EXPO_PUBLIC_PAYOUTS_VISIBLE=false
+ EXPO_PUBLIC_MONEY_TRADES_ENABLED=false
+ EXPO_PUBLIC_CASH_TRADES_ENABLED=false
++
++# Business/brand account scaffolding. Keep hidden for the first public beta unless explicitly testing Phase 21.6.
++BUSINESS_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 0307646..7c2026d 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -205,6 +205,30 @@ enum MoneyProviderAccountStatus {
+   rejected
+ }
+ 
++enum BusinessProfileType {
++  business
++  agency
++  brand
++  enterprise
++}
++
++enum BusinessProfileStatus {
++  draft
++  active
++  pending_review
++  verified
++  restricted
++  disabled
++  rejected
++}
++
++enum BusinessProfileMemberRole {
++  owner
++  admin
++  finance
++  member
++}
++
+ enum MoneyProviderTransactionType {
+   payin
+   internal_transfer
+@@ -279,6 +303,9 @@ model User {
+   reviewedPayoutEvents AdminPayoutEvent[] @relation("ReviewedPayoutEvents")
+   stripeConnectAccount StripeConnectAccount?
+   moneyProviderAccounts MoneyProviderAccount[]
++  ownedBusinessProfiles BusinessProfile[] @relation("OwnedBusinessProfiles")
++  businessProfileMemberships BusinessProfileMember[] @relation("BusinessProfileMemberships")
++  reviewedBusinessProfiles BusinessProfile[] @relation("ReviewedBusinessProfiles")
+   moneyProviderTransactions MoneyProviderTransaction[]
+   moneyPolicyAcknowledgements MoneyPolicyAcknowledgement[]
+ }
+@@ -393,6 +420,7 @@ model UserSettings {
+ model Need {
+   id            String             @id @default(cuid())
+   ownerId       String
++  businessProfileId String?
+   title         String
+   description   String
+   itemType      InventoryItemType @default(service)
+@@ -407,9 +435,11 @@ model Need {
+   expiresAt     DateTime?
+ 
+   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
++  businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+   trades Trade[]
+ 
+   @@index([ownerId, status])
++  @@index([businessProfileId, status])
+   @@index([category])
+   @@index([itemType])
+   @@index([mode])
+@@ -418,6 +448,7 @@ model Need {
+ model Offer {
+   id            String             @id @default(cuid())
+   ownerId       String
++  businessProfileId String?
+   title         String
+   description   String
+   itemType      InventoryItemType @default(service)
+@@ -433,9 +464,11 @@ model Offer {
+   expiresAt     DateTime?
+ 
+   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
++  businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+   trades Trade[]
+ 
+   @@index([ownerId, status])
++  @@index([businessProfileId, status])
+   @@index([category])
+   @@index([itemType])
+   @@index([mode])
+@@ -444,6 +477,7 @@ model Offer {
+ model Trade {
+   id           String      @id @default(cuid())
+   ownerId      String
++  businessProfileId String?
+   providerId   String?
+   needId       String?
+   offerId      String?
+@@ -467,6 +501,7 @@ model Trade {
+   disputeTicketId       String?
+ 
+   owner    User      @relation("OwnedTrades", fields: [ownerId], references: [id], onDelete: Cascade)
++  businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+   provider User?     @relation("ProvidedTrades", fields: [providerId], references: [id], onDelete: SetNull)
+   need     Need?     @relation(fields: [needId], references: [id], onDelete: SetNull)
+   offer    Offer?    @relation(fields: [offerId], references: [id], onDelete: SetNull)
+@@ -477,6 +512,7 @@ model Trade {
+ 
+   @@index([status, isPublic, createdAt])
+   @@index([ownerId, status])
++  @@index([businessProfileId, status])
+   @@index([providerId, status])
+   @@index([needId])
+   @@index([offerId])
+@@ -742,6 +778,57 @@ model AdminPayoutEvent {
+ }
+ 
+ 
++model BusinessProfile {
++  id                    String                @id @default(cuid())
++  ownerId               String
++  type                  BusinessProfileType   @default(business)
++  status                BusinessProfileStatus @default(active)
++  displayName           String
++  legalName             String?
++  handle                String?               @unique
++  description           String?
++  websiteUrl            String?
++  countryCode           String?
++  preferredCurrency     String                @default("eur")
++  verificationProvider  MoneyProviderName?
++  verificationProviderStatus MoneyProviderAccountStatus?
++  verifiedAt            DateTime?
++  reviewedAt            DateTime?
++  reviewerId            String?
++  reviewNote            String?
++  createdAt             DateTime              @default(now())
++  updatedAt             DateTime              @updatedAt
++
++  owner                 User                  @relation("OwnedBusinessProfiles", fields: [ownerId], references: [id], onDelete: Cascade)
++  reviewer              User?                 @relation("ReviewedBusinessProfiles", fields: [reviewerId], references: [id], onDelete: SetNull)
++  members               BusinessProfileMember[]
++  moneyProviderAccounts MoneyProviderAccount[]
++  needs                 Need[]
++  offers                Offer[]
++  trades                Trade[]
++
++  @@index([ownerId, status])
++  @@index([type, status])
++  @@index([countryCode])
++  @@index([verificationProvider, verificationProviderStatus])
++}
++
++model BusinessProfileMember {
++  id                String                    @id @default(cuid())
++  businessProfileId String
++  userId            String
++  role              BusinessProfileMemberRole @default(member)
++  createdAt         DateTime                  @default(now())
++  updatedAt         DateTime                  @updatedAt
++
++  businessProfile   BusinessProfile           @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
++  user              User                      @relation("BusinessProfileMemberships", fields: [userId], references: [id], onDelete: Cascade)
++
++  @@unique([businessProfileId, userId])
++  @@index([userId, role])
++  @@index([businessProfileId, role])
++}
++
+ model MoneyPolicyAcknowledgement {
+   id                   String   @id @default(cuid())
+   userId               String
+@@ -813,6 +900,7 @@ model StripeEvent {
+ model MoneyProviderAccount {
+   id                    String                     @id @default(cuid())
+   userId                String
++  businessProfileId     String?
+   provider              MoneyProviderName
+   providerAccountId     String
+   accountType           MoneyProviderAccountType   @default(individual)
+@@ -827,6 +915,7 @@ model MoneyProviderAccount {
+   updatedAt             DateTime                   @updatedAt
+ 
+   user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
++  businessProfile       BusinessProfile?           @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+   balances              MoneyProviderWalletBalance[]
+   transactions          MoneyProviderTransaction[] @relation("ProviderAccountTransactions")
+   counterpartyTransactions MoneyProviderTransaction[] @relation("ProviderCounterpartyTransactions")
+@@ -834,6 +923,7 @@ model MoneyProviderAccount {
+ 
+   @@unique([provider, providerAccountId])
+   @@index([userId, provider])
++  @@index([businessProfileId, provider])
+   @@index([provider, status, updatedAt])
+ }
+ 
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 993e0b8..3f8d793 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -52,8 +52,11 @@ export const env = {
+   airwallexApiKey: process.env.AIRWALLEX_API_KEY ?? '',
+   airwallexWebhookSecret: process.env.AIRWALLEX_WEBHOOK_SECRET ?? '',
+   airwallexHostedFlowTemplateId: process.env.AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID ?? '',
++  airwallexBusinessHostedFlowTemplateId: process.env.AIRWALLEX_BUSINESS_HOSTED_FLOW_TEMPLATE_ID ?? process.env.AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID ?? '',
+   airwallexOnboardingReturnPath: process.env.AIRWALLEX_ONBOARDING_RETURN_PATH ?? '/account/payouts?airwallex=return',
+   airwallexOnboardingErrorPath: process.env.AIRWALLEX_ONBOARDING_ERROR_PATH ?? '/account/payouts?airwallex=error',
++  airwallexBusinessOnboardingReturnPath: process.env.AIRWALLEX_BUSINESS_ONBOARDING_RETURN_PATH ?? '/account/business?airwallex=return',
++  airwallexBusinessOnboardingErrorPath: process.env.AIRWALLEX_BUSINESS_ONBOARDING_ERROR_PATH ?? '/account/business?airwallex=error',
+   airwallexPlatformAccountId: process.env.AIRWALLEX_PLATFORM_ACCOUNT_ID ?? '',
+   airwallexDefaultCurrency: (process.env.AIRWALLEX_DEFAULT_CURRENCY ?? 'eur').toLowerCase(),
+   airwallexConnectedAccountsEnabled: (process.env.AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED ?? 'false').toLowerCase() === 'true',
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index ec67866..e1ecf40 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1,5 +1,5 @@
+ import { Router } from 'express';
+-import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
++import { adminBusinessProfileActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -360,11 +360,60 @@ adminRoutes.get('/stripe/events', asyncRoute(async (_req, res) => {
+   res.json({ events });
+ }));
+ 
++adminRoutes.get('/business-profiles', asyncRoute(async (_req, res) => {
++  const businessProfiles = await prisma.businessProfile.findMany({
++    include: {
++      owner: { select: { id: true, email: true, profile: true, trustTier: true } },
++      reviewer: { select: { id: true, email: true, profile: true } },
++      members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' } },
++      moneyProviderAccounts: { orderBy: { createdAt: 'desc' }, take: 5 },
++      _count: { select: { needs: true, offers: true, trades: true } },
++    },
++    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
++    take: 150,
++  });
++  const provider = buildMoneyProviderStatus();
++  res.json({ provider, businessProfiles: businessProfiles.map((profile) => ({ ...profile, counts: profile._count })) });
++}));
++
++adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(async (req, res) => {
++  const input = adminBusinessProfileActionRequestSchema.parse(req.body);
++  const existing = await prisma.businessProfile.findUnique({ where: { id: req.params.businessProfileId } });
++  if (!existing) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  const statusByAction = {
++    verify: 'verified',
++    restrict: 'restricted',
++    disable: 'disabled',
++    reject: 'rejected',
++    activate: 'active',
++  } as const;
++  const nextStatus = statusByAction[input.action];
++  const updated = await prisma.businessProfile.update({
++    where: { id: existing.id },
++    data: {
++      status: nextStatus,
++      reviewedAt: new Date(),
++      reviewerId: req.user!.id,
++      reviewNote: input.note ?? null,
++      verifiedAt: input.action === 'verify' ? new Date() : input.action === 'activate' ? existing.verifiedAt : null,
++    },
++    include: {
++      owner: { select: { id: true, email: true, profile: true, trustTier: true } },
++      reviewer: { select: { id: true, email: true, profile: true } },
++      members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' } },
++      moneyProviderAccounts: { orderBy: { createdAt: 'desc' }, take: 5 },
++      _count: { select: { needs: true, offers: true, trades: true } },
++    },
++  });
++  res.json({ businessProfile: { ...updated, counts: updated._count } });
++}));
++
++
+ adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+   const provider = buildMoneyProviderStatus();
+   const [providerAccounts, legacyStripeAccounts] = await Promise.all([
+     prisma.moneyProviderAccount.findMany({
+-      include: { user: { select: { id: true, email: true, profile: true, trustTier: true } }, balances: true },
++      include: { user: { select: { id: true, email: true, profile: true, trustTier: true } }, businessProfile: true, balances: true },
+       orderBy: { updatedAt: 'desc' },
+       take: 100,
+     }),
+@@ -382,6 +431,8 @@ adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+         provider: account.provider,
+         providerAccountId: account.providerAccountId,
+         accountType: account.accountType,
++        businessProfileId: account.businessProfileId,
++        businessProfile: account.businessProfile,
+         status: account.status,
+         defaultCurrency: account.defaultCurrency,
+         country: account.country,
+@@ -415,7 +466,7 @@ adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+ adminRoutes.get('/money/provider-balances', asyncRoute(async (_req, res) => {
+   const provider = buildMoneyProviderStatus();
+   const balances = await prisma.moneyProviderWalletBalance.findMany({
+-    include: { account: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } } } },
++    include: { account: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } }, businessProfile: true } } },
+     orderBy: [{ updatedAt: 'desc' }, { currency: 'asc' }],
+     take: 250,
+   });
+@@ -443,6 +494,7 @@ adminRoutes.get('/money/provider-balances', asyncRoute(async (_req, res) => {
+         country: balance.account.country,
+         defaultCurrency: balance.account.defaultCurrency,
+         user: balance.account.user,
++        businessProfile: balance.account.businessProfile,
+       },
+     })),
+   });
+@@ -471,8 +523,8 @@ adminRoutes.get('/money/provider-transactions', asyncRoute(async (_req, res) =>
+   const transactions = await prisma.moneyProviderTransaction.findMany({
+     include: {
+       user: { select: { id: true, email: true, profile: true, trustTier: true } },
+-      account: { select: { id: true, provider: true, providerAccountId: true, status: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
+-      counterpartyAccount: { select: { id: true, provider: true, providerAccountId: true, status: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
++      account: { select: { id: true, provider: true, providerAccountId: true, status: true, businessProfile: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
++      counterpartyAccount: { select: { id: true, provider: true, providerAccountId: true, status: true, businessProfile: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
+     },
+     orderBy: { createdAt: 'desc' },
+     take: 150,
+diff --git a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+index ec8b019..ff461c9 100644
+--- a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+@@ -178,6 +178,8 @@ function toProviderDto(
+             : account.status,
+     connectedAt: account.createdAt.toISOString(),
+     providerAccountId: account.providerAccountId,
++    businessProfileId: account.businessProfileId,
++    accountType: account.accountType,
+     chargesEnabled: Boolean(
+       capabilities.payins_enabled ?? capabilities.charges_enabled,
+     ),
+@@ -256,6 +258,7 @@ function currencyFromAccount(
+ 
+ async function upsertProviderAccount(input: {
+   userId: string;
++  businessProfileId?: string | null;
+   account: AirwallexAccountResponse;
+   accountType?: "individual" | "business" | "brand";
+   fallbackCountry?: string | null;
+@@ -269,7 +272,11 @@ async function upsertProviderAccount(input: {
+       502,
+     );
+   const existing = await prisma.moneyProviderAccount.findFirst({
+-    where: { userId: input.userId, provider: "airwallex" },
++    where: {
++      userId: input.userId,
++      provider: "airwallex",
++      businessProfileId: input.businessProfileId ?? null,
++    },
+   });
+   const rawProviderStatus = jsonValue({
+     ...(input.account ?? {}),
+@@ -297,15 +304,16 @@ async function upsertProviderAccount(input: {
+   return prisma.moneyProviderAccount.create({
+     data: {
+       userId: input.userId,
++      businessProfileId: input.businessProfileId ?? null,
+       provider: "airwallex",
+       ...data,
+     },
+   });
+ }
+ 
+-async function getStoredAccount(userId: string) {
++async function getStoredAccount(userId: string, businessProfileId?: string | null) {
+   return prisma.moneyProviderAccount.findFirst({
+-    where: { userId, provider: "airwallex" },
++    where: { userId, provider: "airwallex", businessProfileId: businessProfileId ?? null },
+     orderBy: { createdAt: "desc" },
+   });
+ }
+@@ -326,6 +334,27 @@ async function getUserContact(userId: string) {
+   });
+ }
+ 
++async function getBusinessProfileContact(userId: string, businessProfileId?: string | null) {
++  if (!businessProfileId) return null;
++  return prisma.businessProfile.findFirst({
++    where: {
++      id: businessProfileId,
++      OR: [
++        { ownerId: userId },
++        { members: { some: { userId, role: { in: ["owner", "admin", "finance"] } } } },
++      ],
++    },
++    select: {
++      id: true,
++      type: true,
++      displayName: true,
++      legalName: true,
++      countryCode: true,
++      preferredCurrency: true,
++    },
++  });
++}
++
+ function webUrl(pathname: string | undefined, fallbackPath: string) {
+   return new URL(pathname || fallbackPath, env.webAppUrl).toString();
+ }
+@@ -461,10 +490,10 @@ function centsToProviderAmount(cents: number) {
+   return Number((Math.max(0, cents) / 100).toFixed(2));
+ }
+ 
+-async function accountForUser(userId?: string | null) {
++async function accountForUser(userId?: string | null, businessProfileId?: string | null) {
+   if (!userId) return null;
+   return prisma.moneyProviderAccount.findFirst({
+-    where: { userId, provider: "airwallex" },
++    where: { userId, provider: "airwallex", businessProfileId: businessProfileId ?? null },
+     orderBy: { createdAt: "desc" },
+   });
+ }
+@@ -722,7 +751,7 @@ async function getAccountForBalanceInput(input: SyncWalletBalancesInput) {
+         },
+       },
+     });
+-  if (input.userId) return getStoredAccount(input.userId);
++  if (input.userId) return getStoredAccount(input.userId, input.businessProfileId);
+   return null;
+ }
+ 
+@@ -832,27 +861,31 @@ async function syncAirwallexWalletBalances(
+ async function createHostedFlow(input: {
+   accountId: string;
+   userId: string;
++  businessProfileId?: string | null;
++  accountType?: "individual" | "business" | "brand";
+   returnUrl?: string;
+   refreshUrl?: string;
+ }) {
+-  if (!env.airwallexHostedFlowTemplateId) {
++  const isBusinessFlow = Boolean(input.businessProfileId) || input.accountType === "business" || input.accountType === "brand";
++  const templateId = isBusinessFlow ? env.airwallexBusinessHostedFlowTemplateId : env.airwallexHostedFlowTemplateId;
++  if (!templateId) {
+     throw new MoneyProviderError(
+       "airwallex_hosted_flow_template_missing",
+-      "AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID is required for hosted onboarding links.",
++      isBusinessFlow ? "AIRWALLEX_BUSINESS_HOSTED_FLOW_TEMPLATE_ID is required for business or brand hosted onboarding links." : "AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID is required for hosted onboarding links.",
+       503,
+     );
+   }
+   const returnUrl =
+     input.returnUrl ??
+     webUrl(
+-      env.airwallexOnboardingReturnPath,
+-      "/account/payouts?airwallex=return",
++      isBusinessFlow ? env.airwallexBusinessOnboardingReturnPath : env.airwallexOnboardingReturnPath,
++      isBusinessFlow ? "/account/business?airwallex=return" : "/account/payouts?airwallex=return",
+     );
+   const errorUrl =
+     input.refreshUrl ??
+     webUrl(
+-      env.airwallexOnboardingErrorPath,
+-      "/account/payouts?airwallex=error",
++      isBusinessFlow ? env.airwallexBusinessOnboardingErrorPath : env.airwallexOnboardingErrorPath,
++      isBusinessFlow ? "/account/business?airwallex=error" : "/account/payouts?airwallex=error",
+     );
+   const flow = await airwallexRequest<AirwallexHostedFlowResponse>(
+     "/api/v1/hosted_flows/create",
+@@ -862,11 +895,13 @@ async function createHostedFlow(input: {
+         account_id: input.accountId,
+         return_url: returnUrl,
+         error_url: errorUrl,
+-        template: env.airwallexHostedFlowTemplateId,
++        template: templateId,
+         metadata: {
+           userId: input.userId,
++          businessProfileId: input.businessProfileId ?? null,
++          accountType: input.accountType ?? null,
+           provider: "airwallex",
+-          phase: "21.2",
++          phase: isBusinessFlow ? "21.6" : "21.2",
+         },
+       },
+     },
+@@ -930,8 +965,9 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+ 
+   async getConnectedAccount(
+     userId: string,
++    businessProfileId?: string | null,
+   ): Promise<ProviderAccountDto | null> {
+-    const account = await getStoredAccount(userId);
++    const account = await getStoredAccount(userId, businessProfileId);
+     if (!account) {
+       return {
+         provider: "airwallex_demo",
+@@ -946,10 +982,20 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+ 
+   async createConnectedAccount(input: CreateConnectedAccountInput) {
+     requireAirwallexSandboxConfigured();
+-    const existing = await getStoredAccount(input.userId);
++    const existing = await getStoredAccount(input.userId, input.businessProfileId);
+     if (existing) return toProviderDto(existing)!;
+ 
+-    const user = await getUserContact(input.userId);
++    const [user, businessProfile] = await Promise.all([
++      getUserContact(input.userId),
++      getBusinessProfileContact(input.userId, input.businessProfileId),
++    ]);
++    if (input.businessProfileId && !businessProfile) {
++      throw new MoneyProviderError(
++        "business_profile_not_found",
++        "Business or brand profile was not found, or you do not have permission to manage its provider account.",
++        404,
++      );
++    }
+     if (!user?.email)
+       throw new MoneyProviderError(
+         "user_email_required",
+@@ -959,11 +1005,19 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+ 
+     const accountType =
+       input.accountType ??
+-      (env.airwallexDefaultAccountType === "business"
+-        ? "business"
+-        : "individual");
++      (businessProfile
++        ? businessProfile.type === "brand" || businessProfile.type === "enterprise"
++          ? "brand"
++          : "business"
++        : env.airwallexDefaultAccountType === "business"
++          ? "business"
++          : "individual");
+     const displayName =
+-      user.profile?.displayName || user.email.split("@")[0] || "Hellowhen user";
++      businessProfile?.legalName ||
++      businessProfile?.displayName ||
++      user.profile?.displayName ||
++      user.email.split("@")[0] ||
++      "Hellowhen user";
+     const payload =
+       accountType === "individual"
+         ? {
+@@ -994,11 +1048,13 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     );
+     const stored = await upsertProviderAccount({
+       userId: input.userId,
++      businessProfileId: input.businessProfileId ?? null,
+       account,
+       accountType,
+-      fallbackCountry: input.country ?? user.profile?.countryCode ?? null,
++      fallbackCountry: input.country ?? businessProfile?.countryCode ?? user.profile?.countryCode ?? null,
+       fallbackCurrency:
+         input.defaultCurrency ??
++        businessProfile?.preferredCurrency ??
+         user.profile?.preferredCurrency ??
+         env.airwallexDefaultCurrency,
+     });
+@@ -1009,10 +1065,10 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     input: CreateOnboardingLinkInput,
+   ): Promise<ProviderOnboardingLinkResult> {
+     requireAirwallexSandboxConfigured();
+-    let stored = await getStoredAccount(input.userId);
++    let stored = await getStoredAccount(input.userId, input.businessProfileId);
+     if (!stored) {
+-      await this.createConnectedAccount({ userId: input.userId });
+-      stored = await getStoredAccount(input.userId);
++      await this.createConnectedAccount({ userId: input.userId, businessProfileId: input.businessProfileId, accountType: input.accountType });
++      stored = await getStoredAccount(input.userId, input.businessProfileId);
+     }
+     if (!stored)
+       throw new MoneyProviderError(
+@@ -1024,6 +1080,8 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     const { flow, authorized } = await createHostedFlow({
+       accountId: stored.providerAccountId,
+       userId: input.userId,
++      businessProfileId: input.businessProfileId,
++      accountType: stored.accountType,
+       returnUrl: input.returnUrl,
+       refreshUrl: input.refreshUrl,
+     });
+@@ -1063,7 +1121,7 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+           },
+         })
+       : input.userId
+-        ? await getStoredAccount(input.userId)
++        ? await getStoredAccount(input.userId, input.businessProfileId)
+         : null;
+     if (!stored) return null;
+     const account = await airwallexRequest<AirwallexAccountResponse>(
+@@ -1071,6 +1129,7 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     );
+     const updated = await upsertProviderAccount({
+       userId: stored.userId,
++      businessProfileId: stored.businessProfileId,
+       account: { ...account, id: account.id ?? stored.providerAccountId },
+       accountType: stored.accountType,
+       fallbackCountry: stored.country,
+diff --git a/apps/api/src/modules/money/providers/moneyProvider.types.ts b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+index 06dca08..264216e 100644
+--- a/apps/api/src/modules/money/providers/moneyProvider.types.ts
++++ b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+@@ -40,6 +40,8 @@ export type ProviderAccountDto = {
+   status: MoneyProviderAccountStatus;
+   connectedAt?: string | null;
+   providerAccountId?: string;
++  businessProfileId?: string | null;
++  accountType?: 'individual' | 'business' | 'brand';
+   legacyStripeAccountId?: string;
+   chargesEnabled?: boolean;
+   payoutsEnabled?: boolean;
+@@ -82,6 +84,7 @@ export type ProviderTradeMoneyResult = {
+ 
+ export type CreateConnectedAccountInput = {
+   userId: string;
++  businessProfileId?: string | null;
+   accountType?: 'individual' | 'business' | 'brand';
+   country?: string | null;
+   defaultCurrency?: string | null;
+@@ -89,6 +92,8 @@ export type CreateConnectedAccountInput = {
+ 
+ export type CreateOnboardingLinkInput = {
+   userId: string;
++  businessProfileId?: string | null;
++  accountType?: 'individual' | 'business' | 'brand';
+   refreshUrl?: string;
+   returnUrl?: string;
+ };
+@@ -101,11 +106,13 @@ export type ProviderOnboardingLinkResult = {
+ 
+ export type SyncAccountStatusInput = {
+   userId?: string;
++  businessProfileId?: string | null;
+   providerAccountId?: string;
+ };
+ 
+ export type SyncWalletBalancesInput = {
+   userId?: string;
++  businessProfileId?: string | null;
+   providerAccountId?: string;
+   scaToken?: string;
+ };
+@@ -191,7 +198,7 @@ export interface MoneyProviderAdapter {
+     capabilities: MoneyProviderCapability[];
+   };
+ 
+-  getConnectedAccount(userId: string): Promise<ProviderAccountDto | null>;
++  getConnectedAccount(userId: string, businessProfileId?: string | null): Promise<ProviderAccountDto | null>;
+   createConnectedAccount(input: CreateConnectedAccountInput): Promise<ProviderAccountDto>;
+   createOnboardingLink(input: CreateOnboardingLinkInput): Promise<ProviderOnboardingLinkResult>;
+   syncConnectedAccountStatus(input: SyncAccountStatusInput): Promise<ProviderAccountDto | null>;
+diff --git a/apps/api/src/modules/money/providers/noneMoneyProvider.ts b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+index da60542..44ac3a4 100644
+--- a/apps/api/src/modules/money/providers/noneMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+@@ -24,7 +24,7 @@ export const noneMoneyProvider: MoneyProviderAdapter = {
+     };
+   },
+ 
+-  async getConnectedAccount(_userId: string): Promise<ProviderAccountDto | null> {
++  async getConnectedAccount(_userId: string, _businessProfileId?: string | null): Promise<ProviderAccountDto | null> {
+     return {
+       provider: 'none',
+       status: 'not_connected',
+diff --git a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+index f9b2c7c..064c98a 100644
+--- a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+@@ -55,7 +55,7 @@ export const stripeMoneyProvider: MoneyProviderAdapter = {
+     };
+   },
+ 
+-  async getConnectedAccount(userId: string) {
++  async getConnectedAccount(userId: string, _businessProfileId?: string | null) {
+     const account = await prisma.stripeConnectAccount.findUnique({ where: { userId } });
+     return mapStripeConnectPayoutAccount(account);
+   },
+diff --git a/apps/api/src/routes.ts b/apps/api/src/routes.ts
+index 63a2aac..3e93c12 100644
+--- a/apps/api/src/routes.ts
++++ b/apps/api/src/routes.ts
+@@ -1,6 +1,7 @@
+ import { Router } from 'express';
+ import { adminRoutes } from './modules/admin/admin.routes.js';
+ import { authRoutes } from './modules/auth/auth.routes.js';
++import { businessRoutes } from './modules/business/business.routes.js';
+ import { creditsRoutes } from './modules/credits/credits.routes.js';
+ import { healthRoutes } from './modules/health/health.routes.js';
+ import { needsRoutes } from './modules/needs/needs.routes.js';
+@@ -17,6 +18,7 @@ export const routes = Router();
+ 
+ routes.use('/health', healthRoutes);
+ routes.use('/auth', authRoutes);
++routes.use('/business', businessRoutes);
+ routes.use('/credits', creditsRoutes);
+ routes.use('/profile', profileRoutes);
+ routes.use('/settings', settingsRoutes);
+diff --git a/apps/mobile/src/env.d.ts b/apps/mobile/src/env.d.ts
+index 9cda45e..97947a1 100644
+--- a/apps/mobile/src/env.d.ts
++++ b/apps/mobile/src/env.d.ts
+@@ -10,5 +10,6 @@ declare const process: {
+     EXPO_PUBLIC_PAYOUTS_VISIBLE?: string;
+     EXPO_PUBLIC_MONEY_TRADES_ENABLED?: string;
+     EXPO_PUBLIC_CASH_TRADES_ENABLED?: string;
++    EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE?: string;
+   };
+ };
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index cdfb63e..f6d3f70 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -18,7 +18,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+-type AccountRoute = 'AccountProfile' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
++type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
+ 
+ type AccountAction = {
+   title: string;
+@@ -30,6 +30,7 @@ type AccountAction = {
+ 
+ const accountActions: AccountAction[] = [
+   { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile' },
++  ...(betaFeatures.businessAccountsVisible ? [{ title: 'Business / brand', description: 'Future business, agency, brand, and enterprise profiles.', badge: 'Brand', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute }] : []),
+   ...(betaFeatures.walletVisible ? [{ title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute }] : []),
+   ...(betaFeatures.payoutsVisible ? [{ title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute }] : []),
+   { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings' },
+@@ -102,6 +103,7 @@ export function AccountScreen() {
+ 
+   function navigate(route: AccountRoute) {
+     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
++    else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
+     else if (route === 'Wallet') navigation.navigate('Wallet');
+     else if (route === 'Payouts') navigation.navigate('Payouts');
+     else if (route === 'Settings') navigation.navigate('Settings');
+diff --git a/apps/mobile/src/lib/betaFeatures.ts b/apps/mobile/src/lib/betaFeatures.ts
+index d8f9a20..3baa11c 100644
+--- a/apps/mobile/src/lib/betaFeatures.ts
++++ b/apps/mobile/src/lib/betaFeatures.ts
+@@ -7,4 +7,5 @@ export const betaFeatures = {
+   payoutsVisible: enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.EXPO_PUBLIC_PAYOUTS_VISIBLE),
+   moneyTradesEnabled: enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.EXPO_PUBLIC_MONEY_TRADES_ENABLED),
+   cashTradesEnabled: enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.EXPO_PUBLIC_CASH_TRADES_ENABLED),
++  businessAccountsVisible: enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+ } as const;
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index a7db86d..aff4f78 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
+ import { ActivityIndicator, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { AccountScreen } from '../features/account/AccountScreen';
++import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+ import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
+ import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
+@@ -33,6 +34,7 @@ export type RootStackParamList = {
+   Wallet: undefined;
+   Payouts: undefined;
+   Settings: undefined;
++  BusinessAccounts: undefined;
+   BuyCredits: undefined;
+   SupportCenter: undefined;
+   SupportTicketDetail: { ticketId: string; subject?: string };
+@@ -97,6 +99,7 @@ export function RootNavigator() {
+           <Stack.Screen name="Wallet" component={WalletScreen} />
+           <Stack.Screen name="Payouts" component={PayoutsScreen} />
+           <Stack.Screen name="Settings" component={SettingsScreen} />
++          <Stack.Screen name="BusinessAccounts" component={BusinessAccountsScreen} />
+           <Stack.Screen name="BuyCredits" component={BuyCreditsScreen} />
+           <Stack.Screen name="SupportCenter" component={SupportCenterScreen} />
+           <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index f5fa6ad..e2b2d66 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -17,6 +17,7 @@ type AccountHubItem = {
+ 
+ const accountItems: AccountHubItem[] = [
+   { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.' },
++  ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', title: 'Business / brand', body: 'Create future business, agency, brand, or enterprise profiles for KYB-ready onboarding.' }] : []),
+   ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' }] : []),
+   ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' }] : []),
+   { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.' },
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index d74c7da..4249674 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -7,6 +7,7 @@ export const betaFeatures = {
+   payoutsVisible: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_PAYOUTS_VISIBLE),
+   moneyTradesEnabled: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
+   cashTradesEnabled: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
++  businessAccountsVisible: enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+ } as const;
+ 
+ export function MoneyOffNotice({ title = 'Service and goods beta' }: { title?: string }) {
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 58b317e..6a40cf7 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -17,12 +17,13 @@ export function createApiClient(options: ApiClientOptions) {
+     auth: { login: (body: LoginRequest) => requestJson<LoginResponse>(options, '/auth/login', { method: 'POST', body: JSON.stringify(body) }), register: (body: RegisterRequest) => requestJson<AuthResponse>(options, '/auth/register', { method: 'POST', body: JSON.stringify(body) }), google: (body: GoogleAuthRequest) => requestJson<LoginResponse>(options, '/auth/google', { method: 'POST', body: JSON.stringify(body) }), loginTwoFactor: (body: TwoFactorChallengeRequest) => requestJson<AuthResponse>(options, '/auth/login/2fa', { method: 'POST', body: JSON.stringify(body) }), refresh: (body: RefreshSessionRequest) => requestJson<AuthResponse>(options, '/auth/refresh', { method: 'POST', body: JSON.stringify(body) }), logout: (body?: LogoutRequest) => requestJson(options, '/auth/logout', { method: 'POST', body: JSON.stringify(body ?? {}) }), logoutAll: () => requestJson(options, '/auth/logout-all', { method: 'POST' }), forgotPassword: (body: ForgotPasswordRequest) => requestJson<ForgotPasswordResponse>(options, '/auth/forgot-password', { method: 'POST', body: JSON.stringify(body) }), resetPassword: (body: ResetPasswordRequest) => requestJson<ResetPasswordResponse>(options, '/auth/reset-password', { method: 'POST', body: JSON.stringify(body) }), requestEmailVerification: () => requestJson(options, '/auth/verify-email/request', { method: 'POST' }), verifyEmail: (token: string) => requestJson(options, '/auth/verify-email/confirm', { method: 'POST', body: JSON.stringify({ token }) }), twoFactorSetup: () => requestJson(options, '/auth/2fa/setup', { method: 'POST' }), twoFactorEnable: (body: TwoFactorCodeRequest) => requestJson(options, '/auth/2fa/enable', { method: 'POST', body: JSON.stringify(body) }), twoFactorDisable: (body: DisableTwoFactorRequest) => requestJson(options, '/auth/2fa/disable', { method: 'POST', body: JSON.stringify(body) }), reauthenticate: (body: ReauthenticateRequest) => requestJson(options, '/auth/reauthenticate', { method: 'POST', body: JSON.stringify(body) }), sessions: () => requestJson(options, '/auth/sessions'), revokeSession: (sessionId: string) => requestJson(options, `/auth/sessions/${sessionId}`, { method: 'DELETE' }), me: () => requestJson<AuthMeResponse>(options, '/auth/me') },
+     profile: { updateMe: (body: UpdateProfileRequest) => requestJson(options, '/profile/me', { method: 'PATCH', body: JSON.stringify(body) }) },
+     settings: { me: () => requestJson(options, '/settings/me'), updateMe: (body: UpdateSettingsRequest) => requestJson(options, '/settings/me', { method: 'PATCH', body: JSON.stringify(body) }) },
++    business: { mine: () => requestJson(options, '/business/mine'), create: (body: CreateBusinessProfileRequest) => requestJson(options, '/business', { method: 'POST', body: JSON.stringify(body) }), get: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}`), update: (businessProfileId: string, body: UpdateBusinessProfileRequest) => requestJson(options, `/business/${businessProfileId}`, { method: 'PATCH', body: JSON.stringify(body) }), requestReview: (businessProfileId: string, body?: RequestBusinessReviewRequest) => requestJson(options, `/business/${businessProfileId}/request-review`, { method: 'POST', body: JSON.stringify(body ?? {}) }), providerAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account`), createBusinessProviderOnboardingLink: (businessProfileId: string, body?: BusinessProviderOnboardingLinkRequest) => requestJson(options, `/business/${businessProfileId}/provider-account/onboarding-link`, { method: 'POST', body: JSON.stringify(body ?? {}) }), syncBusinessProviderAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account/sync`, { method: 'POST' }) },
+     needs: { create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/needs/mine'), get: (needId: string) => requestJson(options, `/needs/${needId}`), update: (needId: string, body: UpdateNeedRequest) => requestJson(options, `/needs/${needId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (needId: string) => requestJson(options, `/needs/${needId}`, { method: 'DELETE' }) },
+     offers: { create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/offers/mine'), get: (offerId: string) => requestJson(options, `/offers/${offerId}`), update: (offerId: string, body: UpdateOfferRequest) => requestJson(options, `/offers/${offerId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (offerId: string) => requestJson(options, `/offers/${offerId}`, { method: 'DELETE' }) },
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: () => requestJson(options, '/admin/business-profiles'), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }), providerBalances: () => requestJson(options, '/wallet/provider-balances'), syncProviderBalances: (body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, '/wallet/provider-balances/sync', { method: 'POST', body: JSON.stringify(body ?? {}) }) }
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index 213f234..a05014e 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -6,3 +6,4 @@ export * from './wallet.js';
+ export * from './media.js';
+ export * from './credits.js';
+ export * from './support.js';
++export * from './business.js';
+diff --git a/packages/contracts/src/wallet.ts b/packages/contracts/src/wallet.ts
+index 6969391..7213806 100644
+--- a/packages/contracts/src/wallet.ts
++++ b/packages/contracts/src/wallet.ts
+@@ -143,6 +143,8 @@ export const moneyProviderAccountSchema = z.object({
+   status: z.enum(['not_connected', 'onboarding', 'pending', 'connected', 'restricted', 'disabled']),
+   connectedAt: z.string().nullable().optional(),
+   providerAccountId: z.string().optional(),
++  businessProfileId: z.string().nullable().optional(),
++  accountType: z.enum(['individual', 'business', 'brand']).optional(),
+   legacyStripeAccountId: z.string().optional(),
+   chargesEnabled: z.boolean().optional().default(false),
+   payoutsEnabled: z.boolean().optional().default(false),

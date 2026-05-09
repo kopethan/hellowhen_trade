@@ -1,0 +1,1313 @@
+diff --git a/.env.example b/.env.example
+index 17b4b82..7f12572 100644
+--- a/.env.example
++++ b/.env.example
+@@ -45,6 +45,9 @@ AIRWALLEX_DEFAULT_CURRENCY=eur
+ AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED=false
+ AIRWALLEX_KYC_ONBOARDING_MODE=hosted
+ AIRWALLEX_DEFAULT_ACCOUNT_TYPE=individual
++AIRWALLEX_SANDBOX_PAYOUT_BENEFICIARY_ID=
++AIRWALLEX_SANDBOX_PAYOUT_TRANSFER_METHOD=LOCAL
++AIRWALLEX_SANDBOX_PAYOUT_REASON=services
+ 
+ WEB_APP_URL=http://localhost:3000
+ MOBILE_APP_URL=hellowhen://
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index bad2a19..993e0b8 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -59,6 +59,9 @@ export const env = {
+   airwallexConnectedAccountsEnabled: (process.env.AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED ?? 'false').toLowerCase() === 'true',
+   airwallexKycOnboardingMode: process.env.AIRWALLEX_KYC_ONBOARDING_MODE ?? 'hosted',
+   airwallexDefaultAccountType: process.env.AIRWALLEX_DEFAULT_ACCOUNT_TYPE ?? 'individual',
++  airwallexSandboxPayoutBeneficiaryId: process.env.AIRWALLEX_SANDBOX_PAYOUT_BENEFICIARY_ID ?? '',
++  airwallexSandboxPayoutTransferMethod: (process.env.AIRWALLEX_SANDBOX_PAYOUT_TRANSFER_METHOD ?? 'LOCAL').toUpperCase(),
++  airwallexSandboxPayoutReason: process.env.AIRWALLEX_SANDBOX_PAYOUT_REASON ?? 'services',
+   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
+   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index f87d5c4..ec67866 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -6,9 +6,9 @@ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+ import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+-import { buildAdminMoneySafetySummary } from '../money/moneySafety.js';
++import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
+ import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+-import { buildMoneyProviderStatus, getMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
++import { buildMoneyProviderStatus, getActiveMoneyProvider, getMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
+ import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
+ import { refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+@@ -142,6 +142,8 @@ const adminPayoutEventInclude = { admin: { select: { id: true, email: true, prof
+ const adminPayoutInclude = {
+   user: { select: adminPayoutUserSelect },
+   stripeConnectAccount: true,
++  providerAccount: true,
++  providerTransactions: { orderBy: { createdAt: 'desc' as const }, take: 8 },
+   adminEvents: { include: adminPayoutEventInclude, orderBy: { createdAt: 'desc' as const }, take: 8 },
+ } as const;
+ 
+@@ -153,6 +155,51 @@ function appendAdminNote(current: string | null | undefined, note: string | unde
+ }
+ 
+ 
++function providerForPayout(payout: { provider?: 'none' | 'stripe' | 'airwallex' | null }) {
++  return payout.provider ? getMoneyProvider(payout.provider) : getActiveMoneyProvider();
++}
++
++function shouldCreateProviderPayoutTransfer(payout: { provider?: 'none' | 'stripe' | 'airwallex' | null; providerAccountId?: string | null; netAmountCents: number }) {
++  const moneySafety = buildGlobalMoneySafetyConfig();
++  if (!moneySafety.providerTransfersEnabled || payout.netAmountCents <= 0) return false;
++  if (!payout.provider || payout.provider === 'none') return false;
++  if (payout.provider === 'airwallex') return Boolean(payout.providerAccountId);
++  if (payout.provider === 'stripe') return true;
++  return false;
++}
++
++async function createProviderPayoutTransferForAdmin(input: {
++  payoutId: string;
++  adminId: string;
++  scaToken?: string | null;
++}) {
++  const payout = await prisma.payoutRequest.findUnique({
++    where: { id: input.payoutId },
++    include: { providerAccount: true, stripeConnectAccount: true },
++  });
++  if (!payout) return null;
++  if (!shouldCreateProviderPayoutTransfer(payout)) return null;
++  const provider = providerForPayout(payout);
++  return provider.createPayoutTransfer({
++    userId: payout.userId,
++    payoutId: payout.id,
++    grossAmountCents: payoutGrossCents(payout),
++    platformFeeCents: payout.platformFeeCents,
++    netAmountCents: payout.netAmountCents,
++    currency: payout.currency,
++    requestedById: input.adminId,
++    scaToken: input.scaToken ?? null,
++  });
++}
++
++async function syncProviderPayoutTransferForAdmin(input: { payoutId: string; scaToken?: string | null }) {
++  const payout = await prisma.payoutRequest.findUnique({ where: { id: input.payoutId } });
++  if (!payout) return null;
++  if (!payout.provider || payout.provider === 'none') return null;
++  const provider = getMoneyProvider(payout.provider);
++  return provider.syncPayoutTransfer({ payoutId: payout.id, providerTransferId: payout.providerTransferId ?? undefined, scaToken: input.scaToken ?? null });
++}
++
+ adminRoutes.get('/payouts', asyncRoute(async (req, res) => {
+   const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'all';
+   const status = adminPayoutStatusFilterSchema.safeParse(rawStatus);
+@@ -176,7 +223,12 @@ adminRoutes.get('/payouts', asyncRoute(async (req, res) => {
+ adminRoutes.get('/payouts/:payoutId', asyncRoute(async (req, res) => {
+   const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: { ...adminPayoutInclude, adminEvents: { include: adminPayoutEventInclude, orderBy: { createdAt: 'desc' } } } });
+   if (!payout) return res.status(404).json({ error: 'not_found' });
+-  const [ledgerEntries, supportTickets, stripeEvents, userLimits] = await Promise.all([
++  const providerEventFilters: Array<Record<string, string>> = [];
++  if (payout.providerEventId) providerEventFilters.push({ providerEventId: payout.providerEventId });
++  if (payout.providerTransferId) providerEventFilters.push({ providerEventId: payout.providerTransferId });
++  if (payout.providerPayoutId) providerEventFilters.push({ providerEventId: payout.providerPayoutId });
++  if (payout.providerAccount?.providerAccountId) providerEventFilters.push({ providerAccountId: payout.providerAccount.providerAccountId });
++  const [ledgerEntries, supportTickets, stripeEvents, providerEvents, providerTransactions, userLimits] = await Promise.all([
+     prisma.creditLedgerEntry.findMany({ where: { userId: payout.userId }, orderBy: { createdAt: 'desc' }, take: 40 }),
+     prisma.supportTicket.findMany({ where: { userId: payout.userId }, include: { user: { select: supportUserSelect }, assignedAdmin: { select: supportUserSelect }, _count: { select: { messages: true } } }, orderBy: { updatedAt: 'desc' }, take: 10 }),
+     prisma.stripeEvent.findMany({
+@@ -192,14 +244,25 @@ adminRoutes.get('/payouts/:payoutId', asyncRoute(async (req, res) => {
+       orderBy: { createdAt: 'desc' },
+       take: 25
+     }),
++    prisma.moneyProviderEvent.findMany({
++      where: providerEventFilters.length ? { OR: providerEventFilters } : { providerEventId: '__none__' },
++      orderBy: { createdAt: 'desc' },
++      take: 25,
++    }),
++    prisma.moneyProviderTransaction.findMany({
++      where: { payoutRequestId: payout.id },
++      include: { account: true },
++      orderBy: { createdAt: 'desc' },
++      take: 25,
++    }),
+     buildLaunchLimits(prisma, payout.userId)
+   ]);
+-  res.json({ payout, ledgerEntries, supportTickets: await withSupportTicketMedia(supportTickets, 'admin'), stripeEvents, userLimits });
++  res.json({ payout, ledgerEntries, supportTickets: await withSupportTicketMedia(supportTickets, 'admin'), stripeEvents, providerEvents, providerTransactions, userLimits });
+ }));
+ 
+ adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
+   const input = adminPayoutActionRequestSchema.parse(req.body);
+-  const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: { user: { select: { id: true, wallet: true } }, stripeConnectAccount: true } });
++  const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: { user: { select: { id: true, wallet: true } }, stripeConnectAccount: true, providerAccount: true } });
+   if (!payout) return res.status(404).json({ error: 'not_found' });
+ 
+   const previousStatus = payout.status;
+@@ -216,24 +279,24 @@ adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
+   if (input.action === 'approve') {
+     if (!safeMutable) return res.status(409).json({ error: 'payout_not_mutable', message: 'Only draft/requested payouts can be approved.' });
+     nextStatus = 'approved';
+-    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_approved' };
++    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_approved', providerExternalStatus: payout.providerExternalStatus ?? 'admin_approved' };
+   } else if (input.action === 'pause') {
+     if (previousStatus === 'paid') return res.status(409).json({ error: 'payout_paid', message: 'Paid payouts cannot be paused.' });
+     nextStatus = 'requested';
+-    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: 'admin_paused' };
++    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: 'admin_paused', providerExternalStatus: 'admin_paused' };
+   } else if (input.action === 'retry') {
+     if (previousStatus === 'paid') return res.status(409).json({ error: 'payout_paid', message: 'Paid payouts cannot be retried.' });
+     nextStatus = previousStatus === 'rejected' || previousStatus === 'cancelled' ? previousStatus : 'requested';
+-    data = { ...data, status: nextStatus, reviewedAt: now, stripeFailureCode: null, stripeFailureMessage: null, stripeExternalStatus: 'admin_retry_requested' };
++    data = { ...data, status: nextStatus, reviewedAt: now, stripeFailureCode: null, stripeFailureMessage: null, stripeExternalStatus: 'admin_retry_requested', providerFailureCode: null, providerFailureMessage: null, providerExternalStatus: 'admin_retry_requested' };
+   } else if (input.action === 'mark_paid') {
+     if (previousStatus === 'rejected' || previousStatus === 'cancelled') return res.status(409).json({ error: 'payout_closed', message: 'Rejected or cancelled payouts cannot be marked paid.' });
+     nextStatus = 'paid';
+-    data = { ...data, status: nextStatus, reviewedAt: now, paidAt: payout.paidAt ?? now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_marked_paid' };
++    data = { ...data, status: nextStatus, reviewedAt: now, paidAt: payout.paidAt ?? now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_marked_paid', providerExternalStatus: payout.providerExternalStatus ?? 'admin_marked_paid' };
+     ledgerDescription = 'Admin marked payout as paid.';
+   } else if (input.action === 'reject' || input.action === 'cancel') {
+     if (previousStatus === 'paid') return res.status(409).json({ error: 'payout_paid', message: 'Paid payouts cannot be rejected or cancelled.' });
+     nextStatus = input.action === 'reject' ? 'rejected' : 'cancelled';
+-    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: `admin_${nextStatus}` };
++    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: `admin_${nextStatus}`, providerExternalStatus: `admin_${nextStatus}` };
+     if (previousStatus !== 'rejected' && previousStatus !== 'cancelled') {
+       walletIncrement = grossAmountCents;
+       ledgerDescription = input.action === 'reject' ? 'Admin rejected payout and returned gross payout-eligible earnings.' : 'Admin cancelled payout and returned gross payout-eligible earnings.';
+@@ -248,11 +311,39 @@ adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
+       await tx.creditLedgerEntry.create({ data: { userId: payout.userId, walletId: payout.user.wallet.id, type: 'payout_paid', balanceType: 'earned_pending', amount: 0, amountCents: 0, currency: payout.currency, description: ledgerDescription, metadata: { payoutId: payout.id, adminAction: input.action } } });
+     }
+     const updatedPayout = await tx.payoutRequest.update({ where: { id: payout.id }, data, include: adminPayoutInclude });
+-    await tx.adminPayoutEvent.create({ data: { payoutRequestId: payout.id, adminId: req.user!.id, action: input.action, note: note || null, previousStatus, nextStatus, metadata: { grossAmountCents, walletReturnedCents: walletIncrement, stripeExternalStatus: updatedPayout.stripeExternalStatus } } });
++    await tx.adminPayoutEvent.create({ data: { payoutRequestId: payout.id, adminId: req.user!.id, action: input.action, note: note || null, previousStatus, nextStatus, metadata: { grossAmountCents, walletReturnedCents: walletIncrement, stripeExternalStatus: updatedPayout.stripeExternalStatus, providerExternalStatus: updatedPayout.providerExternalStatus } } });
+     return updatedPayout;
+   });
+ 
+-  res.json({ payout: updated });
++  let refreshed = updated;
++  let providerTransfer: unknown = null;
++  let providerTransferError: string | null = null;
++  if ((input.action === 'approve' || input.action === 'retry') && shouldCreateProviderPayoutTransfer(updated)) {
++    try {
++      providerTransfer = await createProviderPayoutTransferForAdmin({ payoutId: updated.id, adminId: req.user!.id, scaToken: input.scaToken ?? null });
++      refreshed = await prisma.payoutRequest.findUniqueOrThrow({ where: { id: updated.id }, include: adminPayoutInclude });
++      await prisma.adminPayoutEvent.create({ data: { payoutRequestId: updated.id, adminId: req.user!.id, action: 'provider_transfer_created', previousStatus: updated.status, nextStatus: refreshed.status, metadata: { providerTransfer } } });
++    } catch (error) {
++      providerTransferError = error instanceof Error ? error.message : 'Provider payout transfer failed';
++      refreshed = await prisma.payoutRequest.update({ where: { id: updated.id }, data: { providerExternalStatus: 'transfer_failed', providerFailureCode: 'provider_transfer_failed', providerFailureMessage: providerTransferError, notes: appendAdminNote(updated.notes, providerTransferError, 'provider_transfer_failed') }, include: adminPayoutInclude });
++      await prisma.adminPayoutEvent.create({ data: { payoutRequestId: updated.id, adminId: req.user!.id, action: 'provider_transfer_failed', previousStatus: updated.status, nextStatus: refreshed.status, metadata: { error: providerTransferError } } });
++    }
++  }
++
++  res.json({ payout: refreshed, providerTransfer, providerTransferError });
++}));
++
++adminRoutes.post('/payouts/:payoutId/provider-sync', asyncRoute(async (req, res) => {
++  try {
++    const result = await syncProviderPayoutTransferForAdmin({ payoutId: req.params.payoutId, scaToken: typeof req.body?.scaToken === 'string' ? req.body.scaToken : null });
++    const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: adminPayoutInclude });
++    if (!payout) return res.status(404).json({ error: 'not_found' });
++    await prisma.adminPayoutEvent.create({ data: { payoutRequestId: payout.id, adminId: req.user!.id, action: 'provider_transfer_synced', previousStatus: payout.status, nextStatus: payout.status, metadata: { result } } }).catch(() => null);
++    res.json({ payout, providerTransfer: result });
++  } catch (error) {
++    if (error instanceof MoneyProviderError) return res.status(error.statusCode).json({ error: error.code, message: error.publicMessage });
++    throw error;
++  }
+ }));
+ 
+ adminRoutes.get('/stripe/connect-accounts', asyncRoute(async (_req, res) => {
+diff --git a/apps/api/src/modules/money/moneySafety.ts b/apps/api/src/modules/money/moneySafety.ts
+index 6fb85d7..985edc4 100644
+--- a/apps/api/src/modules/money/moneySafety.ts
++++ b/apps/api/src/modules/money/moneySafety.ts
+@@ -44,9 +44,18 @@ export function buildGlobalMoneySafetyConfig() {
+     && !providerIsNone
+     && providerConfigured
+     && providerStatus.capabilities.includes('trade_holds');
+-  const providerTransfersEnabled = realMoneyEnabled
++  const providerPayoutsFlagEnabled = moneyFeaturesVisible
+     && Boolean(env.moneyProviderPayoutsEnabled)
+-    && (providerStatus.provider === 'stripe' ? env.stripeConnectTransferMode : providerStatus.provider === 'airwallex');
++    && !providerIsNone
++    && providerConfigured
++    && providerStatus.capabilities.includes('payouts');
++  const providerCanMovePayouts = providerStatus.provider === 'stripe'
++    ? Boolean(env.stripeConnectTransferMode)
++    : providerStatus.provider === 'airwallex';
++  const sandboxPayoutsAllowed = providerStatus.sandboxOnly && (launchMode === 'demo' || launchMode === 'private_beta');
++  const providerTransfersEnabled = providerPayoutsFlagEnabled
++    && providerCanMovePayouts
++    && (realMoneyEnabled || sandboxPayoutsAllowed);
+   return {
+     launchMode,
+     moneyProvider: providerStatus.provider,
+diff --git a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+index c6d592d..ec8b019 100644
+--- a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+@@ -17,6 +17,7 @@ import {
+   type RefundTradeHoldInput,
+   type ReleaseTradeHoldInput,
+   type SyncAccountStatusInput,
++  type SyncPayoutTransferInput,
+   type SyncWalletBalancesInput,
+ } from "./moneyProvider.types.js";
+ 
+@@ -56,6 +57,25 @@ type AirwallexFundsMovementResponse = {
+   [key: string]: unknown;
+ };
+ 
++type AirwallexTransferResponse = {
++  id?: string;
++  transfer_id?: string;
++  payment_id?: string;
++  request_id?: string;
++  short_reference_id?: string;
++  status?: string;
++  transfer_status?: string;
++  failure_reason?: string | null;
++  failure_type?: string | null;
++  amount_beneficiary_receives?: number | string;
++  amount_payer_pays?: number | string;
++  transfer_amount?: number | string;
++  transfer_currency?: string;
++  source_currency?: string;
++  transfer_method?: string;
++  [key: string]: unknown;
++};
++
+ type NormalizedAirwallexBalance = {
+   currency: string;
+   availableCents: number;
+@@ -332,6 +352,24 @@ function requireAirwallexTradeMoneyEnabled() {
+   }
+ }
+ 
++function requireAirwallexPayoutsEnabled() {
++  requireAirwallexConnectedAccountsAccess();
++  if (!env.moneyProviderPayoutsEnabled) {
++    throw new MoneyProviderError(
++      "provider_not_enabled",
++      "Airwallex sandbox payouts are disabled by MONEY_PROVIDER_PAYOUTS_ENABLED.",
++      403,
++    );
++  }
++  if (!env.airwallexSandboxPayoutBeneficiaryId) {
++    throw new MoneyProviderError(
++      "airwallex_sandbox_beneficiary_missing",
++      "AIRWALLEX_SANDBOX_PAYOUT_BENEFICIARY_ID is required before creating sandbox payout transfers.",
++      503,
++    );
++  }
++}
++
+ function providerTransactionStatus(
+   status?: string,
+ ): Prisma.MoneyProviderTransactionCreateInput["status"] {
+@@ -339,21 +377,58 @@ function providerTransactionStatus(
+   if (
+     normalized === "SETTLED" ||
+     normalized === "SUCCEEDED" ||
+-    normalized === "SUCCESS"
++    normalized === "SUCCESS" ||
++    normalized === "COMPLETED" ||
++    normalized === "PAID"
+   )
+     return "succeeded";
+   if (
+     normalized === "FAILED" ||
+     normalized === "SUSPENDED" ||
+-    normalized === "REJECTED"
++    normalized === "REJECTED" ||
++    normalized === "OVERDUE"
+   )
+     return "failed";
+   if (normalized === "CANCELLED" || normalized === "CANCELED")
+     return "canceled";
+-  if (normalized === "REVERSED") return "reversed";
++  if (normalized === "REVERSED" || normalized === "RETRIED") return "reversed";
+   return "pending";
+ }
+ 
++function payoutRequestStatusFromProviderStatus(
++  status?: string | null,
++): "approved" | "paid" | "cancelled" {
++  const mapped = providerTransactionStatus(status ?? undefined);
++  if (mapped === "succeeded") return "paid";
++  if (mapped === "canceled") return "cancelled";
++  return "approved";
++}
++
++function transferStatus(transfer: AirwallexTransferResponse | Record<string, unknown>) {
++  return String(
++    transfer.status ??
++      transfer.transfer_status ??
++      transfer.payment_status ??
++      transfer.funding_status ??
++      "NEW",
++  );
++}
++
++function transferId(transfer: AirwallexTransferResponse | Record<string, unknown>) {
++  const value =
++    transfer.id ??
++    transfer.transfer_id ??
++    transfer.payment_id ??
++    transfer.request_id ??
++    transfer.short_reference_id;
++  return typeof value === "string" && value.trim() ? value : null;
++}
++
++function payoutTransferFailure(transfer: AirwallexTransferResponse | Record<string, unknown>) {
++  const reason = transfer.failure_reason ?? transfer.failure_type ?? transfer.error ?? null;
++  return typeof reason === "string" && reason.trim() ? reason : null;
++}
++
+ function toProviderTradeMoneyResult(input: {
+   providerTransactionId?: string | null;
+   status?: string | null;
+@@ -394,6 +469,46 @@ async function accountForUser(userId?: string | null) {
+   });
+ }
+ 
++async function payoutTransferAttemptNumber(payoutId: string) {
++  const count = await prisma.moneyProviderTransaction.count({
++    where: { provider: "airwallex", payoutRequestId: payoutId, type: "payout" },
++  });
++  return count + 1;
++}
++
++function payoutRequestId(prefix: string, payoutId: string, attempt = 1) {
++  const cleanPayoutId = payoutId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 28);
++  return `hw_${prefix}_${cleanPayoutId}_${attempt}`.slice(0, 64);
++}
++
++async function applyPayoutProviderStatus(input: {
++  payoutId: string;
++  providerAccountId?: string | null;
++  providerTransferId: string;
++  providerPayoutId?: string | null;
++  rawStatus?: string | null;
++  failureMessage?: string | null;
++  providerEventId?: string | null;
++}) {
++  const nextStatus = payoutRequestStatusFromProviderStatus(input.rawStatus);
++  const mapped = providerTransactionStatus(input.rawStatus ?? undefined);
++  return prisma.payoutRequest.update({
++    where: { id: input.payoutId },
++    data: {
++      provider: "airwallex",
++      providerAccountId: input.providerAccountId ?? undefined,
++      providerTransferId: input.providerTransferId,
++      providerPayoutId: input.providerPayoutId ?? input.providerTransferId,
++      providerEventId: input.providerEventId ?? undefined,
++      providerExternalStatus: input.rawStatus ?? undefined,
++      providerFailureCode: mapped === "failed" ? "airwallex_transfer_failed" : null,
++      providerFailureMessage: mapped === "failed" ? input.failureMessage ?? "Airwallex sandbox transfer failed." : null,
++      status: nextStatus,
++      paidAt: nextStatus === "paid" ? new Date() : undefined,
++    },
++  });
++}
++
+ async function upsertProviderTransaction(input: {
+   providerTransactionId: string;
+   type: Prisma.MoneyProviderTransactionCreateInput["type"];
+@@ -402,6 +517,7 @@ async function upsertProviderTransaction(input: {
+   currency: string;
+   userId?: string | null;
+   tradeId?: string | null;
++  payoutRequestId?: string | null;
+   accountId?: string | null;
+   counterpartyAccountId?: string | null;
+   rawProviderStatus?: unknown;
+@@ -419,6 +535,7 @@ async function upsertProviderTransaction(input: {
+       currency: input.currency.toLowerCase(),
+       userId: input.userId ?? null,
+       tradeId: input.tradeId ?? null,
++      payoutRequestId: input.payoutRequestId ?? null,
+       moneyProviderAccountId: input.accountId ?? null,
+       counterpartyProviderAccountId: input.counterpartyAccountId ?? null,
+       rawProviderStatus: jsonValue(input.rawProviderStatus ?? {}),
+@@ -432,6 +549,7 @@ async function upsertProviderTransaction(input: {
+       currency: input.currency.toLowerCase(),
+       userId: input.userId ?? null,
+       tradeId: input.tradeId ?? null,
++      payoutRequestId: input.payoutRequestId ?? null,
+       moneyProviderAccountId: input.accountId ?? null,
+       counterpartyProviderAccountId: input.counterpartyAccountId ?? null,
+       rawProviderStatus: jsonValue(input.rawProviderStatus ?? {}),
+@@ -785,6 +903,7 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     "wallet_balances",
+     "trade_holds",
+     "platform_fees",
++    "payouts",
+     "webhooks",
+     "refunds",
+     "disputes",
+@@ -1243,11 +1362,161 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     }
+   },
+ 
+-  async createPayoutTransfer(_input: CreatePayoutTransferInput) {
+-    throw new MoneyProviderError(
+-      "not_implemented",
+-      "Airwallex payouts are intentionally blocked until Phase 21.5 sandbox payouts.",
+-      501,
++  async createPayoutTransfer(input: CreatePayoutTransferInput) {
++    requireAirwallexPayoutsEnabled();
++    const account = await accountForUser(input.userId);
++    if (!account) {
++      throw new MoneyProviderError(
++        "airwallex_payout_account_missing",
++        "User does not have an Airwallex sandbox connected account for payout transfer testing.",
++        409,
++      );
++    }
++    if (!["active", "pending"].includes(account.status)) {
++      throw new MoneyProviderError(
++        "airwallex_payout_account_not_ready",
++        "Airwallex sandbox connected account must be pending or active before payout transfer testing.",
++        409,
++      );
++    }
++
++    const attempt = await payoutTransferAttemptNumber(input.payoutId);
++    const transferRequestId = payoutRequestId("payout", input.payoutId, attempt);
++    const transfer = await airwallexRequest<AirwallexTransferResponse>(
++      "/api/v1/transfers/create",
++      {
++        method: "POST",
++        onBehalfOf: account.providerAccountId,
++        scaToken: input.scaToken ?? undefined,
++        body: {
++          beneficiary_id: env.airwallexSandboxPayoutBeneficiaryId,
++          transfer_amount: centsToProviderAmount(input.netAmountCents).toFixed(2),
++          transfer_currency: input.currency.toUpperCase(),
++          source_currency: input.currency.toUpperCase(),
++          transfer_method: env.airwallexSandboxPayoutTransferMethod,
++          reason: env.airwallexSandboxPayoutReason,
++          reference: `hellowhen_payout_${input.payoutId}`.slice(0, 140),
++          request_id: transferRequestId,
++          metadata: {
++            hellowhenPayoutId: input.payoutId,
++            grossAmountCents: input.grossAmountCents,
++            platformFeeCents: input.platformFeeCents,
++            netAmountCents: input.netAmountCents,
++            sandboxOnly: true,
++            requestedById: input.requestedById ?? null,
++          },
++        },
++      },
++    );
++    const rawStatus = transferStatus(transfer);
++    const providerTransactionId = transferId(transfer) ?? transferRequestId;
++    await upsertProviderTransaction({
++      providerTransactionId,
++      type: "payout",
++      status: providerTransactionStatus(rawStatus),
++      amountCents: input.netAmountCents,
++      currency: input.currency,
++      userId: input.userId,
++      payoutRequestId: input.payoutId,
++      accountId: account.id,
++      rawProviderStatus: {
++        ...transfer,
++        request_id: transferRequestId,
++        grossAmountCents: input.grossAmountCents,
++        platformFeeCents: input.platformFeeCents,
++        netAmountCents: input.netAmountCents,
++        sandboxOnly: true,
++        phase: "21.5",
++      },
++    });
++    const payout = await applyPayoutProviderStatus({
++      payoutId: input.payoutId,
++      providerAccountId: account.id,
++      providerTransferId: providerTransactionId,
++      providerPayoutId: transfer.id ?? providerTransactionId,
++      rawStatus,
++      failureMessage: payoutTransferFailure(transfer),
++    });
++    return {
++      id: providerTransactionId,
++      provider: "airwallex",
++      status: rawStatus,
++      providerTransactionId,
++      externalStatus: rawStatus,
++      payoutRequestStatus: payout.status,
++      sandboxOnly: true,
++      message: "Airwallex sandbox payout transfer created. Status updates should be reconciled through webhooks or admin sync.",
++    };
++  },
++
++  async syncPayoutTransfer(input: SyncPayoutTransferInput) {
++    requireAirwallexConnectedAccountsAccess();
++    const payout = input.payoutId
++      ? await prisma.payoutRequest.findUnique({
++          where: { id: input.payoutId },
++          include: { providerAccount: true },
++        })
++      : input.providerTransferId
++        ? await prisma.payoutRequest.findFirst({
++            where: {
++              provider: "airwallex",
++              OR: [
++                { providerTransferId: input.providerTransferId },
++                { providerPayoutId: input.providerTransferId },
++              ],
++            },
++            include: { providerAccount: true },
++          })
++        : null;
++    if (!payout?.providerTransferId) {
++      throw new MoneyProviderError(
++        "airwallex_payout_transfer_not_found",
++        "No Airwallex sandbox payout transfer is linked to this payout request yet.",
++        404,
++      );
++    }
++    const account = payout.providerAccount ?? (await accountForUser(payout.userId));
++    if (!account) {
++      throw new MoneyProviderError(
++        "airwallex_payout_account_missing",
++        "No Airwallex sandbox connected account is linked to this payout transfer.",
++        409,
++      );
++    }
++    const transfer = await airwallexRequest<AirwallexTransferResponse>(
++      `/api/v1/transfers/${encodeURIComponent(payout.providerTransferId)}`,
++      { onBehalfOf: account.providerAccountId, scaToken: input.scaToken ?? undefined },
+     );
++    const rawStatus = transferStatus(transfer);
++    const providerTransactionId = transferId(transfer) ?? payout.providerTransferId;
++    await upsertProviderTransaction({
++      providerTransactionId,
++      type: "payout",
++      status: providerTransactionStatus(rawStatus),
++      amountCents: payout.netAmountCents,
++      currency: payout.currency,
++      userId: payout.userId,
++      payoutRequestId: payout.id,
++      accountId: account.id,
++      rawProviderStatus: { ...transfer, sandboxOnly: true, syncSource: "admin_or_webhook" },
++    });
++    const updated = await applyPayoutProviderStatus({
++      payoutId: payout.id,
++      providerAccountId: account.id,
++      providerTransferId: providerTransactionId,
++      providerPayoutId: transfer.id ?? providerTransactionId,
++      rawStatus,
++      failureMessage: payoutTransferFailure(transfer),
++    });
++    return {
++      id: providerTransactionId,
++      provider: "airwallex",
++      status: rawStatus,
++      providerTransactionId,
++      externalStatus: rawStatus,
++      payoutRequestStatus: updated.status,
++      sandboxOnly: true,
++      message: "Airwallex sandbox payout transfer status synced.",
++    };
+   },
+ };
+diff --git a/apps/api/src/modules/money/providers/airwallexWebhook.routes.ts b/apps/api/src/modules/money/providers/airwallexWebhook.routes.ts
+index df5587a..cc30b11 100644
+--- a/apps/api/src/modules/money/providers/airwallexWebhook.routes.ts
++++ b/apps/api/src/modules/money/providers/airwallexWebhook.routes.ts
+@@ -50,6 +50,42 @@ async function syncAccountFromEvent(event: AirwallexWebhookEvent) {
+   return provider.syncConnectedAccountStatus({ providerAccountId }).catch(() => null);
+ }
+ 
++function eventData(event: AirwallexWebhookEvent) {
++  return event.data && typeof event.data === 'object' ? event.data : {};
++}
++
++function transferIdFromEvent(event: AirwallexWebhookEvent) {
++  const data = eventData(event);
++  const value = data.id ?? data.transfer_id ?? data.payment_id ?? data.request_id ?? data.short_reference_id;
++  return typeof value === 'string' && value.trim() ? value : null;
++}
++
++function isPayoutTransferEvent(event: AirwallexWebhookEvent) {
++  const name = eventName(event).toLowerCase();
++  if (name.startsWith('payout.transfer')) return true;
++  const data = eventData(event);
++  return Boolean(data.transfer_id || data.payment_id || data.short_reference_id || data.request_id);
++}
++
++async function syncPayoutTransferFromEvent(event: AirwallexWebhookEvent) {
++  if (!isPayoutTransferEvent(event)) return null;
++  const providerTransferId = transferIdFromEvent(event);
++  if (!providerTransferId) return null;
++  const linked = await prisma.payoutRequest.findFirst({
++    where: {
++      provider: 'airwallex',
++      OR: [
++        { providerTransferId },
++        { providerPayoutId: providerTransferId },
++      ],
++    },
++    select: { id: true },
++  });
++  if (!linked) return null;
++  const provider = getMoneyProvider('airwallex');
++  return provider.syncPayoutTransfer({ payoutId: linked.id, providerTransferId }).catch(() => null);
++}
++
+ airwallexWebhookRoutes.post('/webhook', async (req, res) => {
+   if (!env.moneyProviderWebhooksEnabled || !env.airwallexEnabled) return res.status(503).json({ error: 'airwallex_webhooks_disabled' });
+   if (!Buffer.isBuffer(req.body)) return res.status(400).json({ error: 'airwallex_webhook_raw_body_required' });
+@@ -86,9 +122,12 @@ airwallexWebhookRoutes.post('/webhook', async (req, res) => {
+   });
+ 
+   try {
+-    const synced = await syncAccountFromEvent(event);
+-    await prisma.moneyProviderEvent.update({ where: { id: record.id }, data: { status: synced ? 'processed' : 'ignored', processedAt: new Date(), error: null } });
+-    return res.json({ received: true, processed: Boolean(synced) });
++    const [syncedAccount, syncedPayout] = await Promise.all([
++      syncAccountFromEvent(event),
++      syncPayoutTransferFromEvent(event),
++    ]);
++    await prisma.moneyProviderEvent.update({ where: { id: record.id }, data: { status: syncedAccount || syncedPayout ? 'processed' : 'ignored', processedAt: new Date(), error: null } });
++    return res.json({ received: true, processed: Boolean(syncedAccount || syncedPayout), syncedAccount: Boolean(syncedAccount), syncedPayout: Boolean(syncedPayout) });
+   } catch (error) {
+     const message = error instanceof Error ? error.message : 'Airwallex webhook processing failed';
+     await prisma.moneyProviderEvent.update({ where: { id: record.id }, data: { status: 'failed', error: message } }).catch(() => null);
+diff --git a/apps/api/src/modules/money/providers/moneyProvider.types.ts b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+index 1b3b5e2..06dca08 100644
+--- a/apps/api/src/modules/money/providers/moneyProvider.types.ts
++++ b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+@@ -124,12 +124,25 @@ export type CreatePayoutTransferInput = {
+   platformFeeCents: number;
+   netAmountCents: number;
+   currency: string;
++  scaToken?: string | null;
++  requestedById?: string | null;
++};
++
++export type SyncPayoutTransferInput = {
++  payoutId?: string;
++  providerTransferId?: string;
++  scaToken?: string | null;
+ };
+ 
+ export type ProviderTransferResult = {
+   id: string;
+   provider: MoneyProviderName;
+   status: string;
++  providerTransactionId?: string | null;
++  externalStatus?: string | null;
++  payoutRequestStatus?: string | null;
++  sandboxOnly?: boolean;
++  message?: string;
+ };
+ 
+ export type CreateTradeHoldInput = {
+@@ -188,4 +201,5 @@ export interface MoneyProviderAdapter {
+   releaseTradeHold(input: ReleaseTradeHoldInput): Promise<ProviderTradeMoneyResult | null>;
+   refundTradeHold(input: RefundTradeHoldInput): Promise<ProviderTradeMoneyResult | null>;
+   createPayoutTransfer(input: CreatePayoutTransferInput): Promise<ProviderTransferResult | null>;
++  syncPayoutTransfer(input: SyncPayoutTransferInput): Promise<ProviderTransferResult | null>;
+ }
+diff --git a/apps/api/src/modules/money/providers/noneMoneyProvider.ts b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+index ad7ac97..da60542 100644
+--- a/apps/api/src/modules/money/providers/noneMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+@@ -1,4 +1,4 @@
+-import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type CreateTradeHoldInput, type MoneyProviderAdapter, type ProviderAccountDto, type RefundTradeHoldInput, type ReleaseTradeHoldInput, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
++import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type CreateTradeHoldInput, type MoneyProviderAdapter, type ProviderAccountDto, type RefundTradeHoldInput, type ReleaseTradeHoldInput, type SyncAccountStatusInput, type SyncPayoutTransferInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ function unavailable(): never {
+   throw new MoneyProviderError('provider_none', 'Money provider is set to none. Wallets, onboarding, transfers, and payouts are disabled for this launch.', 403);
+@@ -74,4 +74,8 @@ export const noneMoneyProvider: MoneyProviderAdapter = {
+   async createPayoutTransfer(_input: CreatePayoutTransferInput) {
+     return unavailable();
+   },
++
++  async syncPayoutTransfer(_input: SyncPayoutTransferInput) {
++    return unavailable();
++  },
+ };
+diff --git a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+index 4033860..f9b2c7c 100644
+--- a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+@@ -1,6 +1,6 @@
+ import { prisma } from '../../../lib/prisma.js';
+ import { createStripeConnectOnboardingLink, createStripeTransferForPayout, isStripeConnectConfigured, syncStripeConnectAccountByAccountId } from '../../stripe/stripeConnect.js';
+-import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type CreateTradeHoldInput, type MoneyProviderAdapter, type ProviderAccountDto, type RefundTradeHoldInput, type ReleaseTradeHoldInput, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
++import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type CreateTradeHoldInput, type MoneyProviderAdapter, type ProviderAccountDto, type RefundTradeHoldInput, type ReleaseTradeHoldInput, type SyncAccountStatusInput, type SyncPayoutTransferInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ function mapStripeConnectPayoutAccount(account: null | { status: string; payoutsEnabled: boolean; chargesEnabled: boolean; detailsSubmitted: boolean; createdAt: Date; onboardingCompletedAt: Date | null; stripeAccountId: string; currentlyDue: string[]; eventuallyDue: string[]; pastDue: string[]; disabledReason: string | null; defaultCurrency: string | null; country: string | null; lastSyncedAt: Date | null }): ProviderAccountDto | null {
+   if (!account) return null;
+@@ -117,6 +117,10 @@ export const stripeMoneyProvider: MoneyProviderAdapter = {
+   async createPayoutTransfer(input: CreatePayoutTransferInput) {
+     const transfer = await createStripeTransferForPayout(input);
+     if (!transfer) return null;
+-    return { id: transfer.id, provider: 'stripe', status: 'transfer_created' };
++    return { id: transfer.id, provider: 'stripe', status: 'transfer_created', providerTransactionId: transfer.id, externalStatus: 'transfer_created', sandboxOnly: true };
++  },
++
++  async syncPayoutTransfer(_input: SyncPayoutTransferInput) {
++    throw new MoneyProviderError('not_implemented', 'Stripe payout status sync remains in the legacy Stripe webhook path. Stripe stays as a disabled fallback/reference provider.', 501);
+   },
+ };
+diff --git a/apps/api/src/modules/wallet/wallet.routes.ts b/apps/api/src/modules/wallet/wallet.routes.ts
+index f8de607..d4e0a6e 100644
+--- a/apps/api/src/modules/wallet/wallet.routes.ts
++++ b/apps/api/src/modules/wallet/wallet.routes.ts
+@@ -63,6 +63,15 @@ async function hasDemoPayoutAccount(userId: string) {
+   return marker;
+ }
+ 
++async function getActiveProviderAccountRecordForUser(userId: string) {
++  const provider = getActiveMoneyProvider();
++  if (provider.provider === 'none' || provider.provider === 'stripe') return null;
++  return prisma.moneyProviderAccount.findFirst({
++    where: { userId, provider: provider.provider, status: { in: ['pending', 'active'] } },
++    orderBy: { updatedAt: 'desc' },
++  });
++}
++
+ function mapStripeConnectPayoutAccount(account: null | { status: string; payoutsEnabled: boolean; chargesEnabled: boolean; detailsSubmitted: boolean; createdAt: Date; onboardingCompletedAt: Date | null; stripeAccountId: string; currentlyDue: string[]; eventuallyDue: string[]; pastDue: string[]; disabledReason: string | null; defaultCurrency: string | null; country: string | null; lastSyncedAt: Date | null }) {
+   if (!account) return null;
+   const status = account.status === 'enabled' && account.payoutsEnabled
+@@ -118,6 +127,7 @@ async function buildPayoutSummary(userId: string) {
+   const paidOutNetCents = paidPayouts.reduce((sum, payout) => sum + getPayoutNetCents(payout), 0);
+   const estimatedPlatformFeeCents = calculatePayoutPlatformFeeCents(wallet.pendingPayoutCents, platformFeeRateBps);
+   const estimatedNetPayoutCents = Math.max(0, wallet.pendingPayoutCents - estimatedPlatformFeeCents);
++  const moneySafety = await buildMoneySafetyStatus(prisma, userId);
+ 
+   return {
+     wallet,
+@@ -143,12 +153,12 @@ async function buildPayoutSummary(userId: string) {
+         connectedAt: connectedMarker ? connectedMarker.createdAt.toISOString() : null,
+       },
+       moneyProviderConfigured: activeProvider.isConfigured(),
+-      providerTransferMode: env.moneyProviderPayoutsEnabled,
++      providerTransferMode: moneySafety.providerTransfersEnabled,
+       providerWalletBalances: activeProviderBalances,
+       stripeConnectConfigured: isStripeConnectConfigured(),
+       stripeConnectTransferMode: env.stripeConnectTransferMode,
+       limits,
+-      moneySafety: await buildMoneySafetyStatus(prisma, userId)
++      moneySafety
+     }
+   };
+ }
+@@ -321,9 +331,17 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
+   if (block) return res.status(block.statusCode).json({ error: block.error, message: block.message, moneySafety });
+   const currency = input.currency.toLowerCase();
+   const connected = await hasDemoPayoutAccount(userId);
+-  const stripeConnectAccount = await prisma.stripeConnectAccount.findUnique({ where: { userId } });
+-  const stripeConnectReady = Boolean(stripeConnectAccount?.payoutsEnabled && ['enabled', 'pending'].includes(stripeConnectAccount.status));
+-  if (!connected && !stripeConnectReady) return res.status(400).json({ error: 'payout_account_required', message: isStripeConnectConfigured() ? 'Complete Stripe Connect test onboarding first.' : 'Connect the Stripe demo payout account first.' });
++  const activeProvider = getActiveMoneyProvider();
++  const [stripeConnectAccount, providerAccount] = await Promise.all([
++    prisma.stripeConnectAccount.findUnique({ where: { userId } }),
++    getActiveProviderAccountRecordForUser(userId),
++  ]);
++  const stripeConnectReady = activeProvider.provider === 'stripe' && Boolean(stripeConnectAccount?.payoutsEnabled && ['enabled', 'pending'].includes(stripeConnectAccount.status));
++  const providerReady = Boolean(providerAccount && activeProvider.provider !== 'none' && activeProvider.provider !== 'stripe');
++  if (!connected && !stripeConnectReady && !providerReady) {
++    const providerLabel = activeProvider.provider === 'airwallex' ? 'Airwallex sandbox connected account' : isStripeConnectConfigured() ? 'Stripe Connect test onboarding' : 'Stripe demo payout account';
++    return res.status(400).json({ error: 'payout_account_required', message: `Complete ${providerLabel} first.` });
++  }
+ 
+   const openDispute = await prisma.trade.findFirst({
+     where: { status: 'disputed', payment: { is: { sellerId: userId, status: { in: ['held', 'released'] } } } },
+@@ -350,23 +368,23 @@ walletRoutes.post('/demo-payout-request', requireFreshSensitiveAction, asyncRout
+ 
+   const payout = await prisma.$transaction(async (tx) => {
+     const wallet = await tx.wallet.update({ where: { id: currentWallet.id }, data: { pendingPayoutCents: { decrement: grossAmountCents } } });
+-    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: manualReview ? 'requested' : 'paid', reviewedAt: manualReview ? null : new Date(), paidAt: manualReview ? null : new Date(), notes: manualReview ? 'Manual payout review required by launch safety settings.' : stripeConnectReady && moneySafety.providerTransfersEnabled ? 'Provider test transfer requested. No live bank payout was sent.' : 'Stripe demo payout simulation. No real bank transfer was sent.', stripeConnectAccountId: stripeConnectAccount?.id ?? null, stripeExternalStatus: manualReview ? 'manual_review_requested' : stripeConnectReady ? 'connect_ready' : 'demo_paid' } });
++    const payout = await tx.payoutRequest.create({ data: { userId, amount: 0, amountCents: grossAmountCents, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps, currency, status: manualReview ? 'requested' : 'paid', reviewedAt: manualReview ? null : new Date(), paidAt: manualReview ? null : new Date(), notes: manualReview ? 'Manual payout review required by launch safety settings.' : (stripeConnectReady || providerReady) && moneySafety.providerTransfersEnabled ? 'Provider sandbox transfer requested. No production bank payout was sent.' : 'Stripe demo payout simulation. No real bank transfer was sent.', stripeConnectAccountId: stripeConnectAccount?.id ?? null, stripeExternalStatus: manualReview ? 'manual_review_requested' : stripeConnectReady ? 'connect_ready' : 'demo_paid', provider: providerReady ? activeProvider.provider : stripeConnectReady ? 'stripe' : undefined, providerAccountId: providerAccount?.id ?? null, providerExternalStatus: manualReview ? 'manual_review_requested' : providerReady ? 'provider_ready' : null } });
+     if (platformFeeCents > 0) {
+-      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: !stripeConnectReady, stripeConnectTest: stripeConnectReady, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
++      await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'platform_fee', balanceType: 'earned_pending', amount: 0, amountCents: -platformFeeCents, currency, description: `${platformFeeRateBps / 100}% platform fee on payout-eligible earnings.`, metadata: { stripeDemo: !stripeConnectReady && !providerReady, stripeConnectTest: stripeConnectReady, provider: providerReady ? activeProvider.provider : null, payoutId: payout.id, grossAmountCents, platformFeeRateBps } } });
+     }
+-    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: manualReview ? 'Payout request held for manual review after platform fee.' : stripeConnectReady && moneySafety.providerTransfersEnabled ? 'Provider test transfer after platform fee.' : 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: !stripeConnectReady, stripeConnectTest: stripeConnectReady, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
++    await tx.creditLedgerEntry.create({ data: { userId, walletId: wallet.id, type: 'payout_requested', balanceType: 'earned_pending', amount: 0, amountCents: -netAmountCents, currency, description: manualReview ? 'Payout request held for manual review after platform fee.' : (stripeConnectReady || providerReady) && moneySafety.providerTransfersEnabled ? 'Provider sandbox payout transfer after platform fee.' : 'Stripe demo payout paid after platform fee. No real bank transfer was sent.', metadata: { stripeDemo: !stripeConnectReady && !providerReady, stripeConnectTest: stripeConnectReady, provider: providerReady ? activeProvider.provider : null, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, platformFeeRateBps } } });
+     return payout;
+   });
+ 
+-  if (!manualReview && stripeConnectReady && moneySafety.providerTransfersEnabled) {
++  if (!manualReview && (stripeConnectReady || providerReady) && moneySafety.providerTransfersEnabled) {
+     try {
+-      const transfer = await getActiveMoneyProvider().createPayoutTransfer({ userId, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, currency });
++      const transfer = await activeProvider.createPayoutTransfer({ userId, payoutId: payout.id, grossAmountCents, platformFeeCents, netAmountCents, currency, requestedById: userId });
+       if (transfer) {
+-        await prisma.payoutRequest.update({ where: { id: payout.id }, data: { notes: 'Provider test transfer created. Connected account payout timing is managed by the selected provider test mode.', stripeExternalStatus: 'transfer_created' } });
++        await prisma.payoutRequest.update({ where: { id: payout.id }, data: { notes: 'Provider sandbox transfer created. Connected account payout timing is managed by the selected provider test mode.', stripeExternalStatus: activeProvider.provider === 'stripe' ? 'transfer_created' : undefined, providerExternalStatus: transfer.externalStatus ?? transfer.status, providerTransferId: transfer.providerTransactionId ?? transfer.id, providerPayoutId: transfer.id } });
+       }
+     } catch (error) {
+       const message = error instanceof Error ? error.message : 'Provider transfer failed';
+-      await prisma.payoutRequest.update({ where: { id: payout.id }, data: { stripeExternalStatus: 'transfer_failed', stripeFailureMessage: message } }).catch(() => null);
++      await prisma.payoutRequest.update({ where: { id: payout.id }, data: { stripeExternalStatus: activeProvider.provider === 'stripe' ? 'transfer_failed' : undefined, stripeFailureMessage: activeProvider.provider === 'stripe' ? message : undefined, providerExternalStatus: activeProvider.provider !== 'stripe' ? 'transfer_failed' : undefined, providerFailureMessage: activeProvider.provider !== 'stripe' ? message : undefined } }).catch(() => null);
+     }
+   }
+ 
+diff --git a/apps/web/src/app/admin/money/page.tsx b/apps/web/src/app/admin/money/page.tsx
+index 521f5ca..970913e 100644
+--- a/apps/web/src/app/admin/money/page.tsx
++++ b/apps/web/src/app/admin/money/page.tsx
+@@ -38,6 +38,7 @@ type ProviderTransaction = {
+   amountCents: number;
+   currency: string;
+   tradeId?: string | null;
++  payoutRequestId?: string | null;
+   providerAccountId?: string | null;
+   counterpartyProviderAccountId?: string | null;
+   createdAt?: string;
+@@ -135,7 +136,7 @@ export default function AdminMoneyProviderPage() {
+       setEvents(eventsData.events);
+       setBalances(balancesData.balances);
+       setTransactions(transactionsData.transactions);
+-      setMessage('Provider records loaded. Airwallex wallet balances and trade-money transactions are sandbox reconciliation records.');
++      setMessage('Provider records loaded. Airwallex wallet balances, trade-money transactions, and payout transfers are sandbox reconciliation records.');
+     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load provider data'); }
+     finally { setLoading(false); }
+   }
+@@ -162,7 +163,7 @@ export default function AdminMoneyProviderPage() {
+       <div className="card">
+         <span className="semantic-badge admin">Money provider admin</span>
+         <h1>Provider accounts</h1>
+-        <p className="notice-box warning">Phase 21.4 adds sandbox trade-money transaction mirroring. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
++        <p className="notice-box warning">Phase 21.5 adds sandbox payout transfer records on top of connected accounts, wallet balances, and trade-money mirroring. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
+         <div className="form-row">
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+             <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+@@ -199,13 +200,13 @@ export default function AdminMoneyProviderPage() {
+ 
+ 
+       <div className="card" style={{ overflowX: 'auto' }}>
+-        <h2>Provider trade-money transactions</h2>
+-        <p className="notice-box info">These records mirror Hellowhen trade holds, releases, and refunds. Airwallex sandbox release/refund API calls only run when provider trade money is explicitly enabled.</p>
++        <h2>Provider money transactions</h2>
++        <p className="notice-box info">These records mirror Hellowhen trade holds, releases, refunds, platform fees, and sandbox payout transfers. Airwallex API calls only run when the matching provider flags are explicitly enabled.</p>
+         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+-          <thead><tr><th align="left">Provider</th><th align="left">Status</th><th align="left">Type</th><th align="left">User</th><th align="left">Amount</th><th align="left">Trade</th><th align="left">Provider Txn</th><th align="left">Created</th></tr></thead>
+-          <tbody>{transactions.map((transaction) => <tr key={`${transaction.provider}-${transaction.providerTransactionId}`}><td>{transaction.provider}</td><td><span className={`semantic-badge ${statusTone(transaction.status)}`}>{transaction.status}</span></td><td>{transaction.type}</td><td>{transactionUserLabel(transaction)}</td><td>{formatMoney(transaction.amountCents, transaction.currency)}</td><td><code>{transaction.tradeId ?? '—'}</code></td><td><code>{transaction.providerTransactionId}</code></td><td>{formatWebDateTime(transaction.createdAt ?? transaction.updatedAt)}</td></tr>)}</tbody>
++          <thead><tr><th align="left">Provider</th><th align="left">Status</th><th align="left">Type</th><th align="left">User</th><th align="left">Amount</th><th align="left">Trade/Payout</th><th align="left">Provider Txn</th><th align="left">Created</th></tr></thead>
++          <tbody>{transactions.map((transaction) => <tr key={`${transaction.provider}-${transaction.providerTransactionId}`}><td>{transaction.provider}</td><td><span className={`semantic-badge ${statusTone(transaction.status)}`}>{transaction.status}</span></td><td>{transaction.type}</td><td>{transactionUserLabel(transaction)}</td><td>{formatMoney(transaction.amountCents, transaction.currency)}</td><td><code>{transaction.tradeId ?? transaction.payoutRequestId ?? '—'}</code></td><td><code>{transaction.providerTransactionId}</code></td><td>{formatWebDateTime(transaction.createdAt ?? transaction.updatedAt)}</td></tr>)}</tbody>
+         </table>
+-        {transactions.length === 0 ? <p>No provider trade-money transactions recorded yet.</p> : null}
++        {transactions.length === 0 ? <p>No provider money transactions recorded yet.</p> : null}
+       </div>
+ 
+       <div className="card" style={{ overflowX: 'auto' }}>
+diff --git a/apps/web/src/app/admin/payouts/page.tsx b/apps/web/src/app/admin/payouts/page.tsx
+index 7abcb34..2aee052 100644
+--- a/apps/web/src/app/admin/payouts/page.tsx
++++ b/apps/web/src/app/admin/payouts/page.tsx
+@@ -34,14 +34,47 @@ type AdminPayoutEvent = {
+   createdAt: string;
+   admin?: { email?: string; profile?: { displayName?: string | null } | null } | null;
+ };
+-type AdminPayout = PayoutRequestDto & { user?: AdminUser; stripeConnectAccount?: StripeConnectAccount | null; adminEvents?: AdminPayoutEvent[] };
++type ProviderAccount = {
++  id: string;
++  provider: string;
++  providerAccountId: string;
++  status: string;
++  accountType?: string | null;
++  defaultCurrency?: string | null;
++  country?: string | null;
++  lastSyncedAt?: string | null;
++};
++type ProviderTransaction = {
++  id: string;
++  provider: string;
++  providerTransactionId: string;
++  type: string;
++  status: string;
++  amountCents: number;
++  currency: string;
++  payoutRequestId?: string | null;
++  rawProviderStatus?: unknown;
++  createdAt: string;
++};
++type ProviderEvent = {
++  id: string;
++  provider: string;
++  providerEventId: string;
++  eventType: string;
++  processingStatus?: string;
++  status?: string;
++  providerAccountId?: string | null;
++  error?: string | null;
++  createdAt: string;
++};
++type AdminPayout = PayoutRequestDto & { user?: AdminUser; stripeConnectAccount?: StripeConnectAccount | null; providerAccount?: ProviderAccount | null; providerTransactions?: ProviderTransaction[]; adminEvents?: AdminPayoutEvent[] };
+ type LedgerEntry = { id: string; type: string; balanceType: string; amountCents: number; currency: string; description?: string | null; createdAt: string };
+ type SupportTicket = { id: string; subject: string; status: string; priority: string; category: string; updatedAt: string; _count?: { messages: number } };
+ type StripeEvent = { id: string; stripeEventId: string; type: string; processingStatus: string; stripeAccountId?: string | null; objectId?: string | null; error?: string | null; createdAt: string };
+ type Limits = { trustTier: string; effectiveTrustTier: string; weeklyPayoutCapCents: number; weeklyRequestedPayoutGrossCents: number; minimumPayoutCents: number; payoutsEnabled: boolean };
+ type PayoutsResponse = { payouts: AdminPayout[]; summary?: { byStatus?: Array<{ status: PayoutRequestStatus; _count: { _all: number }; _sum: { grossAmountCents?: number | null; platformFeeCents?: number | null; netAmountCents?: number | null } }> } };
+-type DetailResponse = { payout: AdminPayout; ledgerEntries: LedgerEntry[]; supportTickets: SupportTicket[]; stripeEvents: StripeEvent[]; userLimits?: Limits };
+-type MoneySafetyAdmin = { config: { launchMode: string; policyVersion: string; realMoneyEnabled: boolean; stripeTransfersEnabled: boolean; requiresManualPayoutReview: boolean; productionSwitchEnabled: boolean; privateBetaAllowlistCount: number }; metrics?: { acknowledgementCount?: number; walletCount?: number; walletAggregate?: { _sum?: { availableBalanceCents?: number | null; heldBalanceCents?: number | null; pendingPayoutCents?: number | null } }; payoutsByStatus?: Array<{ status: string; _count: { _all: number } }> } };
++type DetailResponse = { payout: AdminPayout; ledgerEntries: LedgerEntry[]; supportTickets: SupportTicket[]; stripeEvents: StripeEvent[]; providerEvents?: ProviderEvent[]; providerTransactions?: ProviderTransaction[]; userLimits?: Limits };
++type MoneySafetyAdmin = { config: { launchMode: string; moneyProvider?: string; moneyProviderEnvironment?: string; moneyProviderSandboxOnly?: boolean; policyVersion: string; realMoneyEnabled: boolean; providerTransfersEnabled?: boolean; stripeTransfersEnabled: boolean; requiresManualPayoutReview: boolean; productionSwitchEnabled: boolean; privateBetaAllowlistCount: number }; metrics?: { acknowledgementCount?: number; walletCount?: number; walletAggregate?: { _sum?: { availableBalanceCents?: number | null; heldBalanceCents?: number | null; pendingPayoutCents?: number | null } }; payoutsByStatus?: Array<{ status: string; _count: { _all: number } }> } };
+ 
+ const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+ const statuses: AdminPayoutStatusFilter[] = ['all', 'requested', 'approved', 'paid', 'rejected', 'cancelled', 'draft'];
+@@ -86,6 +119,7 @@ export default function AdminPayoutsPage() {
+   const [selectedId, setSelectedId] = useState<string | null>(null);
+   const [detail, setDetail] = useState<DetailResponse | null>(null);
+   const [note, setNote] = useState('');
++  const [scaToken, setScaToken] = useState('');
+   const [trustTier, setTrustTier] = useState<UserTrustTier>('new');
+   const [trustNote, setTrustNote] = useState('');
+   const [message, setMessage] = useState<string | null>(null);
+@@ -155,12 +189,13 @@ export default function AdminPayoutsPage() {
+     setLoading(true);
+     setMessage(null);
+     try {
+-      const response = await fetch(`${apiBase}/admin/payouts/${detail.payout.id}/action`, { method: 'PATCH', headers, body: JSON.stringify({ action, note }) });
++      const response = await fetch(`${apiBase}/admin/payouts/${detail.payout.id}/action`, { method: 'PATCH', headers, body: JSON.stringify({ action, note, scaToken: scaToken.trim() || undefined }) });
+       if (!response.ok) {
+         const body = await response.json().catch(() => null) as { message?: string } | null;
+         throw new Error(body?.message ?? `Could not run payout action: ${action}`);
+       }
+       setNote('');
++      setScaToken('');
+       setMessage(`Payout action saved: ${action}.`);
+       await loadPayouts(status);
+       await loadDetail(detail.payout.id);
+@@ -171,6 +206,26 @@ export default function AdminPayoutsPage() {
+     }
+   }
+ 
++  async function syncProviderPayout() {
++    if (!token || !detail) return;
++    setLoading(true);
++    setMessage(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/payouts/${detail.payout.id}/provider-sync`, { method: 'POST', headers, body: JSON.stringify({ scaToken: scaToken.trim() || undefined }) });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string } | null;
++        throw new Error(body?.message ?? 'Could not sync provider payout.');
++      }
++      setMessage('Provider payout status synced.');
++      await loadPayouts(status);
++      await loadDetail(detail.payout.id);
++    } catch (error) {
++      setMessage(error instanceof Error ? error.message : 'Could not sync provider payout');
++    } finally {
++      setLoading(false);
++    }
++  }
++
+ 
+   async function updateTrustTier() {
+     if (!token || !selectedPayout?.user?.id) return;
+@@ -194,7 +249,7 @@ export default function AdminPayoutsPage() {
+         <div>
+           <span className="semantic-badge admin">Admin payouts</span>
+           <h1>Payout console</h1>
+-          <p className="notice-box admin">Review payout requests, Stripe Connect test status, related support tickets, ledger entries, and admin audit notes before real-money launch.</p>
++          <p className="notice-box admin">Review payout requests, provider sandbox status, related support tickets, ledger entries, and admin audit notes before real-money launch.</p>
+         </div>
+         <div className="form-row">
+           <div className="admin-console__login-grid">
+@@ -222,7 +277,7 @@ export default function AdminPayoutsPage() {
+           <article className="admin-metric-card">
+             <span className={`semantic-badge ${moneySafety.config.realMoneyEnabled ? 'danger' : 'success'}`}>Production money</span>
+             <strong>{moneySafety.config.realMoneyEnabled ? 'On' : 'Off'}</strong>
+-            <p>Stripe transfers {moneySafety.config.stripeTransfersEnabled ? 'enabled' : 'disabled'} · production switch {moneySafety.config.productionSwitchEnabled ? 'on' : 'off'}</p>
++            <p>Provider {moneySafety.config.moneyProvider ?? 'none'} · transfers {moneySafety.config.providerTransfersEnabled ? 'enabled' : 'disabled'} · production switch {moneySafety.config.productionSwitchEnabled ? 'on' : 'off'}</p>
+           </article>
+           <article className="admin-metric-card">
+             <span className="semantic-badge warning">Manual review</span>
+@@ -273,17 +328,21 @@ export default function AdminPayoutsPage() {
+                   <span><small>Net payout</small><strong>{formatWebMoney(selectedPayout.netAmountCents, selectedPayout.currency)}</strong></span>
+                 </div>
+                 <p className="meta">Requested {formatWebDateTime(selectedPayout.requestedAt)} · Reviewed {formatWebDateTime(selectedPayout.reviewedAt)} · Paid {formatWebDateTime(selectedPayout.paidAt)}</p>
++                {selectedPayout.provider ? <p className="notice-box info">Provider: {selectedPayout.provider} · status {selectedPayout.providerExternalStatus ?? 'not synced'} · transfer {selectedPayout.providerTransferId ?? selectedPayout.providerPayoutId ?? 'not created'}</p> : null}
++                {selectedPayout.providerFailureMessage ? <p className="notice-box danger">{selectedPayout.providerFailureCode ? `${selectedPayout.providerFailureCode}: ` : ''}{selectedPayout.providerFailureMessage}</p> : null}
+                 {selectedPayout.stripeExternalStatus ? <p className="notice-box info">Stripe/external status: {selectedPayout.stripeExternalStatus}</p> : null}
+                 {selectedPayout.stripeFailureMessage ? <p className="notice-box danger">{selectedPayout.stripeFailureCode ? `${selectedPayout.stripeFailureCode}: ` : ''}{selectedPayout.stripeFailureMessage}</p> : null}
+               </div>
+ 
+               <div className="card admin-action-card">
+                 <span className="semantic-badge admin">Decision</span>
+-                <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} placeholder="Admin note, reason, support ticket reference, or Stripe event context" />
++                <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={4} placeholder="Admin note, reason, support ticket reference, or provider event context" />
++                <input value={scaToken} onChange={(event) => setScaToken(event.target.value)} placeholder="Optional provider SCA token for sandbox payout calls" />
+                 <div className="admin-action-grid">
+                   {actions.map((item) => <button key={item.action} className={item.tone} onClick={() => { void runAction(item.action); }} disabled={loading} title={item.hint}>{item.label}</button>)}
++                  <button className="secondary" onClick={() => { void syncProviderPayout(); }} disabled={loading || !selectedPayout.providerTransferId}>Sync provider payout</button>
+                 </div>
+-                <p className="meta">Reject/cancel returns the gross payout-eligible earnings to the user wallet. Mark paid only when the payout is truly completed or simulated in test mode.</p>
++                <p className="meta">Reject/cancel returns the gross payout-eligible earnings to the user wallet. Approve/retry can create an Airwallex sandbox payout transfer when provider payouts are enabled. Mark paid only when the payout is truly completed or simulated in test mode.</p>
+               </div>
+ 
+               <div className="admin-detail-grid">
+@@ -302,8 +361,12 @@ export default function AdminPayoutsPage() {
+                   </div>
+                 </div>
+                 <div className="card">
+-                  <span className="semantic-badge admin">Stripe Connect</span>
+-                  {selectedPayout.stripeConnectAccount ? <><p>Status: <strong>{selectedPayout.stripeConnectAccount.status}</strong></p><p>Payouts enabled: <strong>{selectedPayout.stripeConnectAccount.payoutsEnabled ? 'yes' : 'no'}</strong></p><p>Account: <code>{selectedPayout.stripeConnectAccount.stripeAccountId}</code></p>{selectedPayout.stripeConnectAccount.disabledReason ? <p className="notice-box warning">{selectedPayout.stripeConnectAccount.disabledReason}</p> : null}</> : <p>No Stripe Connect account attached. This may be a demo payout.</p>}
++                  <span className="semantic-badge money">Money provider</span>
++                  {selectedPayout.providerAccount ? <><p>Provider: <strong>{selectedPayout.providerAccount.provider}</strong></p><p>Status: <strong>{selectedPayout.providerAccount.status}</strong></p><p>Account: <code>{selectedPayout.providerAccount.providerAccountId}</code></p><p>Currency: <strong>{selectedPayout.providerAccount.defaultCurrency ?? selectedPayout.currency}</strong></p></> : <p>No provider account attached. This may be a demo or legacy Stripe payout.</p>}
++                </div>
++                <div className="card">
++                  <span className="semantic-badge admin">Stripe Connect fallback</span>
++                  {selectedPayout.stripeConnectAccount ? <><p>Status: <strong>{selectedPayout.stripeConnectAccount.status}</strong></p><p>Payouts enabled: <strong>{selectedPayout.stripeConnectAccount.payoutsEnabled ? 'yes' : 'no'}</strong></p><p>Account: <code>{selectedPayout.stripeConnectAccount.stripeAccountId}</code></p>{selectedPayout.stripeConnectAccount.disabledReason ? <p className="notice-box warning">{selectedPayout.stripeConnectAccount.disabledReason}</p> : null}</> : <p>No Stripe Connect account attached. Stripe remains a disabled fallback/reference.</p>}
+                 </div>
+               </div>
+ 
+@@ -326,9 +389,22 @@ export default function AdminPayoutsPage() {
+                   <table><tbody>{selectedPayout.adminEvents?.map((event) => <tr key={event.id}><td>{event.action}</td><td>{event.previousStatus ?? '—'} → {event.nextStatus ?? '—'}</td><td>{event.admin?.profile?.displayName ?? event.admin?.email ?? 'Admin'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
+                   {!selectedPayout.adminEvents?.length ? <p>No admin actions yet.</p> : null}
+                 </div>
++                <div className="card admin-table-card">
++                  <span className="semantic-badge money">Provider transactions</span>
++                  <table><tbody>{detail?.providerTransactions?.map((transaction) => <tr key={transaction.id}><td>{transaction.provider}</td><td>{transaction.type}</td><td>{transaction.status}</td><td>{formatWebMoney(transaction.amountCents, transaction.currency)}</td><td>{formatWebDateTime(transaction.createdAt)}</td></tr>)}</tbody></table>
++                  {!detail?.providerTransactions?.length ? <p>No matching provider transactions loaded.</p> : null}
++                </div>
++              </div>
++
++              <div className="admin-detail-grid">
++                <div className="card admin-table-card">
++                  <span className="semantic-badge info">Provider events</span>
++                  <table><tbody>{detail?.providerEvents?.map((event) => <tr key={event.id}><td>{event.provider}</td><td>{event.eventType}</td><td>{event.processingStatus ?? event.status ?? 'received'}</td><td>{event.providerAccountId ?? '—'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
++                  {!detail?.providerEvents?.length ? <p>No matching provider events loaded.</p> : null}
++                </div>
+                 <div className="card admin-table-card">
+                   <span className="semantic-badge info">Stripe events</span>
+-                  <table><tbody>{detail?.stripeEvents?.map((event) => <tr key={event.id}><td>{event.type}</td><td>{event.processingStatus}</td><td>{event.objectId ?? event.stripeAccountId ?? '—'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
++                  <table><tbody>{detail?.stripeEvents?.map((event) => <tr key={event.id}><td>{event.type}</td><td>{event.processingStatus ?? event.status ?? 'received'}</td><td>{event.objectId ?? event.stripeAccountId ?? '—'}</td><td>{formatWebDateTime(event.createdAt)}</td></tr>)}</tbody></table>
+                   {!detail?.stripeEvents?.length ? <p>No matching Stripe events loaded.</p> : null}
+                 </div>
+               </div>
+diff --git a/docs/phase-21-5-airwallex-payouts-sandbox.md b/docs/phase-21-5-airwallex-payouts-sandbox.md
+new file mode 100644
+index 0000000..71879a1
+--- /dev/null
++++ b/docs/phase-21-5-airwallex-payouts-sandbox.md
+@@ -0,0 +1,179 @@
++# Phase 21.5 — Airwallex payouts sandbox
++
++## Goal
++
++Add sandbox-only payout plumbing for the future Airwallex money launch while keeping the first beta money-off.
++
++This phase does **not** enable production payouts, normal-user payouts, pay-ins, open wallet balances, or public money trades. It extends the provider architecture so admins can test payout request approval, provider transfer creation, provider status sync, and failed-transfer visibility in a sandbox/demo configuration.
++
++## Default safety state
++
++The default environment remains safe for the first beta:
++
++```env
++MONEY_PROVIDER=none
++MONEY_LAUNCH_MODE=disabled
++MONEY_FEATURES_VISIBLE=false
++WALLET_VISIBLE=false
++PAYOUTS_VISIBLE=false
++MONEY_TRADES_ENABLED=false
++MONEY_PROVIDER_PAYOUTS_ENABLED=false
++```
++
++With those defaults:
++
++- normal users cannot see wallet or payout UI
++- backend payout routes stay blocked by money-safety gates
++- Airwallex adapter methods cannot create transfers
++- Stripe remains present only as a disabled fallback/reference
++
++## New sandbox payout configuration
++
++Phase 21.5 adds Airwallex payout sandbox settings:
++
++```env
++AIRWALLEX_SANDBOX_PAYOUT_BENEFICIARY_ID=
++AIRWALLEX_SANDBOX_PAYOUT_TRANSFER_METHOD=LOCAL
++AIRWALLEX_SANDBOX_PAYOUT_REASON=services
++```
++
++`AIRWALLEX_SANDBOX_PAYOUT_BENEFICIARY_ID` is required because Hellowhen does not yet collect beneficiary/bank-account details from users. The adapter refuses to create an Airwallex sandbox payout transfer without this value.
++
++## Backend changes
++
++### Provider interface
++
++The provider abstraction now supports payout transfer creation and status sync:
++
++```ts
++createPayoutTransfer(input: CreatePayoutTransferInput): Promise<ProviderTransferResult>;
++syncPayoutTransfer(input: SyncPayoutTransferInput): Promise<ProviderTransferResult | null>;
++```
++
++`CreatePayoutTransferInput` now includes optional `scaToken` and `requestedById`, and provider transfer results can return external status, payout-request status, and sandbox-only metadata.
++
++### Airwallex provider
++
++The Airwallex adapter now supports sandbox payout transfer creation through:
++
++```txt
++POST /api/v1/transfers/create
++```
++
++The request is sent on behalf of the user's Airwallex connected account using the connected-account header and includes:
++
++- sandbox beneficiary ID
++- net payout amount
++- source/transfer currency
++- transfer method
++- reason
++- request ID
++- Hellowhen payout metadata
++- optional SCA token
++
++The adapter records the transfer in `MoneyProviderTransaction` with `type=payout`, then updates the linked `PayoutRequest` provider fields:
++
++```txt
++provider=airwallex
++providerAccountId
++providerTransferId
++providerPayoutId
++providerExternalStatus
++providerFailureCode
++providerFailureMessage
++```
++
++### Provider status sync
++
++Admins and webhooks can sync Airwallex payout transfer status through:
++
++```txt
++GET /api/v1/transfers/{transferId}
++```
++
++The sync path updates:
++
++- `MoneyProviderTransaction.status`
++- `PayoutRequest.providerExternalStatus`
++- `PayoutRequest.status`
++- `PayoutRequest.paidAt` if the provider result maps to paid
++- provider failure fields if the provider result maps to failed
++
++### Airwallex webhooks
++
++The Airwallex webhook receiver now attempts to process transfer-style events in addition to connected-account events. Matching payout events are stored as `MoneyProviderEvent` records and can trigger payout transfer sync.
++
++Webhook processing remains disabled unless:
++
++```env
++MONEY_PROVIDER_WEBHOOKS_ENABLED=true
++AIRWALLEX_ENABLED=true
++```
++
++## Admin changes
++
++### Admin payout console
++
++`/admin/payouts` now shows provider-aware payout information:
++
++- active provider status
++- provider account attached to the payout
++- provider transfer/payout ID
++- provider external status
++- provider failure message
++- provider transactions
++- provider events
++- Stripe fallback/legacy event history
++
++Admins can now run:
++
++```txt
++POST /admin/payouts/:payoutId/provider-sync
++```
++
++This syncs the Airwallex sandbox transfer status for a linked payout.
++
++Admin `approve` and `retry` can create a provider payout transfer when:
++
++- payout provider is `airwallex`
++- payout has a provider account
++- `MONEY_PROVIDER_PAYOUTS_ENABLED=true`
++- Airwallex sandbox connected accounts are configured
++- sandbox beneficiary ID is configured
++
++### Admin money page
++
++`/admin/money` now labels provider records as broader money transactions rather than only trade-money transactions, because the table can now include payout transfers.
++
++## Money-safety changes
++
++`providerTransfersEnabled` can now be true in sandbox/demo mode when all required provider flags are intentionally enabled. Production money still requires the production launch-mode switch.
++
++This allows Airwallex sandbox payout testing without weakening the first-beta default state.
++
++## What is intentionally not done
++
++Phase 21.5 does not add:
++
++- real production Airwallex payouts
++- user bank-account collection
++- beneficiary creation UI
++- embedded beneficiary component
++- user payout self-service in public beta
++- pay-ins
++- lifetime wallet balances
++- automatic payout retries
++- tax/compliance documents
++- country-by-country rollout approval
++
++## Follow-up work
++
++Before production, Hellowhen still needs:
++
++1. Confirm beneficiary collection flow with Airwallex.
++2. Add embedded or hosted beneficiary setup if approved.
++3. Add country/currency payout capability checks.
++4. Add payout retry/failure reason normalization.
++5. Add admin reconciliation between Hellowhen ledger and Airwallex transfers.
++6. Add support playbooks for failed, returned, or compliance-held payouts.
++7. Complete legal/provider review before any production launch.
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 53af751..58b317e 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -22,7 +22,7 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }), providerBalances: () => requestJson(options, '/wallet/provider-balances'), syncProviderBalances: (body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, '/wallet/provider-balances/sync', { method: 'POST', body: JSON.stringify(body ?? {}) }) }
+diff --git a/packages/contracts/src/wallet.ts b/packages/contracts/src/wallet.ts
+index 4b818db..6969391 100644
+--- a/packages/contracts/src/wallet.ts
++++ b/packages/contracts/src/wallet.ts
+@@ -99,6 +99,8 @@ export const adminPayoutActionSchema = z.enum(['approve', 'pause', 'reject', 'ca
+ export const adminPayoutActionRequestSchema = z.object({
+   action: adminPayoutActionSchema,
+   note: z.string().trim().max(1000).optional(),
++  // Optional Airwallex SCA token for sandbox transfer creation/sync. Production UX is not enabled yet.
++  scaToken: z.string().trim().min(1).max(2000).optional(),
+ });
+ 
+ export const adminPayoutStatusFilterSchema = z.enum(['all', 'draft', 'requested', 'approved', 'paid', 'rejected', 'cancelled']);
+@@ -126,6 +128,14 @@ export const payoutRequestSchema = z.object({
+   stripeFailureCode: z.string().nullable().optional(),
+   stripeFailureMessage: z.string().nullable().optional(),
+   stripeExternalStatus: z.string().nullable().optional(),
++  provider: moneyProviderSchema.nullable().optional(),
++  providerAccountId: z.string().nullable().optional(),
++  providerTransferId: z.string().nullable().optional(),
++  providerPayoutId: z.string().nullable().optional(),
++  providerEventId: z.string().nullable().optional(),
++  providerFailureCode: z.string().nullable().optional(),
++  providerFailureMessage: z.string().nullable().optional(),
++  providerExternalStatus: z.string().nullable().optional(),
+ });
+ 
+ export const moneyProviderAccountSchema = z.object({

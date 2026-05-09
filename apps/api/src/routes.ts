@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
+import { businessRoutes } from './modules/business/business.routes.js';
 import { creditsRoutes } from './modules/credits/credits.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { needsRoutes } from './modules/needs/needs.routes.js';
@@ -17,6 +18,7 @@ export const routes = Router();
 
 routes.use('/health', healthRoutes);
 routes.use('/auth', authRoutes);
+routes.use('/business', businessRoutes);
 routes.use('/credits', creditsRoutes);
 routes.use('/profile', profileRoutes);
 routes.use('/settings', settingsRoutes);

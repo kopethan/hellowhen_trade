@@ -1,0 +1,2128 @@
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 5a901b4..f87d5c4 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -7,6 +7,7 @@ import { requireAuth } from '../../middleware/auth.js';
+ import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+ import { buildAdminMoneySafetySummary } from '../money/moneySafety.js';
++import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+ import { buildMoneyProviderStatus, getMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
+ import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
+@@ -107,6 +108,7 @@ adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
+   if (!trade) return res.status(404).json({ error: 'not_found' });
+   if (trade.status !== 'disputed') return res.status(409).json({ error: 'trade_not_disputed', message: 'Only disputed trades can be resolved through this action.' });
+   const note = input.note?.trim();
++  const disputePayment = trade.payment;
+   const updated = await prisma.$transaction(async (tx) => {
+     if (input.action === 'refund_payer') {
+       await refundHeldWalletMoney(tx, trade, req.user!.id);
+@@ -118,6 +120,12 @@ adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
+     }
+     return tx.trade.update({ where: { id: trade.id }, data: { status: 'closed', closedAt: new Date(), confirmedById: req.user!.id, confirmedAt: new Date() }, include: tradeInclude });
+   });
++  if (input.action === 'release_seller' && disputePayment?.status === 'held' && disputePayment.amountCents > 0 && disputePayment.sellerId) {
++    await mirrorProviderTradeRelease({ tradeId: trade.id, buyerId: disputePayment.buyerId, sellerId: disputePayment.sellerId, amountCents: disputePayment.amountCents, currency: disputePayment.currency, confirmedById: req.user!.id });
++  }
++  if (input.action === 'refund_payer' && disputePayment && ['held', 'released'].includes(disputePayment.status) && disputePayment.amountCents > 0) {
++    await mirrorProviderTradeRefund({ tradeId: trade.id, buyerId: disputePayment.buyerId, sellerId: disputePayment.sellerId, amountCents: disputePayment.amountCents, currency: disputePayment.currency, refundedById: req.user!.id, wasReleased: disputePayment.status === 'released', reason: 'admin_dispute_refund' });
++  }
+   if (note || trade.disputeTicketId) {
+     await prisma.supportTicketMessage.create({ data: { ticketId: trade.disputeTicketId ?? '', senderId: req.user!.id, senderRole: 'admin', internal: true, body: note || `Admin resolved dispute with action: ${input.action}` } }).catch(() => null);
+   }
+@@ -366,6 +374,43 @@ adminRoutes.post('/money/provider-accounts/:accountId/sync-balances', asyncRoute
+   }
+ }));
+ 
++
++adminRoutes.get('/money/provider-transactions', asyncRoute(async (_req, res) => {
++  const provider = buildMoneyProviderStatus();
++  const transactions = await prisma.moneyProviderTransaction.findMany({
++    include: {
++      user: { select: { id: true, email: true, profile: true, trustTier: true } },
++      account: { select: { id: true, provider: true, providerAccountId: true, status: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
++      counterpartyAccount: { select: { id: true, provider: true, providerAccountId: true, status: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
++    },
++    orderBy: { createdAt: 'desc' },
++    take: 150,
++  });
++  res.json({
++    provider,
++    transactions: transactions.map((transaction) => ({
++      id: transaction.id,
++      provider: transaction.provider,
++      providerTransactionId: transaction.providerTransactionId,
++      type: transaction.type,
++      status: transaction.status,
++      amountCents: transaction.amountCents,
++      currency: transaction.currency,
++      userId: transaction.userId,
++      tradeId: transaction.tradeId,
++      payoutRequestId: transaction.payoutRequestId,
++      providerAccountId: transaction.account?.providerAccountId ?? null,
++      counterpartyProviderAccountId: transaction.counterpartyAccount?.providerAccountId ?? null,
++      rawProviderStatus: transaction.rawProviderStatus,
++      createdAt: transaction.createdAt,
++      updatedAt: transaction.updatedAt,
++      user: transaction.user,
++      account: transaction.account,
++      counterpartyAccount: transaction.counterpartyAccount,
++    })),
++  });
++}));
++
+ adminRoutes.get('/money/provider-events', asyncRoute(async (_req, res) => {
+   const provider = buildMoneyProviderStatus();
+   const [providerEvents, legacyStripeEvents] = await Promise.all([
+diff --git a/apps/api/src/modules/money/moneySafety.ts b/apps/api/src/modules/money/moneySafety.ts
+index 284231d..6fb85d7 100644
+--- a/apps/api/src/modules/money/moneySafety.ts
++++ b/apps/api/src/modules/money/moneySafety.ts
+@@ -2,7 +2,7 @@ import { env } from '../../config/env.js';
+ import { buildMoneyProviderStatus } from './providers/moneyProviderRegistry.js';
+ 
+ type MoneyLaunchMode = 'disabled' | 'demo' | 'private_beta' | 'production';
+-type MoneySafetyAction = 'money_trade' | 'wallet_top_up' | 'wallet_balance_sync' | 'payout_account' | 'payout_request' | 'provider_transfer' | 'stripe_transfer';
++type MoneySafetyAction = 'money_trade' | 'wallet_top_up' | 'wallet_balance_sync' | 'payout_account' | 'payout_request' | 'provider_trade_money' | 'provider_transfer' | 'stripe_transfer';
+ type PrismaLike = {
+   moneyPolicyAcknowledgement: {
+     findFirst(args: unknown): Promise<any>;
+@@ -39,6 +39,11 @@ export function buildGlobalMoneySafetyConfig() {
+   const providerIsNone = providerStatus.provider === 'none';
+   const providerConfigured = providerStatus.configured;
+   const realMoneyEnabled = moneyFeaturesVisible && launchMode === 'production' && productionSwitchEnabled && !providerIsNone && providerConfigured;
++  const providerTradeMoneyEnabled = moneyFeaturesVisible
++    && Boolean(env.moneyProviderTradeMoneyEnabled)
++    && !providerIsNone
++    && providerConfigured
++    && providerStatus.capabilities.includes('trade_holds');
+   const providerTransfersEnabled = realMoneyEnabled
+     && Boolean(env.moneyProviderPayoutsEnabled)
+     && (providerStatus.provider === 'stripe' ? env.stripeConnectTransferMode : providerStatus.provider === 'airwallex');
+@@ -64,6 +69,7 @@ export function buildGlobalMoneySafetyConfig() {
+     realMoneyEnabled,
+     productionSwitchEnabled,
+     privateBetaAllowlistCount: privateBetaUserIds.length,
++    providerTradeMoneyEnabled,
+     providerTransfersEnabled,
+     providerWalletSyncEnabled: moneyFeaturesVisible && Boolean(env.moneyProviderWalletSyncEnabled) && !providerIsNone && providerConfigured,
+     stripeTransfersEnabled: providerStatus.provider === 'stripe' && providerTransfersEnabled,
+@@ -81,6 +87,7 @@ export async function buildMoneySafetyStatus(prisma: PrismaLike, userId: string)
+   const policyAcknowledged = !config.policyAcknowledgementRequired || Boolean(acknowledgement);
+   const realMoneyEnabled = config.realMoneyEnabled && privateBetaAllowed;
+   const demoMoneyEnabled = config.demoMoneyEnabled && privateBetaAllowed;
++  const providerTradeMoneyEnabled = config.providerTradeMoneyEnabled && privateBetaAllowed && policyAcknowledged;
+   const providerTransfersEnabled = config.providerTransfersEnabled && privateBetaAllowed;
+   const providerWalletSyncEnabled = config.providerWalletSyncEnabled && privateBetaAllowed;
+   const stripeTransfersEnabled = config.moneyProvider === 'stripe' && providerTransfersEnabled;
+@@ -100,6 +107,7 @@ export async function buildMoneySafetyStatus(prisma: PrismaLike, userId: string)
+     acknowledgedAt: acknowledgement?.acknowledgedAt ? acknowledgement.acknowledgedAt.toISOString() : null,
+     realMoneyEnabled,
+     demoMoneyEnabled,
++    providerTradeMoneyEnabled,
+     providerTransfersEnabled,
+     providerWalletSyncEnabled,
+     stripeTransfersEnabled,
+@@ -145,8 +153,9 @@ export function getMoneySafetyBlock(status: Awaited<ReturnType<typeof buildMoney
+   if (action === 'wallet_balance_sync' && !status.walletVisible) return { statusCode: 403, error: 'wallet_disabled', message: 'Provider wallet balance sync is disabled for the beta launch.' };
+   if ((action === 'payout_account' || action === 'payout_request') && !status.payoutsVisible) return { statusCode: 403, error: 'payouts_disabled', message: 'Payouts are disabled for the beta launch.' };
+   if ((action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request') && !status.demoMoneyEnabled) return { statusCode: 403, error: 'money_features_unavailable', message: 'Money features are not available in the current launch mode.' };
+-  if (status.moneyProvider === 'none' && (action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request' || action === 'provider_transfer' || action === 'stripe_transfer')) return { statusCode: 403, error: 'money_provider_none', message: 'Money provider is set to none for the beta money-off launch.' };
++  if (status.moneyProvider === 'none' && (action === 'wallet_top_up' || action === 'wallet_balance_sync' || action === 'money_trade' || action === 'payout_account' || action === 'payout_request' || action === 'provider_trade_money' || action === 'provider_transfer' || action === 'stripe_transfer')) return { statusCode: 403, error: 'money_provider_none', message: 'Money provider is set to none for the beta money-off launch.' };
+   if (action === 'wallet_balance_sync' && !status.providerWalletSyncEnabled) return { statusCode: 403, error: 'provider_wallet_sync_disabled', message: 'Provider wallet balance sync is disabled by launch safety settings.' };
++  if (action === 'provider_trade_money' && !status.providerTradeMoneyEnabled) return { statusCode: 403, error: 'provider_trade_money_disabled', message: 'Provider trade-money sandbox movement is disabled by launch safety settings.' };
+   if (action === 'provider_transfer' && !status.providerTransfersEnabled) return { statusCode: 403, error: 'provider_transfers_disabled', message: 'Provider transfers are disabled by launch safety settings.' };
+   if (action === 'stripe_transfer' && !status.stripeTransfersEnabled) return { statusCode: 403, error: 'stripe_transfers_disabled', message: 'Stripe transfers are disabled by launch safety settings.' };
+   return null;
+diff --git a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+index f72b014..c6d592d 100644
+--- a/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
+@@ -1,8 +1,24 @@
+-import type { MoneyProviderAccount, Prisma } from '@prisma/client';
+-import { env } from '../../../config/env.js';
+-import { prisma } from '../../../lib/prisma.js';
+-import { airwallexRequest } from './airwallexClient.js';
+-import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type MoneyProviderAdapter, type ProviderAccountDto, type ProviderOnboardingLinkResult, type ProviderWalletBalanceDto, type ProviderWalletBalanceSyncResult, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
++import type { MoneyProviderAccount, Prisma } from "@prisma/client";
++import { env } from "../../../config/env.js";
++import { prisma } from "../../../lib/prisma.js";
++import { airwallexRequest } from "./airwallexClient.js";
++import {
++  MoneyProviderError,
++  type CreateConnectedAccountInput,
++  type CreateOnboardingLinkInput,
++  type CreatePayoutTransferInput,
++  type CreateTradeHoldInput,
++  type MoneyProviderAdapter,
++  type ProviderAccountDto,
++  type ProviderOnboardingLinkResult,
++  type ProviderTradeMoneyResult,
++  type ProviderWalletBalanceDto,
++  type ProviderWalletBalanceSyncResult,
++  type RefundTradeHoldInput,
++  type ReleaseTradeHoldInput,
++  type SyncAccountStatusInput,
++  type SyncWalletBalancesInput,
++} from "./moneyProvider.types.js";
+ 
+ type AirwallexAccountResponse = {
+   id?: string;
+@@ -30,6 +46,16 @@ type AirwallexHostedFlowResponse = {
+   [key: string]: unknown;
+ };
+ 
++type AirwallexFundsMovementResponse = {
++  id?: string;
++  request_id?: string;
++  status?: string;
++  reference?: string;
++  amount?: number | string;
++  currency?: string;
++  [key: string]: unknown;
++};
++
+ type NormalizedAirwallexBalance = {
+   currency: string;
+   availableCents: number;
+@@ -39,95 +65,200 @@ type NormalizedAirwallexBalance = {
+ };
+ 
+ function isAirwallexSandboxBlocked() {
+-  return env.moneyProviderSandboxOnly && (env.airwallexEnv === 'production' || !env.airwallexBaseUrl.includes('api-demo.airwallex.com'));
++  return (
++    env.moneyProviderSandboxOnly &&
++    (env.airwallexEnv === "production" ||
++      !env.airwallexBaseUrl.includes("api-demo.airwallex.com"))
++  );
+ }
+ 
+-function requireAirwallexSandboxApiConfigured(message = 'Airwallex sandbox is not configured. Add sandbox API credentials before using provider features.') {
++function requireAirwallexSandboxApiConfigured(
++  message = "Airwallex sandbox is not configured. Add sandbox API credentials before using provider features.",
++) {
+   if (!env.airwallexEnabled || !env.airwallexClientId || !env.airwallexApiKey) {
+-    throw new MoneyProviderError('provider_not_configured', message, 503);
++    throw new MoneyProviderError("provider_not_configured", message, 503);
+   }
+   if (isAirwallexSandboxBlocked()) {
+-    throw new MoneyProviderError('sandbox_only', 'Airwallex production access is blocked. These provider scaffolding phases only support sandbox/demo access.', 403);
++    throw new MoneyProviderError(
++      "sandbox_only",
++      "Airwallex production access is blocked. These provider scaffolding phases only support sandbox/demo access.",
++      403,
++    );
+   }
+ }
+ 
+ function requireAirwallexConnectedAccountsAccess() {
+-  requireAirwallexSandboxApiConfigured('Airwallex sandbox is not configured. Add sandbox API credentials before using connected accounts.');
++  requireAirwallexSandboxApiConfigured(
++    "Airwallex sandbox is not configured. Add sandbox API credentials before using connected accounts.",
++  );
+   if (!env.airwallexConnectedAccountsEnabled) {
+-    throw new MoneyProviderError('provider_not_enabled', 'Airwallex connected accounts are disabled by AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED.', 403);
++    throw new MoneyProviderError(
++      "provider_not_enabled",
++      "Airwallex connected accounts are disabled by AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED.",
++      403,
++    );
+   }
+ }
+ 
+ function requireAirwallexSandboxConfigured() {
+   requireAirwallexConnectedAccountsAccess();
+   if (!env.moneyProviderAccountCreationEnabled) {
+-    throw new MoneyProviderError('provider_not_enabled', 'Airwallex connected-account creation is disabled by feature flags.', 403);
++    throw new MoneyProviderError(
++      "provider_not_enabled",
++      "Airwallex connected-account creation is disabled by feature flags.",
++      403,
++    );
+   }
+ }
+ 
+-function toProviderDto(account: MoneyProviderAccount | null): ProviderAccountDto | null {
++function toProviderDto(
++  account: MoneyProviderAccount | null,
++): ProviderAccountDto | null {
+   if (!account) return null;
+-  const raw = account.rawProviderStatus && typeof account.rawProviderStatus === 'object' ? account.rawProviderStatus as Record<string, unknown> : {};
+-  const capabilities = account.capabilities && typeof account.capabilities === 'object' ? account.capabilities as Record<string, unknown> : {};
+-  const requirements = account.requirements && typeof account.requirements === 'object' ? account.requirements as Record<string, unknown> : {};
+-  const currentlyDue = Array.isArray(requirements.currently_due) ? requirements.currently_due.filter((item): item is string => typeof item === 'string') : [];
+-  const eventuallyDue = Array.isArray(requirements.eventually_due) ? requirements.eventually_due.filter((item): item is string => typeof item === 'string') : [];
+-  const pastDue = Array.isArray(requirements.past_due) ? requirements.past_due.filter((item): item is string => typeof item === 'string') : [];
+-  const hostedFlow = raw.hostedFlow && typeof raw.hostedFlow === 'object' ? raw.hostedFlow as Record<string, unknown> : null;
++  const raw =
++    account.rawProviderStatus && typeof account.rawProviderStatus === "object"
++      ? (account.rawProviderStatus as Record<string, unknown>)
++      : {};
++  const capabilities =
++    account.capabilities && typeof account.capabilities === "object"
++      ? (account.capabilities as Record<string, unknown>)
++      : {};
++  const requirements =
++    account.requirements && typeof account.requirements === "object"
++      ? (account.requirements as Record<string, unknown>)
++      : {};
++  const currentlyDue = Array.isArray(requirements.currently_due)
++    ? requirements.currently_due.filter(
++        (item): item is string => typeof item === "string",
++      )
++    : [];
++  const eventuallyDue = Array.isArray(requirements.eventually_due)
++    ? requirements.eventually_due.filter(
++        (item): item is string => typeof item === "string",
++      )
++    : [];
++  const pastDue = Array.isArray(requirements.past_due)
++    ? requirements.past_due.filter(
++        (item): item is string => typeof item === "string",
++      )
++    : [];
++  const hostedFlow =
++    raw.hostedFlow && typeof raw.hostedFlow === "object"
++      ? (raw.hostedFlow as Record<string, unknown>)
++      : null;
+   return {
+-    provider: 'airwallex_demo',
+-    status: account.status === 'active' ? 'connected' : account.status === 'not_started' ? 'not_connected' : account.status === 'rejected' ? 'disabled' : account.status,
++    provider: "airwallex_demo",
++    status:
++      account.status === "active"
++        ? "connected"
++        : account.status === "not_started"
++          ? "not_connected"
++          : account.status === "rejected"
++            ? "disabled"
++            : account.status,
+     connectedAt: account.createdAt.toISOString(),
+     providerAccountId: account.providerAccountId,
+-    chargesEnabled: Boolean(capabilities.payins_enabled ?? capabilities.charges_enabled),
++    chargesEnabled: Boolean(
++      capabilities.payins_enabled ?? capabilities.charges_enabled,
++    ),
+     payoutsEnabled: Boolean(capabilities.payouts_enabled),
+-    detailsSubmitted: ['pending', 'active', 'restricted'].includes(account.status),
++    detailsSubmitted: ["pending", "active", "restricted"].includes(
++      account.status,
++    ),
+     currentlyDue,
+     eventuallyDue,
+     pastDue,
+-    disabledReason: typeof requirements.disabled_reason === 'string' ? requirements.disabled_reason : null,
++    disabledReason:
++      typeof requirements.disabled_reason === "string"
++        ? requirements.disabled_reason
++        : null,
+     defaultCurrency: account.defaultCurrency,
+     country: account.country,
+-    lastSyncedAt: account.lastSyncedAt ? account.lastSyncedAt.toISOString() : null,
++    lastSyncedAt: account.lastSyncedAt
++      ? account.lastSyncedAt.toISOString()
++      : null,
+     sandboxOnly: true,
+-    message: hostedFlow?.id ? `Airwallex sandbox hosted flow ${String(hostedFlow.id)} is available for onboarding.` : 'Airwallex sandbox connected account.',
++    message: hostedFlow?.id
++      ? `Airwallex sandbox hosted flow ${String(hostedFlow.id)} is available for onboarding.`
++      : "Airwallex sandbox connected account.",
+   };
+ }
+ 
+-function mapAirwallexStatus(status?: string): Prisma.MoneyProviderAccountCreateInput['status'] {
+-  const normalized = String(status ?? '').toUpperCase();
+-  if (normalized === 'CREATED') return 'onboarding';
+-  if (normalized === 'SUBMITTED') return 'pending';
+-  if (normalized === 'ACTIVE') return 'active';
+-  if (normalized === 'ACTION_REQUIRED') return 'restricted';
+-  if (normalized === 'SUSPENDED') return 'restricted';
+-  if (normalized === 'REJECTED') return 'rejected';
+-  return 'onboarding';
++function mapAirwallexStatus(
++  status?: string,
++): Prisma.MoneyProviderAccountCreateInput["status"] {
++  const normalized = String(status ?? "").toUpperCase();
++  if (normalized === "CREATED") return "onboarding";
++  if (normalized === "SUBMITTED") return "pending";
++  if (normalized === "ACTIVE") return "active";
++  if (normalized === "ACTION_REQUIRED") return "restricted";
++  if (normalized === "SUSPENDED") return "restricted";
++  if (normalized === "REJECTED") return "rejected";
++  return "onboarding";
+ }
+ 
+-function legalEntityType(accountType: CreateConnectedAccountInput['accountType']) {
+-  return accountType === 'individual' || !accountType ? 'INDIVIDUAL' : 'BUSINESS';
++function legalEntityType(
++  accountType: CreateConnectedAccountInput["accountType"],
++) {
++  return accountType === "individual" || !accountType
++    ? "INDIVIDUAL"
++    : "BUSINESS";
+ }
+ 
+ function jsonValue(value: unknown): Prisma.InputJsonValue {
+   return JSON.parse(JSON.stringify(value ?? {})) as Prisma.InputJsonValue;
+ }
+ 
+-function countryFromAccount(account: AirwallexAccountResponse, fallback?: string | null) {
+-  return (account.country_code ?? account.country ?? fallback ?? null)?.toUpperCase() ?? null;
++function countryFromAccount(
++  account: AirwallexAccountResponse,
++  fallback?: string | null,
++) {
++  return (
++    (
++      account.country_code ??
++      account.country ??
++      fallback ??
++      null
++    )?.toUpperCase() ?? null
++  );
+ }
+ 
+-function currencyFromAccount(account: AirwallexAccountResponse, fallback?: string | null) {
+-  return (account.default_currency ?? fallback ?? env.airwallexDefaultCurrency).toLowerCase();
++function currencyFromAccount(
++  account: AirwallexAccountResponse,
++  fallback?: string | null,
++) {
++  return (
++    account.default_currency ??
++    fallback ??
++    env.airwallexDefaultCurrency
++  ).toLowerCase();
+ }
+ 
+-async function upsertProviderAccount(input: { userId: string; account: AirwallexAccountResponse; accountType?: 'individual' | 'business' | 'brand'; fallbackCountry?: string | null; fallbackCurrency?: string | null; rawPatch?: Record<string, unknown> }) {
+-  if (!input.account.id) throw new MoneyProviderError('airwallex_account_missing_id', 'Airwallex did not return a connected account ID.', 502);
+-  const existing = await prisma.moneyProviderAccount.findFirst({ where: { userId: input.userId, provider: 'airwallex' } });
+-  const rawProviderStatus = jsonValue({ ...(input.account ?? {}), ...(input.rawPatch ?? {}) });
++async function upsertProviderAccount(input: {
++  userId: string;
++  account: AirwallexAccountResponse;
++  accountType?: "individual" | "business" | "brand";
++  fallbackCountry?: string | null;
++  fallbackCurrency?: string | null;
++  rawPatch?: Record<string, unknown>;
++}) {
++  if (!input.account.id)
++    throw new MoneyProviderError(
++      "airwallex_account_missing_id",
++      "Airwallex did not return a connected account ID.",
++      502,
++    );
++  const existing = await prisma.moneyProviderAccount.findFirst({
++    where: { userId: input.userId, provider: "airwallex" },
++  });
++  const rawProviderStatus = jsonValue({
++    ...(input.account ?? {}),
++    ...(input.rawPatch ?? {}),
++  });
+   const data = {
+     providerAccountId: input.account.id,
+-    accountType: input.accountType ?? existing?.accountType ?? 'individual' as const,
++    accountType:
++      input.accountType ?? existing?.accountType ?? ("individual" as const),
+     status: mapAirwallexStatus(input.account.status),
+     country: countryFromAccount(input.account, input.fallbackCountry),
+     defaultCurrency: currencyFromAccount(input.account, input.fallbackCurrency),
+@@ -138,25 +269,40 @@ async function upsertProviderAccount(input: { userId: string; account: Airwallex
+   };
+ 
+   if (existing) {
+-    return prisma.moneyProviderAccount.update({ where: { id: existing.id }, data });
++    return prisma.moneyProviderAccount.update({
++      where: { id: existing.id },
++      data,
++    });
+   }
+   return prisma.moneyProviderAccount.create({
+     data: {
+       userId: input.userId,
+-      provider: 'airwallex',
++      provider: "airwallex",
+       ...data,
+     },
+   });
+ }
+ 
+ async function getStoredAccount(userId: string) {
+-  return prisma.moneyProviderAccount.findFirst({ where: { userId, provider: 'airwallex' }, orderBy: { createdAt: 'desc' } });
++  return prisma.moneyProviderAccount.findFirst({
++    where: { userId, provider: "airwallex" },
++    orderBy: { createdAt: "desc" },
++  });
+ }
+ 
+ async function getUserContact(userId: string) {
+   return prisma.user.findUnique({
+     where: { id: userId },
+-    select: { email: true, profile: { select: { displayName: true, countryCode: true, preferredCurrency: true } } },
++    select: {
++      email: true,
++      profile: {
++        select: {
++          displayName: true,
++          countryCode: true,
++          preferredCurrency: true,
++        },
++      },
++    },
+   });
+ }
+ 
+@@ -164,18 +310,140 @@ function webUrl(pathname: string | undefined, fallbackPath: string) {
+   return new URL(pathname || fallbackPath, env.webAppUrl).toString();
+ }
+ 
+-
+ function requireAirwallexWalletSyncEnabled() {
+   requireAirwallexConnectedAccountsAccess();
+   if (!env.moneyProviderWalletSyncEnabled) {
+-    throw new MoneyProviderError('provider_not_enabled', 'Airwallex wallet-balance sync is disabled by MONEY_PROVIDER_WALLET_SYNC_ENABLED.', 403);
++    throw new MoneyProviderError(
++      "provider_not_enabled",
++      "Airwallex wallet-balance sync is disabled by MONEY_PROVIDER_WALLET_SYNC_ENABLED.",
++      403,
++    );
++  }
++}
++
++function requireAirwallexTradeMoneyEnabled() {
++  requireAirwallexConnectedAccountsAccess();
++  if (!env.moneyProviderTradeMoneyEnabled) {
++    throw new MoneyProviderError(
++      "provider_not_enabled",
++      "Airwallex sandbox trade-money movement is disabled by MONEY_PROVIDER_TRADE_MONEY_ENABLED.",
++      403,
++    );
+   }
+ }
+ 
++function providerTransactionStatus(
++  status?: string,
++): Prisma.MoneyProviderTransactionCreateInput["status"] {
++  const normalized = String(status ?? "").toUpperCase();
++  if (
++    normalized === "SETTLED" ||
++    normalized === "SUCCEEDED" ||
++    normalized === "SUCCESS"
++  )
++    return "succeeded";
++  if (
++    normalized === "FAILED" ||
++    normalized === "SUSPENDED" ||
++    normalized === "REJECTED"
++  )
++    return "failed";
++  if (normalized === "CANCELLED" || normalized === "CANCELED")
++    return "canceled";
++  if (normalized === "REVERSED") return "reversed";
++  return "pending";
++}
++
++function toProviderTradeMoneyResult(input: {
++  providerTransactionId?: string | null;
++  status?: string | null;
++  message?: string;
++}): ProviderTradeMoneyResult {
++  const mapped = providerTransactionStatus(input.status ?? undefined);
++  return {
++    provider: "airwallex",
++    providerTransactionId: input.providerTransactionId ?? null,
++    status:
++      mapped === "succeeded"
++        ? "succeeded"
++        : mapped === "failed"
++          ? "failed"
++          : mapped === "reversed"
++            ? "reversed"
++            : "pending",
++    externalStatus: input.status ?? null,
++    sandboxOnly: true,
++    message: input.message,
++  };
++}
++
++function requestId(prefix: string, tradeId: string) {
++  const cleanTradeId = tradeId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 32);
++  return `hw_${prefix}_${cleanTradeId}`.slice(0, 64);
++}
++
++function centsToProviderAmount(cents: number) {
++  return Number((Math.max(0, cents) / 100).toFixed(2));
++}
++
++async function accountForUser(userId?: string | null) {
++  if (!userId) return null;
++  return prisma.moneyProviderAccount.findFirst({
++    where: { userId, provider: "airwallex" },
++    orderBy: { createdAt: "desc" },
++  });
++}
++
++async function upsertProviderTransaction(input: {
++  providerTransactionId: string;
++  type: Prisma.MoneyProviderTransactionCreateInput["type"];
++  status: Prisma.MoneyProviderTransactionCreateInput["status"];
++  amountCents: number;
++  currency: string;
++  userId?: string | null;
++  tradeId?: string | null;
++  accountId?: string | null;
++  counterpartyAccountId?: string | null;
++  rawProviderStatus?: unknown;
++}) {
++  return prisma.moneyProviderTransaction.upsert({
++    where: {
++      provider_providerTransactionId: {
++        provider: "airwallex",
++        providerTransactionId: input.providerTransactionId,
++      },
++    },
++    update: {
++      status: input.status,
++      amountCents: input.amountCents,
++      currency: input.currency.toLowerCase(),
++      userId: input.userId ?? null,
++      tradeId: input.tradeId ?? null,
++      moneyProviderAccountId: input.accountId ?? null,
++      counterpartyProviderAccountId: input.counterpartyAccountId ?? null,
++      rawProviderStatus: jsonValue(input.rawProviderStatus ?? {}),
++    },
++    create: {
++      provider: "airwallex",
++      providerTransactionId: input.providerTransactionId,
++      type: input.type,
++      status: input.status,
++      amountCents: input.amountCents,
++      currency: input.currency.toLowerCase(),
++      userId: input.userId ?? null,
++      tradeId: input.tradeId ?? null,
++      moneyProviderAccountId: input.accountId ?? null,
++      counterpartyProviderAccountId: input.counterpartyAccountId ?? null,
++      rawProviderStatus: jsonValue(input.rawProviderStatus ?? {}),
++    },
++  });
++}
++
+ function amountToCents(value: unknown) {
+-  if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value * 100);
+-  if (typeof value === 'string') {
+-    const normalized = value.replace(/,/g, '').trim();
++  if (typeof value === "number" && Number.isFinite(value))
++    return Math.round(value * 100);
++  if (typeof value === "string") {
++    const normalized = value.replace(/,/g, "").trim();
+     if (!normalized) return 0;
+     const parsed = Number(normalized);
+     if (Number.isFinite(parsed)) return Math.round(parsed * 100);
+@@ -185,33 +453,51 @@ function amountToCents(value: unknown) {
+ 
+ function firstAmount(record: Record<string, unknown>, keys: string[]) {
+   for (const key of keys) {
+-    if (record[key] !== undefined && record[key] !== null) return amountToCents(record[key]);
++    if (record[key] !== undefined && record[key] !== null)
++      return amountToCents(record[key]);
+   }
+   return 0;
+ }
+ 
+ function dateFrom(value: unknown) {
+-  if (typeof value !== 'string') return null;
++  if (typeof value !== "string") return null;
+   const parsed = Date.parse(value);
+   return Number.isFinite(parsed) ? new Date(parsed) : null;
+ }
+ 
+ function balanceRowsFromResponse(payload: unknown): Record<string, unknown>[] {
+-  if (Array.isArray(payload)) return payload.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+-  if (!payload || typeof payload !== 'object') return [];
++  if (Array.isArray(payload))
++    return payload.filter(
++      (item): item is Record<string, unknown> =>
++        Boolean(item) && typeof item === "object" && !Array.isArray(item),
++    );
++  if (!payload || typeof payload !== "object") return [];
+   const record = payload as Record<string, unknown>;
+-  for (const key of ['balances', 'items', 'data']) {
++  for (const key of ["balances", "items", "data"]) {
+     const value = record[key];
+-    if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
++    if (Array.isArray(value))
++      return value.filter(
++        (item): item is Record<string, unknown> =>
++          Boolean(item) && typeof item === "object" && !Array.isArray(item),
++      );
+   }
+-  if (typeof record.currency === 'string') return [record];
++  if (typeof record.currency === "string") return [record];
+ 
+-  const mapKeys = ['available_amount', 'available_balance', 'reserved_amount', 'reserve_amount', 'pending_amount', 'pending_balance', 'account_balance'];
++  const mapKeys = [
++    "available_amount",
++    "available_balance",
++    "reserved_amount",
++    "reserve_amount",
++    "pending_amount",
++    "pending_balance",
++    "account_balance",
++  ];
+   const currencies = new Set<string>();
+   for (const key of mapKeys) {
+     const maybeMap = record[key];
+-    if (maybeMap && typeof maybeMap === 'object' && !Array.isArray(maybeMap)) {
+-      for (const currency of Object.keys(maybeMap as Record<string, unknown>)) currencies.add(currency.toUpperCase());
++    if (maybeMap && typeof maybeMap === "object" && !Array.isArray(maybeMap)) {
++      for (const currency of Object.keys(maybeMap as Record<string, unknown>))
++        currencies.add(currency.toUpperCase());
+     }
+   }
+   if (currencies.size > 0) {
+@@ -219,7 +505,14 @@ function balanceRowsFromResponse(payload: unknown): Record<string, unknown>[] {
+       const row: Record<string, unknown> = { currency };
+       for (const key of mapKeys) {
+         const maybeMap = record[key];
+-        if (maybeMap && typeof maybeMap === 'object' && !Array.isArray(maybeMap)) row[key] = (maybeMap as Record<string, unknown>)[currency] ?? (maybeMap as Record<string, unknown>)[currency.toLowerCase()];
++        if (
++          maybeMap &&
++          typeof maybeMap === "object" &&
++          !Array.isArray(maybeMap)
++        )
++          row[key] =
++            (maybeMap as Record<string, unknown>)[currency] ??
++            (maybeMap as Record<string, unknown>)[currency.toLowerCase()];
+       }
+       return row;
+     });
+@@ -227,91 +520,175 @@ function balanceRowsFromResponse(payload: unknown): Record<string, unknown>[] {
+   return [];
+ }
+ 
+-function normalizeAirwallexBalances(payload: unknown): NormalizedAirwallexBalance[] {
+-  return balanceRowsFromResponse(payload).map((row) => {
+-    const currency = String(row.currency ?? row.currency_code ?? row.ccy ?? '').toLowerCase();
+-    if (!/^[a-z]{3}$/.test(currency)) return null;
+-    const availableCents = firstAmount(row, ['available_amount', 'available_balance', 'available', 'amount_available', 'balance']);
+-    const reservedCents = firstAmount(row, ['reserved_amount', 'reserve_amount', 'reserved_balance', 'reserved', 'reserve']);
+-    const pendingCents = firstAmount(row, ['pending_amount', 'pending_balance', 'pending']);
+-    const externalUpdatedAt = dateFrom(row.updated_at ?? row.as_at ?? row.as_of ?? row.created_at);
+-    return { currency, availableCents, reservedCents, pendingCents, externalUpdatedAt };
+-  }).filter((item): item is NormalizedAirwallexBalance => Boolean(item));
++function normalizeAirwallexBalances(
++  payload: unknown,
++): NormalizedAirwallexBalance[] {
++  return balanceRowsFromResponse(payload)
++    .map((row) => {
++      const currency = String(
++        row.currency ?? row.currency_code ?? row.ccy ?? "",
++      ).toLowerCase();
++      if (!/^[a-z]{3}$/.test(currency)) return null;
++      const availableCents = firstAmount(row, [
++        "available_amount",
++        "available_balance",
++        "available",
++        "amount_available",
++        "balance",
++      ]);
++      const reservedCents = firstAmount(row, [
++        "reserved_amount",
++        "reserve_amount",
++        "reserved_balance",
++        "reserved",
++        "reserve",
++      ]);
++      const pendingCents = firstAmount(row, [
++        "pending_amount",
++        "pending_balance",
++        "pending",
++      ]);
++      const externalUpdatedAt = dateFrom(
++        row.updated_at ?? row.as_at ?? row.as_of ?? row.created_at,
++      );
++      return {
++        currency,
++        availableCents,
++        reservedCents,
++        pendingCents,
++        externalUpdatedAt,
++      };
++    })
++    .filter((item): item is NormalizedAirwallexBalance => Boolean(item));
+ }
+ 
+-function balanceToDto(balance: { currency: string; availableCents: number; reservedCents: number; pendingCents: number; externalUpdatedAt: Date | null; lastSyncedAt: Date | null }, account: MoneyProviderAccount, source: ProviderWalletBalanceDto['source']): ProviderWalletBalanceDto {
++function balanceToDto(
++  balance: {
++    currency: string;
++    availableCents: number;
++    reservedCents: number;
++    pendingCents: number;
++    externalUpdatedAt: Date | null;
++    lastSyncedAt: Date | null;
++  },
++  account: MoneyProviderAccount,
++  source: ProviderWalletBalanceDto["source"],
++): ProviderWalletBalanceDto {
+   return {
+-    provider: 'airwallex_demo',
++    provider: "airwallex_demo",
+     providerAccountId: account.providerAccountId,
+     currency: balance.currency,
+     availableCents: balance.availableCents,
+     reservedCents: balance.reservedCents,
+     pendingCents: balance.pendingCents,
+-    totalCents: balance.availableCents + balance.reservedCents + balance.pendingCents,
+-    externalUpdatedAt: balance.externalUpdatedAt ? balance.externalUpdatedAt.toISOString() : null,
+-    lastSyncedAt: balance.lastSyncedAt ? balance.lastSyncedAt.toISOString() : null,
++    totalCents:
++      balance.availableCents + balance.reservedCents + balance.pendingCents,
++    externalUpdatedAt: balance.externalUpdatedAt
++      ? balance.externalUpdatedAt.toISOString()
++      : null,
++    lastSyncedAt: balance.lastSyncedAt
++      ? balance.lastSyncedAt.toISOString()
++      : null,
+     source,
+     sandboxOnly: true,
+   };
+ }
+ 
+ async function getAccountForBalanceInput(input: SyncWalletBalancesInput) {
+-  if (input.providerAccountId) return prisma.moneyProviderAccount.findUnique({ where: { provider_providerAccountId: { provider: 'airwallex', providerAccountId: input.providerAccountId } } });
++  if (input.providerAccountId)
++    return prisma.moneyProviderAccount.findUnique({
++      where: {
++        provider_providerAccountId: {
++          provider: "airwallex",
++          providerAccountId: input.providerAccountId,
++        },
++      },
++    });
+   if (input.userId) return getStoredAccount(input.userId);
+   return null;
+ }
+ 
+-async function getStoredWalletBalancesForAccount(account: MoneyProviderAccount | null, source: ProviderWalletBalanceDto['source'] = 'stored'): Promise<ProviderWalletBalanceDto[]> {
++async function getStoredWalletBalancesForAccount(
++  account: MoneyProviderAccount | null,
++  source: ProviderWalletBalanceDto["source"] = "stored",
++): Promise<ProviderWalletBalanceDto[]> {
+   if (!account) return [];
+-  const balances = await prisma.moneyProviderWalletBalance.findMany({ where: { moneyProviderAccountId: account.id }, orderBy: { currency: 'asc' } });
++  const balances = await prisma.moneyProviderWalletBalance.findMany({
++    where: { moneyProviderAccountId: account.id },
++    orderBy: { currency: "asc" },
++  });
+   return balances.map((balance) => balanceToDto(balance, account, source));
+ }
+ 
+-async function syncAirwallexWalletBalances(input: SyncWalletBalancesInput): Promise<ProviderWalletBalanceSyncResult> {
++async function syncAirwallexWalletBalances(
++  input: SyncWalletBalancesInput,
++): Promise<ProviderWalletBalanceSyncResult> {
+   requireAirwallexWalletSyncEnabled();
+   const account = await getAccountForBalanceInput(input);
+   if (!account) {
+-    return { account: null, balances: [], syncedAt: null, message: 'No Airwallex sandbox connected account exists yet.' };
++    return {
++      account: null,
++      balances: [],
++      syncedAt: null,
++      message: "No Airwallex sandbox connected account exists yet.",
++    };
+   }
+ 
+-  const rawBalances = await airwallexRequest<unknown>('/api/v1/balances/current', {
+-    onBehalfOf: account.providerAccountId,
+-    scaToken: input.scaToken,
+-  });
++  const rawBalances = await airwallexRequest<unknown>(
++    "/api/v1/balances/current",
++    {
++      onBehalfOf: account.providerAccountId,
++      scaToken: input.scaToken,
++    },
++  );
+   const normalized = normalizeAirwallexBalances(rawBalances);
+   const syncedAt = new Date();
+ 
+   const updated = await prisma.$transaction(async (tx) => {
+     const updatedBalances = [];
+     for (const balance of normalized) {
+-      updatedBalances.push(await tx.moneyProviderWalletBalance.upsert({
+-        where: { moneyProviderAccountId_currency: { moneyProviderAccountId: account.id, currency: balance.currency } },
+-        update: {
+-          provider: 'airwallex',
+-          availableCents: balance.availableCents,
+-          reservedCents: balance.reservedCents,
+-          pendingCents: balance.pendingCents,
+-          externalUpdatedAt: balance.externalUpdatedAt ?? null,
+-          lastSyncedAt: syncedAt,
+-        },
+-        create: {
+-          moneyProviderAccountId: account.id,
+-          provider: 'airwallex',
+-          currency: balance.currency,
+-          availableCents: balance.availableCents,
+-          reservedCents: balance.reservedCents,
+-          pendingCents: balance.pendingCents,
+-          externalUpdatedAt: balance.externalUpdatedAt ?? null,
+-          lastSyncedAt: syncedAt,
+-        },
+-      }));
++      updatedBalances.push(
++        await tx.moneyProviderWalletBalance.upsert({
++          where: {
++            moneyProviderAccountId_currency: {
++              moneyProviderAccountId: account.id,
++              currency: balance.currency,
++            },
++          },
++          update: {
++            provider: "airwallex",
++            availableCents: balance.availableCents,
++            reservedCents: balance.reservedCents,
++            pendingCents: balance.pendingCents,
++            externalUpdatedAt: balance.externalUpdatedAt ?? null,
++            lastSyncedAt: syncedAt,
++          },
++          create: {
++            moneyProviderAccountId: account.id,
++            provider: "airwallex",
++            currency: balance.currency,
++            availableCents: balance.availableCents,
++            reservedCents: balance.reservedCents,
++            pendingCents: balance.pendingCents,
++            externalUpdatedAt: balance.externalUpdatedAt ?? null,
++            lastSyncedAt: syncedAt,
++          },
++        }),
++      );
+     }
+     await tx.moneyProviderAccount.update({
+       where: { id: account.id },
+       data: {
+         rawProviderStatus: jsonValue({
+-          ...(account.rawProviderStatus && typeof account.rawProviderStatus === 'object' ? account.rawProviderStatus as Record<string, unknown> : {}),
+-          lastBalanceSync: { syncedAt: syncedAt.toISOString(), balanceCount: normalized.length, raw: rawBalances },
++          ...(account.rawProviderStatus &&
++          typeof account.rawProviderStatus === "object"
++            ? (account.rawProviderStatus as Record<string, unknown>)
++            : {}),
++          lastBalanceSync: {
++            syncedAt: syncedAt.toISOString(),
++            balanceCount: normalized.length,
++            raw: rawBalances,
++          },
+         }),
+         lastSyncedAt: syncedAt,
+       },
+@@ -319,48 +696,107 @@ async function syncAirwallexWalletBalances(input: SyncWalletBalancesInput): Prom
+     return updatedBalances;
+   });
+ 
+-  const refreshed = await prisma.moneyProviderAccount.findUnique({ where: { id: account.id } });
++  const refreshed = await prisma.moneyProviderAccount.findUnique({
++    where: { id: account.id },
++  });
+   return {
+     account: toProviderDto(refreshed),
+-    balances: updated.map((balance) => balanceToDto(balance, refreshed ?? account, 'provider_sync')),
++    balances: updated.map((balance) =>
++      balanceToDto(balance, refreshed ?? account, "provider_sync"),
++    ),
+     syncedAt: syncedAt.toISOString(),
+-    message: normalized.length ? 'Airwallex sandbox wallet balances synced.' : 'Airwallex returned no wallet balances for this sandbox account.',
++    message: normalized.length
++      ? "Airwallex sandbox wallet balances synced."
++      : "Airwallex returned no wallet balances for this sandbox account.",
+   };
+ }
+ 
+-async function createHostedFlow(input: { accountId: string; userId: string; returnUrl?: string; refreshUrl?: string }) {
++async function createHostedFlow(input: {
++  accountId: string;
++  userId: string;
++  returnUrl?: string;
++  refreshUrl?: string;
++}) {
+   if (!env.airwallexHostedFlowTemplateId) {
+-    throw new MoneyProviderError('airwallex_hosted_flow_template_missing', 'AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID is required for hosted onboarding links.', 503);
++    throw new MoneyProviderError(
++      "airwallex_hosted_flow_template_missing",
++      "AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID is required for hosted onboarding links.",
++      503,
++    );
+   }
+-  const returnUrl = input.returnUrl ?? webUrl(env.airwallexOnboardingReturnPath, '/account/payouts?airwallex=return');
+-  const errorUrl = input.refreshUrl ?? webUrl(env.airwallexOnboardingErrorPath, '/account/payouts?airwallex=error');
+-  const flow = await airwallexRequest<AirwallexHostedFlowResponse>('/api/v1/hosted_flows/create', {
+-    method: 'POST',
+-    body: {
+-      account_id: input.accountId,
+-      return_url: returnUrl,
+-      error_url: errorUrl,
+-      template: env.airwallexHostedFlowTemplateId,
+-      metadata: { userId: input.userId, provider: 'airwallex', phase: '21.2' },
++  const returnUrl =
++    input.returnUrl ??
++    webUrl(
++      env.airwallexOnboardingReturnPath,
++      "/account/payouts?airwallex=return",
++    );
++  const errorUrl =
++    input.refreshUrl ??
++    webUrl(
++      env.airwallexOnboardingErrorPath,
++      "/account/payouts?airwallex=error",
++    );
++  const flow = await airwallexRequest<AirwallexHostedFlowResponse>(
++    "/api/v1/hosted_flows/create",
++    {
++      method: "POST",
++      body: {
++        account_id: input.accountId,
++        return_url: returnUrl,
++        error_url: errorUrl,
++        template: env.airwallexHostedFlowTemplateId,
++        metadata: {
++          userId: input.userId,
++          provider: "airwallex",
++          phase: "21.2",
++        },
++      },
+     },
+-  });
+-  if (!flow.id) throw new MoneyProviderError('airwallex_hosted_flow_missing_id', 'Airwallex did not return a hosted flow ID.', 502);
+-  const authorized = await airwallexRequest<AirwallexHostedFlowResponse>(`/api/v1/hosted_flows/${encodeURIComponent(flow.id)}/authorize`, {
+-    method: 'POST',
+-    body: { identity: input.userId },
+-  });
+-  if (!authorized.url) throw new MoneyProviderError('airwallex_onboarding_url_missing', 'Airwallex did not return an onboarding URL.', 502);
++  );
++  if (!flow.id)
++    throw new MoneyProviderError(
++      "airwallex_hosted_flow_missing_id",
++      "Airwallex did not return a hosted flow ID.",
++      502,
++    );
++  const authorized = await airwallexRequest<AirwallexHostedFlowResponse>(
++    `/api/v1/hosted_flows/${encodeURIComponent(flow.id)}/authorize`,
++    {
++      method: "POST",
++      body: { identity: input.userId },
++    },
++  );
++  if (!authorized.url)
++    throw new MoneyProviderError(
++      "airwallex_onboarding_url_missing",
++      "Airwallex did not return an onboarding URL.",
++      502,
++    );
+   return { flow, authorized };
+ }
+ 
+ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+-  provider: 'airwallex',
++  provider: "airwallex",
+   environment: env.airwallexEnv,
+   sandboxOnly: true,
+-  capabilities: ['connected_accounts', 'onboarding_links', 'wallet_balances', 'webhooks'],
++  capabilities: [
++    "connected_accounts",
++    "onboarding_links",
++    "wallet_balances",
++    "trade_holds",
++    "platform_fees",
++    "webhooks",
++    "refunds",
++    "disputes",
++  ],
+ 
+   isConfigured() {
+-    return Boolean(env.airwallexEnabled && env.airwallexClientId && env.airwallexApiKey && !isAirwallexSandboxBlocked());
++    return Boolean(
++      env.airwallexEnabled &&
++      env.airwallexClientId &&
++      env.airwallexApiKey &&
++      !isAirwallexSandboxBlocked(),
++    );
+   },
+ 
+   getPublicStatus() {
+@@ -373,15 +809,17 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     };
+   },
+ 
+-  async getConnectedAccount(userId: string): Promise<ProviderAccountDto | null> {
++  async getConnectedAccount(
++    userId: string,
++  ): Promise<ProviderAccountDto | null> {
+     const account = await getStoredAccount(userId);
+     if (!account) {
+       return {
+-        provider: 'airwallex_demo',
+-        status: 'not_connected',
++        provider: "airwallex_demo",
++        status: "not_connected",
+         connectedAt: null,
+         sandboxOnly: true,
+-        message: 'Airwallex sandbox connected account is not created yet.',
++        message: "Airwallex sandbox connected account is not created yet.",
+       };
+     }
+     return toProviderDto(account);
+@@ -393,62 +831,125 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     if (existing) return toProviderDto(existing)!;
+ 
+     const user = await getUserContact(input.userId);
+-    if (!user?.email) throw new MoneyProviderError('user_email_required', 'A verified app email is required before creating an Airwallex connected account.', 400);
+-
+-    const accountType = input.accountType ?? (env.airwallexDefaultAccountType === 'business' ? 'business' : 'individual');
+-    const displayName = user.profile?.displayName || user.email.split('@')[0] || 'Hellowhen user';
+-    const payload = accountType === 'individual'
+-      ? {
+-          account_details: { legal_entity_type: legalEntityType(accountType) },
+-          customer_agreements: { agreed_to_data_usage: true, agreed_to_terms_and_conditions: true },
+-          primary_contact: { email: user.email },
+-        }
+-      : {
+-          account_details: { legal_entity_type: legalEntityType(accountType), business_details: { business_name: displayName } },
+-          customer_agreements: { agreed_to_data_usage: true, agreed_to_terms_and_conditions: true },
+-          primary_contact: { email: user.email },
+-        };
+-
+-    const account = await airwallexRequest<AirwallexAccountResponse>('/api/v1/accounts/create', { method: 'POST', body: payload });
++    if (!user?.email)
++      throw new MoneyProviderError(
++        "user_email_required",
++        "A verified app email is required before creating an Airwallex connected account.",
++        400,
++      );
++
++    const accountType =
++      input.accountType ??
++      (env.airwallexDefaultAccountType === "business"
++        ? "business"
++        : "individual");
++    const displayName =
++      user.profile?.displayName || user.email.split("@")[0] || "Hellowhen user";
++    const payload =
++      accountType === "individual"
++        ? {
++            account_details: {
++              legal_entity_type: legalEntityType(accountType),
++            },
++            customer_agreements: {
++              agreed_to_data_usage: true,
++              agreed_to_terms_and_conditions: true,
++            },
++            primary_contact: { email: user.email },
++          }
++        : {
++            account_details: {
++              legal_entity_type: legalEntityType(accountType),
++              business_details: { business_name: displayName },
++            },
++            customer_agreements: {
++              agreed_to_data_usage: true,
++              agreed_to_terms_and_conditions: true,
++            },
++            primary_contact: { email: user.email },
++          };
++
++    const account = await airwallexRequest<AirwallexAccountResponse>(
++      "/api/v1/accounts/create",
++      { method: "POST", body: payload },
++    );
+     const stored = await upsertProviderAccount({
+       userId: input.userId,
+       account,
+       accountType,
+       fallbackCountry: input.country ?? user.profile?.countryCode ?? null,
+-      fallbackCurrency: input.defaultCurrency ?? user.profile?.preferredCurrency ?? env.airwallexDefaultCurrency,
++      fallbackCurrency:
++        input.defaultCurrency ??
++        user.profile?.preferredCurrency ??
++        env.airwallexDefaultCurrency,
+     });
+     return toProviderDto(stored)!;
+   },
+ 
+-  async createOnboardingLink(input: CreateOnboardingLinkInput): Promise<ProviderOnboardingLinkResult> {
++  async createOnboardingLink(
++    input: CreateOnboardingLinkInput,
++  ): Promise<ProviderOnboardingLinkResult> {
+     requireAirwallexSandboxConfigured();
+     let stored = await getStoredAccount(input.userId);
+     if (!stored) {
+       await this.createConnectedAccount({ userId: input.userId });
+       stored = await getStoredAccount(input.userId);
+     }
+-    if (!stored) throw new MoneyProviderError('airwallex_account_not_found', 'Airwallex connected account could not be created.', 502);
++    if (!stored)
++      throw new MoneyProviderError(
++        "airwallex_account_not_found",
++        "Airwallex connected account could not be created.",
++        502,
++      );
+ 
+-    const { flow, authorized } = await createHostedFlow({ accountId: stored.providerAccountId, userId: input.userId, returnUrl: input.returnUrl, refreshUrl: input.refreshUrl });
++    const { flow, authorized } = await createHostedFlow({
++      accountId: stored.providerAccountId,
++      userId: input.userId,
++      returnUrl: input.returnUrl,
++      refreshUrl: input.refreshUrl,
++    });
+     stored = await prisma.moneyProviderAccount.update({
+       where: { id: stored.id },
+       data: {
+-        rawProviderStatus: jsonValue({ ...(stored.rawProviderStatus && typeof stored.rawProviderStatus === 'object' ? stored.rawProviderStatus as Record<string, unknown> : {}), hostedFlow: { id: flow.id, status: flow.status, authorizedAt: new Date().toISOString() } }),
++        rawProviderStatus: jsonValue({
++          ...(stored.rawProviderStatus &&
++          typeof stored.rawProviderStatus === "object"
++            ? (stored.rawProviderStatus as Record<string, unknown>)
++            : {}),
++          hostedFlow: {
++            id: flow.id,
++            status: flow.status,
++            authorizedAt: new Date().toISOString(),
++          },
++        }),
+         lastSyncedAt: new Date(),
+       },
+     });
+-    return { url: authorized.url!, expiresAt: authorized.expires_at ?? null, account: toProviderDto(stored) };
++    return {
++      url: authorized.url!,
++      expiresAt: authorized.expires_at ?? null,
++      account: toProviderDto(stored),
++    };
+   },
+ 
+   async syncConnectedAccountStatus(input: SyncAccountStatusInput) {
+     requireAirwallexConnectedAccountsAccess();
+     const stored = input.providerAccountId
+-      ? await prisma.moneyProviderAccount.findUnique({ where: { provider_providerAccountId: { provider: 'airwallex', providerAccountId: input.providerAccountId } } })
++      ? await prisma.moneyProviderAccount.findUnique({
++          where: {
++            provider_providerAccountId: {
++              provider: "airwallex",
++              providerAccountId: input.providerAccountId,
++            },
++          },
++        })
+       : input.userId
+         ? await getStoredAccount(input.userId)
+         : null;
+     if (!stored) return null;
+-    const account = await airwallexRequest<AirwallexAccountResponse>(`/api/v1/accounts/${encodeURIComponent(stored.providerAccountId)}`);
++    const account = await airwallexRequest<AirwallexAccountResponse>(
++      `/api/v1/accounts/${encodeURIComponent(stored.providerAccountId)}`,
++    );
+     const updated = await upsertProviderAccount({
+       userId: stored.userId,
+       account: { ...account, id: account.id ?? stored.providerAccountId },
+@@ -464,8 +965,12 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     return {
+       account: toProviderDto(account),
+       balances: await getStoredWalletBalancesForAccount(account),
+-      syncedAt: account?.lastSyncedAt ? account.lastSyncedAt.toISOString() : null,
+-      message: account ? 'Stored Airwallex sandbox wallet balances loaded.' : 'No Airwallex sandbox connected account exists yet.',
++      syncedAt: account?.lastSyncedAt
++        ? account.lastSyncedAt.toISOString()
++        : null,
++      message: account
++        ? "Stored Airwallex sandbox wallet balances loaded."
++        : "No Airwallex sandbox connected account exists yet.",
+     };
+   },
+ 
+@@ -473,7 +978,276 @@ export const airwallexMoneyProvider: MoneyProviderAdapter = {
+     return syncAirwallexWalletBalances(input);
+   },
+ 
++  async createTradeHold(input: CreateTradeHoldInput) {
++    requireAirwallexTradeMoneyEnabled();
++    const [buyerAccount, sellerAccount] = await Promise.all([
++      accountForUser(input.buyerId),
++      accountForUser(input.sellerId),
++    ]);
++    const providerTransactionId = requestId("trade_hold", input.tradeId);
++    await upsertProviderTransaction({
++      providerTransactionId,
++      type: "trade_hold",
++      status: "succeeded",
++      amountCents: input.amountCents,
++      currency: input.currency,
++      userId: input.buyerId,
++      tradeId: input.tradeId,
++      accountId: buyerAccount?.id ?? null,
++      counterpartyAccountId: sellerAccount?.id ?? null,
++      rawProviderStatus: {
++        source: "hellowhen_ledger",
++        providerApiCalled: false,
++        sandboxOnly: true,
++        proposalId: input.proposalId ?? null,
++        moneySide: input.moneySide ?? null,
++        message:
++          "Hellowhen ledger reserved the buyer wallet balance. No Airwallex API hold exists in Phase 21.4.",
++      },
++    });
++    return {
++      provider: "airwallex",
++      providerTransactionId,
++      status: "recorded",
++      externalStatus: "HELLOWHEN_LEDGER_HELD",
++      sandboxOnly: true,
++      message:
++        "Trade hold mirrored as a provider transaction record. No Airwallex API hold was created.",
++    } satisfies ProviderTradeMoneyResult;
++  },
++
++  async releaseTradeHold(input: ReleaseTradeHoldInput) {
++    requireAirwallexTradeMoneyEnabled();
++    const sellerAccount = await accountForUser(input.sellerId);
++    if (!sellerAccount) {
++      const failedId = requestId(
++        "trade_release_missing_account",
++        input.tradeId,
++      );
++      await upsertProviderTransaction({
++        providerTransactionId: failedId,
++        type: "trade_release",
++        status: "failed",
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.sellerId,
++        tradeId: input.tradeId,
++        rawProviderStatus: {
++          providerApiCalled: false,
++          error: "seller_provider_account_missing",
++          sandboxOnly: true,
++        },
++      });
++      throw new MoneyProviderError(
++        "seller_provider_account_missing",
++        "Seller does not have an Airwallex sandbox connected account for trade-money release.",
++        409,
++      );
++    }
++    const transferRequestId = requestId("trade_release", input.tradeId);
++    try {
++      const transfer = await airwallexRequest<AirwallexFundsMovementResponse>(
++        "/api/v1/connected_account_transfers/create",
++        {
++          method: "POST",
++          body: {
++            request_id: transferRequestId,
++            reference: `hellowhen_trade_${input.tradeId}`,
++            amount: centsToProviderAmount(input.amountCents),
++            currency: input.currency.toUpperCase(),
++            reason: "services",
++            destination: sellerAccount.providerAccountId,
++          },
++        },
++      );
++      const providerTransactionId =
++        transfer.id ?? transfer.request_id ?? transferRequestId;
++      await upsertProviderTransaction({
++        providerTransactionId,
++        type: "trade_release",
++        status: providerTransactionStatus(transfer.status),
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.sellerId,
++        tradeId: input.tradeId,
++        accountId: sellerAccount.id,
++        rawProviderStatus: {
++          ...transfer,
++          request_id: transferRequestId,
++          confirmedById: input.confirmedById ?? null,
++          platformFeeCents: input.platformFeeCents ?? 0,
++          sandboxOnly: true,
++        },
++      });
++      return toProviderTradeMoneyResult({
++        providerTransactionId,
++        status: transfer.status ?? "NEW",
++        message:
++          "Airwallex sandbox connected-account transfer created for trade release.",
++      });
++    } catch (error) {
++      const providerTransactionId = requestId(
++        "trade_release_failed",
++        input.tradeId,
++      );
++      const message =
++        error instanceof Error
++          ? error.message
++          : "Airwallex trade release failed.";
++      await upsertProviderTransaction({
++        providerTransactionId,
++        type: "trade_release",
++        status: "failed",
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.sellerId,
++        tradeId: input.tradeId,
++        accountId: sellerAccount.id,
++        rawProviderStatus: {
++          providerApiCalled: true,
++          error: message,
++          sandboxOnly: true,
++        },
++      });
++      throw error;
++    }
++  },
++
++  async refundTradeHold(input: RefundTradeHoldInput) {
++    requireAirwallexTradeMoneyEnabled();
++    const buyerAccount = await accountForUser(input.buyerId);
++    const sellerAccount = await accountForUser(input.sellerId ?? null);
++    if (!input.wasReleased) {
++      const providerTransactionId = requestId("trade_refund", input.tradeId);
++      await upsertProviderTransaction({
++        providerTransactionId,
++        type: "refund",
++        status: "succeeded",
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.buyerId,
++        tradeId: input.tradeId,
++        accountId: buyerAccount?.id ?? null,
++        counterpartyAccountId: sellerAccount?.id ?? null,
++        rawProviderStatus: {
++          source: "hellowhen_ledger",
++          providerApiCalled: false,
++          refundedById: input.refundedById ?? null,
++          reason: input.reason ?? null,
++          sandboxOnly: true,
++          message:
++            "Held Hellowhen ledger balance returned before any Airwallex release transfer.",
++        },
++      });
++      return {
++        provider: "airwallex",
++        providerTransactionId,
++        status: "recorded",
++        externalStatus: "HELLOWHEN_LEDGER_REFUNDED",
++        sandboxOnly: true,
++        message:
++          "Refund mirrored as a provider transaction record. No Airwallex API call was required.",
++      } satisfies ProviderTradeMoneyResult;
++    }
++    if (!sellerAccount) {
++      const failedId = requestId("trade_refund_missing_account", input.tradeId);
++      await upsertProviderTransaction({
++        providerTransactionId: failedId,
++        type: "refund",
++        status: "failed",
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.buyerId,
++        tradeId: input.tradeId,
++        accountId: buyerAccount?.id ?? null,
++        rawProviderStatus: {
++          providerApiCalled: false,
++          error: "seller_provider_account_missing",
++          sandboxOnly: true,
++        },
++      });
++      throw new MoneyProviderError(
++        "seller_provider_account_missing",
++        "Seller does not have an Airwallex sandbox connected account to reverse a released trade transfer.",
++        409,
++      );
++    }
++    const chargeRequestId = requestId("trade_refund_charge", input.tradeId);
++    try {
++      const charge = await airwallexRequest<AirwallexFundsMovementResponse>(
++        "/api/v1/charges/create",
++        {
++          method: "POST",
++          body: {
++            request_id: chargeRequestId,
++            reference: `hellowhen_trade_refund_${input.tradeId}`,
++            amount: centsToProviderAmount(input.amountCents),
++            currency: input.currency.toUpperCase(),
++            reason: "refund",
++            source: sellerAccount.providerAccountId,
++          },
++        },
++      );
++      const providerTransactionId =
++        charge.id ?? charge.request_id ?? chargeRequestId;
++      await upsertProviderTransaction({
++        providerTransactionId,
++        type: "refund",
++        status: providerTransactionStatus(charge.status),
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.buyerId,
++        tradeId: input.tradeId,
++        accountId: buyerAccount?.id ?? null,
++        counterpartyAccountId: sellerAccount.id,
++        rawProviderStatus: {
++          ...charge,
++          request_id: chargeRequestId,
++          refundedById: input.refundedById ?? null,
++          reason: input.reason ?? null,
++          sandboxOnly: true,
++        },
++      });
++      return toProviderTradeMoneyResult({
++        providerTransactionId,
++        status: charge.status ?? "NEW",
++        message:
++          "Airwallex sandbox charge created to reverse a released trade transfer.",
++      });
++    } catch (error) {
++      const providerTransactionId = requestId(
++        "trade_refund_failed",
++        input.tradeId,
++      );
++      const message =
++        error instanceof Error
++          ? error.message
++          : "Airwallex trade refund failed.";
++      await upsertProviderTransaction({
++        providerTransactionId,
++        type: "refund",
++        status: "failed",
++        amountCents: input.amountCents,
++        currency: input.currency,
++        userId: input.buyerId,
++        tradeId: input.tradeId,
++        accountId: buyerAccount?.id ?? null,
++        counterpartyAccountId: sellerAccount.id,
++        rawProviderStatus: {
++          providerApiCalled: true,
++          error: message,
++          sandboxOnly: true,
++        },
++      });
++      throw error;
++    }
++  },
++
+   async createPayoutTransfer(_input: CreatePayoutTransferInput) {
+-    throw new MoneyProviderError('not_implemented', 'Airwallex payouts are intentionally blocked until Phase 21.5 sandbox payouts.', 501);
++    throw new MoneyProviderError(
++      "not_implemented",
++      "Airwallex payouts are intentionally blocked until Phase 21.5 sandbox payouts.",
++      501,
++    );
+   },
+ };
+diff --git a/apps/api/src/modules/money/providers/moneyProvider.types.ts b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+index 3a3acc1..1b3b5e2 100644
+--- a/apps/api/src/modules/money/providers/moneyProvider.types.ts
++++ b/apps/api/src/modules/money/providers/moneyProvider.types.ts
+@@ -69,6 +69,17 @@ export type ProviderWalletBalanceDto = {
+   sandboxOnly?: boolean;
+ };
+ 
++export type ProviderTradeMoneyStatus = 'not_started' | 'recorded' | 'pending' | 'succeeded' | 'failed' | 'reversed' | 'skipped';
++
++export type ProviderTradeMoneyResult = {
++  provider: MoneyProviderName;
++  providerTransactionId?: string | null;
++  status: ProviderTradeMoneyStatus;
++  externalStatus?: string | null;
++  sandboxOnly?: boolean;
++  message?: string;
++};
++
+ export type CreateConnectedAccountInput = {
+   userId: string;
+   accountType?: 'individual' | 'business' | 'brand';
+@@ -121,6 +132,37 @@ export type ProviderTransferResult = {
+   status: string;
+ };
+ 
++export type CreateTradeHoldInput = {
++  tradeId: string;
++  buyerId: string;
++  sellerId: string;
++  amountCents: number;
++  currency: string;
++  proposalId?: string | null;
++  moneySide?: 'need' | 'offer' | 'legacy_optional' | null;
++};
++
++export type ReleaseTradeHoldInput = {
++  tradeId: string;
++  buyerId: string;
++  sellerId: string;
++  amountCents: number;
++  currency: string;
++  platformFeeCents?: number;
++  confirmedById?: string | null;
++};
++
++export type RefundTradeHoldInput = {
++  tradeId: string;
++  buyerId: string;
++  sellerId?: string | null;
++  amountCents: number;
++  currency: string;
++  refundedById?: string | null;
++  wasReleased?: boolean;
++  reason?: string | null;
++};
++
+ export interface MoneyProviderAdapter {
+   provider: MoneyProviderName;
+   environment: MoneyProviderEnvironment;
+@@ -142,5 +184,8 @@ export interface MoneyProviderAdapter {
+   syncConnectedAccountStatus(input: SyncAccountStatusInput): Promise<ProviderAccountDto | null>;
+   getWalletBalances(input: SyncWalletBalancesInput): Promise<ProviderWalletBalanceSyncResult>;
+   syncWalletBalances(input: SyncWalletBalancesInput): Promise<ProviderWalletBalanceSyncResult>;
++  createTradeHold(input: CreateTradeHoldInput): Promise<ProviderTradeMoneyResult | null>;
++  releaseTradeHold(input: ReleaseTradeHoldInput): Promise<ProviderTradeMoneyResult | null>;
++  refundTradeHold(input: RefundTradeHoldInput): Promise<ProviderTradeMoneyResult | null>;
+   createPayoutTransfer(input: CreatePayoutTransferInput): Promise<ProviderTransferResult | null>;
+ }
+diff --git a/apps/api/src/modules/money/providers/noneMoneyProvider.ts b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+index 5ba7a18..ad7ac97 100644
+--- a/apps/api/src/modules/money/providers/noneMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/noneMoneyProvider.ts
+@@ -1,4 +1,4 @@
+-import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type MoneyProviderAdapter, type ProviderAccountDto, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
++import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type CreateTradeHoldInput, type MoneyProviderAdapter, type ProviderAccountDto, type RefundTradeHoldInput, type ReleaseTradeHoldInput, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ function unavailable(): never {
+   throw new MoneyProviderError('provider_none', 'Money provider is set to none. Wallets, onboarding, transfers, and payouts are disabled for this launch.', 403);
+@@ -59,6 +59,18 @@ export const noneMoneyProvider: MoneyProviderAdapter = {
+     return unavailable();
+   },
+ 
++  async createTradeHold(_input: CreateTradeHoldInput) {
++    return unavailable();
++  },
++
++  async releaseTradeHold(_input: ReleaseTradeHoldInput) {
++    return unavailable();
++  },
++
++  async refundTradeHold(_input: RefundTradeHoldInput) {
++    return unavailable();
++  },
++
+   async createPayoutTransfer(_input: CreatePayoutTransferInput) {
+     return unavailable();
+   },
+diff --git a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+index e9d1ce4..4033860 100644
+--- a/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
++++ b/apps/api/src/modules/money/providers/stripeMoneyProvider.ts
+@@ -1,6 +1,6 @@
+ import { prisma } from '../../../lib/prisma.js';
+ import { createStripeConnectOnboardingLink, createStripeTransferForPayout, isStripeConnectConfigured, syncStripeConnectAccountByAccountId } from '../../stripe/stripeConnect.js';
+-import type { CreateConnectedAccountInput, CreateOnboardingLinkInput, CreatePayoutTransferInput, MoneyProviderAdapter, ProviderAccountDto, SyncAccountStatusInput, SyncWalletBalancesInput } from './moneyProvider.types.js';
++import { MoneyProviderError, type CreateConnectedAccountInput, type CreateOnboardingLinkInput, type CreatePayoutTransferInput, type CreateTradeHoldInput, type MoneyProviderAdapter, type ProviderAccountDto, type RefundTradeHoldInput, type ReleaseTradeHoldInput, type SyncAccountStatusInput, type SyncWalletBalancesInput } from './moneyProvider.types.js';
+ 
+ function mapStripeConnectPayoutAccount(account: null | { status: string; payoutsEnabled: boolean; chargesEnabled: boolean; detailsSubmitted: boolean; createdAt: Date; onboardingCompletedAt: Date | null; stripeAccountId: string; currentlyDue: string[]; eventuallyDue: string[]; pastDue: string[]; disabledReason: string | null; defaultCurrency: string | null; country: string | null; lastSyncedAt: Date | null }): ProviderAccountDto | null {
+   if (!account) return null;
+@@ -102,6 +102,18 @@ export const stripeMoneyProvider: MoneyProviderAdapter = {
+     return this.getWalletBalances(_input);
+   },
+ 
++  async createTradeHold(_input: CreateTradeHoldInput) {
++    throw new MoneyProviderError('not_implemented', 'Stripe provider trade-money mirroring is not implemented. Stripe remains a disabled fallback/reference provider.', 501);
++  },
++
++  async releaseTradeHold(_input: ReleaseTradeHoldInput) {
++    throw new MoneyProviderError('not_implemented', 'Stripe provider trade-money release is not implemented. Stripe remains a disabled fallback/reference provider.', 501);
++  },
++
++  async refundTradeHold(_input: RefundTradeHoldInput) {
++    throw new MoneyProviderError('not_implemented', 'Stripe provider trade-money refund is not implemented. Stripe remains a disabled fallback/reference provider.', 501);
++  },
++
+   async createPayoutTransfer(input: CreatePayoutTransferInput) {
+     const transfer = await createStripeTransferForPayout(input);
+     if (!transfer) return null;
+diff --git a/apps/api/src/modules/money/tradeMoney.ts b/apps/api/src/modules/money/tradeMoney.ts
+new file mode 100644
+index 0000000..45b152d
+--- /dev/null
++++ b/apps/api/src/modules/money/tradeMoney.ts
+@@ -0,0 +1,36 @@
++import { buildGlobalMoneySafetyConfig } from './moneySafety.js';
++import { getActiveMoneyProvider } from './providers/moneyProviderRegistry.js';
++import type { CreateTradeHoldInput, ProviderTradeMoneyResult, RefundTradeHoldInput, ReleaseTradeHoldInput } from './providers/moneyProvider.types.js';
++
++function skip(message: string): ProviderTradeMoneyResult {
++  return { provider: getActiveMoneyProvider().provider, status: 'skipped', sandboxOnly: true, message };
++}
++
++export function providerTradeMoneyMirroringEnabled() {
++  const config = buildGlobalMoneySafetyConfig();
++  return Boolean(config.demoMoneyEnabled && config.providerTradeMoneyEnabled && config.moneyProvider !== 'none');
++}
++
++async function safelyMirror<T>(operation: () => Promise<T | null>, fallbackMessage: string): Promise<T | ProviderTradeMoneyResult | null> {
++  if (!providerTradeMoneyMirroringEnabled()) return skip(fallbackMessage);
++  try {
++    return await operation();
++  } catch (error) {
++    const provider = getActiveMoneyProvider();
++    const message = error instanceof Error ? error.message : 'Provider trade-money mirror failed.';
++    console.warn(`[money-provider:${provider.provider}] ${message}`);
++    return { provider: provider.provider, status: 'failed', sandboxOnly: provider.sandboxOnly, message };
++  }
++}
++
++export function mirrorProviderTradeHold(input: CreateTradeHoldInput) {
++  return safelyMirror(() => getActiveMoneyProvider().createTradeHold(input), 'Provider trade-money mirroring is disabled; only Hellowhen ledger hold was recorded.');
++}
++
++export function mirrorProviderTradeRelease(input: ReleaseTradeHoldInput) {
++  return safelyMirror(() => getActiveMoneyProvider().releaseTradeHold(input), 'Provider trade-money release is disabled; only Hellowhen ledger release was recorded.');
++}
++
++export function mirrorProviderTradeRefund(input: RefundTradeHoldInput) {
++  return safelyMirror(() => getActiveMoneyProvider().refundTradeHold(input), 'Provider trade-money refund is disabled; only Hellowhen ledger refund was recorded.');
++}
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index c892729..c6dea08 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
+ import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+ import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
+ import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
++import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+ import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+ 
+ export const tradesRoutes = Router();
+@@ -121,7 +122,8 @@ function tradeMoneySide(trade: { amountCents?: number | null; needId?: string |
+ function moneyTitle(amountCents: number, currency: string) { return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100); }
+ 
+ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
+-  return prisma.$transaction(async (tx) => {
++  const mirrorInput: { current: { buyerId: string; sellerId: string; amountCents: number; currency: string; moneySide: ReturnType<typeof tradeMoneySide> } | null } = { current: null };
++  const acceptedTrade = await prisma.$transaction(async (tx) => {
+     const trade = await tx.trade.findUnique({ where: { id: tradeId }, include: { payment: true } });
+     if (!trade) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
+     if (trade.ownerId !== ownerId) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' });
+@@ -142,12 +144,19 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
+       await tx.creditLedgerEntry.create({ data: { userId: buyerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, moneySide, walletMoney: true } } });
+       await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' } });
+       await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: 0, heldAmountCents: amountCents, currency, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: 0, heldAmountCents: amountCents, currency } });
++      mirrorInput.current = { buyerId, sellerId, amountCents, currency, moneySide };
+     }
+ 
+     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
+     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+     return tx.trade.update({ where: { id: trade.id }, data: { providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
+   });
++
++  const mirror = mirrorInput.current;
++  if (mirror) {
++    await mirrorProviderTradeHold({ tradeId, proposalId, buyerId: mirror.buyerId, sellerId: mirror.sellerId, amountCents: mirror.amountCents, currency: mirror.currency, moneySide: mirror.moneySide });
++  }
++  return acceptedTrade;
+ }
+ 
+ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+@@ -316,10 +325,14 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res)
+     if (trade.deliverySubmittedById === actorId) {
+       return res.status(403).json({ error: 'self_confirmation_blocked', message: 'The person who marked delivery cannot also confirm completion.' });
+     }
++    const releasePayment = payment;
+     const updated = await prisma.$transaction(async (tx) => {
+       await releaseHeldWalletMoney(tx, trade);
+       return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date(), confirmedById: actorId, confirmedAt: new Date() }, include: tradeInclude });
+     });
++    if (releasePayment?.status === 'held' && releasePayment.amountCents > 0 && releasePayment.sellerId) {
++      await mirrorProviderTradeRelease({ tradeId: trade.id, buyerId: releasePayment.buyerId, sellerId: releasePayment.sellerId, amountCents: releasePayment.amountCents, currency: releasePayment.currency, confirmedById: actorId });
++    }
+     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
+   }
+ 
+@@ -332,11 +345,15 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res)
+   if (input.status === 'cancelled') {
+     if (!isOwner && !(isProvider && ['in_progress', 'submitted'].includes(trade.status))) return res.status(403).json({ error: 'forbidden' });
+     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
++    const refundPayment = trade.payment;
+     const updated = await prisma.$transaction(async (tx) => {
+       await refundHeldWalletMoney(tx, trade, actorId);
+       await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+       return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: new Date() }, include: tradeInclude });
+     });
++    if (refundPayment && ['held', 'released'].includes(refundPayment.status) && refundPayment.amountCents > 0) {
++      await mirrorProviderTradeRefund({ tradeId: trade.id, buyerId: refundPayment.buyerId, sellerId: refundPayment.sellerId, amountCents: refundPayment.amountCents, currency: refundPayment.currency, refundedById: actorId, wasReleased: refundPayment.status === 'released', reason: 'trade_cancelled' });
++    }
+     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
+   }
+   return res.status(409).json({ error: 'invalid_trade_status_transition' });
+diff --git a/apps/web/src/app/admin/money/page.tsx b/apps/web/src/app/admin/money/page.tsx
+index 51679c0..521f5ca 100644
+--- a/apps/web/src/app/admin/money/page.tsx
++++ b/apps/web/src/app/admin/money/page.tsx
+@@ -29,6 +29,22 @@ type ProviderEvent = {
+   processedAt?: string | null;
+   error?: string | null;
+ };
++type ProviderTransaction = {
++  id?: string;
++  provider: string;
++  providerTransactionId: string;
++  type: string;
++  status: string;
++  amountCents: number;
++  currency: string;
++  tradeId?: string | null;
++  providerAccountId?: string | null;
++  counterpartyProviderAccountId?: string | null;
++  createdAt?: string;
++  updatedAt?: string;
++  user?: { email?: string; profile?: { displayName?: string | null } | null };
++};
++
+ type ProviderBalance = {
+   id: string;
+   provider: string;
+@@ -47,13 +63,14 @@ type ProviderBalance = {
+ type AccountsResponse = { provider: ProviderSummary; accounts: ProviderAccount[] };
+ type EventsResponse = { provider: ProviderSummary; events: ProviderEvent[] };
+ type BalancesResponse = { provider: ProviderSummary; balances: ProviderBalance[] };
++type TransactionsResponse = { provider: ProviderSummary; transactions: ProviderTransaction[] };
+ 
+ const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+ 
+ function statusTone(status?: string) {
+-  if (status === 'active' || status === 'enabled' || status === 'connected' || status === 'processed') return 'success';
+-  if (status === 'pending' || status === 'onboarding' || status === 'received') return 'warning';
+-  if (status === 'restricted' || status === 'failed' || status === 'rejected' || status === 'disabled') return 'danger';
++  if (status === 'active' || status === 'enabled' || status === 'connected' || status === 'processed' || status === 'succeeded' || status === 'settled' || status === 'recorded') return 'success';
++  if (status === 'pending' || status === 'onboarding' || status === 'received' || status === 'skipped') return 'warning';
++  if (status === 'restricted' || status === 'failed' || status === 'rejected' || status === 'disabled' || status === 'reversed' || status === 'canceled') return 'danger';
+   return 'admin';
+ }
+ 
+@@ -65,6 +82,10 @@ function balanceUserLabel(balance: ProviderBalance) {
+   return balance.account?.user?.profile?.displayName ?? balance.account?.user?.email ?? 'Unknown user';
+ }
+ 
++function transactionUserLabel(transaction: ProviderTransaction) {
++  return transaction.user?.profile?.displayName ?? transaction.user?.email ?? 'Unknown user';
++}
++
+ function formatMoney(cents: number, currency: string) {
+   return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+ }
+@@ -77,6 +98,7 @@ export default function AdminMoneyProviderPage() {
+   const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
+   const [events, setEvents] = useState<ProviderEvent[]>([]);
+   const [balances, setBalances] = useState<ProviderBalance[]>([]);
++  const [transactions, setTransactions] = useState<ProviderTransaction[]>([]);
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+@@ -97,20 +119,23 @@ export default function AdminMoneyProviderPage() {
+     if (!token) { setMessage('Log in as admin first.'); return; }
+     setLoading(true); setMessage(null);
+     try {
+-      const [accountsResponse, eventsResponse, balancesResponse] = await Promise.all([
++      const [accountsResponse, eventsResponse, balancesResponse, transactionsResponse] = await Promise.all([
+         fetch(`${apiBase}/admin/money/provider-accounts`, { headers }),
+         fetch(`${apiBase}/admin/money/provider-events`, { headers }),
+         fetch(`${apiBase}/admin/money/provider-balances`, { headers }),
++        fetch(`${apiBase}/admin/money/provider-transactions`, { headers }),
+       ]);
+-      if (!accountsResponse.ok || !eventsResponse.ok || !balancesResponse.ok) throw new Error('Could not load provider data. Make sure this account has admin role.');
++      if (!accountsResponse.ok || !eventsResponse.ok || !balancesResponse.ok || !transactionsResponse.ok) throw new Error('Could not load provider data. Make sure this account has admin role.');
+       const accountsData = await accountsResponse.json() as AccountsResponse;
+       const eventsData = await eventsResponse.json() as EventsResponse;
+       const balancesData = await balancesResponse.json() as BalancesResponse;
++      const transactionsData = await transactionsResponse.json() as TransactionsResponse;
+       setProvider(accountsData.provider);
+       setAccounts(accountsData.accounts);
+       setEvents(eventsData.events);
+       setBalances(balancesData.balances);
+-      setMessage('Provider records loaded. Airwallex wallet balances are read-only sandbox sync records.');
++      setTransactions(transactionsData.transactions);
++      setMessage('Provider records loaded. Airwallex wallet balances and trade-money transactions are sandbox reconciliation records.');
+     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load provider data'); }
+     finally { setLoading(false); }
+   }
+@@ -137,7 +162,7 @@ export default function AdminMoneyProviderPage() {
+       <div className="card">
+         <span className="semantic-badge admin">Money provider admin</span>
+         <h1>Provider accounts</h1>
+-        <p className="notice-box warning">Phase 21.3 adds read-only Airwallex sandbox wallet-balance sync. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
++        <p className="notice-box warning">Phase 21.4 adds sandbox trade-money transaction mirroring. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
+         <div className="form-row">
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+             <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+@@ -172,6 +197,17 @@ export default function AdminMoneyProviderPage() {
+         {balances.length === 0 ? <p>No provider wallet balances synced yet.</p> : null}
+       </div>
+ 
++
++      <div className="card" style={{ overflowX: 'auto' }}>
++        <h2>Provider trade-money transactions</h2>
++        <p className="notice-box info">These records mirror Hellowhen trade holds, releases, and refunds. Airwallex sandbox release/refund API calls only run when provider trade money is explicitly enabled.</p>
++        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
++          <thead><tr><th align="left">Provider</th><th align="left">Status</th><th align="left">Type</th><th align="left">User</th><th align="left">Amount</th><th align="left">Trade</th><th align="left">Provider Txn</th><th align="left">Created</th></tr></thead>
++          <tbody>{transactions.map((transaction) => <tr key={`${transaction.provider}-${transaction.providerTransactionId}`}><td>{transaction.provider}</td><td><span className={`semantic-badge ${statusTone(transaction.status)}`}>{transaction.status}</span></td><td>{transaction.type}</td><td>{transactionUserLabel(transaction)}</td><td>{formatMoney(transaction.amountCents, transaction.currency)}</td><td><code>{transaction.tradeId ?? '—'}</code></td><td><code>{transaction.providerTransactionId}</code></td><td>{formatWebDateTime(transaction.createdAt ?? transaction.updatedAt)}</td></tr>)}</tbody>
++        </table>
++        {transactions.length === 0 ? <p>No provider trade-money transactions recorded yet.</p> : null}
++      </div>
++
+       <div className="card" style={{ overflowX: 'auto' }}>
+         <h2>Provider events</h2>
+         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+diff --git a/docs/phase-21-4-airwallex-trade-money-sandbox.md b/docs/phase-21-4-airwallex-trade-money-sandbox.md
+new file mode 100644
+index 0000000..37f77c1
+--- /dev/null
++++ b/docs/phase-21-4-airwallex-trade-money-sandbox.md
+@@ -0,0 +1,167 @@
++# Phase 21.4 — Airwallex trade-money sandbox plumbing
++
++Status: implemented as sandbox-only scaffolding.
++
++## Purpose
++
++Phase 21.4 introduces provider-neutral trade-money mirroring for the existing Hellowhen ledger flow. It does not enable public money features, production pay-ins, production payouts, or normal-user wallet balances for the first beta.
++
++The first beta remains:
++
++- Need + Offer exchanges only.
++- No normal-user wallet.
++- No payouts.
++- No money trades.
++- No cash/off-platform money flow.
++- `MONEY_PROVIDER=none` by default.
++
++## What changed
++
++### Provider interface
++
++The money provider interface now includes sandbox trade-money hooks:
++
++- `createTradeHold(input)`
++- `releaseTradeHold(input)`
++- `refundTradeHold(input)`
++
++These mirror Hellowhen trade-money state into provider transaction records. The Hellowhen ledger remains the product source of truth.
++
++### None provider
++
++The `none` provider rejects trade-money actions. This keeps first-beta money-off behavior strict.
++
++### Stripe provider
++
++Stripe remains a disabled fallback/reference provider. Trade hold/release/refund methods are intentionally not implemented for Stripe in Phase 21.4.
++
++### Airwallex provider
++
++The Airwallex provider now supports sandbox-only trade-money mirroring:
++
++- Trade hold records a provider transaction with no Airwallex API call.
++- Trade release can create an Airwallex Connected Account Transfer from the platform wallet to the seller connected-account wallet.
++- Refund before release records a local provider transaction only.
++- Refund after release can create an Airwallex Charge to move funds from the seller connected-account wallet back to the platform wallet.
++
++These API calls are gated behind sandbox/provider flags and are not enabled by default.
++
++## Airwallex sandbox endpoints prepared
++
++Airwallex sandbox trade release:
++
++```txt
++POST /api/v1/connected_account_transfers/create
++```
++
++Airwallex sandbox released-trade reversal/refund:
++
++```txt
++POST /api/v1/charges/create
++```
++
++The implementation follows Airwallex's documented connected-account funds-movement model:
++
++- Connected Account Transfer: platform wallet to connected account wallet.
++- Charge: connected account wallet to platform wallet.
++- Funds movement status may start as `NEW` or `PENDING` and later become `SETTLED`, `FAILED`, or `SUSPENDED`.
++
++## New provider transaction visibility
++
++Admin can now inspect provider trade-money records at:
++
++```txt
++GET /admin/money/provider-transactions
++```
++
++The existing admin money page now loads:
++
++- provider accounts
++- provider wallet balances
++- provider trade-money transactions
++- provider events
++
++## Runtime safety gates
++
++Provider trade-money mirroring requires all of the following:
++
++```txt
++MONEY_FEATURES_VISIBLE=true
++MONEY_LAUNCH_MODE=demo | private_beta | production
++MONEY_PROVIDER=airwallex
++MONEY_PROVIDER_SANDBOX_ONLY=true
++MONEY_PROVIDER_TRADE_MONEY_ENABLED=true
++AIRWALLEX_ENABLED=true
++AIRWALLEX_ENV=demo
++AIRWALLEX_BASE_URL=https://api-demo.airwallex.com
++AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED=true
++```
++
++Default `.env.example` remains money-off:
++
++```txt
++MONEY_PROVIDER=none
++MONEY_PROVIDER_TRADE_MONEY_ENABLED=false
++MONEY_FEATURES_VISIBLE=false
++MONEY_TRADES_ENABLED=false
++WALLET_VISIBLE=false
++PAYOUTS_VISIBLE=false
++```
++
++## Product behavior
++
++When provider trade-money mirroring is disabled, Hellowhen's existing internal ledger behavior continues and provider mirroring returns a skipped result. That keeps beta behavior safe and avoids breaking non-money flows.
++
++When enabled in Airwallex sandbox:
++
++1. Accepting a money-backed proposal mirrors the Hellowhen hold as a provider transaction record.
++2. Completing a held-money trade mirrors release through an Airwallex sandbox Connected Account Transfer.
++3. Canceling/refunding a held trade mirrors refund locally if no provider release happened.
++4. Refunding after release can mirror the reversal through an Airwallex sandbox Charge.
++
++## Not included
++
++Phase 21.4 does not add:
++
++- Airwallex pay-ins.
++- Airwallex payouts.
++- production Airwallex money movement.
++- consumer-facing money trade UI.
++- real user wallet top-ups.
++- lifetime stored balances.
++- business/brand KYB flows.
++
++## Files touched
++
++```txt
++apps/api/src/modules/admin/admin.routes.ts
++apps/api/src/modules/money/moneySafety.ts
++apps/api/src/modules/money/tradeMoney.ts
++apps/api/src/modules/money/providers/airwallexMoneyProvider.ts
++apps/api/src/modules/money/providers/moneyProvider.types.ts
++apps/api/src/modules/money/providers/noneMoneyProvider.ts
++apps/api/src/modules/money/providers/stripeMoneyProvider.ts
++apps/api/src/modules/trades/trades.routes.ts
++apps/web/src/app/admin/money/page.tsx
++packages/api-client/src/index.ts
++packages/contracts/src/wallet.ts
++docs/phase-21-4-airwallex-trade-money-sandbox.md
++```
++
++## Risks and notes
++
++- This is sandbox-only plumbing. Do not turn on production trade-money movement from these flags.
++- Hellowhen ledger records must remain the source of truth for product balances and trade state.
++- Airwallex transfer/charge records can lag or fail, so admin reconciliation is required before any production launch.
++- Refunds after a provider release are more complex than refunds before release because funds may already have moved to a connected-account wallet.
++- Pay-ins and payouts are intentionally postponed to later phases.
++
++## Next phase
++
++Recommended next phase:
++
++```txt
++Phase 21.5 — Airwallex payouts sandbox
++```
++
++Before that, confirm whether to add Airwallex pay-in sandbox first or keep following the original roadmap with payouts sandbox next.
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 1435049..53af751 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -22,7 +22,7 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }), providerBalances: () => requestJson(options, '/wallet/provider-balances'), syncProviderBalances: (body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, '/wallet/provider-balances/sync', { method: 'POST', body: JSON.stringify(body ?? {}) }) }
+diff --git a/packages/contracts/src/wallet.ts b/packages/contracts/src/wallet.ts
+index 0412f54..4b818db 100644
+--- a/packages/contracts/src/wallet.ts
++++ b/packages/contracts/src/wallet.ts
+@@ -32,6 +32,7 @@ export const moneySafetyStatusSchema = z.object({
+   cashTradesEnabled: z.boolean().optional().default(false),
+   realMoneyEnabled: z.boolean(),
+   demoMoneyEnabled: z.boolean(),
++  providerTradeMoneyEnabled: z.boolean().optional().default(false),
+   providerTransfersEnabled: z.boolean().optional().default(false),
+   providerWalletSyncEnabled: z.boolean().optional().default(false),
+   stripeTransfersEnabled: z.boolean(),
+@@ -181,6 +182,36 @@ export const moneyProviderWalletBalancesResponseSchema = z.object({
+   message: z.string().optional(),
+ });
+ 
++
++export const moneyProviderTransactionSchema = z.object({
++  id: z.string().optional(),
++  provider: z.enum(['none', 'stripe', 'airwallex', 'stripe_legacy']).or(z.string()),
++  providerTransactionId: z.string(),
++  type: z.string(),
++  status: z.string(),
++  amountCents: z.number().int(),
++  currency: z.string().length(3),
++  userId: z.string().nullable().optional(),
++  tradeId: z.string().nullable().optional(),
++  payoutRequestId: z.string().nullable().optional(),
++  providerAccountId: z.string().nullable().optional(),
++  counterpartyProviderAccountId: z.string().nullable().optional(),
++  rawProviderStatus: z.unknown().optional(),
++  createdAt: z.string().optional(),
++  updatedAt: z.string().optional(),
++}).passthrough();
++
++export const moneyProviderTransactionsResponseSchema = z.object({
++  provider: z.object({
++    provider: moneyProviderSchema,
++    environment: moneyProviderEnvironmentSchema,
++    configured: z.boolean(),
++    sandboxOnly: z.boolean(),
++    capabilities: z.array(moneyProviderCapabilitySchema),
++  }),
++  transactions: z.array(moneyProviderTransactionSchema).default([]),
++});
++
+ export const moneyProviderOnboardingLinkRequestSchema = z.object({
+   returnUrl: z.string().url().optional(),
+   refreshUrl: z.string().url().optional(),
+@@ -272,6 +303,8 @@ export type MoneyProviderAccountDto = z.infer<typeof moneyProviderAccountSchema>
+ export type MoneyProviderWalletBalanceDto = z.infer<typeof moneyProviderWalletBalanceSchema>;
+ export type MoneyProviderWalletBalancesSyncRequest = z.infer<typeof moneyProviderWalletBalancesSyncRequestSchema>;
+ export type MoneyProviderWalletBalancesResponse = z.infer<typeof moneyProviderWalletBalancesResponseSchema>;
++export type MoneyProviderTransactionDto = z.infer<typeof moneyProviderTransactionSchema>;
++export type MoneyProviderTransactionsResponse = z.infer<typeof moneyProviderTransactionsResponseSchema>;
+ export type MoneyProviderOnboardingLinkRequest = z.infer<typeof moneyProviderOnboardingLinkRequestSchema>;
+ export type MoneyProviderOnboardingLinkResponse = z.infer<typeof moneyProviderOnboardingLinkResponseSchema>;
+ export type StripeConnectPayoutAccountDto = z.infer<typeof stripeConnectPayoutAccountSchema>;

@@ -4,9 +4,17 @@ import { z } from 'zod';
 export const userTrustTierSchema = z.enum(['new', 'email_verified', 'stripe_verified', 'trusted', 'restricted']);
 
 export const moneyLaunchModeSchema = z.enum(['disabled', 'demo', 'private_beta', 'production']);
+export const moneyProviderSchema = z.enum(['none', 'stripe', 'airwallex']);
+export const moneyProviderEnvironmentSchema = z.enum(['none', 'demo', 'test', 'production']);
+export const moneyProviderCapabilitySchema = z.enum(['connected_accounts', 'onboarding_links', 'wallet_balances', 'payins', 'trade_holds', 'platform_fees', 'payouts', 'webhooks', 'refunds', 'disputes']);
 
 export const moneySafetyStatusSchema = z.object({
   launchMode: moneyLaunchModeSchema,
+  moneyProvider: moneyProviderSchema.optional().default('none'),
+  moneyProviderEnvironment: moneyProviderEnvironmentSchema.optional().default('none'),
+  moneyProviderConfigured: z.boolean().optional().default(false),
+  moneyProviderSandboxOnly: z.boolean().optional().default(true),
+  moneyProviderCapabilities: z.array(moneyProviderCapabilitySchema).optional().default([]),
   policyVersion: z.string(),
   walletTermsVersion: z.string(),
   payoutTermsVersion: z.string(),
@@ -24,6 +32,9 @@ export const moneySafetyStatusSchema = z.object({
   cashTradesEnabled: z.boolean().optional().default(false),
   realMoneyEnabled: z.boolean(),
   demoMoneyEnabled: z.boolean(),
+  providerTradeMoneyEnabled: z.boolean().optional().default(false),
+  providerTransfersEnabled: z.boolean().optional().default(false),
+  providerWalletSyncEnabled: z.boolean().optional().default(false),
   stripeTransfersEnabled: z.boolean(),
   productionSwitchEnabled: z.boolean().optional().default(false),
   privateBetaAllowlistCount: z.number().int().optional().default(0),
@@ -88,6 +99,8 @@ export const adminPayoutActionSchema = z.enum(['approve', 'pause', 'reject', 'ca
 export const adminPayoutActionRequestSchema = z.object({
   action: adminPayoutActionSchema,
   note: z.string().trim().max(1000).optional(),
+  // Optional Airwallex SCA token for sandbox transfer creation/sync. Production UX is not enabled yet.
+  scaToken: z.string().trim().min(1).max(2000).optional(),
 });
 
 export const adminPayoutStatusFilterSchema = z.enum(['all', 'draft', 'requested', 'approved', 'paid', 'rejected', 'cancelled']);
@@ -115,6 +128,113 @@ export const payoutRequestSchema = z.object({
   stripeFailureCode: z.string().nullable().optional(),
   stripeFailureMessage: z.string().nullable().optional(),
   stripeExternalStatus: z.string().nullable().optional(),
+  provider: moneyProviderSchema.nullable().optional(),
+  providerAccountId: z.string().nullable().optional(),
+  providerTransferId: z.string().nullable().optional(),
+  providerPayoutId: z.string().nullable().optional(),
+  providerEventId: z.string().nullable().optional(),
+  providerFailureCode: z.string().nullable().optional(),
+  providerFailureMessage: z.string().nullable().optional(),
+  providerExternalStatus: z.string().nullable().optional(),
+});
+
+export const moneyProviderAccountSchema = z.object({
+  provider: z.enum(['none', 'stripe', 'airwallex', 'stripe_demo', 'stripe_connect_test', 'airwallex_demo']),
+  status: z.enum(['not_connected', 'onboarding', 'pending', 'connected', 'restricted', 'disabled']),
+  connectedAt: z.string().nullable().optional(),
+  providerAccountId: z.string().optional(),
+  stripeAccountId: z.string().optional(),
+  businessProfileId: z.string().nullable().optional(),
+  accountType: z.enum(['individual', 'business', 'brand']).optional(),
+  legacyStripeAccountId: z.string().optional(),
+  chargesEnabled: z.boolean().optional().default(false),
+  payoutsEnabled: z.boolean().optional().default(false),
+  detailsSubmitted: z.boolean().optional().default(false),
+  currentlyDue: z.array(z.string()).optional().default([]),
+  eventuallyDue: z.array(z.string()).optional().default([]),
+  pastDue: z.array(z.string()).optional().default([]),
+  disabledReason: z.string().nullable().optional(),
+  defaultCurrency: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  lastSyncedAt: z.string().nullable().optional(),
+  sandboxOnly: z.boolean().optional().default(true),
+  message: z.string().optional(),
+});
+
+
+export const moneyProviderWalletBalanceSchema = z.object({
+  provider: z.enum(['none', 'stripe', 'airwallex', 'stripe_connect_test', 'airwallex_demo']),
+  providerAccountId: z.string().optional(),
+  currency: z.string().length(3),
+  availableCents: z.number().int().default(0),
+  reservedCents: z.number().int().default(0),
+  pendingCents: z.number().int().default(0),
+  totalCents: z.number().int().default(0),
+  externalUpdatedAt: z.string().nullable().optional(),
+  lastSyncedAt: z.string().nullable().optional(),
+  source: z.enum(['stored', 'provider_sync', 'not_supported']).default('stored'),
+  sandboxOnly: z.boolean().optional().default(true),
+});
+
+export const moneyProviderWalletBalancesSyncRequestSchema = z.object({
+  scaToken: z.string().trim().min(1).max(2000).optional(),
+});
+
+export const moneyProviderWalletBalancesResponseSchema = z.object({
+  provider: z.object({
+    provider: moneyProviderSchema,
+    environment: moneyProviderEnvironmentSchema,
+    configured: z.boolean(),
+    sandboxOnly: z.boolean(),
+    capabilities: z.array(moneyProviderCapabilitySchema),
+  }),
+  account: moneyProviderAccountSchema.nullable().optional(),
+  balances: z.array(moneyProviderWalletBalanceSchema).default([]),
+  syncedAt: z.string().nullable().optional(),
+  moneySafety: moneySafetyStatusSchema.optional(),
+  message: z.string().optional(),
+});
+
+
+export const moneyProviderTransactionSchema = z.object({
+  id: z.string().optional(),
+  provider: z.enum(['none', 'stripe', 'airwallex', 'stripe_legacy']).or(z.string()),
+  providerTransactionId: z.string(),
+  type: z.string(),
+  status: z.string(),
+  amountCents: z.number().int(),
+  currency: z.string().length(3),
+  userId: z.string().nullable().optional(),
+  tradeId: z.string().nullable().optional(),
+  payoutRequestId: z.string().nullable().optional(),
+  providerAccountId: z.string().nullable().optional(),
+  counterpartyProviderAccountId: z.string().nullable().optional(),
+  rawProviderStatus: z.unknown().optional(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+}).passthrough();
+
+export const moneyProviderTransactionsResponseSchema = z.object({
+  provider: z.object({
+    provider: moneyProviderSchema,
+    environment: moneyProviderEnvironmentSchema,
+    configured: z.boolean(),
+    sandboxOnly: z.boolean(),
+    capabilities: z.array(moneyProviderCapabilitySchema),
+  }),
+  transactions: z.array(moneyProviderTransactionSchema).default([]),
+});
+
+export const moneyProviderOnboardingLinkRequestSchema = z.object({
+  returnUrl: z.string().url().optional(),
+  refreshUrl: z.string().url().optional(),
+});
+
+export const moneyProviderOnboardingLinkResponseSchema = z.object({
+  url: z.string().url(),
+  expiresAt: z.string().nullable().optional(),
+  account: moneyProviderAccountSchema.nullable().optional(),
+  providerConfigured: z.boolean().optional().default(false),
 });
 
 export const stripeConnectPayoutAccountSchema = z.object({
@@ -165,7 +285,10 @@ export const payoutSummarySchema = z.object({
   paidOutGrossCents: z.number().int().default(0),
   paidOutFeeCents: z.number().int().default(0),
   paidOutNetCents: z.number().int().default(0),
-  payoutAccount: payoutAccountSchema,
+  payoutAccount: payoutAccountSchema.or(moneyProviderAccountSchema),
+  moneyProviderConfigured: z.boolean().optional().default(false),
+  providerTransferMode: z.boolean().optional().default(false),
+  providerWalletBalances: z.array(moneyProviderWalletBalanceSchema).optional().default([]),
   stripeConnectConfigured: z.boolean().optional().default(false),
   stripeConnectTransferMode: z.boolean().optional().default(false),
   limits: walletLimitsSchema.optional(),
@@ -173,6 +296,8 @@ export const payoutSummarySchema = z.object({
 });
 
 export type MoneyLaunchMode = z.infer<typeof moneyLaunchModeSchema>;
+export type MoneyProvider = z.infer<typeof moneyProviderSchema>;
+export type MoneyProviderEnvironment = z.infer<typeof moneyProviderEnvironmentSchema>;
 export type MoneySafetyStatusDto = z.infer<typeof moneySafetyStatusSchema>;
 export type AcknowledgeMoneySafetyRequest = z.infer<typeof acknowledgeMoneySafetyRequestSchema>;
 export type UserTrustTier = z.infer<typeof userTrustTierSchema>;
@@ -187,6 +312,14 @@ export type AdminPayoutAction = z.infer<typeof adminPayoutActionSchema>;
 export type AdminPayoutActionRequest = z.infer<typeof adminPayoutActionRequestSchema>;
 export type AdminPayoutStatusFilter = z.infer<typeof adminPayoutStatusFilterSchema>;
 export type PayoutRequestDto = z.infer<typeof payoutRequestSchema>;
+export type MoneyProviderAccountDto = z.infer<typeof moneyProviderAccountSchema>;
+export type MoneyProviderWalletBalanceDto = z.infer<typeof moneyProviderWalletBalanceSchema>;
+export type MoneyProviderWalletBalancesSyncRequest = z.infer<typeof moneyProviderWalletBalancesSyncRequestSchema>;
+export type MoneyProviderWalletBalancesResponse = z.infer<typeof moneyProviderWalletBalancesResponseSchema>;
+export type MoneyProviderTransactionDto = z.infer<typeof moneyProviderTransactionSchema>;
+export type MoneyProviderTransactionsResponse = z.infer<typeof moneyProviderTransactionsResponseSchema>;
+export type MoneyProviderOnboardingLinkRequest = z.infer<typeof moneyProviderOnboardingLinkRequestSchema>;
+export type MoneyProviderOnboardingLinkResponse = z.infer<typeof moneyProviderOnboardingLinkResponseSchema>;
 export type StripeConnectPayoutAccountDto = z.infer<typeof stripeConnectPayoutAccountSchema>;
 export type StripeConnectAccountLinkResponse = z.infer<typeof stripeConnectAccountLinkResponseSchema>;
 export type PayoutAccountDto = z.infer<typeof payoutAccountSchema>;

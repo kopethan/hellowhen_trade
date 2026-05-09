@@ -8,6 +8,19 @@ function parseCsv(value: string | undefined) {
   return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
+const airwallexEnvironments = new Set(['demo', 'production']);
+
+function parseMoneyProvider(value: string | undefined) {
+  const raw = String(value ?? 'none').toLowerCase();
+  return moneyProviders.has(raw) ? raw as 'none' | 'stripe' | 'airwallex' : 'none';
+}
+
+function parseAirwallexEnv(value: string | undefined) {
+  const raw = String(value ?? 'demo').toLowerCase();
+  return airwallexEnvironments.has(raw) ? raw as 'demo' | 'production' : 'demo';
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
@@ -16,6 +29,14 @@ export const env = {
   webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   mobileOrigin: process.env.MOBILE_ORIGIN ?? 'exp://127.0.0.1:8081',
   uploadDir: process.env.UPLOAD_DIR ?? path.resolve(process.cwd(), 'uploads'),
+  moneyProvider: parseMoneyProvider(process.env.MONEY_PROVIDER),
+  moneyProviderSandboxOnly: (process.env.MONEY_PROVIDER_SANDBOX_ONLY ?? 'true').toLowerCase() !== 'false',
+  moneyProviderAccountCreationEnabled: (process.env.MONEY_PROVIDER_ACCOUNT_CREATION_ENABLED ?? 'false').toLowerCase() === 'true',
+  moneyProviderWalletSyncEnabled: (process.env.MONEY_PROVIDER_WALLET_SYNC_ENABLED ?? 'false').toLowerCase() === 'true',
+  moneyProviderPayinsEnabled: (process.env.MONEY_PROVIDER_PAYINS_ENABLED ?? 'false').toLowerCase() === 'true',
+  moneyProviderTradeMoneyEnabled: (process.env.MONEY_PROVIDER_TRADE_MONEY_ENABLED ?? 'false').toLowerCase() === 'true',
+  moneyProviderPayoutsEnabled: (process.env.MONEY_PROVIDER_PAYOUTS_ENABLED ?? 'false').toLowerCase() === 'true',
+  moneyProviderWebhooksEnabled: (process.env.MONEY_PROVIDER_WEBHOOKS_ENABLED ?? 'false').toLowerCase() === 'true',
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? '',
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
   stripeCurrency: (process.env.STRIPE_CURRENCY ?? 'eur').toLowerCase(),
@@ -24,6 +45,26 @@ export const env = {
   stripeConnectRefreshPath: process.env.STRIPE_CONNECT_REFRESH_PATH ?? '/account/payouts?stripe_connect=refresh',
   stripeConnectReturnPath: process.env.STRIPE_CONNECT_RETURN_PATH ?? '/account/payouts?stripe_connect=return',
   stripeConnectTransferMode: (process.env.STRIPE_CONNECT_TRANSFER_MODE ?? 'false').toLowerCase() === 'true',
+  airwallexEnabled: (process.env.AIRWALLEX_ENABLED ?? 'false').toLowerCase() === 'true',
+  airwallexEnv: parseAirwallexEnv(process.env.AIRWALLEX_ENV),
+  airwallexBaseUrl: process.env.AIRWALLEX_BASE_URL ?? 'https://api-demo.airwallex.com',
+  airwallexClientId: process.env.AIRWALLEX_CLIENT_ID ?? '',
+  airwallexApiKey: process.env.AIRWALLEX_API_KEY ?? '',
+  airwallexWebhookSecret: process.env.AIRWALLEX_WEBHOOK_SECRET ?? '',
+  airwallexHostedFlowTemplateId: process.env.AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID ?? '',
+  airwallexBusinessHostedFlowTemplateId: process.env.AIRWALLEX_BUSINESS_HOSTED_FLOW_TEMPLATE_ID ?? process.env.AIRWALLEX_HOSTED_FLOW_TEMPLATE_ID ?? '',
+  airwallexOnboardingReturnPath: process.env.AIRWALLEX_ONBOARDING_RETURN_PATH ?? '/account/payouts?airwallex=return',
+  airwallexOnboardingErrorPath: process.env.AIRWALLEX_ONBOARDING_ERROR_PATH ?? '/account/payouts?airwallex=error',
+  airwallexBusinessOnboardingReturnPath: process.env.AIRWALLEX_BUSINESS_ONBOARDING_RETURN_PATH ?? '/account/business?airwallex=return',
+  airwallexBusinessOnboardingErrorPath: process.env.AIRWALLEX_BUSINESS_ONBOARDING_ERROR_PATH ?? '/account/business?airwallex=error',
+  airwallexPlatformAccountId: process.env.AIRWALLEX_PLATFORM_ACCOUNT_ID ?? '',
+  airwallexDefaultCurrency: (process.env.AIRWALLEX_DEFAULT_CURRENCY ?? 'eur').toLowerCase(),
+  airwallexConnectedAccountsEnabled: (process.env.AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED ?? 'false').toLowerCase() === 'true',
+  airwallexKycOnboardingMode: process.env.AIRWALLEX_KYC_ONBOARDING_MODE ?? 'hosted',
+  airwallexDefaultAccountType: process.env.AIRWALLEX_DEFAULT_ACCOUNT_TYPE ?? 'individual',
+  airwallexSandboxPayoutBeneficiaryId: process.env.AIRWALLEX_SANDBOX_PAYOUT_BENEFICIARY_ID ?? '',
+  airwallexSandboxPayoutTransferMethod: (process.env.AIRWALLEX_SANDBOX_PAYOUT_TRANSFER_METHOD ?? 'LOCAL').toUpperCase(),
+  airwallexSandboxPayoutReason: process.env.AIRWALLEX_SANDBOX_PAYOUT_REASON ?? 'services',
   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',

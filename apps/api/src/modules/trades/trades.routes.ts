@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
 import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
 import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
+import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 
 export const tradesRoutes = Router();
@@ -121,7 +122,8 @@ function tradeMoneySide(trade: { amountCents?: number | null; needId?: string | 
 function moneyTitle(amountCents: number, currency: string) { return new Intl.NumberFormat('en', { style: 'currency', currency: currency.toUpperCase() }).format(amountCents / 100); }
 
 export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: string, ownerId: string, applicantId: string) {
-  return prisma.$transaction(async (tx) => {
+  const mirrorInput: { current: { buyerId: string; sellerId: string; amountCents: number; currency: string; moneySide: ReturnType<typeof tradeMoneySide> } | null } = { current: null };
+  const acceptedTrade = await prisma.$transaction(async (tx) => {
     const trade = await tx.trade.findUnique({ where: { id: tradeId }, include: { payment: true } });
     if (!trade) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
     if (trade.ownerId !== ownerId) throw Object.assign(new Error('forbidden'), { code: 'FORBIDDEN' });
@@ -142,12 +144,19 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
       await tx.creditLedgerEntry.create({ data: { userId: buyerId, walletId: updatedWallet.id, tradeId: trade.id, type: 'trade_hold', balanceType: 'held', amount: 0, amountCents, currency, description: `Wallet money held after accepting proposal for trade: ${trade.title}`, metadata: { proposalId, applicantId, moneySide, walletMoney: true } } });
       await tx.tradePayment.upsert({ where: { tradeId: trade.id }, update: { buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' }, create: { tradeId: trade.id, buyerId, sellerId, creditAmount: 0, amountCents, currency, status: 'held' } });
       await tx.tradeEscrow.upsert({ where: { tradeId: trade.id }, update: { heldCredits: 0, heldAmountCents: amountCents, currency, holdReleasedAt: null }, create: { tradeId: trade.id, heldCredits: 0, heldAmountCents: amountCents, currency } });
+      mirrorInput.current = { buyerId, sellerId, amountCents, currency, moneySide };
     }
 
     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
     return tx.trade.update({ where: { id: trade.id }, data: { providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
   });
+
+  const mirror = mirrorInput.current;
+  if (mirror) {
+    await mirrorProviderTradeHold({ tradeId, proposalId, buyerId: mirror.buyerId, sellerId: mirror.sellerId, amountCents: mirror.amountCents, currency: mirror.currency, moneySide: mirror.moneySide });
+  }
+  return acceptedTrade;
 }
 
 tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
@@ -316,10 +325,14 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
     if (trade.deliverySubmittedById === actorId) {
       return res.status(403).json({ error: 'self_confirmation_blocked', message: 'The person who marked delivery cannot also confirm completion.' });
     }
+    const releasePayment = payment;
     const updated = await prisma.$transaction(async (tx) => {
       await releaseHeldWalletMoney(tx, trade);
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'completed', isPublic: false, closedAt: new Date(), confirmedById: actorId, confirmedAt: new Date() }, include: tradeInclude });
     });
+    if (releasePayment?.status === 'held' && releasePayment.amountCents > 0 && releasePayment.sellerId) {
+      await mirrorProviderTradeRelease({ tradeId: trade.id, buyerId: releasePayment.buyerId, sellerId: releasePayment.sellerId, amountCents: releasePayment.amountCents, currency: releasePayment.currency, confirmedById: actorId });
+    }
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
 
@@ -332,11 +345,15 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
   if (input.status === 'cancelled') {
     if (!isOwner && !(isProvider && ['in_progress', 'submitted'].includes(trade.status))) return res.status(403).json({ error: 'forbidden' });
     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+    const refundPayment = trade.payment;
     const updated = await prisma.$transaction(async (tx) => {
       await refundHeldWalletMoney(tx, trade, actorId);
       await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: new Date() }, include: tradeInclude });
     });
+    if (refundPayment && ['held', 'released'].includes(refundPayment.status) && refundPayment.amountCents > 0) {
+      await mirrorProviderTradeRefund({ tradeId: trade.id, buyerId: refundPayment.buyerId, sellerId: refundPayment.sellerId, amountCents: refundPayment.amountCents, currency: refundPayment.currency, refundedById: actorId, wasReleased: refundPayment.status === 'released', reason: 'trade_cancelled' });
+    }
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
   return res.status(409).json({ error: 'invalid_trade_status_transition' });

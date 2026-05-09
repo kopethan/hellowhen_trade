@@ -18,7 +18,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
 
 type AccountAction = {
   title: string;
@@ -30,6 +30,7 @@ type AccountAction = {
 
 const accountActions: AccountAction[] = [
   { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile' },
+  ...(betaFeatures.businessAccountsVisible ? [{ title: 'Business / brand', description: 'Future business, agency, brand, and enterprise profiles.', badge: 'Brand', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute }] : []),
   ...(betaFeatures.walletVisible ? [{ title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute }] : []),
   ...(betaFeatures.payoutsVisible ? [{ title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute }] : []),
   { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings' },
@@ -102,6 +103,7 @@ export function AccountScreen() {
 
   function navigate(route: AccountRoute) {
     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+    else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
     else if (route === 'Wallet') navigation.navigate('Wallet');
     else if (route === 'Payouts') navigation.navigate('Payouts');
     else if (route === 'Settings') navigation.navigate('Settings');

@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import { routes } from './routes.js';
+import { airwallexWebhookRoutes } from './modules/money/providers/airwallexWebhook.routes.js';
 import { stripeWebhookRoutes } from './modules/stripe/stripeWebhook.routes.js';
 
 const allowedOrigins = new Set([env.webOrigin, env.mobileOrigin].filter(Boolean));
@@ -16,6 +17,7 @@ export function createApp() {
   app.use(helmet());
   app.use(cors({ origin(origin, callback) { if (!origin || allowedOrigins.has(origin) || isAllowedDevOrigin(origin)) return callback(null, true); return callback(new Error(`CORS origin not allowed: ${origin}`)); }, credentials: true }));
   app.use('/stripe', express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookRoutes);
+  app.use('/airwallex', express.raw({ type: 'application/json', limit: '1mb' }), airwallexWebhookRoutes);
   app.use(express.json({ limit: '1mb' }));
   app.use('/uploads', express.static(env.uploadDir, { maxAge: env.nodeEnv === 'production' ? '1d' : 0 }));
   app.use(routes);

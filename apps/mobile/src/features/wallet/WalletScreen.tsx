@@ -71,6 +71,7 @@ export function WalletScreen({ navigation }: Props) {
   const paidOut = summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0;
   const limits = summary?.limits as WalletLimitsDto | undefined;
   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits') ?? [];
+  const providerBalances = summary?.providerWalletBalances ?? [];
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
@@ -117,6 +118,24 @@ export function WalletScreen({ navigation }: Props) {
           </View>
           <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Payouts')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Open payouts</AppText></Pressable>
         </AppCard>
+
+
+        {providerBalances.length ? (
+          <AppCard>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionCopy}>
+                <AppText style={styles.sectionTitle}>Provider balance snapshot</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>Airwallex sandbox balances are read-only reconciliation snapshots. Hellowhen's ledger remains the product source of truth.</AppText>
+              </View>
+              <SemanticBadge label="Read-only" tone="info" />
+            </View>
+            <View style={styles.grid}>
+              {providerBalances.map((balance) => (
+                <Metric key={`${balance.providerAccountId ?? 'provider'}-${balance.currency}`} label={`${balance.currency.toUpperCase()} available`} value={balance.availableCents} currency={balance.currency} tone="info" />
+              ))}
+            </View>
+          </AppCard>
+        ) : null}
 
         {limits ? (
           <AppCard>

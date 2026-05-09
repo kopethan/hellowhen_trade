@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountScreen } from '../features/account/AccountScreen';
+import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
@@ -33,6 +34,7 @@ export type RootStackParamList = {
   Wallet: undefined;
   Payouts: undefined;
   Settings: undefined;
+  BusinessAccounts: undefined;
   BuyCredits: undefined;
   SupportCenter: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
@@ -97,6 +99,7 @@ export function RootNavigator() {
           <Stack.Screen name="Wallet" component={WalletScreen} />
           <Stack.Screen name="Payouts" component={PayoutsScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
+          <Stack.Screen name="BusinessAccounts" component={BusinessAccountsScreen} />
           <Stack.Screen name="BuyCredits" component={BuyCreditsScreen} />
           <Stack.Screen name="SupportCenter" component={SupportCenterScreen} />
           <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />

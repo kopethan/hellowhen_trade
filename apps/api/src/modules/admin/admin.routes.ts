@@ -1,12 +1,15 @@
 import { Router } from 'express';
-import { adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
-import { buildAdminMoneySafetySummary } from '../money/moneySafety.js';
+import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
+import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+import { buildMoneyProviderStatus, getActiveMoneyProvider, getMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
 import { refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
 
@@ -105,6 +108,7 @@ adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
   if (!trade) return res.status(404).json({ error: 'not_found' });
   if (trade.status !== 'disputed') return res.status(409).json({ error: 'trade_not_disputed', message: 'Only disputed trades can be resolved through this action.' });
   const note = input.note?.trim();
+  const disputePayment = trade.payment;
   const updated = await prisma.$transaction(async (tx) => {
     if (input.action === 'refund_payer') {
       await refundHeldWalletMoney(tx, trade, req.user!.id);
@@ -116,6 +120,12 @@ adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
     }
     return tx.trade.update({ where: { id: trade.id }, data: { status: 'closed', closedAt: new Date(), confirmedById: req.user!.id, confirmedAt: new Date() }, include: tradeInclude });
   });
+  if (input.action === 'release_seller' && disputePayment?.status === 'held' && disputePayment.amountCents > 0 && disputePayment.sellerId) {
+    await mirrorProviderTradeRelease({ tradeId: trade.id, buyerId: disputePayment.buyerId, sellerId: disputePayment.sellerId, amountCents: disputePayment.amountCents, currency: disputePayment.currency, confirmedById: req.user!.id });
+  }
+  if (input.action === 'refund_payer' && disputePayment && ['held', 'released'].includes(disputePayment.status) && disputePayment.amountCents > 0) {
+    await mirrorProviderTradeRefund({ tradeId: trade.id, buyerId: disputePayment.buyerId, sellerId: disputePayment.sellerId, amountCents: disputePayment.amountCents, currency: disputePayment.currency, refundedById: req.user!.id, wasReleased: disputePayment.status === 'released', reason: 'admin_dispute_refund' });
+  }
   if (note || trade.disputeTicketId) {
     await prisma.supportTicketMessage.create({ data: { ticketId: trade.disputeTicketId ?? '', senderId: req.user!.id, senderRole: 'admin', internal: true, body: note || `Admin resolved dispute with action: ${input.action}` } }).catch(() => null);
   }
@@ -132,6 +142,8 @@ const adminPayoutEventInclude = { admin: { select: { id: true, email: true, prof
 const adminPayoutInclude = {
   user: { select: adminPayoutUserSelect },
   stripeConnectAccount: true,
+  providerAccount: true,
+  providerTransactions: { orderBy: { createdAt: 'desc' as const }, take: 8 },
   adminEvents: { include: adminPayoutEventInclude, orderBy: { createdAt: 'desc' as const }, take: 8 },
 } as const;
 
@@ -142,6 +154,51 @@ function appendAdminNote(current: string | null | undefined, note: string | unde
   return [current?.trim(), nextLine].filter(Boolean).join('\n');
 }
 
+
+function providerForPayout(payout: { provider?: 'none' | 'stripe' | 'airwallex' | null }) {
+  return payout.provider ? getMoneyProvider(payout.provider) : getActiveMoneyProvider();
+}
+
+function shouldCreateProviderPayoutTransfer(payout: { provider?: 'none' | 'stripe' | 'airwallex' | null; providerAccountId?: string | null; netAmountCents: number }) {
+  const moneySafety = buildGlobalMoneySafetyConfig();
+  if (!moneySafety.providerTransfersEnabled || payout.netAmountCents <= 0) return false;
+  if (!payout.provider || payout.provider === 'none') return false;
+  if (payout.provider === 'airwallex') return Boolean(payout.providerAccountId);
+  if (payout.provider === 'stripe') return true;
+  return false;
+}
+
+async function createProviderPayoutTransferForAdmin(input: {
+  payoutId: string;
+  adminId: string;
+  scaToken?: string | null;
+}) {
+  const payout = await prisma.payoutRequest.findUnique({
+    where: { id: input.payoutId },
+    include: { providerAccount: true, stripeConnectAccount: true },
+  });
+  if (!payout) return null;
+  if (!shouldCreateProviderPayoutTransfer(payout)) return null;
+  const provider = providerForPayout(payout);
+  return provider.createPayoutTransfer({
+    userId: payout.userId,
+    payoutId: payout.id,
+    grossAmountCents: payoutGrossCents(payout),
+    platformFeeCents: payout.platformFeeCents,
+    netAmountCents: payout.netAmountCents,
+    currency: payout.currency,
+    requestedById: input.adminId,
+    scaToken: input.scaToken ?? null,
+  });
+}
+
+async function syncProviderPayoutTransferForAdmin(input: { payoutId: string; scaToken?: string | null }) {
+  const payout = await prisma.payoutRequest.findUnique({ where: { id: input.payoutId } });
+  if (!payout) return null;
+  if (!payout.provider || payout.provider === 'none') return null;
+  const provider = getMoneyProvider(payout.provider);
+  return provider.syncPayoutTransfer({ payoutId: payout.id, providerTransferId: payout.providerTransferId ?? undefined, scaToken: input.scaToken ?? null });
+}
 
 adminRoutes.get('/payouts', asyncRoute(async (req, res) => {
   const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'all';
@@ -166,7 +223,12 @@ adminRoutes.get('/payouts', asyncRoute(async (req, res) => {
 adminRoutes.get('/payouts/:payoutId', asyncRoute(async (req, res) => {
   const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: { ...adminPayoutInclude, adminEvents: { include: adminPayoutEventInclude, orderBy: { createdAt: 'desc' } } } });
   if (!payout) return res.status(404).json({ error: 'not_found' });
-  const [ledgerEntries, supportTickets, stripeEvents, userLimits] = await Promise.all([
+  const providerEventFilters: Array<Record<string, string>> = [];
+  if (payout.providerEventId) providerEventFilters.push({ providerEventId: payout.providerEventId });
+  if (payout.providerTransferId) providerEventFilters.push({ providerEventId: payout.providerTransferId });
+  if (payout.providerPayoutId) providerEventFilters.push({ providerEventId: payout.providerPayoutId });
+  if (payout.providerAccount?.providerAccountId) providerEventFilters.push({ providerAccountId: payout.providerAccount.providerAccountId });
+  const [ledgerEntries, supportTickets, stripeEvents, providerEvents, providerTransactions, userLimits] = await Promise.all([
     prisma.creditLedgerEntry.findMany({ where: { userId: payout.userId }, orderBy: { createdAt: 'desc' }, take: 40 }),
     prisma.supportTicket.findMany({ where: { userId: payout.userId }, include: { user: { select: supportUserSelect }, assignedAdmin: { select: supportUserSelect }, _count: { select: { messages: true } } }, orderBy: { updatedAt: 'desc' }, take: 10 }),
     prisma.stripeEvent.findMany({
@@ -182,14 +244,25 @@ adminRoutes.get('/payouts/:payoutId', asyncRoute(async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: 25
     }),
+    prisma.moneyProviderEvent.findMany({
+      where: providerEventFilters.length ? { OR: providerEventFilters } : { providerEventId: '__none__' },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    }),
+    prisma.moneyProviderTransaction.findMany({
+      where: { payoutRequestId: payout.id },
+      include: { account: true },
+      orderBy: { createdAt: 'desc' },
+      take: 25,
+    }),
     buildLaunchLimits(prisma, payout.userId)
   ]);
-  res.json({ payout, ledgerEntries, supportTickets: await withSupportTicketMedia(supportTickets, 'admin'), stripeEvents, userLimits });
+  res.json({ payout, ledgerEntries, supportTickets: await withSupportTicketMedia(supportTickets, 'admin'), stripeEvents, providerEvents, providerTransactions, userLimits });
 }));
 
 adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
   const input = adminPayoutActionRequestSchema.parse(req.body);
-  const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: { user: { select: { id: true, wallet: true } }, stripeConnectAccount: true } });
+  const payout = await prisma.payoutRequest.findUnique({ where: { id: req.params.payoutId }, include: { user: { select: { id: true, wallet: true } }, stripeConnectAccount: true, providerAccount: true } });
   if (!payout) return res.status(404).json({ error: 'not_found' });
 
   const previousStatus = payout.status;
@@ -206,24 +279,24 @@ adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
   if (input.action === 'approve') {
     if (!safeMutable) return res.status(409).json({ error: 'payout_not_mutable', message: 'Only draft/requested payouts can be approved.' });
     nextStatus = 'approved';
-    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_approved' };
+    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_approved', providerExternalStatus: payout.providerExternalStatus ?? 'admin_approved' };
   } else if (input.action === 'pause') {
     if (previousStatus === 'paid') return res.status(409).json({ error: 'payout_paid', message: 'Paid payouts cannot be paused.' });
     nextStatus = 'requested';
-    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: 'admin_paused' };
+    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: 'admin_paused', providerExternalStatus: 'admin_paused' };
   } else if (input.action === 'retry') {
     if (previousStatus === 'paid') return res.status(409).json({ error: 'payout_paid', message: 'Paid payouts cannot be retried.' });
     nextStatus = previousStatus === 'rejected' || previousStatus === 'cancelled' ? previousStatus : 'requested';
-    data = { ...data, status: nextStatus, reviewedAt: now, stripeFailureCode: null, stripeFailureMessage: null, stripeExternalStatus: 'admin_retry_requested' };
+    data = { ...data, status: nextStatus, reviewedAt: now, stripeFailureCode: null, stripeFailureMessage: null, stripeExternalStatus: 'admin_retry_requested', providerFailureCode: null, providerFailureMessage: null, providerExternalStatus: 'admin_retry_requested' };
   } else if (input.action === 'mark_paid') {
     if (previousStatus === 'rejected' || previousStatus === 'cancelled') return res.status(409).json({ error: 'payout_closed', message: 'Rejected or cancelled payouts cannot be marked paid.' });
     nextStatus = 'paid';
-    data = { ...data, status: nextStatus, reviewedAt: now, paidAt: payout.paidAt ?? now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_marked_paid' };
+    data = { ...data, status: nextStatus, reviewedAt: now, paidAt: payout.paidAt ?? now, stripeExternalStatus: payout.stripeExternalStatus ?? 'admin_marked_paid', providerExternalStatus: payout.providerExternalStatus ?? 'admin_marked_paid' };
     ledgerDescription = 'Admin marked payout as paid.';
   } else if (input.action === 'reject' || input.action === 'cancel') {
     if (previousStatus === 'paid') return res.status(409).json({ error: 'payout_paid', message: 'Paid payouts cannot be rejected or cancelled.' });
     nextStatus = input.action === 'reject' ? 'rejected' : 'cancelled';
-    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: `admin_${nextStatus}` };
+    data = { ...data, status: nextStatus, reviewedAt: now, stripeExternalStatus: `admin_${nextStatus}`, providerExternalStatus: `admin_${nextStatus}` };
     if (previousStatus !== 'rejected' && previousStatus !== 'cancelled') {
       walletIncrement = grossAmountCents;
       ledgerDescription = input.action === 'reject' ? 'Admin rejected payout and returned gross payout-eligible earnings.' : 'Admin cancelled payout and returned gross payout-eligible earnings.';
@@ -238,11 +311,41 @@ adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
       await tx.creditLedgerEntry.create({ data: { userId: payout.userId, walletId: payout.user.wallet.id, type: 'payout_paid', balanceType: 'earned_pending', amount: 0, amountCents: 0, currency: payout.currency, description: ledgerDescription, metadata: { payoutId: payout.id, adminAction: input.action } } });
     }
     const updatedPayout = await tx.payoutRequest.update({ where: { id: payout.id }, data, include: adminPayoutInclude });
-    await tx.adminPayoutEvent.create({ data: { payoutRequestId: payout.id, adminId: req.user!.id, action: input.action, note: note || null, previousStatus, nextStatus, metadata: { grossAmountCents, walletReturnedCents: walletIncrement, stripeExternalStatus: updatedPayout.stripeExternalStatus } } });
+    await tx.adminPayoutEvent.create({ data: { payoutRequestId: payout.id, adminId: req.user!.id, action: input.action, note: note || null, previousStatus, nextStatus, metadata: { grossAmountCents, walletReturnedCents: walletIncrement, stripeExternalStatus: updatedPayout.stripeExternalStatus, providerExternalStatus: updatedPayout.providerExternalStatus } } });
     return updatedPayout;
   });
 
-  res.json({ payout: updated });
+  let refreshed = updated;
+  let providerTransfer: unknown = null;
+  let providerTransferError: string | null = null;
+  if ((input.action === 'approve' || input.action === 'retry') && shouldCreateProviderPayoutTransfer(updated)) {
+    try {
+      providerTransfer = await createProviderPayoutTransferForAdmin({ payoutId: updated.id, adminId: req.user!.id, scaToken: input.scaToken ?? null });
+      refreshed = await prisma.payoutRequest.findUniqueOrThrow({ where: { id: updated.id }, include: adminPayoutInclude });
+      await prisma.adminPayoutEvent.create({ data: { payoutRequestId: updated.id, adminId: req.user!.id, action: 'provider_transfer_created', previousStatus: updated.status, nextStatus: refreshed.status, metadata: JSON.parse(JSON.stringify({ providerTransfer })) } });
+    } catch (error) {
+      providerTransferError = error instanceof Error ? error.message : 'Provider payout transfer failed';
+      refreshed = await prisma.payoutRequest.update({ where: { id: updated.id }, data: { providerExternalStatus: 'transfer_failed', providerFailureCode: 'provider_transfer_failed', providerFailureMessage: providerTransferError, notes: appendAdminNote(updated.notes, providerTransferError, 'provider_transfer_failed') }, include: adminPayoutInclude });
+      await prisma.adminPayoutEvent.create({ data: { payoutRequestId: updated.id, adminId: req.user!.id, action: 'provider_transfer_failed', previousStatus: updated.status, nextStatus: refreshed.status, metadata: { error: providerTransferError } } });
+    }
+  }
+
+  res.json({ payout: refreshed, providerTransfer, providerTransferError });
+}));
+
+adminRoutes.post('/payouts/:payoutId/provider-sync', asyncRoute(async (req, res) => {
+  try {
+    const payoutId = req.params.payoutId;
+    if (!payoutId) return res.status(400).json({ error: 'payout_id_required' });
+    const result = await syncProviderPayoutTransferForAdmin({ payoutId, scaToken: typeof req.body?.scaToken === 'string' ? req.body.scaToken : null });
+    const payout = await prisma.payoutRequest.findUnique({ where: { id: payoutId }, include: adminPayoutInclude });
+    if (!payout) return res.status(404).json({ error: 'not_found' });
+    await prisma.adminPayoutEvent.create({ data: { payoutRequestId: payout.id, adminId: req.user!.id, action: 'provider_transfer_synced', previousStatus: payout.status, nextStatus: payout.status, metadata: { result } } }).catch(() => null);
+    res.json({ payout, providerTransfer: result });
+  } catch (error) {
+    if (error instanceof MoneyProviderError) return res.status(error.statusCode).json({ error: error.code, message: error.publicMessage });
+    throw error;
+  }
 }));
 
 adminRoutes.get('/stripe/connect-accounts', asyncRoute(async (_req, res) => {
@@ -257,6 +360,236 @@ adminRoutes.get('/stripe/connect-accounts', asyncRoute(async (_req, res) => {
 adminRoutes.get('/stripe/events', asyncRoute(async (_req, res) => {
   const events = await prisma.stripeEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
   res.json({ events });
+}));
+
+adminRoutes.get('/business-profiles', asyncRoute(async (_req, res) => {
+  const businessProfiles = await prisma.businessProfile.findMany({
+    include: {
+      owner: { select: { id: true, email: true, profile: true, trustTier: true } },
+      reviewer: { select: { id: true, email: true, profile: true } },
+      members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' } },
+      moneyProviderAccounts: { orderBy: { createdAt: 'desc' }, take: 5 },
+      _count: { select: { needs: true, offers: true, trades: true } },
+    },
+    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+    take: 150,
+  });
+  const provider = buildMoneyProviderStatus();
+  res.json({ provider, businessProfiles: businessProfiles.map((profile) => ({ ...profile, counts: profile._count })) });
+}));
+
+adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(async (req, res) => {
+  const input = adminBusinessProfileActionRequestSchema.parse(req.body);
+  const existing = await prisma.businessProfile.findUnique({ where: { id: req.params.businessProfileId } });
+  if (!existing) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
+  const statusByAction = {
+    verify: 'verified',
+    restrict: 'restricted',
+    disable: 'disabled',
+    reject: 'rejected',
+    activate: 'active',
+  } as const;
+  const nextStatus = statusByAction[input.action];
+  const updated = await prisma.businessProfile.update({
+    where: { id: existing.id },
+    data: {
+      status: nextStatus,
+      reviewedAt: new Date(),
+      reviewerId: req.user!.id,
+      reviewNote: input.note ?? null,
+      verifiedAt: input.action === 'verify' ? new Date() : input.action === 'activate' ? existing.verifiedAt : null,
+    },
+    include: {
+      owner: { select: { id: true, email: true, profile: true, trustTier: true } },
+      reviewer: { select: { id: true, email: true, profile: true } },
+      members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' } },
+      moneyProviderAccounts: { orderBy: { createdAt: 'desc' }, take: 5 },
+      _count: { select: { needs: true, offers: true, trades: true } },
+    },
+  });
+  res.json({ businessProfile: { ...updated, counts: updated._count } });
+}));
+
+
+adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+  const provider = buildMoneyProviderStatus();
+  const [providerAccounts, legacyStripeAccounts] = await Promise.all([
+    prisma.moneyProviderAccount.findMany({
+      include: { user: { select: { id: true, email: true, profile: true, trustTier: true } }, businessProfile: true, balances: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    }),
+    prisma.stripeConnectAccount.findMany({
+      include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    }),
+  ]);
+  res.json({
+    provider,
+    accounts: [
+      ...providerAccounts.map((account) => ({
+        id: account.id,
+        provider: account.provider,
+        providerAccountId: account.providerAccountId,
+        accountType: account.accountType,
+        businessProfileId: account.businessProfileId,
+        businessProfile: account.businessProfile,
+        status: account.status,
+        defaultCurrency: account.defaultCurrency,
+        country: account.country,
+        capabilities: account.capabilities,
+        requirements: account.requirements,
+        rawProviderStatus: account.rawProviderStatus,
+        balances: account.balances,
+        lastSyncedAt: account.lastSyncedAt,
+        createdAt: account.createdAt,
+        updatedAt: account.updatedAt,
+        user: account.user,
+      })),
+      ...legacyStripeAccounts.map((account) => ({
+        provider: 'stripe_legacy',
+        providerAccountId: account.stripeAccountId,
+        legacyStripeAccountId: account.stripeAccountId,
+        status: account.status,
+        chargesEnabled: account.chargesEnabled,
+        payoutsEnabled: account.payoutsEnabled,
+        detailsSubmitted: account.detailsSubmitted,
+        defaultCurrency: account.defaultCurrency,
+        country: account.country,
+        lastSyncedAt: account.lastSyncedAt,
+        user: account.user,
+      })),
+    ],
+  });
+}));
+
+
+adminRoutes.get('/money/provider-balances', asyncRoute(async (_req, res) => {
+  const provider = buildMoneyProviderStatus();
+  const balances = await prisma.moneyProviderWalletBalance.findMany({
+    include: { account: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } }, businessProfile: true } } },
+    orderBy: [{ updatedAt: 'desc' }, { currency: 'asc' }],
+    take: 250,
+  });
+  res.json({
+    provider,
+    balances: balances.map((balance) => ({
+      id: balance.id,
+      provider: balance.provider,
+      providerAccountId: balance.account.providerAccountId,
+      moneyProviderAccountId: balance.moneyProviderAccountId,
+      currency: balance.currency,
+      availableCents: balance.availableCents,
+      reservedCents: balance.reservedCents,
+      pendingCents: balance.pendingCents,
+      totalCents: balance.availableCents + balance.reservedCents + balance.pendingCents,
+      externalUpdatedAt: balance.externalUpdatedAt,
+      lastSyncedAt: balance.lastSyncedAt,
+      createdAt: balance.createdAt,
+      updatedAt: balance.updatedAt,
+      account: {
+        id: balance.account.id,
+        provider: balance.account.provider,
+        status: balance.account.status,
+        accountType: balance.account.accountType,
+        country: balance.account.country,
+        defaultCurrency: balance.account.defaultCurrency,
+        user: balance.account.user,
+        businessProfile: balance.account.businessProfile,
+      },
+    })),
+  });
+}));
+
+adminRoutes.post('/money/provider-accounts/:accountId/sync-balances', asyncRoute(async (req, res) => {
+  const input = moneyProviderWalletBalancesSyncRequestSchema.parse(req.body ?? {});
+  const account = await prisma.moneyProviderAccount.findUnique({
+    where: { id: req.params.accountId },
+    include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } },
+  });
+  if (!account) return res.status(404).json({ error: 'provider_account_not_found', message: 'Provider account was not found.' });
+  const provider = getMoneyProvider(account.provider);
+  try {
+    const result = await provider.syncWalletBalances({ providerAccountId: account.providerAccountId, scaToken: input.scaToken });
+    res.json({ provider: provider.getPublicStatus(), ...result });
+  } catch (error) {
+    if (error instanceof MoneyProviderError) return res.status(error.statusCode).json({ error: error.code, message: error.publicMessage });
+    throw error;
+  }
+}));
+
+
+adminRoutes.get('/money/provider-transactions', asyncRoute(async (_req, res) => {
+  const provider = buildMoneyProviderStatus();
+  const transactions = await prisma.moneyProviderTransaction.findMany({
+    include: {
+      user: { select: { id: true, email: true, profile: true, trustTier: true } },
+      account: { select: { id: true, provider: true, providerAccountId: true, status: true, businessProfile: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
+      counterpartyAccount: { select: { id: true, provider: true, providerAccountId: true, status: true, businessProfile: true, user: { select: { id: true, email: true, profile: true, trustTier: true } } } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 150,
+  });
+  res.json({
+    provider,
+    transactions: transactions.map((transaction) => ({
+      id: transaction.id,
+      provider: transaction.provider,
+      providerTransactionId: transaction.providerTransactionId,
+      type: transaction.type,
+      status: transaction.status,
+      amountCents: transaction.amountCents,
+      currency: transaction.currency,
+      userId: transaction.userId,
+      tradeId: transaction.tradeId,
+      payoutRequestId: transaction.payoutRequestId,
+      providerAccountId: transaction.account?.providerAccountId ?? null,
+      counterpartyProviderAccountId: transaction.counterpartyAccount?.providerAccountId ?? null,
+      rawProviderStatus: transaction.rawProviderStatus,
+      createdAt: transaction.createdAt,
+      updatedAt: transaction.updatedAt,
+      user: transaction.user,
+      account: transaction.account,
+      counterpartyAccount: transaction.counterpartyAccount,
+    })),
+  });
+}));
+
+adminRoutes.get('/money/provider-events', asyncRoute(async (_req, res) => {
+  const provider = buildMoneyProviderStatus();
+  const [providerEvents, legacyStripeEvents] = await Promise.all([
+    prisma.moneyProviderEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
+    prisma.stripeEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
+  ]);
+  res.json({
+    provider,
+    events: [
+      ...providerEvents.map((event) => ({
+        provider: event.provider,
+        providerEventId: event.providerEventId,
+        type: event.eventType,
+        processingStatus: event.status,
+        providerAccountId: event.providerAccountId,
+        createdAt: event.createdAt,
+        processedAt: event.processedAt,
+        error: event.error,
+        payload: event.payload,
+      })),
+      ...legacyStripeEvents.map((event) => ({
+        provider: 'stripe_legacy',
+        providerEventId: event.stripeEventId,
+        type: event.type,
+        processingStatus: event.processingStatus,
+        providerAccountId: event.stripeAccountId,
+        objectId: event.objectId,
+        livemode: event.livemode,
+        createdAt: event.createdAt,
+        processedAt: event.processedAt,
+        error: event.error,
+      })),
+    ],
+  });
 }));
 
 adminRoutes.get('/media', asyncRoute(async (req, res) => {
