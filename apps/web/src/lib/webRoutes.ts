@@ -4,7 +4,7 @@ export type WebTab = {
   key: RootTabKey;
   label: string;
   href: string;
-  icon: string;
+  icon: 'trade' | 'need' | 'offer' | 'profile';
   match: (pathname: string) => boolean;
 };
 
@@ -13,28 +13,28 @@ export const webTabs: WebTab[] = [
     key: 'trades',
     label: 'Trades',
     href: '/trades',
-    icon: '↔',
+    icon: 'trade',
     match: (pathname) => pathname === '/' || pathname.startsWith('/trades'),
   },
   {
     key: 'needs',
     label: 'Needs',
     href: '/needs',
-    icon: '↓',
+    icon: 'need',
     match: (pathname) => pathname.startsWith('/needs'),
   },
   {
     key: 'offers',
     label: 'Offers',
     href: '/offers',
-    icon: '↑',
+    icon: 'offer',
     match: (pathname) => pathname.startsWith('/offers'),
   },
   {
     key: 'account',
     label: 'Account',
     href: '/account',
-    icon: '•',
+    icon: 'profile',
     match: (pathname) => pathname.startsWith('/account'),
   },
 ];

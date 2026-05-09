@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures, MoneyOffNotice } from '../../lib/betaFeatures';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -13,15 +14,16 @@ type AccountHubItem = {
   title: string;
   body: string;
   badge?: string;
+  icon?: WebIconName;
 };
 
 const accountItems: AccountHubItem[] = [
-  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.' },
+  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.', icon: 'profile' },
   ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', title: 'Business / brand', body: 'Create future business, agency, brand, or enterprise profiles for KYB-ready onboarding.' }] : []),
   ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' }] : []),
   ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' }] : []),
-  { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.' },
-  { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.' },
+  { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.', icon: 'settings' },
+  { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.', icon: 'help' },
 ];
 
 export function AccountHubClient() {
@@ -86,12 +88,13 @@ export function AccountHubClient() {
       <div className="mobile-list">
         {accountItems.map((item) => (
           <Link key={item.href} href={item.href} className="mobile-link-card">
-            <span>
+            {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
+            <span className="mobile-link-card__body">
               <strong>{item.title}</strong>
               <br />
               {item.body}
             </span>
-            <span className="mobile-link-card__arrow">›</span>
+            <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
           </Link>
         ))}
       </div>

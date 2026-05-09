@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { WebIcon } from './WebIcon';
 
 export function InventoryEmptyState({
   title,
@@ -13,7 +14,9 @@ export function InventoryEmptyState({
 }) {
   return (
     <Link href={href} className="inventory-empty-state">
-      <span className="inventory-empty-state__plus">+</span>
+      <span className="inventory-empty-state__plus">
+        <WebIcon name="add" size={28} decorative />
+      </span>
       <strong>{title}</strong>
       <span>{body}</span>
       <em>{actionLabel}</em>

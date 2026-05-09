@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { FormEvent } from 'react';
 import type { ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
+import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 
@@ -27,6 +28,12 @@ function personName(proposal: TradeProposalDto) {
 
 function messageSender(message: ProposalMessageDto) {
   return message.sender?.profile?.displayName ?? message.sender?.profile?.handle ?? 'Message';
+}
+
+function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
+  if (status === 'accepted') return 'proposal-accepted';
+  if (status === 'declined') return 'proposal-declined';
+  return 'proposal';
 }
 
 export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
@@ -141,7 +148,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
   if (!auth.hydrated) {
     return (
       <section className="trade-social-section">
-        <h2>Proposals</h2>
+        <h2><WebIcon name="proposal" size={21} decorative /> Proposals</h2>
         <p>Checking your account access...</p>
       </section>
     );
@@ -150,7 +157,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
   if (!auth.isAuthenticated) {
     return (
       <section className="trade-social-section">
-        <h2>Ask to trade</h2>
+        <h2><WebIcon name="proposal" size={21} decorative /> Ask to trade</h2>
         <p>Proposal messages are private between the creator and applicant, but they live here on the Trade Detail page.</p>
         <Link href="/auth" className="button primary full">Sign in to send a proposal</Link>
       </section>
@@ -162,7 +169,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
       <div className="trade-section-heading">
         <div>
           <p className="eyebrow">Private thread</p>
-          <h2>{isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : 'Ask to trade'}</h2>
+          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : 'Ask to trade'}</h2>
         </div>
         {loading ? <span className="semantic-badge instruction">Updating</span> : null}
       </div>
@@ -186,7 +193,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
             return (
               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active' : 'proposal-card'}>
                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
-                  <span className="semantic-badge proposal">{proposal.status}</span>
+                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
                   <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
                   <span>{proposal.message}</span>
                 </button>
@@ -202,6 +209,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
         </div>
       ) : isOwner && !notice ? (
         <div className="proposal-empty-state">
+          <WebIcon name="proposal" size={30} decorative />
           <strong>No proposals yet</strong>
           <span>When someone asks to trade, the request will appear here.</span>
         </div>
@@ -212,7 +220,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
           <div className="trade-section-heading">
             <div>
               <p className="eyebrow">Conversation</p>
-              <h3>{selectedProposal.status === 'accepted' ? 'Accepted trade conversation' : 'Proposal conversation'}</h3>
+              <h3 className="icon-heading"><WebIcon name={proposalStatusIcon(selectedProposal.status)} size={18} decorative /> {selectedProposal.status === 'accepted' ? 'Accepted trade conversation' : 'Proposal conversation'}</h3>
             </div>
           </div>
           <div className="message-list">

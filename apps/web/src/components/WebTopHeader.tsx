@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getRouteHeader, webTabs } from '../lib/webRoutes';
+import { WebIcon } from './WebIcon';
 
 function WebDesktopNav({ pathname }: { pathname: string }) {
   return (
@@ -11,7 +12,8 @@ function WebDesktopNav({ pathname }: { pathname: string }) {
         const active = tab.match(pathname);
         return (
           <Link key={tab.key} href={tab.href} className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}>
-            {tab.label}
+            <WebIcon name={tab.icon} size={17} decorative />
+            <span>{tab.label}</span>
           </Link>
         );
       })}
@@ -39,7 +41,7 @@ export function WebTopHeader() {
     <header className="web-top-header web-top-header--nested">
       <div className="web-nested-title-row">
         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label="Go back">
-          ‹
+          <WebIcon name="back" size={21} decorative />
         </Link>
         <h1>{header.title}</h1>
       </div>

@@ -2,6 +2,7 @@
 
 import type { CSSProperties, PointerEvent, ReactNode, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { WebIcon } from '../../components/WebIcon';
 import { SQUARE_DECK_TRANSITION_MS, getDragPose, getForwardPose, getLayerPose } from './squareDeckMotion';
 
 export type SquareStackDeckItem = {
@@ -236,7 +237,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
             onClick={(event) => { event.stopPropagation(); commit('prev'); }}
             aria-label="Previous card"
           >
-            ‹
+            <WebIcon name="back" size={18} decorative />
           </button>
           <button
             type="button"
@@ -246,7 +247,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
             onClick={(event) => { event.stopPropagation(); commit('next'); }}
             aria-label="Next card"
           >
-            ›
+            <WebIcon name="arrow-right" size={18} decorative />
           </button>
           <div className="square-stack-deck__dots" aria-label={`Card ${activeIndex + 1} of ${itemCount}`}>
             {items.map((item, index) => <span key={item.id} className={index === activeIndex ? 'is-active' : ''} />)}

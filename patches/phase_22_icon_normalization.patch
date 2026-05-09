@@ -1,0 +1,855 @@
+diff --git a/apps/mobile/assets/icons/outline/accepted-proposal.svg b/apps/mobile/assets/icons/outline/accepted-proposal.svg
+deleted file mode 100644
+index 80a4b4d..0000000
+--- a/apps/mobile/assets/icons/outline/accepted-proposal.svg
++++ /dev/null
+@@ -1,10 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M14.634 3.5C15.0189 2.83333 15.9811 2.83333 16.366 3.5L19.3971 8.75C19.782 9.41667 19.3009 10.25 18.5311 10.25H12.4689C11.6991 10.25 11.218 9.41667 11.6029 8.75L14.634 3.5Z" fill="black"/>
+-<path d="M16.366 11.5C15.9811 12.1667 15.0189 12.1667 14.634 11.5L11.6029 6.25C11.218 5.58333 11.6991 4.75 12.4689 4.75L18.5311 4.75C19.3009 4.75 19.782 5.58334 19.3971 6.25L16.366 11.5Z" fill="black"/>
+-<path d="M13.5 7.5L15 9" stroke="white" stroke-linecap="round"/>
+-<path d="M15 9L17.5 6.5" stroke="white" stroke-linecap="round"/>
+-</svg>
+diff --git a/apps/mobile/assets/icons/outline/declined-proposal.svg b/apps/mobile/assets/icons/outline/declined-proposal.svg
+deleted file mode 100644
+index ccd755a..0000000
+--- a/apps/mobile/assets/icons/outline/declined-proposal.svg
++++ /dev/null
+@@ -1,10 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M14.634 3.5C15.0189 2.83333 15.9811 2.83333 16.366 3.5L19.3971 8.75C19.782 9.41667 19.3009 10.25 18.5311 10.25H12.4689C11.6991 10.25 11.218 9.41667 11.6029 8.75L14.634 3.5Z" fill="black"/>
+-<path d="M16.366 11.5C15.9811 12.1667 15.0189 12.1667 14.634 11.5L11.6029 6.25C11.218 5.58333 11.6991 4.75 12.4689 4.75L18.5311 4.75C19.3009 4.75 19.782 5.58334 19.3971 6.25L16.366 11.5Z" fill="black"/>
+-<path d="M14 6L17 9" stroke="white" stroke-linecap="round"/>
+-<path d="M14 9L17 6" stroke="white" stroke-linecap="round"/>
+-</svg>
+diff --git a/apps/mobile/assets/icons/outline/dispute.svg b/apps/mobile/assets/icons/outline/dispute.svg
+index d20ca87..4c22116 100644
+--- a/apps/mobile/assets/icons/outline/dispute.svg
++++ b/apps/mobile/assets/icons/outline/dispute.svg
+@@ -1,11 +1,8 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<path d="M3 6C3 5.44772 3.44772 5 4 5H14C14.5523 5 15 5.44772 15 6V12C15 12.5523 14.5523 13 14 13H8.41421C8.149 13 7.89464 13.1054 7.70711 13.2929L6.70711 14.2929C6.31658 14.6834 5.68342 14.6834 5.29289 14.2929L4.20711 13.2071C4.0745 13.0745 3.89464 13 3.70711 13C3.31658 13 3 12.6834 3 12.2929V6Z" stroke="black"/>
+-<path d="M9 11C9 10.4477 9.44772 10 10 10H20C20.5523 10 21 10.4477 21 11V17.1577C21 17.6229 20.6229 18 20.1577 18C19.7712 18 19.4357 18.2644 19.2928 18.6236C19.0592 19.2105 18.6283 20 18 20C17 20 15 18 14 18C13.3199 18 11.2524 18 9.99908 18C9.4468 18 9 17.5523 9 17V11Z" fill="black"/>
+-<path d="M5.5 7.5H12.5" stroke="black" stroke-linecap="round"/>
+-<path d="M5.5 11.5H12.5" stroke="black" stroke-linecap="round"/>
+-<path d="M11.5 16H18.5" stroke="white" stroke-linecap="round"/>
+-<path d="M5.5 9.5H12.5" stroke="black" stroke-linecap="round"/>
+-<path d="M11.5 14H18.5" stroke="white" stroke-linecap="round"/>
+-<path d="M11.5 12H18.5" stroke="white" stroke-linecap="round"/>
++  <path d="M3.5 5.75C3.5 5.06 4.06 4.5 4.75 4.5H14.25C14.94 4.5 15.5 5.06 15.5 5.75V12.25C15.5 12.94 14.94 13.5 14.25 13.5H8.65L6.65 15.25C6.22 15.63 5.55 15.32 5.55 14.75V13.5H4.75C4.06 13.5 3.5 12.94 3.5 12.25V5.75Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M9.5 11.75V11.25C9.5 10.56 10.06 10 10.75 10H19.25C19.94 10 20.5 10.56 20.5 11.25V17.75C20.5 18.44 19.94 19 19.25 19H18.45V20.25C18.45 20.82 17.78 21.13 17.35 20.75L15.35 19H10.75C10.06 19 9.5 18.44 9.5 17.75V16.1" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M6.5 7.5H12.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++  <path d="M6.5 10.5H11" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++  <path d="M15 12.5V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
++  <path d="M15 17H15.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+ </svg>
+diff --git a/apps/mobile/assets/icons/outline/needs.svg b/apps/mobile/assets/icons/outline/needs.svg
+deleted file mode 100644
+index 1b4278a..0000000
+--- a/apps/mobile/assets/icons/outline/needs.svg
++++ /dev/null
+@@ -1,9 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<rect x="14.25" y="3.25" width="2.5" height="2.5" stroke="black" stroke-width="0.5"/>
+-<circle cx="10.5" cy="7.5" r="1.25" stroke="black" stroke-width="0.5"/>
+-<path d="M14.4683 9.28832L17.0972 9.28832L15.7827 11.5432L14.4683 9.28832Z" stroke="black" stroke-width="0.5"/>
+-</svg>
+diff --git a/apps/mobile/assets/icons/outline/offers.svg b/apps/mobile/assets/icons/outline/offers.svg
+deleted file mode 100644
+index c96e3c8..0000000
+--- a/apps/mobile/assets/icons/outline/offers.svg
++++ /dev/null
+@@ -1,9 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="23.4192" y="10.7939" width="2.70544" height="7.85523" rx="0.5" transform="rotate(157.687 23.4192 10.7939)" stroke="black" stroke-linejoin="round"/>
+-<path d="M18.1194 5.80407C18.1194 5.80407 16.9927 6.80407 16.1194 6.80407C15.2462 6.80407 12.1141 5.1804 11.6194 5.30407C9.61944 5.80407 4.61944 7.94692 2.61944 8.80407C1.8168 9.14805 1.35021 9.80407 1.61944 10.8041C1.88867 11.8041 3.61944 11.9291 4.11944 11.8041C6.11944 11.3041 9.11944 9.80407 9.11944 10.3041C9.11944 11.3041 11.6194 10.8041 13.1194 11.8041C14.6195 12.8041 14.5736 12.6947 15.6194 12.8041C16.6653 12.9134 20.1194 10.8041 20.1194 10.8041" stroke="black" stroke-linecap="round"/>
+-<path d="M14.6195 9.30406C14.6195 9.30406 11.1194 7.80407 10.1194 8.30407C9.11945 8.80407 9.11945 9.80406 9.11945 9.80406" stroke="black" stroke-linecap="round"/>
+-<rect x="10.1692" y="21.0544" width="2.5" height="2.5" transform="rotate(180 10.1692 21.0544)" stroke="black" stroke-width="0.5"/>
+-<circle cx="13.9192" cy="16.8044" r="1.25" transform="rotate(180 13.9192 16.8044)" stroke="black" stroke-width="0.5"/>
+-<path d="M9.95093 15.0161L7.32202 15.0161L8.63647 12.7612L9.95093 15.0161Z" stroke="black" stroke-width="0.5"/>
+-</svg>
+diff --git a/apps/mobile/assets/icons/outline/proposal.svg b/apps/mobile/assets/icons/outline/proposal.svg
+index 1d45e6c..7054ec1 100644
+--- a/apps/mobile/assets/icons/outline/proposal.svg
++++ b/apps/mobile/assets/icons/outline/proposal.svg
+@@ -1,8 +1,7 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M14.634 3.5C15.0189 2.83333 15.9811 2.83333 16.366 3.5L19.3971 8.75C19.782 9.41667 19.3009 10.25 18.5311 10.25H12.4689C11.6991 10.25 11.218 9.41667 11.6029 8.75L14.634 3.5Z" fill="black"/>
+-<path d="M16.366 11.5C15.9811 12.1667 15.0189 12.1667 14.634 11.5L11.6029 6.25C11.218 5.58333 11.6991 4.75 12.4689 4.75L18.5311 4.75C19.3009 4.75 19.782 5.58334 19.3971 6.25L16.366 11.5Z" fill="black"/>
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M12 6.75H19" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+ </svg>
+diff --git a/apps/mobile/assets/icons/outline/trade.svg b/apps/mobile/assets/icons/outline/trade.svg
+index 51d2135..9224ffd 100644
+--- a/apps/mobile/assets/icons/outline/trade.svg
++++ b/apps/mobile/assets/icons/outline/trade.svg
+@@ -1,7 +1,6 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="3" y="9" width="18" height="2" rx="1" fill="black"/>
+-<rect x="3" y="13" width="18" height="2" rx="1" fill="black"/>
+-<path d="M4 14L9 19" stroke="black" stroke-width="2" stroke-linecap="round"/>
+-<path d="M15 5L20 10" stroke="black" stroke-width="2" stroke-linecap="round"/>
++  <path d="M4 8.5H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
++  <path d="M16.5 5L20 8.5L16.5 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M20 15.5H4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
++  <path d="M7.5 12L4 15.5L7.5 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+ </svg>
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index aff4f78..ddffbef 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -1,4 +1,5 @@
+ import React from 'react';
++import { Ionicons } from '@expo/vector-icons';
+ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+ import { createNativeStackNavigator } from '@react-navigation/native-stack';
+ import { ActivityIndicator, View } from 'react-native';
+@@ -55,6 +56,15 @@ type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined
+ const Tabs = createBottomTabNavigator<MainTabParamList>();
+ const Stack = createNativeStackNavigator<RootStackParamList>();
+ 
++type TabIconName = React.ComponentProps<typeof Ionicons>['name'];
++
++function getTabIconName(routeName: keyof MainTabParamList, focused: boolean): TabIconName {
++  if (routeName === 'Trades') return focused ? 'swap-horizontal' : 'swap-horizontal-outline';
++  if (routeName === 'Needs') return focused ? 'arrow-down-circle' : 'arrow-down-circle-outline';
++  if (routeName === 'Offers') return focused ? 'arrow-up-circle' : 'arrow-up-circle-outline';
++  return focused ? 'person-circle' : 'person-circle-outline';
++}
++
+ function TradeTabs() {
+   const insets = useSafeAreaInsets();
+   const theme = useThemeTokens();
+@@ -62,17 +72,19 @@ function TradeTabs() {
+ 
+   return (
+     <Tabs.Navigator
+-      screenOptions={{
++      screenOptions={({ route }) => ({
+         headerShown: false,
+         tabBarShowLabel: true,
+-        tabBarIcon: () => null,
+-        tabBarIconStyle: { display: 'none' },
+-        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 8 },
+-        tabBarItemStyle: { paddingTop: 8 },
+-        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
++        tabBarIcon: ({ color, focused, size }) => (
++          <Ionicons name={getTabIconName(route.name, focused)} size={Math.max(size, 23)} color={color} />
++        ),
++        tabBarIconStyle: { marginTop: 6 },
++        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 6 },
++        tabBarItemStyle: { paddingTop: 7 },
++        tabBarStyle: { height: 66 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
+         tabBarActiveTintColor: theme.semantic.proposal.bg,
+         tabBarInactiveTintColor: theme.color.muted,
+-      }}
++      })}
+     >
+       <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} />
+       <Tabs.Screen name="Needs" component={MyNeedsScreen} />
+diff --git a/apps/web/public/icons/outline/accepted-proposal.svg b/apps/web/public/icons/outline/accepted-proposal.svg
+deleted file mode 100644
+index 80a4b4d..0000000
+--- a/apps/web/public/icons/outline/accepted-proposal.svg
++++ /dev/null
+@@ -1,10 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M14.634 3.5C15.0189 2.83333 15.9811 2.83333 16.366 3.5L19.3971 8.75C19.782 9.41667 19.3009 10.25 18.5311 10.25H12.4689C11.6991 10.25 11.218 9.41667 11.6029 8.75L14.634 3.5Z" fill="black"/>
+-<path d="M16.366 11.5C15.9811 12.1667 15.0189 12.1667 14.634 11.5L11.6029 6.25C11.218 5.58333 11.6991 4.75 12.4689 4.75L18.5311 4.75C19.3009 4.75 19.782 5.58334 19.3971 6.25L16.366 11.5Z" fill="black"/>
+-<path d="M13.5 7.5L15 9" stroke="white" stroke-linecap="round"/>
+-<path d="M15 9L17.5 6.5" stroke="white" stroke-linecap="round"/>
+-</svg>
+diff --git a/apps/web/public/icons/outline/declined-proposal.svg b/apps/web/public/icons/outline/declined-proposal.svg
+deleted file mode 100644
+index ccd755a..0000000
+--- a/apps/web/public/icons/outline/declined-proposal.svg
++++ /dev/null
+@@ -1,10 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M14.634 3.5C15.0189 2.83333 15.9811 2.83333 16.366 3.5L19.3971 8.75C19.782 9.41667 19.3009 10.25 18.5311 10.25H12.4689C11.6991 10.25 11.218 9.41667 11.6029 8.75L14.634 3.5Z" fill="black"/>
+-<path d="M16.366 11.5C15.9811 12.1667 15.0189 12.1667 14.634 11.5L11.6029 6.25C11.218 5.58333 11.6991 4.75 12.4689 4.75L18.5311 4.75C19.3009 4.75 19.782 5.58334 19.3971 6.25L16.366 11.5Z" fill="black"/>
+-<path d="M14 6L17 9" stroke="white" stroke-linecap="round"/>
+-<path d="M14 9L17 6" stroke="white" stroke-linecap="round"/>
+-</svg>
+diff --git a/apps/web/public/icons/outline/dispute.svg b/apps/web/public/icons/outline/dispute.svg
+index d20ca87..4c22116 100644
+--- a/apps/web/public/icons/outline/dispute.svg
++++ b/apps/web/public/icons/outline/dispute.svg
+@@ -1,11 +1,8 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<path d="M3 6C3 5.44772 3.44772 5 4 5H14C14.5523 5 15 5.44772 15 6V12C15 12.5523 14.5523 13 14 13H8.41421C8.149 13 7.89464 13.1054 7.70711 13.2929L6.70711 14.2929C6.31658 14.6834 5.68342 14.6834 5.29289 14.2929L4.20711 13.2071C4.0745 13.0745 3.89464 13 3.70711 13C3.31658 13 3 12.6834 3 12.2929V6Z" stroke="black"/>
+-<path d="M9 11C9 10.4477 9.44772 10 10 10H20C20.5523 10 21 10.4477 21 11V17.1577C21 17.6229 20.6229 18 20.1577 18C19.7712 18 19.4357 18.2644 19.2928 18.6236C19.0592 19.2105 18.6283 20 18 20C17 20 15 18 14 18C13.3199 18 11.2524 18 9.99908 18C9.4468 18 9 17.5523 9 17V11Z" fill="black"/>
+-<path d="M5.5 7.5H12.5" stroke="black" stroke-linecap="round"/>
+-<path d="M5.5 11.5H12.5" stroke="black" stroke-linecap="round"/>
+-<path d="M11.5 16H18.5" stroke="white" stroke-linecap="round"/>
+-<path d="M5.5 9.5H12.5" stroke="black" stroke-linecap="round"/>
+-<path d="M11.5 14H18.5" stroke="white" stroke-linecap="round"/>
+-<path d="M11.5 12H18.5" stroke="white" stroke-linecap="round"/>
++  <path d="M3.5 5.75C3.5 5.06 4.06 4.5 4.75 4.5H14.25C14.94 4.5 15.5 5.06 15.5 5.75V12.25C15.5 12.94 14.94 13.5 14.25 13.5H8.65L6.65 15.25C6.22 15.63 5.55 15.32 5.55 14.75V13.5H4.75C4.06 13.5 3.5 12.94 3.5 12.25V5.75Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M9.5 11.75V11.25C9.5 10.56 10.06 10 10.75 10H19.25C19.94 10 20.5 10.56 20.5 11.25V17.75C20.5 18.44 19.94 19 19.25 19H18.45V20.25C18.45 20.82 17.78 21.13 17.35 20.75L15.35 19H10.75C10.06 19 9.5 18.44 9.5 17.75V16.1" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M6.5 7.5H12.5" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++  <path d="M6.5 10.5H11" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
++  <path d="M15 12.5V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
++  <path d="M15 17H15.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+ </svg>
+diff --git a/apps/web/public/icons/outline/needs.svg b/apps/web/public/icons/outline/needs.svg
+deleted file mode 100644
+index 1b4278a..0000000
+--- a/apps/web/public/icons/outline/needs.svg
++++ /dev/null
+@@ -1,9 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<rect x="14.25" y="3.25" width="2.5" height="2.5" stroke="black" stroke-width="0.5"/>
+-<circle cx="10.5" cy="7.5" r="1.25" stroke="black" stroke-width="0.5"/>
+-<path d="M14.4683 9.28832L17.0972 9.28832L15.7827 11.5432L14.4683 9.28832Z" stroke="black" stroke-width="0.5"/>
+-</svg>
+diff --git a/apps/web/public/icons/outline/offers.svg b/apps/web/public/icons/outline/offers.svg
+deleted file mode 100644
+index c96e3c8..0000000
+--- a/apps/web/public/icons/outline/offers.svg
++++ /dev/null
+@@ -1,9 +0,0 @@
+-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="23.4192" y="10.7939" width="2.70544" height="7.85523" rx="0.5" transform="rotate(157.687 23.4192 10.7939)" stroke="black" stroke-linejoin="round"/>
+-<path d="M18.1194 5.80407C18.1194 5.80407 16.9927 6.80407 16.1194 6.80407C15.2462 6.80407 12.1141 5.1804 11.6194 5.30407C9.61944 5.80407 4.61944 7.94692 2.61944 8.80407C1.8168 9.14805 1.35021 9.80407 1.61944 10.8041C1.88867 11.8041 3.61944 11.9291 4.11944 11.8041C6.11944 11.3041 9.11944 9.80407 9.11944 10.3041C9.11944 11.3041 11.6194 10.8041 13.1194 11.8041C14.6195 12.8041 14.5736 12.6947 15.6194 12.8041C16.6653 12.9134 20.1194 10.8041 20.1194 10.8041" stroke="black" stroke-linecap="round"/>
+-<path d="M14.6195 9.30406C14.6195 9.30406 11.1194 7.80407 10.1194 8.30407C9.11945 8.80407 9.11945 9.80406 9.11945 9.80406" stroke="black" stroke-linecap="round"/>
+-<rect x="10.1692" y="21.0544" width="2.5" height="2.5" transform="rotate(180 10.1692 21.0544)" stroke="black" stroke-width="0.5"/>
+-<circle cx="13.9192" cy="16.8044" r="1.25" transform="rotate(180 13.9192 16.8044)" stroke="black" stroke-width="0.5"/>
+-<path d="M9.95093 15.0161L7.32202 15.0161L8.63647 12.7612L9.95093 15.0161Z" stroke="black" stroke-width="0.5"/>
+-</svg>
+diff --git a/apps/web/public/icons/outline/proposal.svg b/apps/web/public/icons/outline/proposal.svg
+index 1d45e6c..7054ec1 100644
+--- a/apps/web/public/icons/outline/proposal.svg
++++ b/apps/web/public/icons/outline/proposal.svg
+@@ -1,8 +1,7 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="1" y="13.5105" width="2.70544" height="7.85523" rx="0.5" transform="rotate(-22.3132 1 13.5105)" stroke="black" stroke-linejoin="round"/>
+-<path d="M6.29978 18.5003C6.29978 18.5003 7.42654 17.5003 8.29978 17.5003C9.17301 17.5003 12.3051 19.124 12.7998 19.0003C14.7998 18.5003 19.7998 16.3575 21.7998 15.5003C22.6024 15.1563 23.069 14.5003 22.7998 13.5003C22.5306 12.5003 20.7998 12.3753 20.2998 12.5003C18.2998 13.0003 15.2998 14.5003 15.2998 14.0003C15.2998 13.0003 12.7998 13.5003 11.2998 12.5003C9.79977 11.5003 9.84559 11.6097 8.79977 11.5003C7.75396 11.391 4.29977 13.5003 4.29977 13.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M9.79976 15.0003C9.79976 15.0003 13.2998 16.5003 14.2998 16.0003C15.2998 15.5003 15.2998 14.5003 15.2998 14.5003" stroke="black" stroke-linecap="round"/>
+-<path d="M14.634 3.5C15.0189 2.83333 15.9811 2.83333 16.366 3.5L19.3971 8.75C19.782 9.41667 19.3009 10.25 18.5311 10.25H12.4689C11.6991 10.25 11.218 9.41667 11.6029 8.75L14.634 3.5Z" fill="black"/>
+-<path d="M16.366 11.5C15.9811 12.1667 15.0189 12.1667 14.634 11.5L11.6029 6.25C11.218 5.58333 11.6991 4.75 12.4689 4.75L18.5311 4.75C19.3009 4.75 19.782 5.58334 19.3971 6.25L16.366 11.5Z" fill="black"/>
++  <path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
++  <path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"/>
++  <path d="M12 6.75H19" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/>
+ </svg>
+diff --git a/apps/web/public/icons/outline/trade.svg b/apps/web/public/icons/outline/trade.svg
+index 51d2135..9224ffd 100644
+--- a/apps/web/public/icons/outline/trade.svg
++++ b/apps/web/public/icons/outline/trade.svg
+@@ -1,7 +1,6 @@
+ <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+-<rect width="24" height="24" fill="white"/>
+-<rect x="3" y="9" width="18" height="2" rx="1" fill="black"/>
+-<rect x="3" y="13" width="18" height="2" rx="1" fill="black"/>
+-<path d="M4 14L9 19" stroke="black" stroke-width="2" stroke-linecap="round"/>
+-<path d="M15 5L20 10" stroke="black" stroke-width="2" stroke-linecap="round"/>
++  <path d="M4 8.5H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
++  <path d="M16.5 5L20 8.5L16.5 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
++  <path d="M20 15.5H4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
++  <path d="M7.5 12L4 15.5L7.5 19" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+ </svg>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 41a5451..cc2350c 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -111,8 +111,9 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .web-scroll-area { height: 100%; overflow-y: auto; padding: calc(var(--app-header-height) + 16px) 16px calc(var(--app-tab-height) + 22px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+ .web-scroll-area::-webkit-scrollbar { display: none; }
+ .web-bottom-tabs { position: fixed; z-index: 30; bottom: 0; left: 50%; width: min(100vw, var(--app-shell-width)); min-height: calc(var(--app-tab-height) + env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); transform: translateX(-50%); background: color-mix(in srgb, var(--app-bg) 92%, transparent); border-top: 1px solid color-mix(in srgb, var(--app-border) 85%, transparent); backdrop-filter: blur(18px); }
++.web-icon { display: inline-block; flex: 0 0 auto; width: var(--web-icon-size, 20px); height: var(--web-icon-size, 20px); background-color: currentColor; -webkit-mask: var(--web-icon-url) center / contain no-repeat; mask: var(--web-icon-url) center / contain no-repeat; }
+ .web-tab { display: grid; place-items: center; gap: 3px; min-width: 0; border-radius: 18px; color: var(--app-text-muted); font-size: 11px; font-weight: 900; }
+-.web-tab__icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; color: inherit; font-size: 17px; line-height: 1; }
++.web-tab__icon { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; color: inherit; line-height: 1; }
+ .web-tab--active { background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 26px rgba(15, 23, 42, 0.08); }
+ 
+ .utility-shell { width: min(1120px, calc(100vw - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+@@ -128,7 +129,9 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .mobile-card p:last-child, .card p:last-child { margin-bottom: 0; }
+ .mobile-link-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--app-border); border-radius: 24px; background: var(--app-surface); padding: 16px; }
+ .mobile-link-card span { color: var(--app-text-muted); font-weight: 800; }
+-.mobile-link-card__arrow { color: var(--app-text-soft); font-size: 22px; }
++.mobile-link-card__body { min-width: 0; flex: 1 1 auto; }
++.mobile-link-card__icon { color: var(--app-text); }
++.mobile-link-card__arrow { color: var(--app-text-soft); }
+ .inventory-empty-state { display: grid; place-items: center; min-height: 240px; gap: 8px; border: 2px dashed var(--app-border-strong); border-radius: 30px; background: var(--app-surface-soft); padding: 22px; text-align: center; }
+ .inventory-empty-state__plus { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--app-border); background: var(--app-surface); color: var(--app-text); font-size: 32px; font-weight: 400; line-height: 1; }
+ .inventory-empty-state strong { font-size: 18px; }
+@@ -136,8 +139,8 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .inventory-empty-state em { color: var(--app-text); font-style: normal; font-weight: 900; }
+ 
+ .trade-feed-controls { position: sticky; z-index: 10; top: 0; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin: -2px 0 2px; padding: 2px 0 10px; background: var(--app-bg); }
+-.trade-search-pill, .trade-filter-pill { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 13px; font-size: 13px; font-weight: 900; }
+-.trade-create-pill { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: var(--app-text); color: var(--app-bg); font-size: 24px; line-height: 1; }
++.trade-search-pill, .trade-filter-pill { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 13px; font-size: 13px; font-weight: 900; }
++.trade-create-pill { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 999px; background: var(--app-text); color: var(--app-bg); line-height: 1; }
+ .trade-card { display: grid; gap: 12px; aspect-ratio: 1 / 1; border: 0; border-radius: 34px; background: var(--app-surface); padding: 22px; box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12); }
+ .trade-card p { margin-bottom: 0; }
+ .trade-card__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+@@ -146,7 +149,7 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .trade-card__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; align-self: end; }
+ .trade-card__open { color: var(--app-text); font-weight: 900; }
+ 
+-.button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; border: 1px solid var(--app-border-strong); border-radius: 999px; background: var(--app-surface); color: var(--app-text); padding: 0 15px; font-weight: 900; }
++.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; border: 1px solid var(--app-border-strong); border-radius: 999px; background: var(--app-surface); color: var(--app-text); padding: 0 15px; font-weight: 900; }
+ .button.primary { background: var(--app-text); border-color: var(--app-text); color: var(--app-bg); }
+ .button.secondary { background: var(--app-surface-soft); color: var(--app-text); border-color: var(--app-border-strong); }
+ .button.full { width: 100%; }
+@@ -154,7 +157,7 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .eyebrow, .badge { color: var(--app-text-soft); font-size: 11px; font-weight: 900; letter-spacing: .1em; line-height: 1.1; text-transform: uppercase; }
+ .meta { color: var(--app-text-muted); font-weight: 750; }
+ .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+-.semantic-badge { display: inline-flex; align-items: center; width: fit-content; border-radius: 999px; border: 1px solid; padding: 7px 11px; font-size: 11px; font-weight: 900; letter-spacing: .06em; line-height: 1; text-transform: uppercase; }
++.semantic-badge { display: inline-flex; align-items: center; gap: 5px; width: fit-content; border-radius: 999px; border: 1px solid; padding: 7px 11px; font-size: 11px; font-weight: 900; letter-spacing: .06em; line-height: 1; text-transform: uppercase; }
+ .semantic-badge.need { background: var(--need-bg); color: var(--need-text); border-color: var(--need-border); }
+ .semantic-badge.offer { background: var(--offer-bg); color: var(--offer-text); border-color: var(--offer-border); }
+ .semantic-badge.trade { background: var(--trade-bg); color: var(--trade-text); border-color: var(--trade-border); }
+@@ -237,8 +240,9 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+ 
+ .trade-feed-controls { grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; }
+-.trade-search-field { display: block; min-width: 0; }
+-.trade-search-field input { min-height: 40px; border-radius: 999px; padding: 0 14px; font-size: 14px; font-weight: 800; }
++.trade-search-field { position: relative; display: block; min-width: 0; color: var(--app-text-muted); }
++.trade-search-field__icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; }
++.trade-search-field input { min-height: 40px; border-radius: 999px; padding: 0 14px 0 39px; font-size: 14px; font-weight: 800; }
+ .trade-filter-pill { cursor: pointer; }
+ .trade-feed-controls .trade-filter-panel { grid-column: 1 / -1; display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 24px; background: color-mix(in srgb, var(--app-surface) 96%, transparent); padding: 14px; box-shadow: 0 14px 38px rgba(15, 23, 42, 0.08); }
+ .trade-filter-panel label { display: grid; gap: 7px; color: var(--app-text); font-size: 13px; font-weight: 900; }
+@@ -273,6 +277,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+ .trade-section-heading .eyebrow { margin-bottom: 5px; }
+ .trade-section-heading h2, .trade-section-heading h3 { margin: 0; }
++.icon-heading { display: inline-flex; align-items: center; gap: 8px; }
+ .tag-row { display: flex; flex-wrap: wrap; gap: 7px; }
+ .tag-row span { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 0 10px; font-size: 12px; font-weight: 850; }
+ .trade-image-grid { display: grid; gap: 6px; overflow: hidden; border-radius: 22px; }
+@@ -461,7 +466,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+   .web-kicker { margin-bottom: 6px; }
+   .web-back-button { width: 40px; height: 40px; font-size: 30px; }
+   .web-desktop-nav { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+-  .web-desktop-nav__link { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; border: 1px solid transparent; border-radius: 999px; color: var(--app-text-muted); padding: 0 16px; font-size: 14px; font-weight: 900; }
++  .web-desktop-nav__link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; border: 1px solid transparent; border-radius: 999px; color: var(--app-text-muted); padding: 0 16px; font-size: 14px; font-weight: 900; }
+   .web-desktop-nav__link:hover { color: var(--app-text); background: color-mix(in srgb, var(--app-surface) 72%, transparent); }
+   .web-desktop-nav__link.is-active { border-color: var(--app-border); background: var(--app-surface); color: var(--app-text); box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08); }
+   .web-scroll-area { height: auto; overflow: visible; max-width: var(--web-content-width); margin: 0 auto; padding: 28px 32px 72px; scrollbar-width: auto; }
+@@ -571,7 +576,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-stack-card__mobile-section span { display: -webkit-box; max-width: 92%; overflow: hidden; color: var(--app-text-muted); font-size: 14px; font-weight: 850; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+ .trade-stack-card__mobile-divider { position: relative; display: grid; place-items: center; min-height: 38px; color: var(--app-text-muted); }
+ .trade-stack-card__mobile-divider::before { content: ''; position: absolute; right: 0; left: 0; top: 50%; height: 1px; background: color-mix(in srgb, var(--app-border) 72%, transparent); }
+-.trade-stack-card__mobile-divider span { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); font-size: 16px; font-weight: 900; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
++.trade-stack-card__mobile-divider span { position: relative; z-index: 1; display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
+ .trade-stack-card__mobile-money { justify-self: center; align-self: end; display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--money-border); border-radius: 999px; background: var(--money-bg); color: var(--money-text); padding: 0 12px; font-size: 12px; font-weight: 950; }
+ 
+ @keyframes web-skeleton-shimmer {
+@@ -779,6 +784,10 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ }
+ .trade-action-row button,
+ .proposal-composer button.success {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  gap: 8px;
+   min-height: 44px;
+ }
+ .trade-action-row .success {
+diff --git a/apps/web/src/components/InventoryEmptyState.tsx b/apps/web/src/components/InventoryEmptyState.tsx
+index a1fb765..7627ef9 100644
+--- a/apps/web/src/components/InventoryEmptyState.tsx
++++ b/apps/web/src/components/InventoryEmptyState.tsx
+@@ -1,4 +1,5 @@
+ import Link from 'next/link';
++import { WebIcon } from './WebIcon';
+ 
+ export function InventoryEmptyState({
+   title,
+@@ -13,7 +14,9 @@ export function InventoryEmptyState({
+ }) {
+   return (
+     <Link href={href} className="inventory-empty-state">
+-      <span className="inventory-empty-state__plus">+</span>
++      <span className="inventory-empty-state__plus">
++        <WebIcon name="add" size={28} decorative />
++      </span>
+       <strong>{title}</strong>
+       <span>{body}</span>
+       <em>{actionLabel}</em>
+diff --git a/apps/web/src/components/WebBottomTabs.tsx b/apps/web/src/components/WebBottomTabs.tsx
+index e0f28a6..168aebd 100644
+--- a/apps/web/src/components/WebBottomTabs.tsx
++++ b/apps/web/src/components/WebBottomTabs.tsx
+@@ -3,6 +3,7 @@
+ import Link from 'next/link';
+ import { usePathname } from 'next/navigation';
+ import { webTabs } from '../lib/webRoutes';
++import { WebIcon } from './WebIcon';
+ 
+ export function WebBottomTabs() {
+   const pathname = usePathname() || '/trades';
+@@ -13,7 +14,7 @@ export function WebBottomTabs() {
+         const active = tab.match(pathname);
+         return (
+           <Link key={tab.key} href={tab.href} className={active ? 'web-tab web-tab--active' : 'web-tab'}>
+-            <span aria-hidden="true" className="web-tab__icon">{tab.icon}</span>
++            <WebIcon name={tab.icon} size={23} decorative className="web-tab__icon" />
+             <span>{tab.label}</span>
+           </Link>
+         );
+diff --git a/apps/web/src/components/WebTopHeader.tsx b/apps/web/src/components/WebTopHeader.tsx
+index 05cb64b..396af94 100644
+--- a/apps/web/src/components/WebTopHeader.tsx
++++ b/apps/web/src/components/WebTopHeader.tsx
+@@ -3,6 +3,7 @@
+ import Link from 'next/link';
+ import { usePathname } from 'next/navigation';
+ import { getRouteHeader, webTabs } from '../lib/webRoutes';
++import { WebIcon } from './WebIcon';
+ 
+ function WebDesktopNav({ pathname }: { pathname: string }) {
+   return (
+@@ -11,7 +12,8 @@ function WebDesktopNav({ pathname }: { pathname: string }) {
+         const active = tab.match(pathname);
+         return (
+           <Link key={tab.key} href={tab.href} className={active ? 'web-desktop-nav__link is-active' : 'web-desktop-nav__link'}>
+-            {tab.label}
++            <WebIcon name={tab.icon} size={17} decorative />
++            <span>{tab.label}</span>
+           </Link>
+         );
+       })}
+@@ -39,7 +41,7 @@ export function WebTopHeader() {
+     <header className="web-top-header web-top-header--nested">
+       <div className="web-nested-title-row">
+         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label="Go back">
+-          ‹
++          <WebIcon name="back" size={21} decorative />
+         </Link>
+         <h1>{header.title}</h1>
+       </div>
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index e2b2d66..98d467c 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -3,6 +3,7 @@
+ import Link from 'next/link';
+ import { useEffect, useState } from 'react';
+ import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
++import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { betaFeatures, MoneyOffNotice } from '../../lib/betaFeatures';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+@@ -13,15 +14,16 @@ type AccountHubItem = {
+   title: string;
+   body: string;
+   badge?: string;
++  icon?: WebIconName;
+ };
+ 
+ const accountItems: AccountHubItem[] = [
+-  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.' },
++  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.', icon: 'profile' },
+   ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', title: 'Business / brand', body: 'Create future business, agency, brand, or enterprise profiles for KYB-ready onboarding.' }] : []),
+   ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' }] : []),
+   ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' }] : []),
+-  { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.' },
+-  { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.' },
++  { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.', icon: 'settings' },
++  { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.', icon: 'help' },
+ ];
+ 
+ export function AccountHubClient() {
+@@ -86,12 +88,13 @@ export function AccountHubClient() {
+       <div className="mobile-list">
+         {accountItems.map((item) => (
+           <Link key={item.href} href={item.href} className="mobile-link-card">
+-            <span>
++            {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
++            <span className="mobile-link-card__body">
+               <strong>{item.title}</strong>
+               <br />
+               {item.body}
+             </span>
+-            <span className="mobile-link-card__arrow">›</span>
++            <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
+           </Link>
+         ))}
+       </div>
+diff --git a/apps/web/src/features/deck/SquareStackDeck.tsx b/apps/web/src/features/deck/SquareStackDeck.tsx
+index 6bcaa8b..480b2f5 100644
+--- a/apps/web/src/features/deck/SquareStackDeck.tsx
++++ b/apps/web/src/features/deck/SquareStackDeck.tsx
+@@ -2,6 +2,7 @@
+ 
+ import type { CSSProperties, PointerEvent, ReactNode, WheelEvent } from 'react';
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
++import { WebIcon } from '../../components/WebIcon';
+ import { SQUARE_DECK_TRANSITION_MS, getDragPose, getForwardPose, getLayerPose } from './squareDeckMotion';
+ 
+ export type SquareStackDeckItem = {
+@@ -236,7 +237,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
+             onClick={(event) => { event.stopPropagation(); commit('prev'); }}
+             aria-label="Previous card"
+           >
+-            ‹
++            <WebIcon name="back" size={18} decorative />
+           </button>
+           <button
+             type="button"
+@@ -246,7 +247,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
+             onClick={(event) => { event.stopPropagation(); commit('next'); }}
+             aria-label="Next card"
+           >
+-            ›
++            <WebIcon name="arrow-right" size={18} decorative />
+           </button>
+           <div className="square-stack-deck__dots" aria-label={`Card ${activeIndex + 1} of ${itemCount}`}>
+             {items.map((item, index) => <span key={item.id} className={index === activeIndex ? 'is-active' : ''} />)}
+diff --git a/apps/web/src/features/inventory/InventoryListClient.tsx b/apps/web/src/features/inventory/InventoryListClient.tsx
+index 4ec2f5a..d819235 100644
+--- a/apps/web/src/features/inventory/InventoryListClient.tsx
++++ b/apps/web/src/features/inventory/InventoryListClient.tsx
+@@ -3,6 +3,7 @@
+ import Link from 'next/link';
+ import { useEffect, useMemo, useState } from 'react';
+ import { InventoryEmptyState } from '../../components/InventoryEmptyState';
++import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+@@ -20,7 +21,7 @@ function InventoryCard({ item, kind }: { item: InventoryItem; kind: InventoryKin
+   return (
+     <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card" aria-label={`Open ${item.title}`}>
+       <div className="inventory-card__media" aria-hidden="true">
+-        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <span>{kind === 'need' ? '↓' : '↑'}</span>}
++        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={38} decorative />}
+       </div>
+       <div className="inventory-card__body">
+         <div className="status-row">
+@@ -96,9 +97,12 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+       <div className="inventory-controls">
+         <label className="trade-search-field">
+           <span className="sr-only">Search {plural}</span>
++          <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
+           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search your ${plural}`} type="search" />
+         </label>
+-        <Link href={newHref} className="trade-create-pill" aria-label={`Create ${singular}`}>+</Link>
++        <Link href={newHref} className="trade-create-pill" aria-label={`Create ${singular}`}>
++          <WebIcon name="add" size={21} decorative />
++        </Link>
+       </div>
+ 
+       <section className="feed-status-row" aria-live="polite">
+diff --git a/apps/web/src/features/trade/TradeDetailClient.tsx b/apps/web/src/features/trade/TradeDetailClient.tsx
+index 36fc624..dbf88c1 100644
+--- a/apps/web/src/features/trade/TradeDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeDetailClient.tsx
+@@ -3,6 +3,7 @@
+ import type { TradeActionStatus, TradeDto } from '@hellowhen/contracts';
+ import type { FormEvent } from 'react';
+ import { useEffect, useState } from 'react';
++import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { mockTrades } from '../../lib/mockData';
+@@ -51,7 +52,7 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
+           <p className="eyebrow">{side.label}</p>
+           <h2>{side.title}</h2>
+         </div>
+-        <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'money' ? 'Money' : side.label}</span>
++        <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'need' ? <WebIcon name="need" size={14} decorative /> : side.kind === 'offer' ? <WebIcon name="offer" size={14} decorative /> : null}{side.kind === 'money' ? 'Money' : side.label}</span>
+       </div>
+       <p>{side.description}</p>
+       {side.metadata ? <p className="meta">{side.metadata}</p> : null}
+@@ -197,7 +198,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+     <article className="trade-detail-page">
+       <section className="trade-hero-section">
+         <div className="status-row">
+-          <span className="semantic-badge trade">{currentTrade.status}</span>
++          <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {currentTrade.status}</span>
+           <span className="semantic-badge money">{exchange}</span>
+           {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
+         </div>
+@@ -215,7 +216,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         <div className="trade-section-heading">
+           <div>
+             <p className="eyebrow">Trade details</p>
+-            <h2>How this trade works</h2>
++            <h2 className="icon-heading"><WebIcon name="trade" size={21} decorative /> How this trade works</h2>
+           </div>
+         </div>
+         <dl className="trade-detail-list">
+@@ -231,7 +232,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         <div className="trade-section-heading">
+           <div>
+             <p className="eyebrow">Confirmation</p>
+-            <h2>Delivery and money release</h2>
++            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> Delivery and money release</h2>
+           </div>
+           {actionLoading ? <span className="semantic-badge instruction">Updating</span> : null}
+         </div>
+@@ -241,7 +242,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         <div className="trade-action-row">
+           {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
+           {canConfirmCompletion ? <button type="button" className="success" onClick={() => void updateTradeStatus('completed')} disabled={Boolean(actionLoading)}>Confirm and release</button> : null}
+-          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}>Report problem</button> : null}
++          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> Report problem</button> : null}
+         </div>
+         {reportOpen ? (
+           <form className="proposal-composer" onSubmit={submitReport}>
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index d69b02d..191957a 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
+ import type { TradeDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
++import { WebIcon } from '../../components/WebIcon';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { mockTrades } from '../../lib/mockData';
+ import { TradeDeckGrid } from './TradeDeckGrid';
+@@ -93,6 +94,7 @@ export function TradeFeedClient() {
+       <form className="trade-feed-controls" aria-label="Trade feed controls" onSubmit={applySearch}>
+         <label className="trade-search-field">
+           <span className="sr-only">Search trades</span>
++          <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
+           <input
+             value={filters.q}
+             onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
+@@ -101,9 +103,12 @@ export function TradeFeedClient() {
+           />
+         </label>
+         <button type="button" className="trade-filter-pill" onClick={() => setShowFilters((value) => !value)}>
+-          Filter
++          <WebIcon name="filter" size={17} decorative />
++          <span>Filter</span>
+         </button>
+-        <Link href="/trades/create" className="trade-create-pill" aria-label="Create trade">+</Link>
++        <Link href="/trades/create" className="trade-create-pill" aria-label="Create trade">
++          <WebIcon name="add" size={21} decorative />
++        </Link>
+         {showFilters ? (
+           <div className="trade-filter-panel">
+             <label>
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index dad07f1..f47d6e7 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -4,6 +4,7 @@ import Link from 'next/link';
+ import type { FormEvent } from 'react';
+ import type { ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
++import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ 
+@@ -29,6 +30,12 @@ function messageSender(message: ProposalMessageDto) {
+   return message.sender?.profile?.displayName ?? message.sender?.profile?.handle ?? 'Message';
+ }
+ 
++function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
++  if (status === 'accepted') return 'proposal-accepted';
++  if (status === 'declined') return 'proposal-declined';
++  return 'proposal';
++}
++
+ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+   const auth = useWebAuth();
+   const isOwner = auth.user?.id === trade.ownerId;
+@@ -141,7 +148,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+   if (!auth.hydrated) {
+     return (
+       <section className="trade-social-section">
+-        <h2>Proposals</h2>
++        <h2><WebIcon name="proposal" size={21} decorative /> Proposals</h2>
+         <p>Checking your account access...</p>
+       </section>
+     );
+@@ -150,7 +157,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+   if (!auth.isAuthenticated) {
+     return (
+       <section className="trade-social-section">
+-        <h2>Ask to trade</h2>
++        <h2><WebIcon name="proposal" size={21} decorative /> Ask to trade</h2>
+         <p>Proposal messages are private between the creator and applicant, but they live here on the Trade Detail page.</p>
+         <Link href="/auth" className="button primary full">Sign in to send a proposal</Link>
+       </section>
+@@ -162,7 +169,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+       <div className="trade-section-heading">
+         <div>
+           <p className="eyebrow">Private thread</p>
+-          <h2>{isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : 'Ask to trade'}</h2>
++          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : 'Ask to trade'}</h2>
+         </div>
+         {loading ? <span className="semantic-badge instruction">Updating</span> : null}
+       </div>
+@@ -186,7 +193,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+             return (
+               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active' : 'proposal-card'}>
+                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
+-                  <span className="semantic-badge proposal">{proposal.status}</span>
++                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
+                   <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
+                   <span>{proposal.message}</span>
+                 </button>
+@@ -202,6 +209,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+         </div>
+       ) : isOwner && !notice ? (
+         <div className="proposal-empty-state">
++          <WebIcon name="proposal" size={30} decorative />
+           <strong>No proposals yet</strong>
+           <span>When someone asks to trade, the request will appear here.</span>
+         </div>
+@@ -212,7 +220,7 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+           <div className="trade-section-heading">
+             <div>
+               <p className="eyebrow">Conversation</p>
+-              <h3>{selectedProposal.status === 'accepted' ? 'Accepted trade conversation' : 'Proposal conversation'}</h3>
++              <h3 className="icon-heading"><WebIcon name={proposalStatusIcon(selectedProposal.status)} size={18} decorative /> {selectedProposal.status === 'accepted' ? 'Accepted trade conversation' : 'Proposal conversation'}</h3>
+             </div>
+           </div>
+           <div className="message-list">
+diff --git a/apps/web/src/features/trade/TradeSidePicker.tsx b/apps/web/src/features/trade/TradeSidePicker.tsx
+index 48c4ecc..4d8c34d 100644
+--- a/apps/web/src/features/trade/TradeSidePicker.tsx
++++ b/apps/web/src/features/trade/TradeSidePicker.tsx
+@@ -2,6 +2,7 @@
+ 
+ import Link from 'next/link';
+ import type { NeedDto, OfferDto } from '@hellowhen/contracts';
++import { WebIcon } from '../../components/WebIcon';
+ import { getInventoryMetadata, mediaSrc } from '../inventory/inventoryPresentation';
+ 
+ type SideMode = 'saved' | 'money';
+@@ -38,7 +39,7 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
+           <p className="eyebrow">{label}</p>
+           <h3>{mode === 'money' ? moneyText : savedText}</h3>
+         </div>
+-        <span className={`semantic-badge ${sideClass}`}>{label}</span>
++        <span className={`semantic-badge ${sideClass}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}</span>
+       </div>
+ 
+       <div className="trade-side-mode-toggle" role="group" aria-label={`${label} type`}>
+@@ -59,7 +60,7 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
+             return (
+               <button key={item.id} type="button" className={active ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => onSelect(item.id)}>
+                 <span className="trade-side-option__media" aria-hidden="true">
+-                  {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <span>{side === 'need' ? '↓' : '↑'}</span>}
++                  {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={side === 'need' ? 'need' : 'offer'} size={24} decorative />}
+                 </span>
+                 <span className="trade-side-option__body">
+                   <span className="trade-side-option__top"><strong>{item.title}</strong><em>{statusLabel(item)}</em></span>
+@@ -73,7 +74,7 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
+         <div className="trade-side-empty-state">
+           <strong>{emptyTitle}</strong>
+           <span>{emptyBody}</span>
+-          <Link href={emptyHref} className="button secondary">Create {side === 'need' ? 'Need' : 'Offer'}</Link>
++          <Link href={emptyHref} className="button secondary"><WebIcon name="add" size={16} decorative /> Create {side === 'need' ? 'Need' : 'Offer'}</Link>
+         </div>
+       )}
+     </section>
+diff --git a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+index aa55251..f110833 100644
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx
+@@ -3,6 +3,7 @@
+ import { useMemo } from 'react';
+ import { useRouter } from 'next/navigation';
+ import type { TradeDto } from '@hellowhen/contracts';
++import { WebIcon } from '../../components/WebIcon';
+ import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
+ import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide } from './tradePresentation';
+ 
+@@ -40,7 +41,7 @@ export function TradeStackDeck({ trade }: { trade: TradeDto }) {
+           </div>
+ 
+           <div className="trade-stack-card__mobile-divider" aria-hidden="true">
+-            <span>↔</span>
++            <span><WebIcon name="trade" size={17} decorative /></span>
+           </div>
+ 
+           <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index 3848dc7..4afdc85 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -4,7 +4,7 @@ export type WebTab = {
+   key: RootTabKey;
+   label: string;
+   href: string;
+-  icon: string;
++  icon: 'trade' | 'need' | 'offer' | 'profile';
+   match: (pathname: string) => boolean;
+ };
+ 
+@@ -13,28 +13,28 @@ export const webTabs: WebTab[] = [
+     key: 'trades',
+     label: 'Trades',
+     href: '/trades',
+-    icon: '↔',
++    icon: 'trade',
+     match: (pathname) => pathname === '/' || pathname.startsWith('/trades'),
+   },
+   {
+     key: 'needs',
+     label: 'Needs',
+     href: '/needs',
+-    icon: '↓',
++    icon: 'need',
+     match: (pathname) => pathname.startsWith('/needs'),
+   },
+   {
+     key: 'offers',
+     label: 'Offers',
+     href: '/offers',
+-    icon: '↑',
++    icon: 'offer',
+     match: (pathname) => pathname.startsWith('/offers'),
+   },
+   {
+     key: 'account',
+     label: 'Account',
+     href: '/account',
+-    icon: '•',
++    icon: 'profile',
+     match: (pathname) => pathname.startsWith('/account'),
+   },
+ ];

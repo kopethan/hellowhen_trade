@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { TradeDto } from '@hellowhen/contracts';
+import { WebIcon } from '../../components/WebIcon';
 import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
 import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide } from './tradePresentation';
 
@@ -40,7 +41,7 @@ export function TradeStackDeck({ trade }: { trade: TradeDto }) {
           </div>
 
           <div className="trade-stack-card__mobile-divider" aria-hidden="true">
-            <span>↔</span>
+            <span><WebIcon name="trade" size={17} decorative /></span>
           </div>
 
           <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">

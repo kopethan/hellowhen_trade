@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 import type { TradeDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
+import { WebIcon } from '../../components/WebIcon';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { mockTrades } from '../../lib/mockData';
 import { TradeDeckGrid } from './TradeDeckGrid';
@@ -93,6 +94,7 @@ export function TradeFeedClient() {
       <form className="trade-feed-controls" aria-label="Trade feed controls" onSubmit={applySearch}>
         <label className="trade-search-field">
           <span className="sr-only">Search trades</span>
+          <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
           <input
             value={filters.q}
             onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
@@ -101,9 +103,12 @@ export function TradeFeedClient() {
           />
         </label>
         <button type="button" className="trade-filter-pill" onClick={() => setShowFilters((value) => !value)}>
-          Filter
+          <WebIcon name="filter" size={17} decorative />
+          <span>Filter</span>
         </button>
-        <Link href="/trades/create" className="trade-create-pill" aria-label="Create trade">+</Link>
+        <Link href="/trades/create" className="trade-create-pill" aria-label="Create trade">
+          <WebIcon name="add" size={21} decorative />
+        </Link>
         {showFilters ? (
           <div className="trade-filter-panel">
             <label>

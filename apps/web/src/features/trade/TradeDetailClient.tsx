@@ -3,6 +3,7 @@
 import type { TradeActionStatus, TradeDto } from '@hellowhen/contracts';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
+import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { mockTrades } from '../../lib/mockData';
@@ -51,7 +52,7 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
           <p className="eyebrow">{side.label}</p>
           <h2>{side.title}</h2>
         </div>
-        <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'money' ? 'Money' : side.label}</span>
+        <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'need' ? <WebIcon name="need" size={14} decorative /> : side.kind === 'offer' ? <WebIcon name="offer" size={14} decorative /> : null}{side.kind === 'money' ? 'Money' : side.label}</span>
       </div>
       <p>{side.description}</p>
       {side.metadata ? <p className="meta">{side.metadata}</p> : null}
@@ -197,7 +198,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     <article className="trade-detail-page">
       <section className="trade-hero-section">
         <div className="status-row">
-          <span className="semantic-badge trade">{currentTrade.status}</span>
+          <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {currentTrade.status}</span>
           <span className="semantic-badge money">{exchange}</span>
           {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
         </div>
@@ -215,7 +216,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <div className="trade-section-heading">
           <div>
             <p className="eyebrow">Trade details</p>
-            <h2>How this trade works</h2>
+            <h2 className="icon-heading"><WebIcon name="trade" size={21} decorative /> How this trade works</h2>
           </div>
         </div>
         <dl className="trade-detail-list">
@@ -231,7 +232,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <div className="trade-section-heading">
           <div>
             <p className="eyebrow">Confirmation</p>
-            <h2>Delivery and money release</h2>
+            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> Delivery and money release</h2>
           </div>
           {actionLoading ? <span className="semantic-badge instruction">Updating</span> : null}
         </div>
@@ -241,7 +242,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <div className="trade-action-row">
           {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
           {canConfirmCompletion ? <button type="button" className="success" onClick={() => void updateTradeStatus('completed')} disabled={Boolean(actionLoading)}>Confirm and release</button> : null}
-          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}>Report problem</button> : null}
+          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> Report problem</button> : null}
         </div>
         {reportOpen ? (
           <form className="proposal-composer" onSubmit={submitReport}>

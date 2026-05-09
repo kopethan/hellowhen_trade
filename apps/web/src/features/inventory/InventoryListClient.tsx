@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { InventoryEmptyState } from '../../components/InventoryEmptyState';
+import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -20,7 +21,7 @@ function InventoryCard({ item, kind }: { item: InventoryItem; kind: InventoryKin
   return (
     <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card" aria-label={`Open ${item.title}`}>
       <div className="inventory-card__media" aria-hidden="true">
-        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <span>{kind === 'need' ? '↓' : '↑'}</span>}
+        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={38} decorative />}
       </div>
       <div className="inventory-card__body">
         <div className="status-row">
@@ -96,9 +97,12 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
       <div className="inventory-controls">
         <label className="trade-search-field">
           <span className="sr-only">Search {plural}</span>
+          <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search your ${plural}`} type="search" />
         </label>
-        <Link href={newHref} className="trade-create-pill" aria-label={`Create ${singular}`}>+</Link>
+        <Link href={newHref} className="trade-create-pill" aria-label={`Create ${singular}`}>
+          <WebIcon name="add" size={21} decorative />
+        </Link>
       </div>
 
       <section className="feed-status-row" aria-live="polite">

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { ActivityIndicator, View } from 'react-native';
@@ -55,6 +56,15 @@ type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+type TabIconName = React.ComponentProps<typeof Ionicons>['name'];
+
+function getTabIconName(routeName: keyof MainTabParamList, focused: boolean): TabIconName {
+  if (routeName === 'Trades') return focused ? 'swap-horizontal' : 'swap-horizontal-outline';
+  if (routeName === 'Needs') return focused ? 'arrow-down-circle' : 'arrow-down-circle-outline';
+  if (routeName === 'Offers') return focused ? 'arrow-up-circle' : 'arrow-up-circle-outline';
+  return focused ? 'person-circle' : 'person-circle-outline';
+}
+
 function TradeTabs() {
   const insets = useSafeAreaInsets();
   const theme = useThemeTokens();
@@ -62,17 +72,19 @@ function TradeTabs() {
 
   return (
     <Tabs.Navigator
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
         tabBarShowLabel: true,
-        tabBarIcon: () => null,
-        tabBarIconStyle: { display: 'none' },
-        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 8 },
-        tabBarItemStyle: { paddingTop: 8 },
-        tabBarStyle: { height: 58 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
+        tabBarIcon: ({ color, focused, size }) => (
+          <Ionicons name={getTabIconName(route.name, focused)} size={Math.max(size, 23)} color={color} />
+        ),
+        tabBarIconStyle: { marginTop: 6 },
+        tabBarLabelStyle: { fontWeight: '900', fontSize: 12, paddingBottom: 6 },
+        tabBarItemStyle: { paddingTop: 7 },
+        tabBarStyle: { height: 66 + bottomInset, paddingBottom: bottomInset, borderTopColor: theme.color.border, backgroundColor: theme.color.surface },
         tabBarActiveTintColor: theme.semantic.proposal.bg,
         tabBarInactiveTintColor: theme.color.muted,
-      }}
+      })}
     >
       <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} />
       <Tabs.Screen name="Needs" component={MyNeedsScreen} />

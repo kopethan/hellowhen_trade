@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { NeedDto, OfferDto } from '@hellowhen/contracts';
+import { WebIcon } from '../../components/WebIcon';
 import { getInventoryMetadata, mediaSrc } from '../inventory/inventoryPresentation';
 
 type SideMode = 'saved' | 'money';
@@ -38,7 +39,7 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
           <p className="eyebrow">{label}</p>
           <h3>{mode === 'money' ? moneyText : savedText}</h3>
         </div>
-        <span className={`semantic-badge ${sideClass}`}>{label}</span>
+        <span className={`semantic-badge ${sideClass}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}</span>
       </div>
 
       <div className="trade-side-mode-toggle" role="group" aria-label={`${label} type`}>
@@ -59,7 +60,7 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
             return (
               <button key={item.id} type="button" className={active ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => onSelect(item.id)}>
                 <span className="trade-side-option__media" aria-hidden="true">
-                  {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <span>{side === 'need' ? '↓' : '↑'}</span>}
+                  {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={side === 'need' ? 'need' : 'offer'} size={24} decorative />}
                 </span>
                 <span className="trade-side-option__body">
                   <span className="trade-side-option__top"><strong>{item.title}</strong><em>{statusLabel(item)}</em></span>
@@ -73,7 +74,7 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
         <div className="trade-side-empty-state">
           <strong>{emptyTitle}</strong>
           <span>{emptyBody}</span>
-          <Link href={emptyHref} className="button secondary">Create {side === 'need' ? 'Need' : 'Offer'}</Link>
+          <Link href={emptyHref} className="button secondary"><WebIcon name="add" size={16} decorative /> Create {side === 'need' ? 'Need' : 'Offer'}</Link>
         </div>
       )}
     </section>
