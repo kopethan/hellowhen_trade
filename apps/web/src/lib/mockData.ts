@@ -282,3 +282,144 @@ export const mockTrades: TradeDto[] = [
     },
   },
 ];
+
+type StressMockFixture = {
+  ownerId: string;
+  ownerName: string;
+  ownerHandle: string;
+  needTitle: string;
+  needDescription: string;
+  needCategory: string;
+  needTiming: string;
+  needMode: NonNullable<NeedDto['mode']>;
+  needLocation: string;
+  needTags: string[];
+  offerTitle: string;
+  offerDescription: string;
+  offerCategory: string;
+  offerAvailability: string;
+  offerMode: NonNullable<OfferDto['mode']>;
+  offerLocation: string;
+  offerIncludes: string[];
+  offerTags: string[];
+  needTone: string;
+  offerTone: string;
+};
+
+const stressMockFixtures: StressMockFixture[] = [
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need editor for short product video', needDescription: 'I need a clean edit for a vertical product video with captions, light sound cleanup, and a punchy hook.', needCategory: 'Video', needTiming: 'This weekend', needMode: 'remote', needLocation: 'Remote', needTags: ['video', 'editing', 'remote'], needTone: '#7c3aed',
+    offerTitle: 'UI polish for web app', offerDescription: 'I can review a web app screen and send a clear UI polish checklist with spacing, hierarchy, and copy notes.', offerCategory: 'Design', offerAvailability: 'Any time', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['UI notes', 'Spacing review', 'One screen'], offerTags: ['design', 'ui', 'web'], offerTone: '#0f766e',
+  },
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need homepage copy cleanup', needDescription: 'I need someone to tighten homepage copy and make the first section easier to understand.', needCategory: 'Copywriting', needTiming: 'Next 3 days', needMode: 'remote', needLocation: 'Remote', needTags: ['copy', 'homepage'], needTone: '#ea580c',
+    offerTitle: 'Figma component tidy-up', offerDescription: 'I can organize a small Figma file, rename layers, and clean up a starter component set.', offerCategory: 'Design', offerAvailability: 'Evenings', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Layer cleanup', 'Component naming'], offerTags: ['figma', 'design'], offerTone: '#2563eb',
+  },
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need marketplace onboarding review', needDescription: 'I need feedback on a short onboarding flow for first-time marketplace users.', needCategory: 'Product', needTiming: 'This week', needMode: 'remote', needLocation: 'Remote', needTags: ['product', 'ux'], needTone: '#0891b2',
+    offerTitle: 'Landing page hero mockup', offerDescription: 'I can create one quick landing page hero mockup with headline, CTA, and a simple layout direction.', offerCategory: 'Design', offerAvailability: 'This week', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Hero mockup', 'CTA direction'], offerTags: ['landing', 'mockup'], offerTone: '#16a34a',
+  },
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need product photo retouching', needDescription: 'I need five product photos cleaned up with background and light color correction.', needCategory: 'Photography', needTiming: '48 hours', needMode: 'remote', needLocation: 'Remote', needTags: ['photo', 'retouch'], needTone: '#db2777',
+    offerTitle: 'Short app store copy', offerDescription: 'I can write a short app store description and three concise feature bullets.', offerCategory: 'Copywriting', offerAvailability: 'Tomorrow', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['App description', 'Feature bullets'], offerTags: ['copy', 'app'], offerTone: '#9333ea',
+  },
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need simple icon concepts', needDescription: 'I need three simple monochrome icon concept directions for a mobile tab bar.', needCategory: 'Icon design', needTiming: 'Flexible', needMode: 'remote', needLocation: 'Remote', needTags: ['icons', 'mobile'], needTone: '#334155',
+    offerTitle: 'Bug reproduction notes', offerDescription: 'I can test a web page on mobile and desktop and write clean reproduction notes for visible bugs.', offerCategory: 'QA', offerAvailability: 'Weekend', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Bug notes', 'Screenshots'], offerTags: ['qa', 'testing'], offerTone: '#dc2626',
+  },
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need local pickup help', needDescription: 'I need someone nearby to pick up a small package and bring it to a local studio.', needCategory: 'Errand', needTiming: 'Friday', needMode: 'local', needLocation: 'Paris area', needTags: ['local', 'pickup'], needTone: '#ca8a04',
+    offerTitle: 'Product listing cleanup', offerDescription: 'I can clean up product listing text and make the title, bullets, and description easier to scan.', offerCategory: 'Ecommerce', offerAvailability: 'This week', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Title cleanup', 'Bullet rewrite'], offerTags: ['ecommerce', 'copy'], offerTone: '#15803d',
+  },
+  {
+    ownerId: 'demo-user-1', ownerName: 'Mina', ownerHandle: 'mina',
+    needTitle: 'Need beta tester for mobile web', needDescription: 'I need someone to test mobile web layout with multiple trades, long text, and form scrolling.', needCategory: 'Testing', needTiming: 'Today', needMode: 'remote', needLocation: 'Remote', needTags: ['testing', 'mobile'], needTone: '#0284c7',
+    offerTitle: 'Profile bio rewrite', offerDescription: 'I can rewrite a short creator or freelancer profile bio with a clearer offer and tone.', offerCategory: 'Writing', offerAvailability: 'Today', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Bio rewrite', 'One revision'], offerTags: ['bio', 'writing'], offerTone: '#be123c',
+  },
+  {
+    ownerId: 'demo-user-2', ownerName: 'Noah', ownerHandle: 'noah',
+    needTitle: 'Need quick SEO title audit', needDescription: 'I need help checking page titles and descriptions for a small marketing site.', needCategory: 'Marketing', needTiming: 'Next week', needMode: 'remote', needLocation: 'Remote', needTags: ['seo', 'marketing'], needTone: '#0891b2',
+    offerTitle: 'Video thumbnail feedback', offerDescription: 'I can review three video thumbnails and suggest better hierarchy and contrast.', offerCategory: 'Video', offerAvailability: 'Evenings', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Thumbnail review', 'Contrast notes'], offerTags: ['video', 'thumbnail'], offerTone: '#7c3aed',
+  },
+  {
+    ownerId: 'demo-user-2', ownerName: 'Noah', ownerHandle: 'noah',
+    needTitle: 'Need product sample styling', needDescription: 'I need styling ideas for a small product sample pack before taking photos.', needCategory: 'Goods', needTiming: 'This month', needMode: 'hybrid', needLocation: 'Local or remote', needTags: ['goods', 'styling'], needTone: '#0f766e',
+    offerTitle: 'Remote usability notes', offerDescription: 'I can give usability notes for one mobile flow with screenshots and priority fixes.', offerCategory: 'UX', offerAvailability: 'This week', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['UX notes', 'Priority fixes'], offerTags: ['ux', 'mobile'], offerTone: '#2563eb',
+  },
+  {
+    ownerId: 'demo-user-2', ownerName: 'Noah', ownerHandle: 'noah',
+    needTitle: 'Need intro email polish', needDescription: 'I need a concise intro email polished so it feels friendly and clear.', needCategory: 'Email', needTiming: 'Tomorrow', needMode: 'remote', needLocation: 'Remote', needTags: ['email', 'copy'], needTone: '#ea580c',
+    offerTitle: 'Small logo direction notes', offerDescription: 'I can give notes on simple logo directions and help choose the cleanest option.', offerCategory: 'Branding', offerAvailability: 'Tomorrow', offerMode: 'remote', offerLocation: 'Remote', offerIncludes: ['Logo notes', 'Direction choice'], offerTags: ['logo', 'brand'], offerTone: '#334155',
+  },
+];
+
+for (const [index, fixture] of stressMockFixtures.entries()) {
+  const number = index + 1;
+  const createdAt = new Date(Date.parse(now) + number * 60_000).toISOString();
+  const expiresAt = new Date(Date.parse(now) + (number + 5) * 24 * 60 * 60 * 1000).toISOString();
+  const needId = `demo-need-stress-${number}`;
+  const offerId = `demo-offer-stress-${number}`;
+  const needMedia = [demoImage(`demo-media-need-stress-${number}`, fixture.ownerId, 'need', needId, fixture.needTitle.replace(/^Need\s+/i, '').slice(0, 20), fixture.needTone)];
+  const offerMedia = [demoImage(`demo-media-offer-stress-${number}`, fixture.ownerId, 'offer', offerId, fixture.offerTitle.replace(/^Offer\s+/i, '').slice(0, 20), fixture.offerTone)];
+  const need: NeedDto = {
+    id: needId,
+    ownerId: fixture.ownerId,
+    title: fixture.needTitle,
+    description: fixture.needDescription,
+    itemType: fixture.needCategory === 'Goods' ? 'goods' : fixture.needCategory === 'Errand' ? 'other' : 'service',
+    category: fixture.needCategory,
+    timing: fixture.needTiming,
+    mode: fixture.needMode,
+    locationLabel: fixture.needLocation,
+    tags: fixture.needTags,
+    status: 'active',
+    createdAt,
+    updatedAt: createdAt,
+    expiresAt,
+    media: needMedia,
+  };
+  const offer: OfferDto = {
+    id: offerId,
+    ownerId: fixture.ownerId,
+    title: fixture.offerTitle,
+    description: fixture.offerDescription,
+    itemType: 'service',
+    category: fixture.offerCategory,
+    availability: fixture.offerAvailability,
+    mode: fixture.offerMode,
+    locationLabel: fixture.offerLocation,
+    includes: fixture.offerIncludes,
+    tags: fixture.offerTags,
+    status: 'active',
+    createdAt,
+    updatedAt: createdAt,
+    expiresAt: null,
+    media: offerMedia,
+  };
+
+  mockNeeds.push(need);
+  mockOffers.push(offer);
+  mockTrades.push({
+    id: `demo-trade-stress-${number}`,
+    ownerId: fixture.ownerId,
+    title: `${fixture.needTitle} ↔ ${fixture.offerTitle}`,
+    description: `${fixture.needDescription} In exchange, ${fixture.offerDescription.toLowerCase()}`,
+    creditAmount: 0,
+    amountCents: 0,
+    currency: 'eur',
+    status: 'active',
+    isPublic: true,
+    createdAt,
+    updatedAt: createdAt,
+    expiresAt,
+    owner: { id: fixture.ownerId, profile: { displayName: fixture.ownerName, handle: fixture.ownerHandle, avatarUrl: null } },
+    need,
+    offer,
+  });
+}
