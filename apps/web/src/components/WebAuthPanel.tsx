@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { getFriendlyApiErrorMessage } from '../lib/webErrors';
 import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSupportedCurrency, type SupportedCurrency } from '../lib/webMoneyPreferences';
 import { useWebAuth } from '../providers/WebAuthProvider';
@@ -37,6 +37,12 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     return 'Login';
   }, [mode, submitting]);
 
+  useEffect(() => {
+    if (!auth.hydrated || !auth.isAuthenticated) return;
+    router.replace(redirectTo);
+    router.refresh();
+  }, [auth.hydrated, auth.isAuthenticated, redirectTo, router]);
+
   function switchMode(nextMode: AuthMode) {
     setMode(nextMode);
     setError(null);
@@ -67,7 +73,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     try {
       if (mode === 'login') {
         await auth.login(email.trim(), password);
-        router.push(redirectTo);
+        router.replace(redirectTo);
+        router.refresh();
       } else if (mode === 'register') {
         await auth.register({
           email: email.trim(),
@@ -78,7 +85,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
           countryCode,
           preferredCurrency,
         });
-        router.push(redirectTo);
+        router.replace(redirectTo);
+        router.refresh();
       } else {
         const result = await auth.forgotPassword(email.trim());
         setMessage(result.message);

@@ -232,7 +232,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       <section className="trade-social-section">
         <h2><WebIcon name="proposal" size={21} decorative /> Ask to trade</h2>
         <p>Proposal messages are private between the creator and applicant, but they live here on the Trade Detail page.</p>
-        <Link href="/auth" className="button primary full">Sign in to send a proposal</Link>
+        <Link href={`/auth?next=${encodeURIComponent(`/trades/${trade.id}`)}`} className="button primary full">Sign in to send a proposal</Link>
       </section>
     );
   }

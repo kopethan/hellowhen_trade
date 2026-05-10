@@ -1,7 +1,12 @@
 import { Extrapolation, interpolate } from 'react-native-reanimated';
 import type { SquareStackDepthEffect } from './squareStackDeck.types';
 
+// Keep one previous card mounted as a hidden incoming layer only.
+// The resting deck remains forward-only so swiped cards do not look like
+// they return to the stack.
 export const SQUARE_STACK_VISIBLE_BEFORE = 1;
+// Keep one hidden tail card mounted so next-swipe depth can promote smoothly
+// without making the idle stack look like more than three visible back cards.
 export const SQUARE_STACK_VISIBLE_AFTER = 4;
 export const SQUARE_STACK_COMMIT_THRESHOLD = 0.36;
 export const SQUARE_STACK_VELOCITY_THRESHOLD = 1.05;
@@ -72,7 +77,7 @@ export function getSquareStackTransform(visualOffset: number, cardSize: number, 
       translateX: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
       translateY: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 7, 14, 21, 28], Extrapolation.CLAMP),
       scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952], Extrapolation.CLAMP),
-      opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.72, 0.96, 1, 0.82, 0.58, 0.36, 0], Extrapolation.CLAMP),
+      opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.86, 0.98, 1, 1, 1, 0.94, 0], Extrapolation.CLAMP),
     };
   }
 

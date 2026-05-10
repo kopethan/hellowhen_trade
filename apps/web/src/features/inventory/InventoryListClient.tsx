@@ -117,7 +117,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
           <span className="semantic-badge instruction">Signed out</span>
           <h3>Sign in to manage your real {plural}</h3>
           <p>{demoDataEnabled ? `The demo cards below show the layout. Your saved ${plural} appear here after login.` : `Your saved ${plural} appear here after login.`}</p>
-          <Link href="/auth" className="button">Sign in</Link>
+          <Link href={`/auth?next=${encodeURIComponent(`/${plural}`)}`} className="button">Sign in</Link>
         </section>
       ) : null}
 

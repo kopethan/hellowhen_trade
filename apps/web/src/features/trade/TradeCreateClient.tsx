@@ -264,7 +264,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
           <span className="semantic-badge instruction">Signed out</span>
           <h3>Sign in to create a live trade</h3>
           <p>You can preview the form, but creating a trade needs your account so the selected Need and Offer belong to you.</p>
-          <Link href="/auth" className="button">Sign in</Link>
+          <Link href="/auth?next=/trades/create" className="button">Sign in</Link>
         </section>
       ) : null}
 

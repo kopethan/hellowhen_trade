@@ -4,6 +4,8 @@ export type WebIconName =
   | 'add'
   | 'arrow-right'
   | 'back'
+  | 'deck-advance'
+  | 'deck-back'
   | 'dispute'
   | 'filter'
   | 'help'

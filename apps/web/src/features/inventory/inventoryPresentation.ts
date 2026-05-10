@@ -1,5 +1,5 @@
 import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
-import { API_URL } from '../../lib/api';
+import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDate } from '../../lib/webFormat';
 
 export type InventoryKind = 'need' | 'offer';
@@ -107,11 +107,7 @@ export function formatInventoryDate(value?: string | null) {
 }
 
 export function mediaSrc(media: MediaAssetDto) {
-  if (!media.url) return '';
-  if (/^https?:\/\//i.test(media.url) || media.url.startsWith('data:')) return media.url;
-  const base = API_URL.replace(/\/$/, '');
-  const path = media.url.startsWith('/') ? media.url : `/${media.url}`;
-  return `${base}${path}`;
+  return resolveWebAssetUrl(media.url, media.storageKey);
 }
 
 export function normalizeInventoryList(value: unknown, kind: InventoryKind): InventoryItem[] {

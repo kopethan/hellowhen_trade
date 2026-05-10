@@ -12,7 +12,7 @@ export function getLayerPose(layer: number) {
     x: layer * SQUARE_DECK_LAYER_OFFSET,
     y: layer * SQUARE_DECK_LAYER_OFFSET,
     scale: 1 - layer * SQUARE_DECK_LAYER_SCALE,
-    opacity: layer > 2 ? 0 : 1 - layer * 0.08,
+    opacity: layer > 3 ? 0 : layer <= 1 ? 1 : layer === 2 ? 0.96 : 0.88,
   };
 }
 
@@ -26,11 +26,13 @@ export function getForwardPose(progress: number) {
   };
 }
 
-export function getDragPose(dx: number) {
-  const cappedX = clamp(dx, -180, 180);
+export function getDragPose(dx: number, dy = 0) {
+  const cappedX = clamp(dx, -190, 190);
+  const cappedY = clamp(dy, -150, 150);
+  const diagonal = clamp(dx + dy * 0.9, -220, 220);
   return {
     x: cappedX,
-    y: -Math.abs(cappedX) * SQUARE_DECK_RAIL_K,
-    rotate: cappedX * 0.025,
+    y: cappedY,
+    rotate: diagonal * 0.018,
   };
 }

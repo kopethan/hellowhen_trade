@@ -67,6 +67,13 @@ export function AccountHubClient() {
             <p>{auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle on your profile.'}</p>
           </div>
         </section>
+      ) : auth.hydrated ? (
+        <section className="mobile-card mobile-card--soft">
+          <span className="semantic-badge instruction">Signed out</span>
+          <h3>Login to open your account</h3>
+          <p>Profile, settings, wallet, and support are available after login.</p>
+          <Link href="/auth?next=/account" className="button primary">Login or register</Link>
+        </section>
       ) : null}
 
       {auth.isAuthenticated && (betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
@@ -84,17 +91,20 @@ export function AccountHubClient() {
       ) : null}
 
       <div className="mobile-list">
-        {accountItems.map((item) => (
-          <Link key={item.href} href={item.href} className="mobile-link-card">
-            {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
-            <span className="mobile-link-card__body">
-              <strong>{item.title}</strong>
-              <br />
-              {item.body}
-            </span>
-            <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
-          </Link>
-        ))}
+        {accountItems.map((item) => {
+          const href = auth.hydrated && !auth.isAuthenticated ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+          return (
+            <Link key={item.href} href={href} className="mobile-link-card">
+              {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
+              <span className="mobile-link-card__body">
+                <strong>{item.title}</strong>
+                <br />
+                {item.body}
+              </span>
+              <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
+            </Link>
+          );
+        })}
       </div>
     </div>
   );

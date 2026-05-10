@@ -26,7 +26,7 @@ function fallbackBody(status?: MediaAssetDto['status']) {
 }
 
 function TradeImageGridItem({ image, index, title, badge, extra }: { image: MediaAssetDto; index: number; title: string; badge?: 'Need reference' | 'Offer sample'; extra: number }) {
-  const src = resolveTradeMediaUrl(image.url);
+  const src = resolveTradeMediaUrl(image.url, image.storageKey);
   const [hasError, setHasError] = useState(!src);
   const imageStatusLabel = statusLabel(image.status);
 

@@ -13,6 +13,7 @@ import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import { ContinuousSquareStackDeck } from './deck';
 import { buildTradeSquareDeckCards, renderTradeSquareDeckCard } from './components/TradeSquareDeckCards';
 import type { TradeDeckItem } from './types';
@@ -49,6 +50,7 @@ function buildFeedQuery(query: string, modeFilter: ModeFilter, category: string,
 export function TradeDeckFeedScreen() {
   const theme = useThemeTokens();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const auth = useAuth();
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -103,7 +105,13 @@ export function TradeDeckFeedScreen() {
     });
   }, [navigation]);
 
-  const createTrade = useCallback(() => navigation.navigate('CreateTrade'), [navigation]);
+  const createTrade = useCallback(() => {
+    if (!auth.isAuthenticated) {
+      navigation.navigate('Login');
+      return;
+    }
+    navigation.navigate('CreateTrade');
+  }, [auth.isAuthenticated, navigation]);
   const clearFilters = useCallback(() => {
     setQuery('');
     setModeFilter('all');

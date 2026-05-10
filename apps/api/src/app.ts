@@ -9,9 +9,24 @@ import { stripeWebhookRoutes } from './modules/stripe/stripeWebhook.routes.js';
 import { requireMoneyFeaturesVisible } from './middleware/featureGates.js';
 
 const allowedOrigins = new Set([env.webOrigin, env.mobileOrigin].filter(Boolean));
+function isPrivateLanHostname(hostname: string) {
+  if (/^10\./.test(hostname)) return true;
+  if (/^192\.168\./.test(hostname)) return true;
+  const match = hostname.match(/^172\.(\d{1,2})\./);
+  if (!match) return false;
+  const secondOctet = Number(match[1]);
+  return secondOctet >= 16 && secondOctet <= 31;
+}
+
 function isAllowedDevOrigin(origin: string) {
   if (env.nodeEnv !== 'development') return false;
-  return origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('http://10.0.2.2:') || origin.startsWith('exp://');
+  if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:') || origin.startsWith('http://10.0.2.2:') || origin.startsWith('exp://')) return true;
+  try {
+    const parsed = new URL(origin);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && isPrivateLanHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 export function createApp() {
   const app = express();

@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppCard } from '../../components/AppCard';
 import { AppScreen } from '../../components/AppScreen';
 import { AppSelect } from '../../components/AppSelect';
@@ -9,6 +11,7 @@ import { countryOptions, currencyOptions, type SupportedCurrency } from '../../l
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 
@@ -27,6 +30,7 @@ function authSubtitle(mode: AuthMode) {
 
 export function LoginScreen() {
   const auth = useAuth();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const theme = useThemeTokens();
   const [mode, setMode] = useState<AuthMode>('login');
   const [displayName, setDisplayName] = useState('');
@@ -43,6 +47,11 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const googleConfigured = useMemo(() => Boolean(googleWebClientId || googleIosClientId || googleAndroidClientId), []);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated) return;
+    navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'TradeTabs' }] }));
+  }, [auth.isAuthenticated, navigation]);
 
   function switchMode(nextMode: AuthMode) {
     setMode(nextMode);

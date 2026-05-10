@@ -4,6 +4,7 @@ import type { CSSProperties, PointerEvent, ReactNode, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { SQUARE_DECK_TRANSITION_MS, getDragPose, getForwardPose, getLayerPose } from './squareDeckMotion';
+import { classifySquareDeckPanIntent, type SquareDeckGestureIntent } from './squareDeckGestureIntent';
 
 export type SquareStackDeckItem = {
   id: string;
@@ -18,7 +19,9 @@ type DragState = {
   startY: number;
   dx: number;
   dy: number;
+  intent: SquareDeckGestureIntent;
   swiping: boolean;
+  captured: boolean;
 };
 
 type SquareStackDeckProps = {
@@ -28,16 +31,10 @@ type SquareStackDeckProps = {
   onOpen?: (item: SquareStackDeckItem, index: number) => void;
 };
 
-const VISIBLE_LAYERS = 3;
+const VISIBLE_LAYERS = 4;
 const TOUCH_COMMIT_PX = 54;
-const TOUCH_LOCK_PX = 12;
 const WHEEL_COMMIT_PX = 24;
 const WHEEL_COOLDOWN_MS = 340;
-
-function positiveModulo(value: number, length: number) {
-  if (length <= 0) return 0;
-  return ((value % length) + length) % length;
-}
 
 export function SquareStackDeck({ items, label, className, onOpen }: SquareStackDeckProps) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -61,11 +58,22 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
   }, []);
 
   const visibleItems = useMemo(() => {
+    const startIndex = motion === 'prev' && activeIndex > 0 ? activeIndex - 1 : activeIndex;
     return Array.from({ length: Math.min(VISIBLE_LAYERS, itemCount) }, (_, layer) => {
-      const itemIndex = positiveModulo(activeIndex + layer, itemCount);
+      const itemIndex = startIndex + layer;
+      if (itemIndex < 0 || itemIndex >= itemCount) return null;
       return { item: items[itemIndex], itemIndex, layer };
-    }).filter((entry): entry is { item: SquareStackDeckItem; itemIndex: number; layer: number } => Boolean(entry.item));
-  }, [activeIndex, itemCount, items]);
+    }).filter((entry): entry is { item: SquareStackDeckItem; itemIndex: number; layer: number } => Boolean(entry?.item));
+  }, [activeIndex, itemCount, items, motion]);
+
+  const maxVisibleBackLayers = Math.max(1, VISIBLE_LAYERS - 1);
+  const visibleBackLayers = Math.min(Math.max(itemCount - activeIndex - 1, 0), maxVisibleBackLayers);
+  const advanceControlOutset = 2 + Math.round(10 * (visibleBackLayers / maxVisibleBackLayers));
+  const deckStyle = {
+    '--deck-visible-back-layers': String(visibleBackLayers),
+    '--deck-max-back-layers': String(maxVisibleBackLayers),
+    '--deck-advance-control-outset': `${advanceControlOutset}px`,
+  } as CSSProperties;
 
   const commit = useCallback((direction: 'next' | 'prev') => {
     if (direction === 'next' && !canGoNext) return;
@@ -111,7 +119,6 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.pointerType === 'mouse' || itemCount <= 1 || motion) return;
     if ((event.target as Element | null)?.closest('[data-deck-control],a,button,input,textarea,select,label')) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
     setDrag({
       pointerId: event.pointerId,
       pointerType: event.pointerType,
@@ -119,7 +126,9 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
       startY: event.clientY,
       dx: 0,
       dy: 0,
+      intent: 'UNDECIDED',
       swiping: false,
+      captured: false,
     });
   }
 
@@ -127,27 +136,49 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     if (!drag || drag.pointerId !== event.pointerId || drag.pointerType === 'mouse') return;
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
-    const swiping = drag.swiping || (Math.abs(dx) > TOUCH_LOCK_PX && Math.abs(dx) > Math.abs(dy) * 1.08);
-    if (!swiping) return;
+    let intent = drag.intent;
+    let captured = drag.captured;
+
+    if (intent === 'UNDECIDED') {
+      intent = classifySquareDeckPanIntent({ dx, dy, hasPrev: canGoPrev, hasNext: canGoNext });
+      if (intent === 'UNDECIDED') return;
+      if (intent === 'SCROLL') {
+        setDrag(null);
+        return;
+      }
+    }
+
+    if (!captured) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        captured = true;
+      } catch {
+        captured = false;
+      }
+    }
+
     event.preventDefault();
-    setDrag({ ...drag, dx, dy, swiping });
+    setDrag({ ...drag, dx, dy, intent, swiping: true, captured });
   }
 
   function endTouchDrag(event: PointerEvent<HTMLDivElement>) {
     if (!drag || drag.pointerId !== event.pointerId) return;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // The browser may already have released the pointer capture.
+    if (drag.captured) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // The browser may already have released the pointer capture.
+      }
     }
 
-    const dx = drag.dx;
+    const diagonalDrag = drag.dx + drag.dy * 0.9;
+    const intent = drag.intent;
     const swiping = drag.swiping;
     setDrag(null);
-    if (!swiping) return;
+    if (!swiping || (intent !== 'SWIPE_NEXT' && intent !== 'SWIPE_PREV')) return;
     suppressOpenUntilRef.current = window.performance.now() + 260;
-    if (dx < -TOUCH_COMMIT_PX) commit('next');
-    if (dx > TOUCH_COMMIT_PX) commit('prev');
+    if (intent === 'SWIPE_NEXT' && -diagonalDrag > TOUCH_COMMIT_PX) commit('next');
+    if (intent === 'SWIPE_PREV' && diagonalDrag > TOUCH_COMMIT_PX) commit('prev');
   }
 
   function getLayerStyle(layer: number): CSSProperties {
@@ -159,7 +190,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     let opacity = pose.opacity;
 
     if (layer === 0 && drag?.swiping) {
-      const dragPose = getDragPose(drag.dx);
+      const dragPose = getDragPose(drag.dx, drag.dy);
       x = dragPose.x;
       y = dragPose.y;
       rotate = dragPose.rotate;
@@ -171,7 +202,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
         x = exit.x;
         y = exit.y;
         rotate = exit.rotate;
-        opacity = exit.opacity;
+        opacity = 1;
       } else {
         const nextPose = getLayerPose(Math.max(0, layer - 1));
         x = nextPose.x;
@@ -179,6 +210,10 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
         scale = nextPose.scale;
         opacity = nextPose.opacity;
       }
+    }
+
+    if (motion === 'prev' && layer === 0) {
+      opacity = 1;
     }
 
     return {
@@ -192,8 +227,14 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     };
   }
 
+  const deckClassName = [
+    'square-stack-deck',
+    className,
+    (motion || drag?.swiping) ? 'is-interacting' : null,
+  ].filter(Boolean).join(' ');
+
   return (
-    <section className={className ? `square-stack-deck ${className}` : 'square-stack-deck'} aria-label={label}>
+    <section className={deckClassName} style={deckStyle} aria-label={label}>
       <div
         className={motion === 'prev' ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
         role="button"
@@ -229,26 +270,30 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
 
       {itemCount > 1 ? (
         <>
-          <button
-            type="button"
-            data-deck-control="true"
-            className="square-stack-deck__control square-stack-deck__control--prev"
-            disabled={!canGoPrev || Boolean(motion)}
-            onClick={(event) => { event.stopPropagation(); commit('prev'); }}
-            aria-label="Previous card"
-          >
-            <WebIcon name="back" size={18} decorative />
-          </button>
-          <button
-            type="button"
-            data-deck-control="true"
-            className="square-stack-deck__control square-stack-deck__control--next"
-            disabled={!canGoNext || Boolean(motion)}
-            onClick={(event) => { event.stopPropagation(); commit('next'); }}
-            aria-label="Next card"
-          >
-            <WebIcon name="arrow-right" size={18} decorative />
-          </button>
+          {canGoPrev ? (
+            <button
+              type="button"
+              data-deck-control="true"
+              className="square-stack-deck__control square-stack-deck__control--prev"
+              disabled={Boolean(motion)}
+              onClick={(event) => { event.stopPropagation(); commit('prev'); }}
+              aria-label="Previous card"
+            >
+              <WebIcon name="deck-back" size={22} decorative />
+            </button>
+          ) : null}
+          {canGoNext ? (
+            <button
+              type="button"
+              data-deck-control="true"
+              className="square-stack-deck__control square-stack-deck__control--next"
+              disabled={Boolean(motion)}
+              onClick={(event) => { event.stopPropagation(); commit('next'); }}
+              aria-label="Next card"
+            >
+              <WebIcon name="deck-advance" size={22} decorative />
+            </button>
+          ) : null}
           <div className="square-stack-deck__dots" aria-label={`Card ${activeIndex + 1} of ${itemCount}`}>
             {items.map((item, index) => <span key={item.id} className={index === activeIndex ? 'is-active' : ''} />)}
           </div>

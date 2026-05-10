@@ -1,5 +1,5 @@
 import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
-import { API_URL } from '../../lib/api';
+import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
 
 export const fallbackCurrency = 'eur';
@@ -100,11 +100,7 @@ export function moneyDeltaClassName(cents: number) {
 
 
 export function assetUrl(value?: string | null) {
-  if (!value) return '';
-  if (/^https?:\/\//i.test(value) || value.startsWith('data:')) return value;
-  const base = API_URL.replace(/\/$/, '');
-  const path = value.startsWith('/') ? value : `/${value}`;
-  return `${base}${path}`;
+  return resolveWebAssetUrl(value);
 }
 
 

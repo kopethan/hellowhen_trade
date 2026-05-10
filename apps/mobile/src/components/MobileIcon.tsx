@@ -5,6 +5,8 @@ import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 export type MobileIconName =
   | 'add'
   | 'back'
+  | 'deck-advance'
+  | 'deck-back'
   | 'business'
   | 'chevron-right'
   | 'close'
@@ -44,6 +46,10 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M12 3V21" strokeWidth={2} {...strokeProps} /><Path d="M3 12H21" strokeWidth={2} {...strokeProps} /></>;
     case 'back':
       return <><Path d="M16 19.5L8.5 12" strokeWidth={2} {...strokeProps} /><Path d="M16 4.5L8.5 12" strokeWidth={2} {...strokeProps} /></>;
+    case 'deck-advance':
+      return <><Path d="M6 16V6" strokeWidth={3.2} {...strokeProps} /><Path d="M6 6H15" strokeWidth={3.2} {...strokeProps} /><Circle cx={18} cy={18} r={3} fill={color} /><Circle cx={13} cy={13} r={3} fill={color} /></>;
+    case 'deck-back':
+      return <><Path d="M18 8V18" strokeWidth={3.2} {...strokeProps} /><Path d="M18 18H9" strokeWidth={3.2} {...strokeProps} /><Circle cx={6} cy={6} r={3} fill={color} /><Circle cx={11} cy={11} r={3} fill={color} /></>;
     case 'business':
       return <><Path d="M4.5 9.5H19.5V19.5H4.5V9.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M9 9.5V6.75C9 5.92 9.67 5.25 10.5 5.25H13.5C14.33 5.25 15 5.92 15 6.75V9.5" strokeWidth={1.8} {...strokeProps} /><Path d="M9 13H15" strokeWidth={1.8} {...strokeProps} /></>;
     case 'chevron-right':

@@ -1,11 +1,23 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { TradeDto } from '@hellowhen/contracts';
 import { WebIcon } from '../../components/WebIcon';
 import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
 import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide } from './tradePresentation';
+
+
+function TradeStackImageCard({ image }: { image: ReturnType<typeof getDeckImages>[number] }) {
+  const [failed, setFailed] = useState(!image.url);
+
+  return (
+    <figure className={`trade-stack-card trade-stack-card--image${failed ? ' is-broken' : ''}`}>
+      {!failed ? <img src={image.url} alt={image.alt} loading="lazy" onError={() => setFailed(true)} /> : <div className="trade-stack-card__image-fallback"><strong>Image unavailable</strong><span>This saved file could not be loaded from storage.</span></div>}
+      <figcaption className={image.badge === 'Need reference' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</figcaption>
+    </figure>
+  );
+}
 
 function cardCountLabel(totalCards: number) {
   return `01/${String(Math.max(totalCards, 1)).padStart(2, '0')}`;
@@ -58,12 +70,7 @@ export function TradeStackDeck({ trade }: { trade: TradeDto }) {
     const imageItems: SquareStackDeckItem[] = images.map((image) => ({
       id: image.id,
       ariaLabel: `Open ${trade.title}`,
-      content: (
-        <figure className="trade-stack-card trade-stack-card--image">
-          <img src={image.url} alt={image.alt} loading="lazy" />
-          <figcaption className={image.badge === 'Need reference' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</figcaption>
-        </figure>
-      ),
+      content: <TradeStackImageCard image={image} />,
     }));
 
     return [summary, ...imageItems];

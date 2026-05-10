@@ -9,6 +9,7 @@ import { WebIcon } from '../../components/WebIcon';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
+import { useWebAuth } from '../../providers/WebAuthProvider';
 import { TradeDeckGrid } from './TradeDeckGrid';
 
 type FeedFilters = {
@@ -51,6 +52,8 @@ export function TradeFeedClient() {
   const [loadError, setLoadError] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const demoDataEnabled = isWebDemoDataEnabled();
+  const auth = useWebAuth();
+  const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
 
   useEffect(() => {
     let mounted = true;
@@ -117,7 +120,7 @@ export function TradeFeedClient() {
           <WebIcon name="filter" size={17} decorative />
           <span>Filter</span>
         </button>
-        <Link href="/trades/create" className="trade-create-pill" aria-label="Create trade">
+        <Link href={createTradeHref} className="trade-create-pill" aria-label="Create trade">
           <WebIcon name="add" size={21} decorative />
         </Link>
         {showFilters ? (
