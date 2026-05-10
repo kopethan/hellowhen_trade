@@ -515,7 +515,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
   .square-stack-deck { padding-right: 24px; padding-bottom: 30px; }
   .square-stack-deck__control { display: none !important; width: 42px; height: 42px; }
   .square-stack-deck__control--prev { top: -13px; left: -13px; }
-  .square-stack-deck--native-mobile .square-stack-deck__surface { touch-action: pan-y; overscroll-behavior: contain; }
+  .square-stack-deck--native-mobile .square-stack-deck__surface { touch-action: none; overscroll-behavior: contain; }
 }
 
 @media (max-width: 420px) {

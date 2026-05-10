@@ -85,6 +85,16 @@ function getPointerVelocity(drag: DragState, clientX: number, clientY: number) {
   };
 }
 
+function scrollDeckContainer(surface: HTMLElement, deltaY: number) {
+  const scrollArea = surface.closest('.web-scroll-area') as HTMLElement | null;
+  if (scrollArea) {
+    scrollArea.scrollTop += deltaY;
+    return;
+  }
+
+  window.scrollBy({ top: deltaY, left: 0, behavior: 'auto' });
+}
+
 export function SquareStackDeck({ items, label, className, onOpen }: SquareStackDeckProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [motion, setMotion] = useState<'next' | 'prev' | null>(null);
@@ -235,10 +245,33 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     if (intent === 'UNDECIDED') {
       intent = classifySquareDeckPanIntent({ dx, dy, hasPrev: canGoPrev, hasNext: canGoNext });
       if (intent === 'UNDECIDED') return;
-      if (intent === 'SCROLL') {
-        setDrag(null);
-        return;
-      }
+    }
+
+    const velocity = getPointerVelocity(drag, event.clientX, event.clientY);
+
+    if (isMobileDeckViewport && intent === 'SCROLL') {
+      event.preventDefault();
+      scrollDeckContainer(event.currentTarget, drag.lastY - event.clientY);
+      suppressOpenUntilRef.current = window.performance.now() + 260;
+      setDrag({
+        ...drag,
+        dx,
+        dy,
+        intent,
+        swiping: false,
+        captured: false,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        lastTime: velocity.now,
+        velocityX: velocity.velocityX,
+        velocityY: velocity.velocityY,
+      });
+      return;
+    }
+
+    if (intent === 'SCROLL') {
+      setDrag(null);
+      return;
     }
 
     if (!captured) {
@@ -250,7 +283,6 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
       }
     }
 
-    const velocity = getPointerVelocity(drag, event.clientX, event.clientY);
     event.preventDefault();
     setDrag({
       ...drag,
@@ -283,6 +315,10 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     const intent = drag.intent;
     const swiping = drag.swiping;
     setDrag(null);
+    if (intent === 'SCROLL') {
+      suppressOpenUntilRef.current = window.performance.now() + 260;
+      return;
+    }
     if (!swiping || (intent !== 'SWIPE_NEXT' && intent !== 'SWIPE_PREV')) return;
 
     suppressOpenUntilRef.current = window.performance.now() + 260;
