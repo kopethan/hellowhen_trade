@@ -1,0 +1,179 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index dbaa99d..dfe19d5 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1002,3 +1002,11 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .trade-side-option-list--page { max-height: none; overflow: visible; padding-right: 0; }
+ .trade-side-empty-state--page { margin-top: 0; }
+ .trade-side-choice-card { display: block; }
++
++/* Phase 23.5C: duplicate trade pair indication */
++.trade-create-pair-status { display: grid; gap: 9px; }
++.trade-create-pair-status h3, .trade-create-pair-status p { margin: 0; }
++.trade-create-pair-status .button { justify-self: start; margin-top: 2px; }
++.trade-create-pair-status--warning { border-color: var(--warning-border); background: color-mix(in srgb, var(--warning-bg) 42%, var(--app-surface)); }
++.trade-create-pair-status--success { border-color: var(--success-border); background: color-mix(in srgb, var(--success-bg) 36%, var(--app-surface)); }
++.trade-create-pair-status--info { border-color: var(--info-border); background: color-mix(in srgb, var(--info-bg) 36%, var(--app-surface)); }
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index 3ff76f1..900f07a 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -19,6 +19,8 @@ import { TradeSidePicker } from './TradeSidePicker';
+ import { TradeStackDeck } from './TradeStackDeck';
+ 
+ type CreateTradeResponse = { trade?: unknown; id?: unknown };
++type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'>;
++type DuplicateTradeConflict = DuplicateTradeSummary & { message: string };
+ type InventoryLoadState = 'idle' | 'loading' | 'live' | 'demo';
+ 
+ type SideMode = 'saved' | 'money';
+@@ -114,17 +116,39 @@ function isDuplicateBlockingTradeStatus(status: TradeDto['status']) {
+   return (duplicateBlockingTradeStatuses as readonly string[]).includes(status);
+ }
+ 
++function tradeNeedId(trade: TradeDto) {
++  return trade.needId ?? trade.need?.id ?? null;
++}
++
++function tradeOfferId(trade: TradeDto) {
++  return trade.offerId ?? trade.offer?.id ?? null;
++}
++
+ function findDuplicateTradePair(trades: TradeDto[], needId?: string | null, offerId?: string | null) {
+   if (!needId || !offerId) return null;
+-  return trades.find((trade) => trade.needId === needId && trade.offerId === offerId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
++  return trades.find((trade) => tradeNeedId(trade) === needId && tradeOfferId(trade) === offerId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
+ }
+ 
+-function duplicateTradeMessage(trade: TradeDto) {
++function duplicateTradeMessage(trade: DuplicateTradeSummary) {
+   return trade.status === 'active'
+     ? 'You already have an active trade using this exact Need and Offer.'
+     : `You already have a ${trade.status.replace(/_/g, ' ')} trade using this exact Need and Offer.`;
+ }
+ 
++function getDuplicateTradeConflict(error: unknown): DuplicateTradeConflict | null {
++  if (!error || typeof error !== 'object') return null;
++  const body = (error as { body?: unknown }).body;
++  if (!body || typeof body !== 'object') return null;
++  const payload = body as { error?: unknown; message?: unknown; tradeId?: unknown; tradeStatus?: unknown; tradeTitle?: unknown };
++  if (payload.error !== 'duplicate_trade_pair' || typeof payload.tradeId !== 'string') return null;
++  return {
++    id: payload.tradeId,
++    status: typeof payload.tradeStatus === 'string' ? payload.tradeStatus as TradeDto['status'] : 'active',
++    title: typeof payload.tradeTitle === 'string' ? payload.tradeTitle : 'Existing trade',
++    message: typeof payload.message === 'string' ? payload.message : 'You already have an active trade using this exact Need and Offer.'
++  };
++}
++
+ function buildPreviewTrade(input: {
+   ownerId?: string | null;
+   title: string;
+@@ -185,6 +209,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState('');
+   const [notice, setNotice] = useState('');
++  const [duplicateConflict, setDuplicateConflict] = useState<DuplicateTradeConflict | null>(null);
+   const [limits, setLimits] = useState<WalletLimitsDto | null>(null);
+ 
+ 
+@@ -210,6 +235,10 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+     });
+   }, [preferredCurrency, routeNeedId, routeOfferId]);
+ 
++  useEffect(() => {
++    setDuplicateConflict(null);
++  }, [values.needId, values.offerId]);
++
+   useEffect(() => {
+     if (!auth.hydrated) return;
+     let mounted = true;
+@@ -258,6 +287,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const duplicateTrade = values.needMode === 'saved' && values.offerMode === 'saved'
+     ? findDuplicateTradePair(trades, selectedNeed?.id, selectedOffer?.id)
+     : null;
++  const visibleDuplicateTrade: DuplicateTradeConflict | DuplicateTradeSummary | null = duplicateTrade ?? duplicateConflict;
+   const usesMoney = values.needMode === 'money' || values.offerMode === 'money';
+   const blocksMoneyMoney = values.needMode === 'money' && values.offerMode === 'money';
+   const autoTitle = sideTitle(values, selectableNeeds, selectableOffers);
+@@ -279,6 +309,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   function updateValue<Key extends keyof TradeCreateValues>(key: Key, value: TradeCreateValues[Key]) {
+     setValues((current) => ({ ...current, [key]: value }));
+     setError('');
++    setDuplicateConflict(null);
+   }
+ 
+   function validate() {
+@@ -288,7 +319,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+     if (blocksMoneyMoney) return 'Choose saved Needs and Offers for this beta.';
+     if (values.needMode === 'saved' && !selectedNeed) return 'Choose a saved Need under I need.';
+     if (values.offerMode === 'saved' && !selectedOffer) return 'Choose a saved Offer under I offer.';
+-    if (duplicateTrade) return `${duplicateTradeMessage(duplicateTrade)} Delete or close the existing trade before creating it again.`;
++    if (visibleDuplicateTrade) return `${duplicateTradeMessage(visibleDuplicateTrade)} Delete or close the existing trade before creating it again.`;
+     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return 'Enter a wallet money amount of at least 1.00.';
+     if (usesMoney && limits && !limits.moneyTradesEnabled) return 'Money trades are disabled for your current launch trust tier.';
+     if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return `Money trades are limited to ${formatWebMoney(limits.perTradeMoneyCapCents, values.currency)} for your current tier.`;
+@@ -327,7 +358,13 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+       router.push(tradeId ? `/trades/${tradeId}` : '/trades');
+       router.refresh();
+     } catch (cause) {
+-      setError(getFriendlyApiErrorMessage(cause));
++      const duplicate = getDuplicateTradeConflict(cause);
++      if (duplicate) {
++        setDuplicateConflict(duplicate);
++        setError(duplicate.message);
++      } else {
++        setError(getFriendlyApiErrorMessage(cause));
++      }
+     } finally {
+       setSaving(false);
+     }
+@@ -335,7 +372,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+ 
+   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : null;
+   const hasRequiredSides = (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer));
+-  const canSubmit = auth.isAuthenticated && hasRequiredSides && !duplicateTrade && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
++  const selectedPairReady = values.needMode === 'saved' && values.offerMode === 'saved' && Boolean(selectedNeed) && Boolean(selectedOffer);
++  const inventoryCheckingPair = selectedPairReady && loadState === 'loading';
++  const canSubmit = auth.isAuthenticated && hasRequiredSides && !visibleDuplicateTrade && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
+   const previewTrade = useMemo(() => {
+     if (!hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
+     return buildPreviewTrade({
+@@ -414,12 +453,24 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+           <p className="form-message form-message--error">Choose saved Needs and Offers for this beta.</p>
+         ) : null}
+ 
+-        {duplicateTrade ? (
+-          <section className="mobile-card mobile-card--soft trade-create-duplicate">
++        {visibleDuplicateTrade ? (
++          <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--warning" role="alert">
+             <span className="semantic-badge warning">Already exists</span>
+-            <h3>{duplicateTradeMessage(duplicateTrade)}</h3>
++            <h3>{duplicateTradeMessage(visibleDuplicateTrade)}</h3>
+             <p>Use the existing trade, or delete/close it before creating this exact Need + Offer pair again.</p>
+-            <Link href={`/trades/${duplicateTrade.id}`} className="button secondary">View existing trade</Link>
++            <Link href={`/trades/${visibleDuplicateTrade.id}`} className="button secondary">View existing trade</Link>
++          </section>
++        ) : inventoryCheckingPair ? (
++          <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--info">
++            <span className="semantic-badge info">Checking</span>
++            <h3>Checking this Need + Offer pair</h3>
++            <p>We are checking whether you already created a trade with these exact saved items.</p>
++          </section>
++        ) : selectedPairReady ? (
++          <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--success">
++            <span className="semantic-badge success">Available</span>
++            <h3>This Need + Offer pair is ready</h3>
++            <p>No active trade currently uses this exact pair, so you can create it.</p>
+           </section>
+         ) : null}
+ 
+@@ -494,7 +545,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+ 
+         <div className="sticky-form-actions">
+           <Link href="/trades" className="button secondary">Back</Link>
+-          <button type="submit" disabled={saving || !canSubmit}>{saving ? 'Creating...' : 'Create Trade'}</button>
++          <button type="submit" disabled={saving || !canSubmit}>{visibleDuplicateTrade ? 'Trade already exists' : saving ? 'Creating...' : 'Create Trade'}</button>
+         </div>
+       </form>
+     </MobilePage>

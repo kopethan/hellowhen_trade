@@ -1002,3 +1002,11 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .trade-side-option-list--page { max-height: none; overflow: visible; padding-right: 0; }
 .trade-side-empty-state--page { margin-top: 0; }
 .trade-side-choice-card { display: block; }
+
+/* Phase 23.5C: duplicate trade pair indication */
+.trade-create-pair-status { display: grid; gap: 9px; }
+.trade-create-pair-status h3, .trade-create-pair-status p { margin: 0; }
+.trade-create-pair-status .button { justify-self: start; margin-top: 2px; }
+.trade-create-pair-status--warning { border-color: var(--warning-border); background: color-mix(in srgb, var(--warning-bg) 42%, var(--app-surface)); }
+.trade-create-pair-status--success { border-color: var(--success-border); background: color-mix(in srgb, var(--success-bg) 36%, var(--app-surface)); }
+.trade-create-pair-status--info { border-color: var(--info-border); background: color-mix(in srgb, var(--info-bg) 36%, var(--app-surface)); }
