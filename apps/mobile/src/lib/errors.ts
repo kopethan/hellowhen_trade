@@ -50,7 +50,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   }
 
   if (apiError.body?.error === 'insufficient_wallet_balance') {
-    return apiError.body.message ?? 'Not enough wallet balance to start this trade.';
+    return apiError.body.message ?? 'This trade cannot be started right now.';
   }
 
   if (apiError.body?.error === 'invalid_trade_status_transition') {

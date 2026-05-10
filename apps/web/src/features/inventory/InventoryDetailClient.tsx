@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { formatInventoryDate, getInventoryMetadata, itemTypeLabel, getInventoryTags, kindLabel, mediaSrc, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
 
@@ -12,7 +13,8 @@ type InventoryDetailClientProps = {
 };
 
 export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientProps) {
-  const [item, setItem] = useState<InventoryItem | null>((kind === 'need' ? mockNeeds : mockOffers).find((entry) => entry.id === itemId) ?? null);
+  const demoDataEnabled = isWebDemoDataEnabled();
+  const [item, setItem] = useState<InventoryItem | null>(() => demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((entry) => entry.id === itemId) ?? null : null);
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
 
@@ -30,16 +32,16 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
         }
       } catch {
         if (!mounted) return;
-        const fallback = (kind === 'need' ? mockNeeds : mockOffers).find((entry) => entry.id === itemId) ?? null;
+        const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((entry) => entry.id === itemId) ?? null : null;
         setItem(fallback);
-        setUsingFallback(Boolean(fallback));
+        setUsingFallback(demoDataEnabled && Boolean(fallback));
       } finally {
         if (mounted) setLoading(false);
       }
     }
     void loadItem();
     return () => { mounted = false; };
-  }, [itemId, kind]);
+  }, [demoDataEnabled, itemId, kind]);
 
   const baseHref = kind === 'need' ? '/needs' : '/offers';
   const noun = kindLabel(kind);

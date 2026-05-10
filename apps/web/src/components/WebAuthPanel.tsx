@@ -9,7 +9,7 @@ import { useWebAuth } from '../providers/WebAuthProvider';
 type AuthMode = 'login' | 'register' | 'forgot';
 
 function authSubtitle(mode: AuthMode) {
-  if (mode === 'register') return 'Create your account and set country and preferred currency for wallet demo flows.';
+  if (mode === 'register') return 'Create your account and set local display preferences for the beta.';
   if (mode === 'forgot') return 'Request a reset link for your Hellowhen account.';
   return 'Sign in to create needs, offers, trades, and proposals.';
 }
@@ -49,7 +49,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
     if (mode === 'register' && !countryCode) return 'Choose your country.';
-    if (mode === 'register' && !preferredCurrency) return 'Choose your preferred currency.';
+    if (mode === 'register' && !preferredCurrency) return 'Choose your display currency.';
     if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
     return null;
   }
@@ -136,8 +136,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
             <div className="preference-panel">
               <div>
-                <h3>Country and currency</h3>
-                <p>Used for local trade display and future payment setup. Full address details are not collected here.</p>
+                <h3>Local display</h3>
+                <p>Used to localize trade display. Full address details are not collected in this beta.</p>
               </div>
               <label className="field-label">
                 Country
@@ -155,7 +155,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
                 </select>
               </label>
               <label className="field-label">
-                Preferred currency
+                Display currency
                 <select
                   value={preferredCurrency}
                   onChange={(event) => {

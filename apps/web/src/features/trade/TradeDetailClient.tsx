@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
 import { TradeProposalPanel } from './TradeProposalPanel';
@@ -26,23 +27,18 @@ function participantLabel(trade: TradeDto, userId?: string | null) {
   return 'member';
 }
 
-function completionHint(trade: TradeDto, userId?: string | null) {
-  const payment = trade.payment;
-  if (trade.status === 'in_progress') {
-    if (payment?.amountCents && payment.sellerId === userId) return 'Mark delivered when your side is done. The wallet-money payer must confirm before funds are released.';
-    if (payment?.amountCents && payment.buyerId === userId) return 'Wait for delivery, then confirm only if everything is okay. Report a problem before releasing money.';
-    return 'One party should mark delivered, then the other confirms completion.';
-  }
-  if (trade.status === 'submitted') {
-    if (payment?.amountCents && payment.buyerId === userId) return 'Review the delivery. Confirming will release held wallet money into the other member’s pending payout balance.';
-    return 'Waiting for the other party to confirm completion.';
-  }
-  if (trade.status === 'disputed') return 'Money flow is frozen while admin reviews the report.';
-  return 'Accepted trades use delivery confirmation before money is released.';
+function completionHint(trade: TradeDto, _userId?: string | null) {
+  if (trade.status === 'in_progress') return 'One party should mark delivered, then the other confirms completion.';
+  if (trade.status === 'submitted') return 'Waiting for the other party to confirm completion.';
+  if (trade.status === 'disputed') return 'Support will review this trade and help the members resolve it.';
+  if (trade.status === 'completed') return 'This exchange has been completed.';
+  if (trade.status === 'cancelled') return 'This trade is no longer active.';
+  return 'Accepted trades use delivery confirmation before the exchange is closed.';
 }
 
+
 function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
-  const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : side.kind === 'money' ? 'money' : 'instruction';
+  const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : 'instruction';
 
   return (
     <section className="trade-social-section">
@@ -51,7 +47,7 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
           <p className="eyebrow">{side.label}</p>
           <h2>{side.title}</h2>
         </div>
-        <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'need' ? <WebIcon name="need" size={14} decorative /> : side.kind === 'offer' ? <WebIcon name="offer" size={14} decorative /> : null}{side.kind === 'money' ? 'Money' : side.label}</span>
+        <span className={`semantic-badge ${badgeClass}`}>{side.kind === 'need' ? <WebIcon name="need" size={14} decorative /> : side.kind === 'offer' ? <WebIcon name="offer" size={14} decorative /> : null}{side.label}</span>
       </div>
       <p>{side.description}</p>
       {side.metadata ? <p className="meta">{side.metadata}</p> : null}
@@ -67,9 +63,10 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
 
 export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; initialTrade?: TradeDto | null }) {
   const auth = useWebAuth();
-  const [trade, setTrade] = useState<TradeDto | null>(initialTrade ?? mockTrades.find((item) => item.id === tradeId) ?? null);
-  const [loading, setLoading] = useState(true);
-  const [usingFallback, setUsingFallback] = useState(Boolean(initialTrade));
+  const demoDataEnabled = isWebDemoDataEnabled();
+  const [trade, setTrade] = useState<TradeDto | null>(initialTrade ?? (demoDataEnabled ? mockTrades.find((item) => item.id === tradeId) ?? null : null));
+  const [loading, setLoading] = useState(!initialTrade);
+  const [usingFallback, setUsingFallback] = useState(demoDataEnabled && Boolean(initialTrade));
   const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
@@ -85,9 +82,9 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         setUsingFallback(false);
       }
     } catch {
-      const fallback = mockTrades.find((item) => item.id === tradeId) ?? initialTrade ?? null;
+      const fallback = demoDataEnabled ? mockTrades.find((item) => item.id === tradeId) ?? initialTrade ?? null : initialTrade ?? null;
       setTrade(fallback);
-      setUsingFallback(Boolean(fallback));
+      setUsingFallback(demoDataEnabled && Boolean(fallback));
     } finally {
       setLoading(false);
     }
@@ -107,16 +104,16 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         }
       } catch {
         if (!mounted) return;
-        const fallback = mockTrades.find((item) => item.id === tradeId) ?? initialTrade ?? null;
+        const fallback = demoDataEnabled ? mockTrades.find((item) => item.id === tradeId) ?? initialTrade ?? null : initialTrade ?? null;
         setTrade(fallback);
-        setUsingFallback(Boolean(fallback));
+        setUsingFallback(demoDataEnabled && Boolean(fallback));
       } finally {
         if (mounted) setLoading(false);
       }
     }
     void loadTrade();
     return () => { mounted = false; };
-  }, [initialTrade, tradeId]);
+  }, [demoDataEnabled, initialTrade, tradeId]);
 
   if (!trade && loading) {
     return (
@@ -145,11 +142,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   const actorId = auth.user?.id ?? null;
   const isOwner = actorId === currentTrade.ownerId;
   const isProvider = Boolean(actorId && currentTrade.providerId === actorId);
-  const payment = currentTrade.payment;
-  const canSubmitDelivery = auth.isAuthenticated && currentTrade.status === 'in_progress' && (payment?.amountCents ? payment.sellerId === actorId : (isOwner || isProvider));
-  const canConfirmCompletion = auth.isAuthenticated && currentTrade.status === 'submitted' && (payment?.amountCents ? payment.buyerId === actorId : (isOwner || isProvider)) && currentTrade.deliverySubmittedById !== actorId;
+  const canSubmitDelivery = auth.isAuthenticated && currentTrade.status === 'in_progress' && (isOwner || isProvider);
+  const canConfirmCompletion = auth.isAuthenticated && currentTrade.status === 'submitted' && (isOwner || isProvider) && currentTrade.deliverySubmittedById !== actorId;
   const canReportProblem = auth.isAuthenticated && ['active', 'in_progress', 'submitted', 'completed'].includes(currentTrade.status);
-  const completionWarning = payment?.amountCents ? `This will release held wallet money to the other member's pending payout balance. Report a problem before confirming if anything is wrong.` : 'Confirm only when your trade is complete.';
+  const completionWarning = 'Confirm only when your trade is complete.';
 
   async function updateTradeStatus(status: TradeActionStatus) {
     if (status === 'completed' && !window.confirm(completionWarning)) return;
@@ -159,7 +155,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       const response = await api.trades.updateStatus(currentTrade.id, { status });
       const nextTrade = normalizeTradeResponse(response);
       if (nextTrade) setTrade(nextTrade);
-      setActionNotice(status === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : status === 'completed' ? 'Trade confirmed. Held wallet money was released when applicable.' : status === 'disputed' ? 'Trade reported. Money movement is frozen for admin review.' : 'Trade updated.');
+      setActionNotice(status === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : status === 'completed' ? 'Trade confirmed.' : status === 'disputed' ? 'Trade reported for support review.' : 'Trade updated.');
       await loadLiveTrade();
     } catch {
       setActionNotice('Could not update the trade yet. Check the current status and try again.');
@@ -175,10 +171,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     setActionLoading('report');
     setActionNotice(null);
     try {
-      await api.support.createTicket({ category: 'trade_issue', priority: payment?.amountCents ? 'high' : 'normal', subject: `Problem with trade: ${currentTrade.title}`.slice(0, 140), message, relatedTradeId: currentTrade.id });
+      await api.support.createTicket({ category: 'trade_issue', priority: 'normal', subject: `Problem with trade: ${currentTrade.title}`.slice(0, 140), message, relatedTradeId: currentTrade.id });
       setReportMessage('');
       setReportOpen(false);
-      setActionNotice('Report sent. This trade is now frozen for admin review when money is involved.');
+      setActionNotice('Report sent. Support will review this trade.');
       await loadLiveTrade();
     } catch {
       setActionNotice('Could not send the report yet. Try again from Account > Support.');
@@ -198,7 +194,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       <section className="trade-hero-section">
         <div className="status-row">
           <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {currentTrade.status}</span>
-          <span className="semantic-badge money">{exchange}</span>
+          <span className="semantic-badge trade">{exchange}</span>
           {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
         </div>
         <h2>{currentTrade.title}</h2>
@@ -229,7 +225,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <div className="trade-section-heading">
           <div>
             <p className="eyebrow">Confirmation</p>
-            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> Delivery and money release</h2>
+            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> Delivery confirmation</h2>
           </div>
           {actionLoading ? <span className="semantic-badge instruction">Updating</span> : null}
         </div>
@@ -238,21 +234,21 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
         <div className="trade-action-row">
           {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
-          {canConfirmCompletion ? <button type="button" className="success" onClick={() => void updateTradeStatus('completed')} disabled={Boolean(actionLoading)}>Confirm and release</button> : null}
+          {canConfirmCompletion ? <button type="button" className="success" onClick={() => void updateTradeStatus('completed')} disabled={Boolean(actionLoading)}>Confirm completed</button> : null}
           {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> Report problem</button> : null}
         </div>
         {reportOpen ? (
           <form className="proposal-composer" onSubmit={submitReport}>
             <label className="field-label">
               What happened?
-              <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder="Explain what went wrong. Admin will use this to pause or review money movement." rows={4} />
+              <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder="Explain what went wrong so support can review the trade." rows={4} />
             </label>
-            <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>Send report and freeze trade</button>
+            <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>Send report</button>
           </form>
         ) : null}
       </section>
 
-      <TradeProposalPanel trade={currentTrade} />
+      <TradeProposalPanel trade={currentTrade} onTradeChange={setTrade} />
     </article>
   );
 }

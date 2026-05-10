@@ -135,7 +135,7 @@ export const mockTrades: TradeDto[] = [
     id: 'demo-trade-1',
     ownerId: 'demo-user-1',
     title: 'Landing page design ↔ Product photography',
-    description: 'A service-for-service trade: I need a clean landing page design and I offer product photography for launch assets.',
+    description: 'A Need + Offer exchange: I need a clean landing page design and I offer product photography for launch assets.',
     creditAmount: 0,
     amountCents: 0,
     currency: 'eur',

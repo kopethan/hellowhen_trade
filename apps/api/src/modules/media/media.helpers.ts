@@ -17,7 +17,7 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
   }
 
   const [selectedMedia, existingEntityMedia] = await Promise.all([
-    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: { not: 'removed' } } }),
+    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: 'active' } }),
     prisma.mediaAsset.findMany({ where: { entityType, entityId, status: { not: 'removed' } }, select: { id: true } })
   ]);
 
@@ -56,21 +56,17 @@ export async function loadMediaByEntityIds(entityType: MediaEntityType, entityId
     : visibility === 'public'
       ? { status: 'active' as const }
       : visibility === 'trade_public'
-        ? { status: { in: ['active', 'pending_review'] as const } }
+        ? { status: 'active' as const }
         : { status: { not: 'removed' as const } };
 
   const media = await prisma.mediaAsset.findMany({
     where: { entityType, entityId: { in: ids }, ...statusWhere },
     orderBy: { createdAt: 'asc' }
   });
-  // Needs and Offers stay private inventory, but once they are attached to an
-  // active public trade their images are part of the public trade content. We
-  // expose non-removed/non-flagged pending media for that trade context only,
-  // and normalize it to active in the public response so visitors do not see
-  // internal review labels on normal trade image cards.
-  const visibleMedia = visibility === 'trade_public'
-    ? media.map((item) => item.status === 'pending_review' ? { ...item, status: 'active' as const } : item)
-    : media;
+  // First beta policy: uploads are active immediately. Public trade pages only
+  // render active media; flagged/removed media is hidden from public decks and
+  // details, while owners and admins can still see moderation state.
+  const visibleMedia = media;
   const byEntity = new Map<string, MediaAsset[]>();
   for (const item of visibleMedia) {
     if (!item.entityId) continue;

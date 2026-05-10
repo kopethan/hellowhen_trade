@@ -19,13 +19,12 @@ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpl
 type TicketsResponse = { tickets: SupportTicketDto[] };
 type CreateTicketResponse = { ticket: SupportTicketDto };
 
-const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
+const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
 const priorities: SupportTicketPriority[] = ['low', 'normal', 'high', 'urgent'];
 
-function labelize(value: string) { return value.replaceAll('_', ' '); }
+function labelize(value: string) { return value === 'credits_issue' ? 'account issue' : value.replaceAll('_', ' '); }
 function categoryTone(category: SupportTicketCategory) {
   if (category === 'trade_issue') return 'trade' as const;
-  if (category === 'credits_issue') return 'credits' as const;
   if (category === 'media_issue') return 'warning' as const;
   if (category === 'safety_concern') return 'danger' as const;
   if (category === 'bug_report') return 'instruction' as const;

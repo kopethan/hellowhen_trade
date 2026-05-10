@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { InventoryEmptyState } from '../../components/InventoryEmptyState';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
+import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { formatInventoryDate, getInventoryMetadata, getInventoryTags, kindLabel, mediaSrc, normalizeInventoryList, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
@@ -51,6 +52,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
+  const demoDataEnabled = isWebDemoDataEnabled();
 
   useEffect(() => {
     let mounted = true;
@@ -59,8 +61,8 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
       setLoading(true);
 
       if (!auth.isAuthenticated) {
-        setItems(kind === 'need' ? mockNeeds : mockOffers);
-        setUsingFallback(true);
+        setItems(demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers) : []);
+        setUsingFallback(demoDataEnabled);
         setLoading(false);
         return;
       }
@@ -72,15 +74,15 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         setUsingFallback(false);
       } catch {
         if (!mounted) return;
-        setItems(kind === 'need' ? mockNeeds : mockOffers);
-        setUsingFallback(true);
+        setItems(demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers) : []);
+        setUsingFallback(demoDataEnabled);
       } finally {
         if (mounted) setLoading(false);
       }
     }
     void loadInventory();
     return () => { mounted = false; };
-  }, [auth.hydrated, auth.isAuthenticated, kind]);
+  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, kind]);
 
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -107,14 +109,14 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
 
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? `Loading ${plural}...` : `${filteredItems.length} ${plural}`}</p>
-        {!auth.hydrated || loading ? <span className="semantic-badge instruction">Checking session</span> : usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : <span className="semantic-badge success">Live inventory</span>}
+        {!auth.hydrated || loading ? <span className="semantic-badge instruction">Checking session</span> : usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : auth.isAuthenticated ? <span className="semantic-badge success">Live inventory</span> : <span className="semantic-badge instruction">Account needed</span>}
       </section>
 
       {!auth.isAuthenticated && auth.hydrated ? (
         <section className="mobile-card mobile-card--soft">
           <span className="semantic-badge instruction">Signed out</span>
           <h3>Sign in to manage your real {plural}</h3>
-          <p>The demo cards below show the layout. Your saved {plural} appear here after login.</p>
+          <p>{demoDataEnabled ? `The demo cards below show the layout. Your saved ${plural} appear here after login.` : `Your saved ${plural} appear here after login.`}</p>
           <Link href="/auth" className="button">Sign in</Link>
         </section>
       ) : null}

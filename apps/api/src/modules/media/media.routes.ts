@@ -58,7 +58,7 @@ mediaRoutes.post('/image', uploadImage, asyncRoute(async (req, res) => {
       filename: req.file.originalname || req.file.filename,
       mimeType: req.file.mimetype,
       sizeBytes: req.file.size,
-      status: 'pending_review'
+      status: 'active'
     }
   });
 

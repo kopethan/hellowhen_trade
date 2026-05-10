@@ -11,20 +11,17 @@ type TradeImageGridProps = {
 };
 
 function statusLabel(status?: MediaAssetDto['status']) {
-  if (status === 'pending_review') return 'Pending review';
   if (status === 'flagged') return 'Unavailable';
   return null;
 }
 
 function fallbackTitle(status?: MediaAssetDto['status']) {
-  if (status === 'pending_review') return 'Image pending review';
   if (status === 'flagged') return 'Image unavailable';
   return 'Image unavailable';
 }
 
 function fallbackBody(status?: MediaAssetDto['status']) {
-  if (status === 'pending_review') return 'Only the owner can see this before approval.';
-  if (status === 'flagged') return 'This image needs review before it can be shown.';
+  if (status === 'flagged') return 'This image was removed after a content report.';
   return 'The image could not be loaded.';
 }
 
@@ -44,7 +41,7 @@ function TradeImageGridItem({ image, index, title, badge, extra }: { image: Medi
 }
 
 export function TradeImageGrid({ images, title, badge }: TradeImageGridProps) {
-  const visibleImages = images.filter((image) => image.status !== 'removed');
+  const visibleImages = images.filter((image) => image.status === 'active');
 
   if (!visibleImages.length) {
     return (

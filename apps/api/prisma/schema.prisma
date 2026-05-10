@@ -563,7 +563,7 @@ model MediaAsset {
   filename    String
   mimeType    String
   sizeBytes   Int
-  status      MediaAssetStatus @default(pending_review)
+  status      MediaAssetStatus @default(active)
   reviewNote  String?
   reviewedAt  DateTime?
   reviewerId  String?

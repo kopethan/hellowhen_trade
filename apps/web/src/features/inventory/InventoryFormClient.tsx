@@ -7,6 +7,7 @@ import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAss
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import {
@@ -86,6 +87,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const demoDataEnabled = isWebDemoDataEnabled();
 
   const baseHref = kind === 'need' ? '/needs' : '/offers';
   const noun = kindLabel(kind);
@@ -99,7 +101,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
     async function loadItem() {
       setLoading(true);
       try {
-        if (!auth.isAuthenticated) throw new Error('signed_out_demo_inventory');
+        if (!auth.isAuthenticated) throw new Error('signed_out_inventory');
         const response = kind === 'need' ? await api.needs.get(requestedItemId) : await api.offers.get(requestedItemId);
         if (!mounted) return;
         const item = normalizeInventoryItem(response, kind);
@@ -109,17 +111,17 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
         }
       } catch {
         if (!mounted) return;
-        const fallback = (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null;
+        const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null : null;
         setValues(inventoryToFormValues(fallback));
         setMedia(fallback?.media ?? []);
-        setMessage('Using demo data because this item could not be loaded from the API.');
+        setMessage(demoDataEnabled && fallback ? 'Using demo data because this item could not be loaded from the API.' : 'This item could not be loaded from the API.');
       } finally {
         if (mounted) setLoading(false);
       }
     }
     void loadItem();
     return () => { mounted = false; };
-  }, [auth.hydrated, auth.isAuthenticated, itemId, kind, mode]);
+  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, itemId, kind, mode]);
 
   const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
 
@@ -142,7 +144,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
         if (uploaded) nextMedia.push(uploaded);
       }
       setMedia(nextMedia.slice(0, 5));
-      setMessage('Image uploaded. It may stay pending until admin review approves it.');
+      setMessage('Image uploaded. It will appear on this saved item after you save.');
     } catch (cause) {
       setError(getFriendlyApiErrorMessage(cause));
     } finally {
@@ -289,7 +291,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
           <div>
             <p className="eyebrow">Images</p>
             <h3>{media.length ? `${media.length}/5 selected` : `Add ${lowerNoun} images`}</h3>
-            <p>Images upload to media review first. Approved images appear publicly on trade decks and details.</p>
+            <p>Images appear on this saved Need or Offer after upload. Support can remove reported images if needed.</p>
           </div>
           <label className="image-upload-button">
             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={uploading || media.length >= 5} />

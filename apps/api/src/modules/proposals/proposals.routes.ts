@@ -49,6 +49,7 @@ proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
       if (code === 'INSUFFICIENT_WALLET_BALANCE') return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'Not enough wallet balance to accept this proposal.' });
       if (code === 'INVALID_TRADE_STATUS_TRANSITION') return res.status(409).json({ error: 'invalid_trade_status_transition' });
       if (code === 'TRADE_ALREADY_HAS_PROVIDER') return res.status(409).json({ error: 'trade_already_has_provider', message: 'This trade already has an accepted provider.' });
+      if (code === 'MONEY_TRADES_DISABLED') return res.status(403).json({ error: 'money_trades_disabled', message: 'Money, wallet, and credit trades are disabled for the first beta. Create Need + Offer exchanges only.' });
       if (code === 'FORBIDDEN') return res.status(403).json({ error: 'forbidden' });
       if (code === 'NOT_FOUND') return res.status(404).json({ error: 'not_found' });
       throw error;

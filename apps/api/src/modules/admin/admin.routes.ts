@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
 import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
@@ -59,6 +60,12 @@ adminRoutes.use(asyncRoute(async (req, res, next) => {
   if (env.adminRequireTwoFactor && !user.twoFactorEnabled) return res.status(403).json({ error: 'admin_two_factor_required', message: 'Admin accounts must enable authenticator app two-step verification before using admin tools.' });
   return next();
 }));
+
+adminRoutes.use('/payouts', requirePayoutsVisible('Admin payout tools'));
+adminRoutes.use('/stripe', requirePayoutsVisible('Admin Stripe payout tools'));
+adminRoutes.use('/business-profiles', requireBusinessAccountsVisible('Admin business profiles'));
+adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
+adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
 
 
 adminRoutes.get('/users', asyncRoute(async (_req, res) => {

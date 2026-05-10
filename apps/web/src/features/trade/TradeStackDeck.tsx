@@ -50,7 +50,7 @@ export function TradeStackDeck({ trade }: { trade: TradeDto }) {
             {compactSideMeta(offer.metadata, offer.description) ? <span>{compactSideMeta(offer.metadata, offer.description)}</span> : null}
           </div>
 
-          {exchange !== 'Service-for-service' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
+          {exchange !== 'Need + Offer exchange' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
         </div>
       ),
     };

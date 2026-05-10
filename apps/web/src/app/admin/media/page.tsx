@@ -8,7 +8,7 @@ type AdminMediaItem = MediaAssetDto & { owner?: { email?: string; profile?: { di
 type MediaResponse = { media: AdminMediaItem[] };
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-const statuses: Array<MediaAssetStatus | 'all'> = ['all', 'active', 'pending_review', 'flagged', 'removed'];
+const statuses: Array<MediaAssetStatus | 'all'> = ['all', 'active', 'flagged', 'removed', 'pending_review'];
 function statusTone(status: MediaAssetStatus | 'all') {
   if (status === 'active') return 'success';
   if (status === 'pending_review') return 'warning';
@@ -43,7 +43,7 @@ export default function AdminMediaPage() {
       if (!response.ok) throw new Error('Login failed');
       const data = await response.json() as LoginResponse;
       setToken(data.accessToken);
-      setMessage('Admin logged in. Load media to review uploads.');
+      setMessage('Admin logged in. Load media to moderate uploads.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
     finally { setLoading(false); }
   }
@@ -65,7 +65,12 @@ export default function AdminMediaPage() {
     if (!token) return;
     setLoading(true); setMessage(null);
     try {
-      const response = await fetch(`${apiBase}/admin/media/${mediaId}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus }) });
+      const reviewNote = nextStatus === 'flagged'
+        ? 'Flagged during beta media moderation.'
+        : nextStatus === 'removed'
+          ? 'Removed during beta media moderation.'
+          : undefined;
+      const response = await fetch(`${apiBase}/admin/media/${mediaId}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus, reviewNote }) });
       if (!response.ok) throw new Error('Could not update media status');
       await loadMedia();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update media'); }
@@ -75,9 +80,9 @@ export default function AdminMediaPage() {
   return (
     <section style={{ display: 'grid', gap: 16 }}>
       <div className="card">
-        <span className="semantic-badge admin">Admin Review</span>
+        <span className="semantic-badge admin">Admin moderation</span>
         <h1>Uploaded images</h1>
-        <p className="notice-box admin">Basic dev admin space for reviewing need, offer, and trade images. Admin colors are slate; warning means pending review; danger means flagged or removed action.</p>
+        <p className="notice-box admin">Basic dev admin space for moderating uploaded need, offer, profile, and support images. First-beta uploads are active immediately; use flag or remove only after reports or a manual check.</p>
         <div className="form-row">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
@@ -102,7 +107,7 @@ export default function AdminMediaPage() {
             <p className="meta">Owner: {item.owner?.profile?.displayName ?? item.owner?.email ?? item.ownerId}</p>
             <p className="meta">Entity: {entityLabel(item)}</p>
             <div className="cta-row">
-              <button className="success" onClick={() => { void updateStatus(item.id, 'active'); }}>Approve</button>
+              <button className="success" onClick={() => { void updateStatus(item.id, 'active'); }}>Restore</button>
               <button className="warning" onClick={() => { void updateStatus(item.id, 'flagged'); }}>Flag</button>
               <button className="danger" onClick={() => { void updateStatus(item.id, 'removed'); }}>Remove</button>
             </div>

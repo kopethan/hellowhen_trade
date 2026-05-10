@@ -18,7 +18,7 @@ type AccountHubItem = {
 };
 
 const accountItems: AccountHubItem[] = [
-  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and preferred currency.', icon: 'profile' },
+  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and display currency.', icon: 'profile' },
   ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', title: 'Business / brand', body: 'Create future business, agency, brand, or enterprise profiles for KYB-ready onboarding.' }] : []),
   ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' }] : []),
   ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' }] : []),
@@ -34,7 +34,7 @@ export function AccountHubClient() {
   useEffect(() => {
     let mounted = true;
     async function loadPreview() {
-      if (!auth.hydrated || !auth.isAuthenticated || !betaFeatures.moneyFeaturesVisible) return;
+      if (!auth.hydrated || !auth.isAuthenticated || !(betaFeatures.walletVisible || betaFeatures.payoutsVisible)) return;
       try {
         const [walletResponse, payoutResponse] = await Promise.all([api.wallet.me(), api.wallet.payouts()]);
         if (!mounted) return;
@@ -69,7 +69,7 @@ export function AccountHubClient() {
         </section>
       ) : null}
 
-      {auth.isAuthenticated && betaFeatures.moneyFeaturesVisible ? (
+      {auth.isAuthenticated && (betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
         <section className="wallet-preview-strip">
           <div>
             <span>Wallet money</span>

@@ -236,8 +236,8 @@ export default function AccountSettingsPage() {
       </section>
 
       <section className="mobile-card mobile-card--soft">
-        <h3>Country + preferred currency</h3>
-        <p>Country and preferred currency now live on Profile so they can be saved with your public account data.</p>
+        <h3>Local display</h3>
+        <p>Country and display currency now live on Profile so they can be saved with your public account data.</p>
       </section>
 
       {message ? <p className="notice-box success">{message}</p> : null}

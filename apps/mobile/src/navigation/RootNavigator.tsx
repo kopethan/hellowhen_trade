@@ -28,6 +28,7 @@ import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { MobileIcon, type MobileIconName } from '../components/MobileIcon';
+import { betaFeatures } from '../lib/betaFeatures';
 
 export type RootStackParamList = {
   TradeTabs: undefined;
@@ -106,11 +107,11 @@ export function RootNavigator() {
         <>
           <Stack.Screen name="TradeTabs" component={TradeTabs} />
           <Stack.Screen name="AccountProfile" component={ProfileScreen} />
-          <Stack.Screen name="Wallet" component={WalletScreen} />
-          <Stack.Screen name="Payouts" component={PayoutsScreen} />
+          {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={WalletScreen} /> : null}
+          {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={PayoutsScreen} /> : null}
           <Stack.Screen name="Settings" component={SettingsScreen} />
-          <Stack.Screen name="BusinessAccounts" component={BusinessAccountsScreen} />
-          <Stack.Screen name="BuyCredits" component={BuyCreditsScreen} />
+          {betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts" component={BusinessAccountsScreen} /> : null}
+          {betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits" component={BuyCreditsScreen} /> : null}
           <Stack.Screen name="SupportCenter" component={SupportCenterScreen} />
           <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
           <Stack.Screen name="CreateNeed" component={CreateNeedScreen} />

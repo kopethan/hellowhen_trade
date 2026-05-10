@@ -1,10 +1,10 @@
 import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
 import { API_URL } from '../../lib/api';
-import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
+import { formatWebShortDate } from '../../lib/webFormat';
 
 export type TradeSide = {
   label: 'I need' | 'I offer';
-  kind: 'need' | 'offer' | 'money' | 'empty';
+  kind: 'need' | 'offer' | 'empty';
   title: string;
   description: string;
   metadata: string;
@@ -40,9 +40,8 @@ export function getOwnerName(trade: TradeDto) {
   return trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
 }
 
-export function getExchangeLabel(trade: TradeDto) {
-  if ((trade.amountCents ?? 0) > 0) return formatWebMoney(trade.amountCents ?? 0, trade.currency ?? 'eur');
-  return 'Service-for-service';
+export function getExchangeLabel(_trade: TradeDto) {
+  return 'Need + Offer exchange';
 }
 
 export function getTradeMode(trade: TradeDto) {
@@ -50,37 +49,11 @@ export function getTradeMode(trade: TradeDto) {
 }
 
 export function getNeedSide(trade: TradeDto): TradeSide {
-  const moneyLabel = getExchangeLabel(trade);
-  const need = trade.need;
-  if (!need && (trade.amountCents ?? 0) > 0) {
-    return {
-      label: 'I need',
-      kind: 'money',
-      title: 'Wallet money',
-      description: `${moneyLabel} requested through the demo wallet flow.`,
-      metadata: 'Money request',
-      tags: [],
-      media: [],
-    };
-  }
-  return needToSide(need, 'I need');
+  return needToSide(trade.need, 'I need');
 }
 
 export function getOfferSide(trade: TradeDto): TradeSide {
-  const moneyLabel = getExchangeLabel(trade);
-  const offer = trade.offer;
-  if (!offer && (trade.amountCents ?? 0) > 0) {
-    return {
-      label: 'I offer',
-      kind: 'money',
-      title: 'Wallet money',
-      description: `${moneyLabel} offered through the demo wallet flow.`,
-      metadata: 'Money offer',
-      tags: [],
-      media: [],
-    };
-  }
-  return offerToSide(offer, 'I offer');
+  return offerToSide(trade.offer, 'I offer');
 }
 
 export function needToSide(need: NeedDto | null | undefined, label: 'I need'): TradeSide {

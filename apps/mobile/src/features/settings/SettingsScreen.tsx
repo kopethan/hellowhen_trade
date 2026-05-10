@@ -115,7 +115,7 @@ export function SettingsScreen() {
           <View style={styles.switchRow}>
             <View style={styles.switchCopy}>
               <AppText style={styles.sectionTitle}>Notifications</AppText>
-              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image review, and support activity.</AppText>
+              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image/content reports, and support activity.</AppText>
             </View>
             <Switch value={settings.notificationsEnabled} disabled={saving} onValueChange={(value) => { void updateSettings({ notificationsEnabled: value }); }} />
           </View>
@@ -140,7 +140,7 @@ export function SettingsScreen() {
         <AppCard>
           <SemanticBadge label="Security" tone="time" size="sm" />
           <AppText style={styles.sectionTitle}>Account protection</AppText>
-          <AppText style={[styles.body, { color: theme.color.muted }]}>Email verification and fresh password confirmation protect payout actions. Authenticator app setup is available on web first.</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>Email verification and two-step verification help protect your account, trades, and support messages. Authenticator app setup is available on web first.</AppText>
           <View style={styles.securityRows}>
             <AppText style={styles.securityLine}>Email: {auth.user?.emailVerifiedAt ? 'verified' : 'not verified'}</AppText>
             <AppText style={styles.securityLine}>Authenticator: {auth.user?.twoFactorEnabled ? 'enabled' : 'off'}</AppText>
@@ -158,7 +158,7 @@ export function SettingsScreen() {
         <AppCard>
           <SemanticBadge label="Privacy" tone="info" size="sm" />
           <AppText style={styles.sectionTitle}>Profile visibility</AppText>
-          <AppText style={[styles.body, { color: theme.color.muted }]}>Only your public profile, active trades, and approved need/offer images appear in public trade decks.</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>Only your public profile, active trades, and active need/offer images appear in public trade decks.</AppText>
         </AppCard>
       </ScrollView>
     </AppScreen>

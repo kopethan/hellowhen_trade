@@ -141,7 +141,7 @@ export function ProfileScreen({ navigation }: Props) {
               </Pressable>
             ) : null}
           </View>
-          <InfoNotice tone="info" body="Profile pictures are reviewed like other images. If a picture is removed during review, it disappears from your public profile." />
+          <InfoNotice tone="info" body="Profile pictures appear after upload. If an image is reported and removed, it disappears from your public profile." />
         </AppCard>
 
         <AppCard>
@@ -151,12 +151,12 @@ export function ProfileScreen({ navigation }: Props) {
         </AppCard>
 
         <AppCard>
-          <SemanticBadge label="Country + currency" tone="info" size="sm" />
-          <AppText style={styles.sectionTitle}>Country and currency</AppText>
-          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for local trade display and future payment setup. Full address/KYC comes later only when needed.</AppText>
+          <SemanticBadge label="Local display" tone="info" size="sm" />
+          <AppText style={styles.sectionTitle}>Local display</AppText>
+          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used to localize trade display. Hellowhen does not ask for a full address in this beta.</AppText>
           <AppSelect
             label="Country"
-            helper="Used for country and currency defaults"
+            helper="Used for local display defaults"
             value={countryCode}
             options={countrySelectOptions}
             disabled={saving}
@@ -167,8 +167,8 @@ export function ProfileScreen({ navigation }: Props) {
             }}
           />
           <AppSelect
-            label="Preferred currency"
-            helper="No FX conversion yet"
+            label="Display currency"
+            helper="Display only"
             value={preferredCurrency}
             options={currencySelectOptions}
             disabled={saving}

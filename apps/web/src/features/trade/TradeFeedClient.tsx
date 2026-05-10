@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { WebIcon } from '../../components/WebIcon';
 import { betaFeatures } from '../../lib/betaFeatures';
+import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
 import { TradeDeckGrid } from './TradeDeckGrid';
 
@@ -47,7 +48,9 @@ export function TradeFeedClient() {
   const [trades, setTrades] = useState<TradeDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const demoDataEnabled = isWebDemoDataEnabled();
 
   useEffect(() => {
     let mounted = true;
@@ -65,17 +68,25 @@ export function TradeFeedClient() {
         if (!mounted) return;
         setTrades(nextTrades);
         setUsingFallback(false);
+        setLoadError('');
       } catch {
         if (!mounted) return;
-        setTrades(localFilter(mockTrades, appliedFilters));
-        setUsingFallback(true);
+        if (demoDataEnabled) {
+          setTrades(localFilter(mockTrades, appliedFilters));
+          setUsingFallback(true);
+          setLoadError('');
+        } else {
+          setTrades([]);
+          setUsingFallback(false);
+          setLoadError('Trades could not be loaded. Check your connection and try again.');
+        }
       } finally {
         if (mounted) setLoading(false);
       }
     }
     void loadTrades();
     return () => { mounted = false; };
-  }, [appliedFilters]);
+  }, [appliedFilters, demoDataEnabled]);
 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
 
@@ -140,12 +151,17 @@ export function TradeFeedClient() {
 
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? 'Loading trades...' : `${filteredTrades.length} active trade${filteredTrades.length === 1 ? '' : 's'}`}</p>
-        {loading ? <span className="semantic-badge instruction">Loading</span> : usingFallback ? <span className="semantic-badge instruction">Demo feed</span> : <span className="semantic-badge success">Live feed</span>}
+        {loading ? <span className="semantic-badge instruction">Loading</span> : loadError ? <span className="semantic-badge danger">Error</span> : usingFallback ? <span className="semantic-badge instruction">Demo feed</span> : <span className="semantic-badge success">Live feed</span>}
       </section>
 
-      {loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
+      {loadError ? (
+        <section className="mobile-card mobile-card--soft">
+          <h3>Could not load trades</h3>
+          <p>{loadError}</p>
+        </section>
+      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
 
-      {!loading && !filteredTrades.length ? (
+      {!loading && !loadError && !filteredTrades.length ? (
         <section className="mobile-card mobile-card--soft">
           <h3>No trades found</h3>
           <p>Try a different search or clear the filters.</p>

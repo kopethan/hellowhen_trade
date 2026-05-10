@@ -13,13 +13,14 @@ import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
 import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { walletRoutes } from './modules/wallet/wallet.routes.js';
+import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireWalletVisible } from './middleware/featureGates.js';
 
 export const routes = Router();
 
 routes.use('/health', healthRoutes);
 routes.use('/auth', authRoutes);
-routes.use('/business', businessRoutes);
-routes.use('/credits', creditsRoutes);
+routes.use('/business', requireBusinessAccountsVisible(), businessRoutes);
+routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);
 routes.use('/profile', profileRoutes);
 routes.use('/settings', settingsRoutes);
 routes.use('/support', supportRoutes);
@@ -27,6 +28,6 @@ routes.use('/needs', needsRoutes);
 routes.use('/offers', offersRoutes);
 routes.use('/trades', tradesRoutes);
 routes.use('/proposals', proposalsRoutes);
-routes.use('/wallet', walletRoutes);
+routes.use('/wallet', requireWalletVisible(), walletRoutes);
 routes.use('/media', mediaRoutes);
 routes.use('/admin', adminRoutes);

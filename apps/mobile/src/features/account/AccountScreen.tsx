@@ -79,7 +79,7 @@ export function AccountScreen() {
   const [loadingWallet, setLoadingWallet] = useState(false);
 
   const loadWallet = useCallback(async () => {
-    if (!betaFeatures.moneyFeaturesVisible) { setWallet(null); setWalletError(null); return; }
+    if (!(betaFeatures.walletVisible || betaFeatures.payoutsVisible)) { setWallet(null); setWalletError(null); return; }
     setLoadingWallet(true);
     setWalletError(null);
 
@@ -94,7 +94,7 @@ export function AccountScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { if (betaFeatures.moneyFeaturesVisible) void loadWallet(); }, [loadWallet]));
+  useFocusEffect(useCallback(() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); }, [loadWallet]));
 
   const displayName = getDisplayName(auth.user);
   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle';
@@ -117,7 +117,7 @@ export function AccountScreen() {
 
   return (
     <AppFixedHeaderScreen header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.moneyFeaturesVisible) void loadWallet(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); }} />}>
         <AppCard>
           <View style={styles.profileHero}>
             <View style={styles.avatar}>
@@ -138,7 +138,7 @@ export function AccountScreen() {
           </Pressable>
         </AppCard>
 
-        {betaFeatures.moneyFeaturesVisible ? <AppCard>
+        {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
               <AppText style={styles.sectionTitle}>Wallet</AppText>
@@ -170,7 +170,7 @@ export function AccountScreen() {
           {walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}
         </AppCard> : null}
 
-        {betaFeatures.moneyFeaturesVisible ? <AppCard>
+        {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? <AppCard>
           <View style={styles.sectionHeaderRow}>
             <AppText style={styles.sectionTitle}>Recent activity</AppText>
             <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>

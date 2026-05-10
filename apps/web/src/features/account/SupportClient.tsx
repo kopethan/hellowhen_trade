@@ -19,7 +19,7 @@ const categoryOptions: CategoryOption[] = [
   { value: 'general_feedback', label: 'General feedback' },
   { value: 'trade_issue', label: 'Trade issue' },
   { value: 'credits_issue', label: 'Trade or account issue' },
-  { value: 'media_issue', label: 'Image review issue' },
+  { value: 'media_issue', label: 'Image/content issue' },
   { value: 'bug_report', label: 'Bug report' },
   { value: 'account_issue', label: 'Account issue' },
   { value: 'safety_concern', label: 'Safety concern' },

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { MediaAsset, Prisma } from '@prisma/client';
 import { createTradeProposalRequestSchema, createTradeRequestSchema, listTradesFeedQuerySchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
@@ -71,6 +72,30 @@ function containsText(value: string) {
   return { contains: value, mode: 'insensitive' as const };
 }
 
+function betaMoneyOff() {
+  return !env.moneyFeaturesVisible || env.moneyLaunchMode === 'disabled' || !env.moneyTradesEnabled;
+}
+
+function noMoneyTradeWhere(): Prisma.TradeWhereInput {
+  return { amountCents: { lte: 0 }, creditAmount: { lte: 0 } };
+}
+
+function tradeHasMoneySurface(trade: { amountCents?: number | null; creditAmount?: number | null; payment?: { amountCents?: number | null; creditAmount?: number | null } | null; escrow?: { heldAmountCents?: number | null; heldCredits?: number | null } | null }) {
+  return (trade.amountCents ?? 0) > 0
+    || (trade.creditAmount ?? 0) > 0
+    || (trade.payment?.amountCents ?? 0) > 0
+    || (trade.payment?.creditAmount ?? 0) > 0
+    || (trade.escrow?.heldAmountCents ?? 0) > 0
+    || (trade.escrow?.heldCredits ?? 0) > 0;
+}
+
+function betaMoneyDisabledPayload() {
+  return {
+    error: 'money_trades_disabled',
+    message: 'Money, wallet, and credit trades are disabled for the first beta. Create Need + Offer exchanges only.'
+  };
+}
+
 function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
   const and: Prisma.TradeWhereInput[] = [
     { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
@@ -107,7 +132,11 @@ function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
     and.push({ OR: [{ need: { is: { category: text } } }, { offer: { is: { category: text } } }] });
   }
 
-  if (input.hasMoney) and.push({ amountCents: { gt: 0 } });
+  if (!env.moneyFeaturesVisible || env.moneyLaunchMode === 'disabled') {
+    and.push(noMoneyTradeWhere());
+  } else if (input.hasMoney) {
+    and.push({ amountCents: { gt: 0 } });
+  }
 
   return { AND: and };
 }
@@ -131,6 +160,7 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
     if (trade.providerId || trade.payment?.status === 'held') throw Object.assign(new Error('trade_already_has_provider'), { code: 'TRADE_ALREADY_HAS_PROVIDER' });
 
     const amountCents = trade.amountCents ?? 0;
+    if (amountCents > 0 && betaMoneyOff()) throw Object.assign(new Error('money_trades_disabled'), { code: 'MONEY_TRADES_DISABLED' });
     const currency = trade.currency || 'eur';
     const moneySide = tradeMoneySide(trade);
 
@@ -171,12 +201,12 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
 }));
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
-  const trades = await prisma.trade.findMany({ where: { OR: [{ ownerId: actorId }, { providerId: actorId }] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });
+  const trades = await prisma.trade.findMany({ where: { AND: [{ OR: [{ ownerId: actorId }, { providerId: actorId }] }, ...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });
   res.json({ trades: await withTradeDeckMedia(trades, 'owner') });
 }));
 tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
-  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, OR: [{ isPublic: true }, ...(actorId ? [{ ownerId: actorId }, { providerId: actorId }, { proposals: { some: { applicantId: actorId } } }] : [])] }, include: tradeInclude });
+  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, AND: [...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])], OR: [{ isPublic: true }, ...(actorId ? [{ ownerId: actorId }, { providerId: actorId }, { proposals: { some: { applicantId: actorId } } }] : [])] }, include: tradeInclude });
   if (!trade) return res.status(404).json({ error: 'not_found' });
   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
@@ -188,6 +218,16 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
 
   const needIsMoney = input.needKind === 'money';
   const offerIsMoney = input.offerKind === 'money';
+  const isMoneyPayload = input.amountCents > 0 || input.creditAmount > 0 || needIsMoney || offerIsMoney;
+  if (isMoneyPayload && betaMoneyOff()) {
+    return res.status(403).json(betaMoneyDisabledPayload());
+  }
+  if (input.creditAmount > 0) {
+    return res.status(400).json({
+      error: 'credits_disabled',
+      message: 'Credits are disabled for the first beta. Create Need + Offer exchanges only.'
+    });
+  }
   const [need, offer, wallet] = await Promise.all([
     needIsMoney ? Promise.resolve(null) : prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
     offerIsMoney ? Promise.resolve(null) : prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }),
@@ -198,7 +238,7 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
   if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
   const limits = await buildLaunchLimits(prisma, actorId);
-  const isMoneyTrade = input.amountCents > 0 || needIsMoney || offerIsMoney;
+  const isMoneyTrade = isMoneyPayload;
   if (isMoneyTrade) {
     const moneySafety = await buildMoneySafetyStatus(prisma, actorId);
     const block = getMoneySafetyBlock(moneySafety, 'money_trade');
@@ -221,7 +261,7 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
 I offer: ${offerDescription}`;
 
   const trade = await prisma.trade.create({
-    data: { ownerId: actorId, title, description, creditAmount: input.creditAmount, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
+    data: { ownerId: actorId, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
     include: tradeInclude
   });
 
@@ -242,6 +282,7 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res
   const actorId = req.user!.id;
   const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } });
   if (!trade) return res.status(404).json({ error: 'not_found', message: 'This trade is no longer open for proposals.' });
+  if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
   const existing = await prisma.tradeProposal.findUnique({ where: { tradeId_applicantId: { tradeId: trade.id, applicantId: actorId } }, include: proposalInclude });
   if (existing && existing.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existing });
@@ -306,6 +347,7 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
   if (!isOwner && !isProvider) return res.status(403).json({ error: 'forbidden' });
   if (input.status === trade.status) return res.json({ trade: await withOneTradeDeckMedia(trade, 'owner') });
   if (trade.status === 'disputed' && input.status !== 'cancelled') return res.status(409).json({ error: 'trade_disputed', message: 'This trade is disputed. Admin must resolve the money flow before it can continue.' });
+  if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
 
   if (input.status === 'submitted') {
     if (trade.status !== 'in_progress') return res.status(409).json({ error: 'invalid_trade_status_transition' });

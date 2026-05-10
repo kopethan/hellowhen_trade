@@ -23,7 +23,7 @@ export function WebAuthSummary() {
     return (
       <section className="mobile-card mobile-card--soft">
         <h3>Sign in to manage your account</h3>
-        <p>Create needs, offers, trades, wallet demo actions, and support requests after login.</p>
+        <p>Create needs, offers, trades, proposals, and support requests after login.</p>
         <Link href="/auth" className="button primary full">Login or register</Link>
       </section>
     );

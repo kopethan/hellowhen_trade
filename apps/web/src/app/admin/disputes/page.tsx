@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
+import { formatWebDateTime } from '../../../lib/webFormat';
 
 type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
 type DisputeTrade = { id: string; title: string; status: string; amountCents?: number; currency?: string; ownerId: string; providerId?: string | null; disputedAt?: string | null; disputedById?: string | null; disputeTicketId?: string | null; payment?: { buyerId: string; sellerId?: string | null; amountCents?: number; currency?: string; status: string } | null; owner?: { email?: string; profile?: { displayName?: string | null } | null }; provider?: { email?: string; profile?: { displayName?: string | null } | null } | null };
@@ -37,7 +37,7 @@ export default function AdminDisputesPage() {
       const data = await response.json() as LoginResponse;
       if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification.');
       setToken(data.accessToken);
-      setMessage('Admin logged in. Load disputed trades to review frozen money flow.');
+      setMessage('Admin logged in. Load disputed trades to review open issues.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
     finally { setLoading(false); }
   }
@@ -77,7 +77,7 @@ export default function AdminDisputesPage() {
         <div>
           <p className="eyebrow">Admin</p>
           <h1>Trade disputes</h1>
-          <p>Review reported trades, frozen wallet holds, and payout risk before money leaves the platform.</p>
+          <p>Review reported trades, linked support tickets, and admin notes.</p>
         </div>
         <div className="admin-console__login-grid">
           <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
@@ -95,15 +95,15 @@ export default function AdminDisputesPage() {
             const ticket = tickets.find((item) => item.relatedTradeId === trade.id || item.id === trade.disputeTicketId);
             return (
               <article key={trade.id} className="app-card admin-action-card">
-                <div className="status-row"><span className="semantic-badge danger">{trade.status}</span><span className="semantic-badge money">{formatWebMoney(trade.payment?.amountCents ?? trade.amountCents ?? 0, trade.payment?.currency ?? trade.currency ?? 'eur')}</span></div>
+                <div className="status-row"><span className="semantic-badge danger">{trade.status}</span></div>
                 <h2>{trade.title}</h2>
                 <p>Owner: {personLabel(trade.owner)} · Provider: {personLabel(trade.provider)}</p>
-                <p className="meta">Payment: {trade.payment?.status ?? 'none'} · Disputed {formatWebDateTime(trade.disputedAt)}</p>
+                <p className="meta">Disputed {formatWebDateTime(trade.disputedAt)}</p>
                 {ticket ? <p className="notice-box warning">Ticket: {ticket.subject} · {ticket.priority} · {ticket.status}</p> : null}
                 <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Internal resolution note" rows={3} />
                 <div className="admin-action-grid">
-                  <button type="button" onClick={() => void resolve(trade.id, 'refund_payer')} disabled={loading}>Refund payer</button>
-                  <button type="button" onClick={() => void resolve(trade.id, 'release_seller')} disabled={loading}>Release seller</button>
+                  <button type="button" onClick={() => void resolve(trade.id, 'refund_payer')} disabled={loading}>Resolve for owner</button>
+                  <button type="button" onClick={() => void resolve(trade.id, 'release_seller')} disabled={loading}>Resolve for provider</button>
                   <button type="button" onClick={() => void resolve(trade.id, 'mark_resolved')} disabled={loading}>Close only</button>
                 </div>
               </article>

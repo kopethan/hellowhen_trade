@@ -10,12 +10,12 @@ export const betaFeatures = {
   businessAccountsVisible: enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
 } as const;
 
-export function MoneyOffNotice({ title = 'Service and goods beta' }: { title?: string }) {
+export function MoneyOffNotice({ title = 'Need + Offer beta' }: { title?: string }) {
   return (
     <section className="mobile-card mobile-card--soft">
       <span className="semantic-badge instruction">Beta</span>
       <h3>{title}</h3>
-      <p>Wallet money, payouts, and cash trades are hidden while this beta focuses on service and goods exchanges.</p>
+      <p>This beta focuses on Need + Offer exchanges for services, goods, and other everyday items.</p>
     </section>
   );
 }

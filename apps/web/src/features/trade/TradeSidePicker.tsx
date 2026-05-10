@@ -27,7 +27,7 @@ function statusLabel(item: Inventory) {
   return item.status;
 }
 
-export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, onSelect, emptyHref, emptyTitle, emptyBody, moneyEnabled = true }: TradeSidePickerProps) {
+export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, onSelect, emptyHref, emptyTitle, emptyBody, moneyEnabled = false }: TradeSidePickerProps) {
   const sideClass = side === 'need' ? 'need' : 'offer';
   const moneyText = side === 'need' ? 'I need money' : 'I offer money';
   const savedText = side === 'need' ? 'Saved Need' : 'Saved Offer';

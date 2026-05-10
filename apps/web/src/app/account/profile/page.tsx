@@ -160,7 +160,7 @@ export default function AccountProfilePage() {
       <PageIntro
         eyebrow="Profile"
         title="Your public identity"
-        body="Update your display profile, profile photo, country, and preferred currency for web."
+        body="Update your display profile, profile photo, and local display preferences for web."
       />
 
       {!auth.hydrated ? (
@@ -170,7 +170,7 @@ export default function AccountProfilePage() {
       {auth.hydrated && !auth.isAuthenticated ? (
         <section className="mobile-card mobile-card--soft">
           <h3>Login required</h3>
-          <p>Sign in before editing your profile, country, or preferred currency.</p>
+          <p>Sign in before editing your profile or local display preferences.</p>
           <Link href="/auth" className="button primary full">Login or register</Link>
         </section>
       ) : null}
@@ -215,8 +215,8 @@ export default function AccountProfilePage() {
 
             <div className="preference-panel">
               <div>
-                <h3>Country and currency</h3>
-                <p>Country and preferred currency help localize trade display and keep future money features ready. No full address is collected yet.</p>
+                <h3>Local display</h3>
+                <p>Country and display currency help localize trade display. No full address is collected in this beta.</p>
               </div>
               <label className="field-label">
                 Country
@@ -234,7 +234,7 @@ export default function AccountProfilePage() {
                 </select>
               </label>
               <label className="field-label">
-                Preferred currency
+                Display currency
                 <select
                   value={preferredCurrency}
                   onChange={(event) => {

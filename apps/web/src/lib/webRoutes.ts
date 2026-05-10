@@ -61,9 +61,9 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => /^\/offers\/[^/]+$/.test(pathname), title: 'Offer', backHref: '/offers' },
   { match: (pathname) => pathname === '/account/profile', title: 'Profile', backHref: '/account' },
   { match: (pathname) => pathname === '/account/settings', title: 'Settings', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/wallet', title: 'Wallet', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/wallet/add', title: 'Add money', backHref: '/account/wallet' },
-  { match: (pathname) => pathname === '/account/payouts', title: 'Payouts', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/wallet', title: 'Account', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/wallet/add', title: 'Account', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/payouts', title: 'Account', backHref: '/account' },
   { match: (pathname) => pathname === '/account/support', title: 'Support', backHref: '/account' },
 ];
 

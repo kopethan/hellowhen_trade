@@ -1,16 +1,19 @@
+import { redirect } from 'next/navigation';
 import { MobilePage, PageIntro } from '../../../../components/MobilePage';
-import { MoneyOffNotice, betaFeatures } from '../../../../lib/betaFeatures';
+import { betaFeatures } from '../../../../lib/betaFeatures';
 import { AddMoneyClient } from '../../../../features/account/AddMoneyClient';
 
 export default function AddMoneyPage() {
+  if (!betaFeatures.walletVisible) redirect('/account');
+
   return (
     <MobilePage>
       <PageIntro
-        eyebrow="Demo"
-        title="Add money"
-        body="Try the wallet top-up simulation. No real Stripe integration or card charge is used in this phase."
+        eyebrow="Account"
+        title="Add balance"
+        body="Manage exchange balance when this roadmap feature is enabled."
       />
-      {betaFeatures.walletVisible ? <AddMoneyClient /> : <MoneyOffNotice title="Add money is hidden for beta" />}
+      <AddMoneyClient />
     </MobilePage>
   );
 }

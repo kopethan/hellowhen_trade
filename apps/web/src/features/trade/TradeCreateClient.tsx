@@ -11,6 +11,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { formatWebMoney } from '../../lib/webFormat';
 import { isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyPreferences';
+import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { getInventoryMetadata, mediaSrc, normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
@@ -93,8 +94,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
   const auth = useWebAuth();
   const router = useRouter();
   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
-  const [needs, setNeeds] = useState<NeedDto[]>(mockNeeds);
-  const [offers, setOffers] = useState<OfferDto[]>(mockOffers);
+  const demoDataEnabled = isWebDemoDataEnabled();
+  const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
+  const [offers, setOffers] = useState<OfferDto[]>(() => demoDataEnabled ? mockOffers : []);
   const [loadState, setLoadState] = useState<InventoryLoadState>('idle');
   const [values, setValues] = useState<TradeCreateValues>({
     needMode: 'saved',
@@ -133,9 +135,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
     async function loadInventory() {
       setLoadState('loading');
       if (!auth.isAuthenticated) {
-        setNeeds(mockNeeds);
-        setOffers(mockOffers);
-        setLoadState('demo');
+        setNeeds(demoDataEnabled ? mockNeeds : []);
+        setOffers(demoDataEnabled ? mockOffers : []);
+        setLoadState(demoDataEnabled ? 'demo' : 'idle');
         return;
       }
       try {
@@ -153,15 +155,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
         setLoadState('live');
       } catch {
         if (!mounted) return;
-        setNeeds(mockNeeds);
-        setOffers(mockOffers);
-        setLoadState('demo');
-        setNotice('Using demo inventory because your live Needs/Offers could not be loaded. Creating a live trade still needs the API session.');
+        setNeeds(demoDataEnabled ? mockNeeds : []);
+        setOffers(demoDataEnabled ? mockOffers : []);
+        setLoadState(demoDataEnabled ? 'demo' : 'idle');
+        setNotice(demoDataEnabled ? 'Using demo inventory because your live Needs/Offers could not be loaded. Creating a live trade still needs the API session.' : 'Your saved Needs/Offers could not be loaded. Check your connection and try again.');
       }
     }
     void loadInventory();
     return () => { mounted = false; };
-  }, [auth.hydrated, auth.isAuthenticated]);
+  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled]);
 
   const selectableNeeds = useMemo(() => needs.filter(isActiveNeed), [needs]);
   const selectableOffers = useMemo(() => offers.filter(isActiveOffer), [offers]);
@@ -192,10 +194,10 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
   function validate() {
     if (!auth.hydrated) return 'Checking your session. Try again in a moment.';
     if (!auth.isAuthenticated) return 'Sign in to create a live trade.';
-    if (usesMoney && !betaFeatures.moneyTradesEnabled) return 'Money trades are hidden for the beta launch. Choose saved Needs and Offers.';
-    if (blocksMoneyMoney) return 'Choose wallet money on only one side. Money + money trades are blocked.';
-    if (values.needMode === 'saved' && !selectedNeed) return 'Choose a saved Need or select wallet money under I need.';
-    if (values.offerMode === 'saved' && !selectedOffer) return 'Choose a saved Offer or select wallet money under I offer.';
+    if (usesMoney && !betaFeatures.moneyTradesEnabled) return 'Choose saved Needs and Offers for this beta.';
+    if (blocksMoneyMoney) return 'Choose saved Needs and Offers for this beta.';
+    if (values.needMode === 'saved' && !selectedNeed) return 'Choose a saved Need under I need.';
+    if (values.offerMode === 'saved' && !selectedOffer) return 'Choose a saved Offer under I offer.';
     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return 'Enter a wallet money amount of at least 1.00.';
     if (usesMoney && limits && !limits.moneyTradesEnabled) return 'Money trades are disabled for your current launch trust tier.';
     if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return `Money trades are limited to ${formatWebMoney(limits.perTradeMoneyCapCents, values.currency)} for your current tier.`;
@@ -302,7 +304,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
         </div>
 
         {blocksMoneyMoney ? (
-          <p className="form-message form-message--error">Money + money trades are blocked. Choose a saved Need or saved Offer on one side.</p>
+          <p className="form-message form-message--error">Choose saved Needs and Offers for this beta.</p>
         ) : null}
 
         {limits && betaFeatures.moneyFeaturesVisible ? (

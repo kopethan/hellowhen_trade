@@ -20,7 +20,7 @@ const countrySelectOptions = countryOptions.map((country) => ({ value: country.c
 const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
 
 function authSubtitle(mode: AuthMode) {
-  if (mode === 'register') return 'Create your account and set country/currency preferences for the beta.';
+  if (mode === 'register') return 'Create your account and set local display preferences for the beta.';
   if (mode === 'forgot') return 'Reset your password using your account email.';
   return 'Sign in to create needs, offers, and trades.';
 }
@@ -56,7 +56,7 @@ export function LoginScreen() {
     if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
     if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
     if (mode === 'register' && !countryCode) return 'Choose your country.';
-    if (mode === 'register' && !preferredCurrency) return 'Choose your preferred currency.';
+    if (mode === 'register' && !preferredCurrency) return 'Choose your display currency.';
     if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
     return null;
   }
@@ -130,8 +130,8 @@ export function LoginScreen() {
             {mode === 'register' ? (
               <View style={[styles.preferenceBlock, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
                 <View style={styles.preferenceHeader}>
-                  <AppText style={styles.preferenceTitle}>Country and currency</AppText>
-                  <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used for local trade display and future payment setup. You can change this from Profile later.</AppText>
+                  <AppText style={styles.preferenceTitle}>Local display</AppText>
+                  <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used to localize trade display. You can change this from Profile later.</AppText>
                 </View>
                 <AppSelect
                   label="Country"
@@ -144,7 +144,7 @@ export function LoginScreen() {
                   }}
                 />
                 <AppSelect
-                  label="Preferred currency"
+                  label="Display currency"
                   value={preferredCurrency}
                   options={currencySelectOptions}
                   onSelect={(value) => setPreferredCurrency(value as SupportedCurrency)}

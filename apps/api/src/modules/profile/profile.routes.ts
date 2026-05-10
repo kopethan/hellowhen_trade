@@ -32,7 +32,7 @@ async function getOrCreateProfile(userId: string, data: ReturnType<typeof getPro
 }
 
 async function attachAvatarMedia(userId: string, profileId: string, mediaId: string) {
-  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: { not: 'removed' } } });
+  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: 'active' } });
   if (!media) throw createProfileError('invalid_avatar_media', 'Upload a profile image again and retry.');
 
   if (media.entityType && media.entityType !== 'profile') {
