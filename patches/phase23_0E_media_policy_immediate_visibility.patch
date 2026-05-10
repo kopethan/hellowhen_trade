@@ -1,0 +1,355 @@
+diff --git a/apps/api/prisma/migrations/20260510100000_media_active_default_beta/migration.sql b/apps/api/prisma/migrations/20260510100000_media_active_default_beta/migration.sql
+new file mode 100644
+index 0000000..2943d06
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260510100000_media_active_default_beta/migration.sql
+@@ -0,0 +1,8 @@
++-- Phase 23.0E: first beta uses immediate image visibility.
++-- Uploads are active by default; admins can still flag/remove reported media.
++ALTER TABLE "MediaAsset"
++  ALTER COLUMN "status" SET DEFAULT 'active';
++
++UPDATE "MediaAsset"
++SET "status" = 'active'
++WHERE "status" = 'pending_review';
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 7c2026d..8db4f8d 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -563,7 +563,7 @@ model MediaAsset {
+   filename    String
+   mimeType    String
+   sizeBytes   Int
+-  status      MediaAssetStatus @default(pending_review)
++  status      MediaAssetStatus @default(active)
+   reviewNote  String?
+   reviewedAt  DateTime?
+   reviewerId  String?
+diff --git a/apps/api/src/modules/media/media.helpers.ts b/apps/api/src/modules/media/media.helpers.ts
+index c6347bd..b935ad1 100644
+--- a/apps/api/src/modules/media/media.helpers.ts
++++ b/apps/api/src/modules/media/media.helpers.ts
+@@ -17,7 +17,7 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
+   }
+ 
+   const [selectedMedia, existingEntityMedia] = await Promise.all([
+-    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: { not: 'removed' } } }),
++    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: 'active' } }),
+     prisma.mediaAsset.findMany({ where: { entityType, entityId, status: { not: 'removed' } }, select: { id: true } })
+   ]);
+ 
+@@ -56,21 +56,17 @@ export async function loadMediaByEntityIds(entityType: MediaEntityType, entityId
+     : visibility === 'public'
+       ? { status: 'active' as const }
+       : visibility === 'trade_public'
+-        ? { status: { in: ['active', 'pending_review'] as const } }
++        ? { status: 'active' as const }
+         : { status: { not: 'removed' as const } };
+ 
+   const media = await prisma.mediaAsset.findMany({
+     where: { entityType, entityId: { in: ids }, ...statusWhere },
+     orderBy: { createdAt: 'asc' }
+   });
+-  // Needs and Offers stay private inventory, but once they are attached to an
+-  // active public trade their images are part of the public trade content. We
+-  // expose non-removed/non-flagged pending media for that trade context only,
+-  // and normalize it to active in the public response so visitors do not see
+-  // internal review labels on normal trade image cards.
+-  const visibleMedia = visibility === 'trade_public'
+-    ? media.map((item) => item.status === 'pending_review' ? { ...item, status: 'active' as const } : item)
+-    : media;
++  // First beta policy: uploads are active immediately. Public trade pages only
++  // render active media; flagged/removed media is hidden from public decks and
++  // details, while owners and admins can still see moderation state.
++  const visibleMedia = media;
+   const byEntity = new Map<string, MediaAsset[]>();
+   for (const item of visibleMedia) {
+     if (!item.entityId) continue;
+diff --git a/apps/api/src/modules/media/media.routes.ts b/apps/api/src/modules/media/media.routes.ts
+index f4ed2d1..c5a8434 100644
+--- a/apps/api/src/modules/media/media.routes.ts
++++ b/apps/api/src/modules/media/media.routes.ts
+@@ -58,7 +58,7 @@ mediaRoutes.post('/image', uploadImage, asyncRoute(async (req, res) => {
+       filename: req.file.originalname || req.file.filename,
+       mimeType: req.file.mimetype,
+       sizeBytes: req.file.size,
+-      status: 'pending_review'
++      status: 'active'
+     }
+   });
+ 
+diff --git a/apps/api/src/modules/profile/profile.routes.ts b/apps/api/src/modules/profile/profile.routes.ts
+index 296e9a4..9ae07ff 100644
+--- a/apps/api/src/modules/profile/profile.routes.ts
++++ b/apps/api/src/modules/profile/profile.routes.ts
+@@ -32,7 +32,7 @@ async function getOrCreateProfile(userId: string, data: ReturnType<typeof getPro
+ }
+ 
+ async function attachAvatarMedia(userId: string, profileId: string, mediaId: string) {
+-  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: { not: 'removed' } } });
++  const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: 'active' } });
+   if (!media) throw createProfileError('invalid_avatar_media', 'Upload a profile image again and retry.');
+ 
+   if (media.entityType && media.entityType !== 'profile') {
+diff --git a/apps/mobile/src/features/me/MeScreen.tsx b/apps/mobile/src/features/me/MeScreen.tsx
+index a1c3675..8c64316 100644
+--- a/apps/mobile/src/features/me/MeScreen.tsx
++++ b/apps/mobile/src/features/me/MeScreen.tsx
+@@ -141,7 +141,7 @@ export function ProfileScreen({ navigation }: Props) {
+               </Pressable>
+             ) : null}
+           </View>
+-          <InfoNotice tone="info" body="Profile pictures are reviewed like other images. If a picture is removed during review, it disappears from your public profile." />
++          <InfoNotice tone="info" body="Profile pictures appear after upload. If an image is reported and removed, it disappears from your public profile." />
+         </AppCard>
+ 
+         <AppCard>
+diff --git a/apps/mobile/src/features/settings/SettingsScreen.tsx b/apps/mobile/src/features/settings/SettingsScreen.tsx
+index dce392c..8c7181f 100644
+--- a/apps/mobile/src/features/settings/SettingsScreen.tsx
++++ b/apps/mobile/src/features/settings/SettingsScreen.tsx
+@@ -115,7 +115,7 @@ export function SettingsScreen() {
+           <View style={styles.switchRow}>
+             <View style={styles.switchCopy}>
+               <AppText style={styles.sectionTitle}>Notifications</AppText>
+-              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image review, and support activity.</AppText>
++              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image/content reports, and support activity.</AppText>
+             </View>
+             <Switch value={settings.notificationsEnabled} disabled={saving} onValueChange={(value) => { void updateSettings({ notificationsEnabled: value }); }} />
+           </View>
+@@ -158,7 +158,7 @@ export function SettingsScreen() {
+         <AppCard>
+           <SemanticBadge label="Privacy" tone="info" size="sm" />
+           <AppText style={styles.sectionTitle}>Profile visibility</AppText>
+-          <AppText style={[styles.body, { color: theme.color.muted }]}>Only your public profile, active trades, and approved need/offer images appear in public trade decks.</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>Only your public profile, active trades, and active need/offer images appear in public trade decks.</AppText>
+         </AppCard>
+       </ScrollView>
+     </AppScreen>
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index da972ad..590377a 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -87,7 +87,6 @@ function statusHint(trade: TradeDeckItem, role: DetailRole) {
+ 
+ function canMessageProposal(proposal: TradeProposalItem) { return !['declined', 'withdrawn'].includes(proposal.status); }
+ function canShowConversation(proposal: TradeProposalItem, role: DetailRole, userId?: string) { return role === 'owner' ? proposal.status === 'accepted' : proposal.applicantId === userId; }
+-function hasPrivateMedia(media?: MediaAssetDto[]) { return Boolean(media?.some((item) => item.status !== 'active')); }
+ function isOpeningProposalMessage(proposal: TradeProposalItem, message: ProposalMessageItem) { return message.senderId === proposal.applicantId && message.body.trim() === proposal.message.trim(); }
+ function visibleConversationMessages(proposal: TradeProposalItem) {
+   const messages = proposal.messages ?? [];
+@@ -226,9 +225,9 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} /><SemanticBadge label="Need + Offer" tone="trade" size="sm" /></View><AppText style={styles.title}>{title}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Posted by {personLabel(trade.owner)}{trade.expiresAt ? ` · ${expiryLabel(trade.expiresAt)}` : ''}</AppText><AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText></View>
+ 
+     <Separator theme={theme} />
+-    <InventorySection eyebrow="I need" title={needTitle(trade)} description={needDescription(trade)} meta={needMeta(trade.need)} images={trade.need?.media ?? []} emptyImageLabel="No need reference images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.need?.media)} theme={theme} />
++    <InventorySection eyebrow="I need" title={needTitle(trade)} description={needDescription(trade)} meta={needMeta(trade.need)} images={trade.need?.media ?? []} emptyImageLabel="No need reference images yet." theme={theme} />
+     <Separator theme={theme} />
+-    <InventorySection eyebrow="I offer" title={offerTitle(trade)} description={offerDescription(trade)} meta={offerMeta(trade.offer)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." reviewPending={role === 'owner' && hasPrivateMedia(trade.offer?.media)} theme={theme} />
++    <InventorySection eyebrow="I offer" title={offerTitle(trade)} description={offerDescription(trade)} meta={offerMeta(trade.offer)} images={trade.offer?.media ?? []} emptyImageLabel="No offer sample images yet." theme={theme} />
+ 
+     <Separator theme={theme} />
+     <View style={styles.section}><AppText style={styles.sectionEyebrow}>Trade details</AppText><View style={styles.detailRows}><DetailRow label="Status" value={formatStatus(trade.status)} theme={theme} /><DetailRow label="Expiry" value={expiryLabel(trade.expiresAt)} theme={theme} /><DetailRow label="Exchange" value={paymentLabel} theme={theme} />{createdLabel ? <DetailRow label="Created" value={createdLabel} theme={theme} /> : null}<DetailRow label="Owner" value={personLabel(trade.owner)} theme={theme} />{trade.provider ? <DetailRow label="Provider" value={personLabel(trade.provider)} theme={theme} /> : null}</View><InfoNotice tone="info" title="Next step" body={statusHint(trade, role)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? 'Updating...' : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
+@@ -239,8 +238,8 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+ }
+ 
+ function Separator({ theme }: { theme: ThemeTokens }) { return <View style={[styles.separator, { backgroundColor: theme.color.border }]} />; }
+-function InventorySection({ eyebrow, title, description, meta, images, emptyImageLabel, reviewPending, theme }: { eyebrow: string; title: string; description: string; meta: string; images: MediaAssetDto[]; emptyImageLabel: string; reviewPending?: boolean; theme: ThemeTokens }) { return <View style={styles.section}><AppText style={styles.sectionEyebrow}>{eyebrow}</AppText><AppText style={styles.sectionTitle}>{title}</AppText>{description ? <AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>{description}</AppText> : null}<AppText style={[styles.metaLine, { color: theme.color.muted }]}>{meta}</AppText><TradeDetailImageGrid media={images} emptyLabel={emptyImageLabel} theme={theme} />{reviewPending ? <AppText style={[styles.reviewNote, { color: theme.color.muted }]}>Images appear in the public feed after review.</AppText> : null}</View>; }
+-function TradeDetailImageGrid({ media, emptyLabel, theme }: { media: MediaAssetDto[]; emptyLabel: string; theme: ThemeTokens }) { const visible = media.slice(0, 4); if (visible.length === 0) return <AppText style={[styles.emptyImages, { color: theme.color.muted, borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }]}>{emptyLabel}</AppText>; const first = visible[0]; if (visible.length === 1 && first) return <Image source={{ uri: resolveMediaUrl(first.url) }} style={styles.singleImage} resizeMode="cover" />; return <View style={styles.imageGrid}>{visible.map((item, index) => { const isLargeFirst = visible.length === 3 && index === 0; return <View key={item.id} style={[styles.gridImageWrap, isLargeFirst && styles.gridImageLargeFirst]}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.gridImage} resizeMode="cover" />{index === 3 && media.length > 4 ? <View style={styles.moreOverlay}><AppText style={styles.moreOverlayText}>+{media.length - 4}</AppText></View> : null}</View>; })}</View>; }
++function InventorySection({ eyebrow, title, description, meta, images, emptyImageLabel, theme }: { eyebrow: string; title: string; description: string; meta: string; images: MediaAssetDto[]; emptyImageLabel: string; theme: ThemeTokens }) { return <View style={styles.section}><AppText style={styles.sectionEyebrow}>{eyebrow}</AppText><AppText style={styles.sectionTitle}>{title}</AppText>{description ? <AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>{description}</AppText> : null}<AppText style={[styles.metaLine, { color: theme.color.muted }]}>{meta}</AppText><TradeDetailImageGrid media={images} emptyLabel={emptyImageLabel} theme={theme} /></View>; }
++function TradeDetailImageGrid({ media, emptyLabel, theme }: { media: MediaAssetDto[]; emptyLabel: string; theme: ThemeTokens }) { const activeMedia = media.filter((item) => item.status === 'active'); const visible = activeMedia.slice(0, 4); if (visible.length === 0) return <AppText style={[styles.emptyImages, { color: theme.color.muted, borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }]}>{emptyLabel}</AppText>; const first = visible[0]; if (visible.length === 1 && first) return <Image source={{ uri: resolveMediaUrl(first.url) }} style={styles.singleImage} resizeMode="cover" />; return <View style={styles.imageGrid}>{visible.map((item, index) => { const isLargeFirst = visible.length === 3 && index === 0; return <View key={item.id} style={[styles.gridImageWrap, isLargeFirst && styles.gridImageLargeFirst]}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.gridImage} resizeMode="cover" />{index === 3 && activeMedia.length > 4 ? <View style={styles.moreOverlay}><AppText style={styles.moreOverlayText}>+{activeMedia.length - 4}</AppText></View> : null}</View>; })}</View>; }
+ function DetailRow({ label, value, theme }: { label: string; value: string; theme: ThemeTokens }) { return <View style={[styles.detailRow, { borderColor: theme.color.border }]}><AppText style={[styles.detailLabel, { color: theme.color.muted }]}>{label}</AppText><AppText style={styles.detailValue}>{value}</AppText></View>; }
+ function ProposalComposer({ value, onChange, onSubmit, loading, theme }: { value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; theme: ThemeTokens }) { return <View style={styles.composerBox}><AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>Write a short private proposal. The owner can accept, decline, or continue the conversation here.</AppText><TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder="I can help with this. My timing is..." placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} /><ActionButton label={loading ? 'Sending...' : 'Send proposal'} variant="primary" disabled={loading || value.trim().length < 3} onPress={onSubmit} theme={theme} /></View>; }
+ 
+@@ -252,4 +251,4 @@ function ProposalBlock({ proposal, role, currentUserId, replyDraft, onReplyDraft
+ function MessageBubble({ message, mine, theme }: { message: ProposalMessageItem; mine: boolean; theme: ThemeTokens }) { return <View style={[styles.messageBubble, mine ? styles.myMessageBubble : styles.theirMessageBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }]}><AppText style={[styles.messageAuthor, { color: theme.color.muted }]}>{mine ? 'You' : personLabel(message.sender)}</AppText><AppText style={styles.messageBody}>{message.body}</AppText></View>; }
+ function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) { const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }; const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text; return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>; }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, reviewNote: { fontSize: 12, lineHeight: 17, fontWeight: '800' }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 10 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 4 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 10 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 4 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/components/ImagePickerField.tsx b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+index 1607f65..18ba27a 100644
+--- a/apps/mobile/src/features/trade/components/ImagePickerField.tsx
++++ b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+@@ -5,7 +5,7 @@ import { AppText } from '../../../components/AppText';
+ import { InfoNotice } from '../../../components/SemanticUI';
+ import type { SelectedLocalImage } from '../mediaUpload';
+ 
+-export function ImagePickerField({ images, onChange, disabled, maxImages = 5, label = 'Images', hint, reviewBody = 'Images are reviewed before they appear in public trade decks.' }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number; label?: string; hint?: string; reviewBody?: string }) {
++export function ImagePickerField({ images, onChange, disabled, maxImages = 5, label = 'Images', hint, reviewBody = 'Images appear on your saved Need or Offer after upload. Use support to report image/content issues.' }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number; label?: string; hint?: string; reviewBody?: string }) {
+   const [error, setError] = useState<string | null>(null);
+   async function pickImages() {
+     setError(null);
+@@ -19,6 +19,6 @@ export function ImagePickerField({ images, onChange, disabled, maxImages = 5, la
+     onChange([...images, ...selected]);
+   }
+   function removeImage(uri: string) { onChange(images.filter((image) => image.uri !== uri)); }
+-  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>{label}</AppText><AppText style={styles.hint}>{hint ?? `Add up to ${maxImages} JPEG, PNG, or WEBP images.`}</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View>{reviewBody ? <InfoNotice tone="info" title="Image review" body={reviewBody} /> : null}{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
++  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>{label}</AppText><AppText style={styles.hint}>{hint ?? `Add up to ${maxImages} JPEG, PNG, or WEBP images.`}</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View>{reviewBody ? <InfoNotice tone="info" title="Images" body={reviewBody} /> : null}{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
+ }
+ const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 118, gap: 7 }, image: { width: 118, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index eb06bac..44d97e0 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -21,7 +21,7 @@ type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTo
+ type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; onOpen: () => void; };
+ 
+ function deckMedia(media: MediaAssetDto[] | undefined) {
+-  return (media ?? []).filter((asset) => asset.status !== 'removed');
++  return (media ?? []).filter((asset) => asset.status === 'active');
+ }
+ 
+ export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, tradeTotal = 1): TradeSquareDeckCard[] {
+@@ -45,7 +45,7 @@ function modeLabel(mode?: string | null) {
+   return null;
+ }
+ function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
+-function imagePlaceholderLabel(media?: MediaAssetDto) { if (media?.status === 'pending_review') return 'Image pending review'; if (media?.status === 'flagged') return 'Image unavailable'; return 'Image unavailable'; }
++function imagePlaceholderLabel(media?: MediaAssetDto) { if (media?.status === 'flagged') return 'Image unavailable'; return 'Image unavailable'; }
+ function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
+ function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
+ function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
+@@ -91,7 +91,6 @@ export function TradeImageCard({ kind, media, onOpen }: TradeImageCardProps) {
+     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, pressed && styles.pressed]}>
+       {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>{imagePlaceholderLabel(media)}</AppText></View>}
+       <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{label}</AppText></View>
+-      {media?.status === 'pending_review' ? <View style={styles.reviewBadge}><AppText style={styles.reviewBadgeText}>Pending review</AppText></View> : null}
+     </Pressable>
+   );
+ }
+@@ -115,7 +114,5 @@ const styles = StyleSheet.create({
+   imagePlaceholderText: { color: '#64748B', fontWeight: '900' },
+   floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
+   floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
+-  reviewBadge: { position: 'absolute', right: 14, bottom: 14, borderRadius: 999, backgroundColor: 'rgba(255, 255, 255, 0.86)', paddingHorizontal: 10, paddingVertical: 6 },
+-  reviewBadgeText: { color: '#0F172A', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
+   pressed: { opacity: 0.82 },
+ });
+diff --git a/apps/web/src/app/admin/media/page.tsx b/apps/web/src/app/admin/media/page.tsx
+index 4b90a2b..da53a77 100644
+--- a/apps/web/src/app/admin/media/page.tsx
++++ b/apps/web/src/app/admin/media/page.tsx
+@@ -8,7 +8,7 @@ type AdminMediaItem = MediaAssetDto & { owner?: { email?: string; profile?: { di
+ type MediaResponse = { media: AdminMediaItem[] };
+ 
+ const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+-const statuses: Array<MediaAssetStatus | 'all'> = ['all', 'active', 'pending_review', 'flagged', 'removed'];
++const statuses: Array<MediaAssetStatus | 'all'> = ['all', 'active', 'flagged', 'removed', 'pending_review'];
+ function statusTone(status: MediaAssetStatus | 'all') {
+   if (status === 'active') return 'success';
+   if (status === 'pending_review') return 'warning';
+@@ -43,7 +43,7 @@ export default function AdminMediaPage() {
+       if (!response.ok) throw new Error('Login failed');
+       const data = await response.json() as LoginResponse;
+       setToken(data.accessToken);
+-      setMessage('Admin logged in. Load media to review uploads.');
++      setMessage('Admin logged in. Load media to moderate uploads.');
+     } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
+     finally { setLoading(false); }
+   }
+@@ -65,7 +65,12 @@ export default function AdminMediaPage() {
+     if (!token) return;
+     setLoading(true); setMessage(null);
+     try {
+-      const response = await fetch(`${apiBase}/admin/media/${mediaId}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus }) });
++      const reviewNote = nextStatus === 'flagged'
++        ? 'Flagged during beta media moderation.'
++        : nextStatus === 'removed'
++          ? 'Removed during beta media moderation.'
++          : undefined;
++      const response = await fetch(`${apiBase}/admin/media/${mediaId}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus, reviewNote }) });
+       if (!response.ok) throw new Error('Could not update media status');
+       await loadMedia();
+     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update media'); }
+@@ -75,9 +80,9 @@ export default function AdminMediaPage() {
+   return (
+     <section style={{ display: 'grid', gap: 16 }}>
+       <div className="card">
+-        <span className="semantic-badge admin">Admin Review</span>
++        <span className="semantic-badge admin">Admin moderation</span>
+         <h1>Uploaded images</h1>
+-        <p className="notice-box admin">Basic dev admin space for reviewing need, offer, and trade images. Admin colors are slate; warning means pending review; danger means flagged or removed action.</p>
++        <p className="notice-box admin">Basic dev admin space for moderating uploaded need, offer, profile, and support images. First-beta uploads are active immediately; use flag or remove only after reports or a manual check.</p>
+         <div className="form-row">
+           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+             <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+@@ -102,7 +107,7 @@ export default function AdminMediaPage() {
+             <p className="meta">Owner: {item.owner?.profile?.displayName ?? item.owner?.email ?? item.ownerId}</p>
+             <p className="meta">Entity: {entityLabel(item)}</p>
+             <div className="cta-row">
+-              <button className="success" onClick={() => { void updateStatus(item.id, 'active'); }}>Approve</button>
++              <button className="success" onClick={() => { void updateStatus(item.id, 'active'); }}>Restore</button>
+               <button className="warning" onClick={() => { void updateStatus(item.id, 'flagged'); }}>Flag</button>
+               <button className="danger" onClick={() => { void updateStatus(item.id, 'removed'); }}>Remove</button>
+             </div>
+diff --git a/apps/web/src/features/account/SupportClient.tsx b/apps/web/src/features/account/SupportClient.tsx
+index ad8872c..bf81cff 100644
+--- a/apps/web/src/features/account/SupportClient.tsx
++++ b/apps/web/src/features/account/SupportClient.tsx
+@@ -19,7 +19,7 @@ const categoryOptions: CategoryOption[] = [
+   { value: 'general_feedback', label: 'General feedback' },
+   { value: 'trade_issue', label: 'Trade issue' },
+   { value: 'credits_issue', label: 'Trade or account issue' },
+-  { value: 'media_issue', label: 'Image review issue' },
++  { value: 'media_issue', label: 'Image/content issue' },
+   { value: 'bug_report', label: 'Bug report' },
+   { value: 'account_issue', label: 'Account issue' },
+   { value: 'safety_concern', label: 'Safety concern' },
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 998e1a5..dfb7ace 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -144,7 +144,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
+         if (uploaded) nextMedia.push(uploaded);
+       }
+       setMedia(nextMedia.slice(0, 5));
+-      setMessage('Image uploaded. It may stay pending until admin review approves it.');
++      setMessage('Image uploaded. It will appear on this saved item after you save.');
+     } catch (cause) {
+       setError(getFriendlyApiErrorMessage(cause));
+     } finally {
+@@ -291,7 +291,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
+           <div>
+             <p className="eyebrow">Images</p>
+             <h3>{media.length ? `${media.length}/5 selected` : `Add ${lowerNoun} images`}</h3>
+-            <p>Images upload to media review first. Approved images appear publicly on trade decks and details.</p>
++            <p>Images appear on this saved Need or Offer after upload. Support can remove reported images if needed.</p>
+           </div>
+           <label className="image-upload-button">
+             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={uploading || media.length >= 5} />
+diff --git a/apps/web/src/features/trade/TradeImageGrid.tsx b/apps/web/src/features/trade/TradeImageGrid.tsx
+index a39ab80..591b50e 100644
+--- a/apps/web/src/features/trade/TradeImageGrid.tsx
++++ b/apps/web/src/features/trade/TradeImageGrid.tsx
+@@ -11,20 +11,17 @@ type TradeImageGridProps = {
+ };
+ 
+ function statusLabel(status?: MediaAssetDto['status']) {
+-  if (status === 'pending_review') return 'Pending review';
+   if (status === 'flagged') return 'Unavailable';
+   return null;
+ }
+ 
+ function fallbackTitle(status?: MediaAssetDto['status']) {
+-  if (status === 'pending_review') return 'Image pending review';
+   if (status === 'flagged') return 'Image unavailable';
+   return 'Image unavailable';
+ }
+ 
+ function fallbackBody(status?: MediaAssetDto['status']) {
+-  if (status === 'pending_review') return 'Only the owner can see this before approval.';
+-  if (status === 'flagged') return 'This image needs review before it can be shown.';
++  if (status === 'flagged') return 'This image was removed after a content report.';
+   return 'The image could not be loaded.';
+ }
+ 
+@@ -44,7 +41,7 @@ function TradeImageGridItem({ image, index, title, badge, extra }: { image: Medi
+ }
+ 
+ export function TradeImageGrid({ images, title, badge }: TradeImageGridProps) {
+-  const visibleImages = images.filter((image) => image.status !== 'removed');
++  const visibleImages = images.filter((image) => image.status === 'active');
+ 
+   if (!visibleImages.length) {
+     return (

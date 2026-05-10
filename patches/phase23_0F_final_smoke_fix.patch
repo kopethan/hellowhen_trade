@@ -1,0 +1,117 @@
+diff -ruN phase23_0F_clean/hellowhen_trade-dev/apps/api/src/modules/proposals/proposals.routes.ts phase23_0F_work/hellowhen_trade-dev/apps/api/src/modules/proposals/proposals.routes.ts
+--- phase23_0F_clean/hellowhen_trade-dev/apps/api/src/modules/proposals/proposals.routes.ts	2026-05-09 22:34:16.000000000 +0000
++++ phase23_0F_work/hellowhen_trade-dev/apps/api/src/modules/proposals/proposals.routes.ts	2026-05-10 08:45:33.458942767 +0000
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import { createProposalMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+@@ -8,10 +9,23 @@
+ export const proposalsRoutes = Router();
+ proposalsRoutes.use(requireAuth);
+ function canReadProposal(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) { return proposal.applicantId === actorId || proposal.trade.ownerId === actorId || proposal.trade.providerId === actorId; }
++function betaMoneyOff() { return !env.moneyFeaturesVisible || env.moneyLaunchMode === 'disabled' || !env.moneyTradesEnabled; }
++function noMoneyProposalTradeWhere() { return { amountCents: { lte: 0 }, creditAmount: { lte: 0 } }; }
++function proposalHasMoneySurface(proposal: { trade: { amountCents?: number | null; creditAmount?: number | null; payment?: { amountCents?: number | null; creditAmount?: number | null } | null; escrow?: { heldAmountCents?: number | null; heldCredits?: number | null } | null } }) {
++  return (proposal.trade.amountCents ?? 0) > 0
++    || (proposal.trade.creditAmount ?? 0) > 0
++    || (proposal.trade.payment?.amountCents ?? 0) > 0
++    || (proposal.trade.payment?.creditAmount ?? 0) > 0
++    || (proposal.trade.escrow?.heldAmountCents ?? 0) > 0
++    || (proposal.trade.escrow?.heldCredits ?? 0) > 0;
++}
++function betaProposalHiddenResponse(res: { status: (status: number) => { json: (body: unknown) => unknown } }) {
++  return res.status(404).json({ error: 'not_found', message: 'This proposal is not available for the first beta.' });
++}
+ 
+ proposalsRoutes.get('/mine', asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+-  const proposals = await prisma.tradeProposal.findMany({ where: { OR: [{ applicantId: actorId }, { trade: { ownerId: actorId } }, { trade: { providerId: actorId } }] }, include: proposalInclude, orderBy: { updatedAt: 'desc' }, take: 50 });
++  const proposals = await prisma.tradeProposal.findMany({ where: { AND: [{ OR: [{ applicantId: actorId }, { trade: { ownerId: actorId } }, { trade: { providerId: actorId } }] }, ...(betaMoneyOff() ? [{ trade: noMoneyProposalTradeWhere() }] : [])] }, include: proposalInclude, orderBy: { updatedAt: 'desc' }, take: 50 });
+   res.json({ proposals: await withProposalTradeMedia(proposals, 'owner') });
+ }));
+ proposalsRoutes.get('/:proposalId', asyncRoute(async (req, res) => {
+@@ -19,6 +33,7 @@
+   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: proposalInclude });
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
++  if (betaMoneyOff() && proposalHasMoneySurface(proposal)) return betaProposalHiddenResponse(res);
+   res.json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
+ }));
+ proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
+@@ -26,6 +41,7 @@
+   const actorId = req.user!.id;
+   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: proposalInclude });
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
++  if (betaMoneyOff() && proposalHasMoneySurface(proposal)) return betaProposalHiddenResponse(res);
+   if (input.status === 'withdrawn') {
+     if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
+     if (!['pending', 'declined'].includes(proposal.status)) return res.status(409).json({ error: 'invalid_proposal_status_transition' });
+@@ -62,6 +78,7 @@
+   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
++  if (betaMoneyOff() && proposalHasMoneySurface(proposal)) return betaProposalHiddenResponse(res);
+   const messages = await prisma.proposalMessage.findMany({ where: { proposalId: proposal.id }, include: { sender: { select: { id: true, profile: true } } }, orderBy: { createdAt: 'asc' } });
+   res.json({ messages });
+ }));
+@@ -71,6 +88,7 @@
+   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
++  if (betaMoneyOff() && proposalHasMoneySurface(proposal)) return betaProposalHiddenResponse(res);
+   if (['declined', 'withdrawn'].includes(proposal.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
+   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: { id: true, profile: true } } } });
+   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
+diff -ruN phase23_0F_clean/hellowhen_trade-dev/apps/mobile/src/features/trade/ProposalDetailScreen.tsx phase23_0F_work/hellowhen_trade-dev/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+--- phase23_0F_clean/hellowhen_trade-dev/apps/mobile/src/features/trade/ProposalDetailScreen.tsx	2026-05-09 19:43:24.000000000 +0000
++++ phase23_0F_work/hellowhen_trade-dev/apps/mobile/src/features/trade/ProposalDetailScreen.tsx	2026-05-10 08:45:33.459295226 +0000
+@@ -49,7 +49,7 @@
+   const statusHint = useMemo(() => {
+     if (!proposal) return '';
+     if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.';
+-    if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and wallet money was held when applicable.';
++    if (proposal.status === 'accepted') return 'Accepted. The trade is now in progress and the private conversation stays here.';
+     if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.';
+     return 'Withdrawn. This proposal conversation is now closed.';
+   }, [proposal, isOwner]);
+@@ -73,7 +73,7 @@
+       const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse;
+       setProposal(result.proposal);
+       setMessages(result.proposal.messages ?? messages);
+-      setNotice(status === 'accepted' ? 'Proposal accepted. Wallet money is now held when this trade includes an amount and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.');
++      setNotice(status === 'accepted' ? 'Proposal accepted. The trade is now in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.');
+     } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); }
+     finally { setActionLoading(null); }
+   }
+@@ -83,7 +83,7 @@
+     {!proposal ? <AppCard><SemanticBadge label="Proposal" tone="proposal" /><AppText style={styles.title}>Proposal</AppText>{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>Loading proposal...</AppText>}</AppCard> : <AppCard>
+       <View style={styles.headerRow}><StatusBadge status={proposal.status} /><SemanticBadge label="Proposal thread" tone="proposal" size="sm" /></View>
+       <AppText style={styles.title}>{proposal.trade?.title ?? 'Proposal'}</AppText>
+-      {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Service-for-service trade</AppText>) : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Private proposal conversation</AppText>}
++      {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Need + Offer exchange</AppText>) : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Private proposal conversation</AppText>}
+       <View style={styles.peopleRow}><MiniPerson label="Owner" name={personLabel(proposal.trade?.owner)} tone="need" /><MiniPerson label="Applicant" name={personLabel(proposal.applicant)} tone="offer" /></View>
+       <InfoNotice tone="info" title="Next step" body={statusHint} />
+       {error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}
+diff -ruN phase23_0F_clean/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx phase23_0F_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+--- phase23_0F_clean/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx	2026-05-10 08:40:07.000000000 +0000
++++ phase23_0F_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx	2026-05-10 08:46:50.295842150 +0000
+@@ -5,7 +5,7 @@
+ import { InfoNotice } from '../../../components/SemanticUI';
+ import type { SelectedLocalImage } from '../mediaUpload';
+ 
+-export function ImagePickerField({ images, onChange, disabled, maxImages = 5, label = 'Images', hint, reviewBody = 'Images appear on your saved Need or Offer after upload. Use support to report image/content issues.' }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number; label?: string; hint?: string; reviewBody?: string }) {
++export function ImagePickerField({ images, onChange, disabled, maxImages = 5, label = 'Images', hint, infoBody = 'Images appear on your saved Need or Offer after upload. Use support to report image/content issues.' }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number; label?: string; hint?: string; infoBody?: string }) {
+   const [error, setError] = useState<string | null>(null);
+   async function pickImages() {
+     setError(null);
+@@ -19,6 +19,6 @@
+     onChange([...images, ...selected]);
+   }
+   function removeImage(uri: string) { onChange(images.filter((image) => image.uri !== uri)); }
+-  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>{label}</AppText><AppText style={styles.hint}>{hint ?? `Add up to ${maxImages} JPEG, PNG, or WEBP images.`}</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View>{reviewBody ? <InfoNotice tone="info" title="Images" body={reviewBody} /> : null}{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
++  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>{label}</AppText><AppText style={styles.hint}>{hint ?? `Add up to ${maxImages} JPEG, PNG, or WEBP images.`}</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View>{infoBody ? <InfoNotice tone="info" title="Images" body={infoBody} /> : null}{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
+ }
+ const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 118, gap: 7 }, image: { width: 118, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
