@@ -214,6 +214,7 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
 }));
 
 const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
+const tradeDuplicateBlockingStatuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'disputed'] as const;
 
 tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
@@ -267,6 +268,23 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   if (!offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
   if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
   if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
+
+  if (need && offer) {
+    const existingTrade = await prisma.trade.findFirst({
+      where: { ownerId: actorId, needId: need.id, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
+      select: { id: true, status: true, title: true }
+    });
+    if (existingTrade) {
+      return res.status(409).json({
+        error: 'duplicate_trade_pair',
+        message: 'You already have an active trade using this exact Need and Offer. Delete or close the existing trade before creating it again.',
+        tradeId: existingTrade.id,
+        tradeStatus: existingTrade.status,
+        tradeTitle: existingTrade.title
+      });
+    }
+  }
+
   const limits = await buildLaunchLimits(prisma, actorId);
   const isMoneyTrade = isMoneyPayload;
   if (isMoneyTrade) {

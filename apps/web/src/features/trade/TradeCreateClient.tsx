@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
 import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
@@ -12,7 +12,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { formatWebMoney } from '../../lib/webFormat';
 import { isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyPreferences';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
-import { mockNeeds, mockOffers } from '../../lib/mockData';
+import { mockNeeds, mockOffers, mockTrades } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
 import { TradeSidePicker } from './TradeSidePicker';
@@ -99,6 +99,32 @@ function isActiveOffer(offer: OfferDto) {
   return offer.status === 'active' || offer.status === 'draft';
 }
 
+function normalizeTradeList(value: unknown): TradeDto[] {
+  if (Array.isArray(value)) return value as TradeDto[];
+  if (value && typeof value === 'object') {
+    const maybeTrades = (value as { trades?: unknown }).trades;
+    if (Array.isArray(maybeTrades)) return maybeTrades as TradeDto[];
+  }
+  return [];
+}
+
+const duplicateBlockingTradeStatuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'disputed'] as const;
+
+function isDuplicateBlockingTradeStatus(status: TradeDto['status']) {
+  return (duplicateBlockingTradeStatuses as readonly string[]).includes(status);
+}
+
+function findDuplicateTradePair(trades: TradeDto[], needId?: string | null, offerId?: string | null) {
+  if (!needId || !offerId) return null;
+  return trades.find((trade) => trade.needId === needId && trade.offerId === offerId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
+}
+
+function duplicateTradeMessage(trade: TradeDto) {
+  return trade.status === 'active'
+    ? 'You already have an active trade using this exact Need and Offer.'
+    : `You already have a ${trade.status.replace(/_/g, ' ')} trade using this exact Need and Offer.`;
+}
+
 function buildPreviewTrade(input: {
   ownerId?: string | null;
   title: string;
@@ -136,16 +162,20 @@ function buildPreviewTrade(input: {
 export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: { initialNeedId?: string; initialOfferId?: string }) {
   const auth = useWebAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const routeNeedId = searchParams.get('needId') ?? initialNeedId;
+  const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
   const demoDataEnabled = isWebDemoDataEnabled();
   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
   const [offers, setOffers] = useState<OfferDto[]>(() => demoDataEnabled ? mockOffers : []);
+  const [trades, setTrades] = useState<TradeDto[]>(() => demoDataEnabled ? mockTrades : []);
   const [loadState, setLoadState] = useState<InventoryLoadState>('idle');
   const [values, setValues] = useState<TradeCreateValues>({
     needMode: 'saved',
     offerMode: 'saved',
-    needId: initialNeedId,
-    offerId: initialOfferId,
+    needId: routeNeedId,
+    offerId: routeOfferId,
     amount: '',
     currency: preferredCurrency,
     expiresAt: '',
@@ -164,13 +194,21 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
   }, []);
 
   useEffect(() => {
-    setValues((current) => ({
-      ...current,
-      currency: current.currency || preferredCurrency,
-      needId: current.needId || initialNeedId,
-      offerId: current.offerId || initialOfferId,
-    }));
-  }, [initialNeedId, initialOfferId, preferredCurrency]);
+    setValues((current) => {
+      const nextNeedId = routeNeedId || '';
+      const nextOfferId = routeOfferId || '';
+      const nextCurrency = current.currency || preferredCurrency;
+      if (current.currency === nextCurrency && current.needId === nextNeedId && current.offerId === nextOfferId) {
+        return current;
+      }
+      return {
+        ...current,
+        currency: nextCurrency,
+        needId: nextNeedId,
+        offerId: nextOfferId,
+      };
+    });
+  }, [preferredCurrency, routeNeedId, routeOfferId]);
 
   useEffect(() => {
     if (!auth.hydrated) return;
@@ -180,26 +218,30 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
       if (!auth.isAuthenticated) {
         setNeeds(demoDataEnabled ? mockNeeds : []);
         setOffers(demoDataEnabled ? mockOffers : []);
+        setTrades(demoDataEnabled ? mockTrades : []);
         setLoadState(demoDataEnabled ? 'demo' : 'idle');
         return;
       }
       try {
-        const [needsResponse, offersResponse, limitsResponse] = await Promise.all([
+        const [needsResponse, offersResponse, limitsResponse, tradesResponse] = await Promise.all([
           api.needs.mine(),
           api.offers.mine(),
           betaFeatures.moneyFeaturesVisible ? api.wallet.limits() : Promise.resolve({ limits: null }),
+          api.trades.mine().catch(() => ({ trades: [] })),
         ]);
         if (!mounted) return;
         const liveNeeds = normalizeInventoryList(needsResponse, 'need') as NeedDto[];
         const liveOffers = normalizeInventoryList(offersResponse, 'offer') as OfferDto[];
         setNeeds(liveNeeds.length ? liveNeeds : []);
         setOffers(liveOffers.length ? liveOffers : []);
+        setTrades(normalizeTradeList(tradesResponse));
         setLimits((limitsResponse as { limits?: WalletLimitsDto }).limits ?? null);
         setLoadState('live');
       } catch {
         if (!mounted) return;
         setNeeds(demoDataEnabled ? mockNeeds : []);
         setOffers(demoDataEnabled ? mockOffers : []);
+        setTrades(demoDataEnabled ? mockTrades : []);
         setLoadState(demoDataEnabled ? 'demo' : 'idle');
         setNotice(demoDataEnabled ? 'Using demo inventory because your live Needs/Offers could not be loaded. Creating a live trade still needs the API session.' : 'Your saved Needs/Offers could not be loaded. Check your connection and try again.');
       }
@@ -213,12 +255,17 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
   const selectedNeed = values.needMode === 'saved' ? findNeed(selectableNeeds, values.needId) : null;
   const selectedOffer = values.offerMode === 'saved' ? findOffer(selectableOffers, values.offerId) : null;
   const amountCents = parseMoneyToCents(values.amount);
+  const duplicateTrade = values.needMode === 'saved' && values.offerMode === 'saved'
+    ? findDuplicateTradePair(trades, selectedNeed?.id, selectedOffer?.id)
+    : null;
   const usesMoney = values.needMode === 'money' || values.offerMode === 'money';
   const blocksMoneyMoney = values.needMode === 'money' && values.offerMode === 'money';
   const autoTitle = sideTitle(values, selectableNeeds, selectableOffers);
   const autoDescription = Number.isFinite(amountCents) ? sideDescription(values, selectableNeeds, selectableOffers, amountCents || 0) : '';
 
   useEffect(() => {
+    const inventoryReady = loadState === 'live' || loadState === 'demo';
+    if (!inventoryReady) return;
     setValues((current) => {
       const currentNeedExists = !current.needId || selectableNeeds.some((need) => need.id === current.needId);
       const currentOfferExists = !current.offerId || selectableOffers.some((offer) => offer.id === current.offerId);
@@ -227,7 +274,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
       if (nextNeedId === current.needId && nextOfferId === current.offerId) return current;
       return { ...current, needId: nextNeedId, offerId: nextOfferId };
     });
-  }, [selectableNeeds, selectableOffers]);
+  }, [loadState, selectableNeeds, selectableOffers]);
 
   function updateValue<Key extends keyof TradeCreateValues>(key: Key, value: TradeCreateValues[Key]) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -241,6 +288,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
     if (blocksMoneyMoney) return 'Choose saved Needs and Offers for this beta.';
     if (values.needMode === 'saved' && !selectedNeed) return 'Choose a saved Need under I need.';
     if (values.offerMode === 'saved' && !selectedOffer) return 'Choose a saved Offer under I offer.';
+    if (duplicateTrade) return `${duplicateTradeMessage(duplicateTrade)} Delete or close the existing trade before creating it again.`;
     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return 'Enter a wallet money amount of at least 1.00.';
     if (usesMoney && limits && !limits.moneyTradesEnabled) return 'Money trades are disabled for your current launch trust tier.';
     if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return `Money trades are limited to ${formatWebMoney(limits.perTradeMoneyCapCents, values.currency)} for your current tier.`;
@@ -287,7 +335,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
 
   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : null;
   const hasRequiredSides = (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer));
-  const canSubmit = auth.isAuthenticated && hasRequiredSides && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
+  const canSubmit = auth.isAuthenticated && hasRequiredSides && !duplicateTrade && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
   const previewTrade = useMemo(() => {
     if (!hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
     return buildPreviewTrade({
@@ -364,6 +412,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
 
         {blocksMoneyMoney ? (
           <p className="form-message form-message--error">Choose saved Needs and Offers for this beta.</p>
+        ) : null}
+
+        {duplicateTrade ? (
+          <section className="mobile-card mobile-card--soft trade-create-duplicate">
+            <span className="semantic-badge warning">Already exists</span>
+            <h3>{duplicateTradeMessage(duplicateTrade)}</h3>
+            <p>Use the existing trade, or delete/close it before creating this exact Need + Offer pair again.</p>
+            <Link href={`/trades/${duplicateTrade.id}`} className="button secondary">View existing trade</Link>
+          </section>
         ) : null}
 
         {limits && betaFeatures.moneyFeaturesVisible ? (

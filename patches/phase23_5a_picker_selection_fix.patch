@@ -1,0 +1,81 @@
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index 21e95f9..17cd343 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useRouter } from 'next/navigation';
++import { useRouter, useSearchParams } from 'next/navigation';
+ import type { FormEvent } from 'react';
+ import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+@@ -136,6 +136,9 @@ function buildPreviewTrade(input: {
+ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: { initialNeedId?: string; initialOfferId?: string }) {
+   const auth = useWebAuth();
+   const router = useRouter();
++  const searchParams = useSearchParams();
++  const routeNeedId = searchParams.get('needId') ?? initialNeedId;
++  const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
+   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
+@@ -144,8 +147,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const [values, setValues] = useState<TradeCreateValues>({
+     needMode: 'saved',
+     offerMode: 'saved',
+-    needId: initialNeedId,
+-    offerId: initialOfferId,
++    needId: routeNeedId,
++    offerId: routeOfferId,
+     amount: '',
+     currency: preferredCurrency,
+     expiresAt: '',
+@@ -164,13 +167,21 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   }, []);
+ 
+   useEffect(() => {
+-    setValues((current) => ({
+-      ...current,
+-      currency: current.currency || preferredCurrency,
+-      needId: current.needId || initialNeedId,
+-      offerId: current.offerId || initialOfferId,
+-    }));
+-  }, [initialNeedId, initialOfferId, preferredCurrency]);
++    setValues((current) => {
++      const nextNeedId = routeNeedId || '';
++      const nextOfferId = routeOfferId || '';
++      const nextCurrency = current.currency || preferredCurrency;
++      if (current.currency === nextCurrency && current.needId === nextNeedId && current.offerId === nextOfferId) {
++        return current;
++      }
++      return {
++        ...current,
++        currency: nextCurrency,
++        needId: nextNeedId,
++        offerId: nextOfferId,
++      };
++    });
++  }, [preferredCurrency, routeNeedId, routeOfferId]);
+ 
+   useEffect(() => {
+     if (!auth.hydrated) return;
+@@ -219,6 +230,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const autoDescription = Number.isFinite(amountCents) ? sideDescription(values, selectableNeeds, selectableOffers, amountCents || 0) : '';
+ 
+   useEffect(() => {
++    const inventoryReady = loadState === 'live' || loadState === 'demo';
++    if (!inventoryReady) return;
+     setValues((current) => {
+       const currentNeedExists = !current.needId || selectableNeeds.some((need) => need.id === current.needId);
+       const currentOfferExists = !current.offerId || selectableOffers.some((offer) => offer.id === current.offerId);
+@@ -227,7 +240,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+       if (nextNeedId === current.needId && nextOfferId === current.offerId) return current;
+       return { ...current, needId: nextNeedId, offerId: nextOfferId };
+     });
+-  }, [selectableNeeds, selectableOffers]);
++  }, [loadState, selectableNeeds, selectableOffers]);
+ 
+   function updateValue<Key extends keyof TradeCreateValues>(key: Key, value: TradeCreateValues[Key]) {
+     setValues((current) => ({ ...current, [key]: value }));
