@@ -1,0 +1,344 @@
+--- a/apps/web/src/features/deck/squareDeckMotion.ts
++++ b/apps/web/src/features/deck/squareDeckMotion.ts
+@@ -2,9 +2,29 @@
+ export const SQUARE_DECK_LAYER_SCALE = 0.018;
+ export const SQUARE_DECK_RAIL_K = 0.7;
+ export const SQUARE_DECK_TRANSITION_MS = 210;
++export const SQUARE_DECK_COMMIT_THRESHOLD = 0.36;
++export const SQUARE_DECK_VELOCITY_THRESHOLD = 1.05;
++export const SQUARE_DECK_PROGRESS_DISTANCE_FACTOR = 0.72;
+ 
+ export function clamp(value: number, min: number, max: number) {
+   return Math.max(min, Math.min(max, value));
++}
++
++function interpolate(value: number, input: number[], output: number[]) {
++  if (input.length !== output.length || input.length === 0) return output[0] ?? 0;
++  if (value <= input[0]) return output[0];
++  for (let index = 1; index < input.length; index += 1) {
++    const inputTo = input[index];
++    const inputFrom = input[index - 1];
++    if (value <= inputTo) {
++      const outputFrom = output[index - 1];
++      const outputTo = output[index];
++      const range = inputTo - inputFrom;
++      const ratio = range === 0 ? 0 : (value - inputFrom) / range;
++      return outputFrom + (outputTo - outputFrom) * ratio;
++    }
++  }
++  return output[output.length - 1];
+ }
+ 
+ export function getLayerPose(layer: number) {
+@@ -36,3 +56,22 @@
+     rotate: diagonal * 0.018,
+   };
+ }
++
++export function getNativeRailPose(visualOffset: number, cardSize: number) {
++  const clampedOffset = clamp(visualOffset, -1, 4);
++  const motionInput = [-1, -0.72, -0.28, -0.08, 0, 1, 2, 3, 4];
++
++  return {
++    x: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 7, 14, 21, 28]),
++    y: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 7, 14, 21, 28]),
++    scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952]),
++    opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.86, 0.98, 1, 1, 1, 0.94, 0]),
++    rotate: interpolate(clampedOffset, [-1, -0.28, 0, 4], [-5, -2, 0, 0]),
++  };
++}
++
++export function getDiagonalProgress(dx: number, dy: number, cardSize: number) {
++  const safeCardSize = Math.max(1, cardSize);
++  const diagonalDrag = dx + dy * 0.9;
++  return clamp(-diagonalDrag / (safeCardSize * SQUARE_DECK_PROGRESS_DISTANCE_FACTOR), -1, 1);
++}
+--- a/apps/web/src/features/deck/SquareStackDeck.tsx
++++ b/apps/web/src/features/deck/SquareStackDeck.tsx
+@@ -3,7 +3,17 @@
+ import type { CSSProperties, PointerEvent, ReactNode, WheelEvent } from 'react';
+ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+ import { WebIcon } from '../../components/WebIcon';
+-import { SQUARE_DECK_TRANSITION_MS, getDragPose, getForwardPose, getLayerPose } from './squareDeckMotion';
++import {
++  SQUARE_DECK_COMMIT_THRESHOLD,
++  SQUARE_DECK_PROGRESS_DISTANCE_FACTOR,
++  SQUARE_DECK_TRANSITION_MS,
++  SQUARE_DECK_VELOCITY_THRESHOLD,
++  getDiagonalProgress,
++  getDragPose,
++  getForwardPose,
++  getLayerPose,
++  getNativeRailPose,
++} from './squareDeckMotion';
+ import { classifySquareDeckPanIntent, type SquareDeckGestureIntent } from './squareDeckGestureIntent';
+ 
+ export type SquareStackDeckItem = {
+@@ -22,6 +32,12 @@
+   intent: SquareDeckGestureIntent;
+   swiping: boolean;
+   captured: boolean;
++  lastX: number;
++  lastY: number;
++  lastTime: number;
++  velocityX: number;
++  velocityY: number;
++  cardSize: number;
+ };
+ 
+ type SquareStackDeckProps = {
+@@ -32,17 +48,53 @@
+ };
+ 
+ const VISIBLE_LAYERS = 4;
++const MOBILE_VISIBLE_LAYERS = 6;
+ const TOUCH_COMMIT_PX = 54;
+ const WHEEL_COMMIT_PX = 24;
+ const WHEEL_COOLDOWN_MS = 340;
++const MOBILE_VIEWPORT_QUERY = '(max-width: 759px)';
++
++function useMobileDeckViewport() {
++  const [isMobileDeckViewport, setIsMobileDeckViewport] = useState(false);
++
++  useEffect(() => {
++    const query = window.matchMedia(MOBILE_VIEWPORT_QUERY);
++    const update = () => setIsMobileDeckViewport(query.matches);
++    update();
++
++    if (typeof query.addEventListener === 'function') {
++      query.addEventListener('change', update);
++      return () => query.removeEventListener('change', update);
++    }
++
++    query.addListener(update);
++    return () => query.removeListener(update);
++  }, []);
++
++  return isMobileDeckViewport;
++}
++
++function getPointerVelocity(drag: DragState, clientX: number, clientY: number) {
++  const now = window.performance.now();
++  const elapsedSeconds = Math.max(0.016, (now - drag.lastTime) / 1000);
++
++  return {
++    now,
++    velocityX: (clientX - drag.lastX) / elapsedSeconds,
++    velocityY: (clientY - drag.lastY) / elapsedSeconds,
++  };
++}
+ 
+ export function SquareStackDeck({ items, label, className, onOpen }: SquareStackDeckProps) {
+   const [activeIndex, setActiveIndex] = useState(0);
+   const [motion, setMotion] = useState<'next' | 'prev' | null>(null);
+   const [drag, setDrag] = useState<DragState | null>(null);
++  const [surfaceSize, setSurfaceSize] = useState(340);
++  const surfaceRef = useRef<HTMLDivElement | null>(null);
+   const wheelLockedUntilRef = useRef(0);
+   const suppressOpenUntilRef = useRef(0);
+   const commitTimerRef = useRef<number | null>(null);
++  const isMobileDeckViewport = useMobileDeckViewport();
+ 
+   const itemCount = items.length;
+   const canGoNext = itemCount > 1 && activeIndex < itemCount - 1;
+@@ -57,14 +109,45 @@
+     if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
+   }, []);
+ 
++  useEffect(() => {
++    if (!drag) return;
++    setDrag(null);
++  }, [isMobileDeckViewport]);
++
++  useEffect(() => {
++    const element = surfaceRef.current;
++    if (!element) return;
++
++    const updateSurfaceSize = () => {
++      const width = element.getBoundingClientRect().width;
++      if (width > 0) setSurfaceSize(width);
++    };
++
++    updateSurfaceSize();
++
++    if (typeof ResizeObserver === 'undefined') {
++      window.addEventListener('resize', updateSurfaceSize);
++      return () => window.removeEventListener('resize', updateSurfaceSize);
++    }
++
++    const observer = new ResizeObserver(updateSurfaceSize);
++    observer.observe(element);
++    return () => observer.disconnect();
++  }, [itemCount]);
++
++  const dragProgress = isMobileDeckViewport && drag?.swiping ? getDiagonalProgress(drag.dx, drag.dy, drag.cardSize) : 0;
++
+   const visibleItems = useMemo(() => {
+-    const startIndex = motion === 'prev' && activeIndex > 0 ? activeIndex - 1 : activeIndex;
+-    return Array.from({ length: Math.min(VISIBLE_LAYERS, itemCount) }, (_, layer) => {
++    let startIndex = motion === 'prev' && activeIndex > 0 ? activeIndex - 1 : activeIndex;
++    if (isMobileDeckViewport && dragProgress < 0 && activeIndex > 0) startIndex = activeIndex - 1;
++    const layerCount = isMobileDeckViewport ? Math.min(MOBILE_VISIBLE_LAYERS, itemCount) : Math.min(VISIBLE_LAYERS, itemCount);
++
++    return Array.from({ length: layerCount }, (_, layer) => {
+       const itemIndex = startIndex + layer;
+       if (itemIndex < 0 || itemIndex >= itemCount) return null;
+       return { item: items[itemIndex], itemIndex, layer };
+     }).filter((entry): entry is { item: SquareStackDeckItem; itemIndex: number; layer: number } => Boolean(entry?.item));
+-  }, [activeIndex, itemCount, items, motion]);
++  }, [activeIndex, dragProgress, isMobileDeckViewport, itemCount, items, motion]);
+ 
+   const maxVisibleBackLayers = Math.max(1, VISIBLE_LAYERS - 1);
+   const visibleBackLayers = Math.min(Math.max(itemCount - activeIndex - 1, 0), maxVisibleBackLayers);
+@@ -81,6 +164,7 @@
+     if (motion) return;
+ 
+     if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
++    setDrag(null);
+     setMotion(direction);
+     commitTimerRef.current = window.setTimeout(() => {
+       setActiveIndex((current) => direction === 'next' ? Math.min(current + 1, itemCount - 1) : Math.max(current - 1, 0));
+@@ -119,6 +203,9 @@
+   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+     if (event.pointerType === 'mouse' || itemCount <= 1 || motion) return;
+     if ((event.target as Element | null)?.closest('[data-deck-control],a,button,input,textarea,select,label')) return;
++
++    const cardSize = Math.max(1, event.currentTarget.getBoundingClientRect().width || surfaceSize);
++    const now = window.performance.now();
+     setDrag({
+       pointerId: event.pointerId,
+       pointerType: event.pointerType,
+@@ -129,6 +216,12 @@
+       intent: 'UNDECIDED',
+       swiping: false,
+       captured: false,
++      lastX: event.clientX,
++      lastY: event.clientY,
++      lastTime: now,
++      velocityX: 0,
++      velocityY: 0,
++      cardSize,
+     });
+   }
+ 
+@@ -157,8 +250,21 @@
+       }
+     }
+ 
++    const velocity = getPointerVelocity(drag, event.clientX, event.clientY);
+     event.preventDefault();
+-    setDrag({ ...drag, dx, dy, intent, swiping: true, captured });
++    setDrag({
++      ...drag,
++      dx,
++      dy,
++      intent,
++      swiping: true,
++      captured,
++      lastX: event.clientX,
++      lastY: event.clientY,
++      lastTime: velocity.now,
++      velocityX: velocity.velocityX,
++      velocityY: velocity.velocityY,
++    });
+   }
+ 
+   function endTouchDrag(event: PointerEvent<HTMLDivElement>) {
+@@ -171,17 +277,43 @@
+       }
+     }
+ 
+-    const diagonalDrag = drag.dx + drag.dy * 0.9;
++    const dx = event.clientX - drag.startX;
++    const dy = event.clientY - drag.startY;
++    const diagonalDrag = dx + dy * 0.9;
+     const intent = drag.intent;
+     const swiping = drag.swiping;
+     setDrag(null);
+     if (!swiping || (intent !== 'SWIPE_NEXT' && intent !== 'SWIPE_PREV')) return;
++
+     suppressOpenUntilRef.current = window.performance.now() + 260;
++
++    if (isMobileDeckViewport) {
++      const currentProgress = getDiagonalProgress(dx, dy, drag.cardSize);
++      const velocityProgress = -((drag.velocityX + drag.velocityY * 0.9) / (drag.cardSize * SQUARE_DECK_PROGRESS_DISTANCE_FACTOR));
++      if (intent === 'SWIPE_NEXT' && (currentProgress > SQUARE_DECK_COMMIT_THRESHOLD || velocityProgress > SQUARE_DECK_VELOCITY_THRESHOLD)) commit('next');
++      if (intent === 'SWIPE_PREV' && (currentProgress < -SQUARE_DECK_COMMIT_THRESHOLD || velocityProgress < -SQUARE_DECK_VELOCITY_THRESHOLD)) commit('prev');
++      return;
++    }
++
+     if (intent === 'SWIPE_NEXT' && -diagonalDrag > TOUCH_COMMIT_PX) commit('next');
+     if (intent === 'SWIPE_PREV' && diagonalDrag > TOUCH_COMMIT_PX) commit('prev');
+   }
+ 
+-  function getLayerStyle(layer: number): CSSProperties {
++  function getLayerStyle(layer: number, itemIndex: number): CSSProperties {
++    if (isMobileDeckViewport) {
++      const progress = motion === 'next' ? 1 : motion === 'prev' ? -1 : drag?.swiping ? dragProgress : 0;
++      const visualOffset = itemIndex - activeIndex - progress;
++      const pose = getNativeRailPose(visualOffset, surfaceSize);
++
++      return {
++        zIndex: Math.round(1000 - visualOffset * 40),
++        opacity: pose.opacity,
++        transform: `translate3d(${pose.x}px, ${pose.y}px, 0) scale(${pose.scale}) rotate(${pose.rotate}deg)`,
++        transition: drag?.swiping ? 'none' : undefined,
++        pointerEvents: itemIndex === activeIndex && !motion ? 'auto' : 'none',
++      };
++    }
++
+     const pose = getLayerPose(layer);
+     let x = pose.x;
+     let y = pose.y;
+@@ -230,13 +362,15 @@
+   const deckClassName = [
+     'square-stack-deck',
+     className,
++    isMobileDeckViewport ? 'square-stack-deck--native-mobile' : null,
+     (motion || drag?.swiping) ? 'is-interacting' : null,
+   ].filter(Boolean).join(' ');
+ 
+   return (
+     <section className={deckClassName} style={deckStyle} aria-label={label}>
+       <div
+-        className={motion === 'prev' ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
++        ref={surfaceRef}
++        className={motion === 'prev' && !isMobileDeckViewport ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
+         role="button"
+         tabIndex={0}
+         aria-label={activeItem?.ariaLabel ?? label}
+@@ -261,11 +395,16 @@
+         onPointerCancel={endTouchDrag}
+         onWheel={handleWheel}
+       >
+-        {visibleItems.slice().reverse().map(({ item, itemIndex, layer }) => (
+-          <article key={`${item.id}-${itemIndex}`} className={layer === 0 ? 'square-stack-deck__layer is-front' : 'square-stack-deck__layer'} style={getLayerStyle(layer)} aria-hidden={layer !== 0}>
+-            {item.content}
+-          </article>
+-        ))}
++        {visibleItems.slice().reverse().map(({ item, itemIndex, layer }) => {
++          const isFrontLayer = isMobileDeckViewport ? itemIndex === activeIndex : layer === 0;
++          const isHiddenLayer = isMobileDeckViewport ? itemIndex !== activeIndex : layer !== 0;
++
++          return (
++            <article key={`${item.id}-${itemIndex}`} className={isFrontLayer ? 'square-stack-deck__layer is-front' : 'square-stack-deck__layer'} style={getLayerStyle(layer, itemIndex)} aria-hidden={isHiddenLayer}>
++              {item.content}
++            </article>
++          );
++        })}
+       </div>
+ 
+       {itemCount > 1 ? (
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -513,8 +513,9 @@
+ 
+ @media (max-width: 759px) {
+   .square-stack-deck { padding-right: 24px; padding-bottom: 30px; }
+-  .square-stack-deck__control { width: 42px; height: 42px; }
++  .square-stack-deck__control { display: none !important; width: 42px; height: 42px; }
+   .square-stack-deck__control--prev { top: -13px; left: -13px; }
++  .square-stack-deck--native-mobile .square-stack-deck__surface { touch-action: pan-y; overscroll-behavior: contain; }
+ }
+ 
+ @media (max-width: 420px) {

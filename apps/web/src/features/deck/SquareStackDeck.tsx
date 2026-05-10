@@ -3,7 +3,17 @@
 import type { CSSProperties, PointerEvent, ReactNode, WheelEvent } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
-import { SQUARE_DECK_TRANSITION_MS, getDragPose, getForwardPose, getLayerPose } from './squareDeckMotion';
+import {
+  SQUARE_DECK_COMMIT_THRESHOLD,
+  SQUARE_DECK_PROGRESS_DISTANCE_FACTOR,
+  SQUARE_DECK_TRANSITION_MS,
+  SQUARE_DECK_VELOCITY_THRESHOLD,
+  getDiagonalProgress,
+  getDragPose,
+  getForwardPose,
+  getLayerPose,
+  getNativeRailPose,
+} from './squareDeckMotion';
 import { classifySquareDeckPanIntent, type SquareDeckGestureIntent } from './squareDeckGestureIntent';
 
 export type SquareStackDeckItem = {
@@ -22,6 +32,12 @@ type DragState = {
   intent: SquareDeckGestureIntent;
   swiping: boolean;
   captured: boolean;
+  lastX: number;
+  lastY: number;
+  lastTime: number;
+  velocityX: number;
+  velocityY: number;
+  cardSize: number;
 };
 
 type SquareStackDeckProps = {
@@ -32,17 +48,53 @@ type SquareStackDeckProps = {
 };
 
 const VISIBLE_LAYERS = 4;
+const MOBILE_VISIBLE_LAYERS = 6;
 const TOUCH_COMMIT_PX = 54;
 const WHEEL_COMMIT_PX = 24;
 const WHEEL_COOLDOWN_MS = 340;
+const MOBILE_VIEWPORT_QUERY = '(max-width: 759px)';
+
+function useMobileDeckViewport() {
+  const [isMobileDeckViewport, setIsMobileDeckViewport] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia(MOBILE_VIEWPORT_QUERY);
+    const update = () => setIsMobileDeckViewport(query.matches);
+    update();
+
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', update);
+      return () => query.removeEventListener('change', update);
+    }
+
+    query.addListener(update);
+    return () => query.removeListener(update);
+  }, []);
+
+  return isMobileDeckViewport;
+}
+
+function getPointerVelocity(drag: DragState, clientX: number, clientY: number) {
+  const now = window.performance.now();
+  const elapsedSeconds = Math.max(0.016, (now - drag.lastTime) / 1000);
+
+  return {
+    now,
+    velocityX: (clientX - drag.lastX) / elapsedSeconds,
+    velocityY: (clientY - drag.lastY) / elapsedSeconds,
+  };
+}
 
 export function SquareStackDeck({ items, label, className, onOpen }: SquareStackDeckProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [motion, setMotion] = useState<'next' | 'prev' | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [surfaceSize, setSurfaceSize] = useState(340);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
   const wheelLockedUntilRef = useRef(0);
   const suppressOpenUntilRef = useRef(0);
   const commitTimerRef = useRef<number | null>(null);
+  const isMobileDeckViewport = useMobileDeckViewport();
 
   const itemCount = items.length;
   const canGoNext = itemCount > 1 && activeIndex < itemCount - 1;
@@ -57,14 +109,45 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
   }, []);
 
+  useEffect(() => {
+    if (!drag) return;
+    setDrag(null);
+  }, [isMobileDeckViewport]);
+
+  useEffect(() => {
+    const element = surfaceRef.current;
+    if (!element) return;
+
+    const updateSurfaceSize = () => {
+      const width = element.getBoundingClientRect().width;
+      if (width > 0) setSurfaceSize(width);
+    };
+
+    updateSurfaceSize();
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateSurfaceSize);
+      return () => window.removeEventListener('resize', updateSurfaceSize);
+    }
+
+    const observer = new ResizeObserver(updateSurfaceSize);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [itemCount]);
+
+  const dragProgress = isMobileDeckViewport && drag?.swiping ? getDiagonalProgress(drag.dx, drag.dy, drag.cardSize) : 0;
+
   const visibleItems = useMemo(() => {
-    const startIndex = motion === 'prev' && activeIndex > 0 ? activeIndex - 1 : activeIndex;
-    return Array.from({ length: Math.min(VISIBLE_LAYERS, itemCount) }, (_, layer) => {
+    let startIndex = motion === 'prev' && activeIndex > 0 ? activeIndex - 1 : activeIndex;
+    if (isMobileDeckViewport && dragProgress < 0 && activeIndex > 0) startIndex = activeIndex - 1;
+    const layerCount = isMobileDeckViewport ? Math.min(MOBILE_VISIBLE_LAYERS, itemCount) : Math.min(VISIBLE_LAYERS, itemCount);
+
+    return Array.from({ length: layerCount }, (_, layer) => {
       const itemIndex = startIndex + layer;
       if (itemIndex < 0 || itemIndex >= itemCount) return null;
       return { item: items[itemIndex], itemIndex, layer };
     }).filter((entry): entry is { item: SquareStackDeckItem; itemIndex: number; layer: number } => Boolean(entry?.item));
-  }, [activeIndex, itemCount, items, motion]);
+  }, [activeIndex, dragProgress, isMobileDeckViewport, itemCount, items, motion]);
 
   const maxVisibleBackLayers = Math.max(1, VISIBLE_LAYERS - 1);
   const visibleBackLayers = Math.min(Math.max(itemCount - activeIndex - 1, 0), maxVisibleBackLayers);
@@ -81,6 +164,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     if (motion) return;
 
     if (commitTimerRef.current) window.clearTimeout(commitTimerRef.current);
+    setDrag(null);
     setMotion(direction);
     commitTimerRef.current = window.setTimeout(() => {
       setActiveIndex((current) => direction === 'next' ? Math.min(current + 1, itemCount - 1) : Math.max(current - 1, 0));
@@ -119,6 +203,9 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
   function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.pointerType === 'mouse' || itemCount <= 1 || motion) return;
     if ((event.target as Element | null)?.closest('[data-deck-control],a,button,input,textarea,select,label')) return;
+
+    const cardSize = Math.max(1, event.currentTarget.getBoundingClientRect().width || surfaceSize);
+    const now = window.performance.now();
     setDrag({
       pointerId: event.pointerId,
       pointerType: event.pointerType,
@@ -129,6 +216,12 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
       intent: 'UNDECIDED',
       swiping: false,
       captured: false,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastTime: now,
+      velocityX: 0,
+      velocityY: 0,
+      cardSize,
     });
   }
 
@@ -157,8 +250,21 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
       }
     }
 
+    const velocity = getPointerVelocity(drag, event.clientX, event.clientY);
     event.preventDefault();
-    setDrag({ ...drag, dx, dy, intent, swiping: true, captured });
+    setDrag({
+      ...drag,
+      dx,
+      dy,
+      intent,
+      swiping: true,
+      captured,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      lastTime: velocity.now,
+      velocityX: velocity.velocityX,
+      velocityY: velocity.velocityY,
+    });
   }
 
   function endTouchDrag(event: PointerEvent<HTMLDivElement>) {
@@ -171,17 +277,43 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
       }
     }
 
-    const diagonalDrag = drag.dx + drag.dy * 0.9;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    const diagonalDrag = dx + dy * 0.9;
     const intent = drag.intent;
     const swiping = drag.swiping;
     setDrag(null);
     if (!swiping || (intent !== 'SWIPE_NEXT' && intent !== 'SWIPE_PREV')) return;
+
     suppressOpenUntilRef.current = window.performance.now() + 260;
+
+    if (isMobileDeckViewport) {
+      const currentProgress = getDiagonalProgress(dx, dy, drag.cardSize);
+      const velocityProgress = -((drag.velocityX + drag.velocityY * 0.9) / (drag.cardSize * SQUARE_DECK_PROGRESS_DISTANCE_FACTOR));
+      if (intent === 'SWIPE_NEXT' && (currentProgress > SQUARE_DECK_COMMIT_THRESHOLD || velocityProgress > SQUARE_DECK_VELOCITY_THRESHOLD)) commit('next');
+      if (intent === 'SWIPE_PREV' && (currentProgress < -SQUARE_DECK_COMMIT_THRESHOLD || velocityProgress < -SQUARE_DECK_VELOCITY_THRESHOLD)) commit('prev');
+      return;
+    }
+
     if (intent === 'SWIPE_NEXT' && -diagonalDrag > TOUCH_COMMIT_PX) commit('next');
     if (intent === 'SWIPE_PREV' && diagonalDrag > TOUCH_COMMIT_PX) commit('prev');
   }
 
-  function getLayerStyle(layer: number): CSSProperties {
+  function getLayerStyle(layer: number, itemIndex: number): CSSProperties {
+    if (isMobileDeckViewport) {
+      const progress = motion === 'next' ? 1 : motion === 'prev' ? -1 : drag?.swiping ? dragProgress : 0;
+      const visualOffset = itemIndex - activeIndex - progress;
+      const pose = getNativeRailPose(visualOffset, surfaceSize);
+
+      return {
+        zIndex: Math.round(1000 - visualOffset * 40),
+        opacity: pose.opacity,
+        transform: `translate3d(${pose.x}px, ${pose.y}px, 0) scale(${pose.scale}) rotate(${pose.rotate}deg)`,
+        transition: drag?.swiping ? 'none' : undefined,
+        pointerEvents: itemIndex === activeIndex && !motion ? 'auto' : 'none',
+      };
+    }
+
     const pose = getLayerPose(layer);
     let x = pose.x;
     let y = pose.y;
@@ -230,13 +362,15 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
   const deckClassName = [
     'square-stack-deck',
     className,
+    isMobileDeckViewport ? 'square-stack-deck--native-mobile' : null,
     (motion || drag?.swiping) ? 'is-interacting' : null,
   ].filter(Boolean).join(' ');
 
   return (
     <section className={deckClassName} style={deckStyle} aria-label={label}>
       <div
-        className={motion === 'prev' ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
+        ref={surfaceRef}
+        className={motion === 'prev' && !isMobileDeckViewport ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
         role="button"
         tabIndex={0}
         aria-label={activeItem?.ariaLabel ?? label}
@@ -261,11 +395,16 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
         onPointerCancel={endTouchDrag}
         onWheel={handleWheel}
       >
-        {visibleItems.slice().reverse().map(({ item, itemIndex, layer }) => (
-          <article key={`${item.id}-${itemIndex}`} className={layer === 0 ? 'square-stack-deck__layer is-front' : 'square-stack-deck__layer'} style={getLayerStyle(layer)} aria-hidden={layer !== 0}>
-            {item.content}
-          </article>
-        ))}
+        {visibleItems.slice().reverse().map(({ item, itemIndex, layer }) => {
+          const isFrontLayer = isMobileDeckViewport ? itemIndex === activeIndex : layer === 0;
+          const isHiddenLayer = isMobileDeckViewport ? itemIndex !== activeIndex : layer !== 0;
+
+          return (
+            <article key={`${item.id}-${itemIndex}`} className={isFrontLayer ? 'square-stack-deck__layer is-front' : 'square-stack-deck__layer'} style={getLayerStyle(layer, itemIndex)} aria-hidden={isHiddenLayer}>
+              {item.content}
+            </article>
+          );
+        })}
       </div>
 
       {itemCount > 1 ? (
