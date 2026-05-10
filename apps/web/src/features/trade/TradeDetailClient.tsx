@@ -1,10 +1,13 @@
 'use client';
 
 import type { TradeActionStatus, TradeDto } from '@hellowhen/contracts';
+import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
+import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
@@ -63,14 +66,17 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
 
 export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; initialTrade?: TradeDto | null }) {
   const auth = useWebAuth();
+  const router = useRouter();
   const demoDataEnabled = isWebDemoDataEnabled();
   const [trade, setTrade] = useState<TradeDto | null>(initialTrade ?? (demoDataEnabled ? mockTrades.find((item) => item.id === tradeId) ?? null : null));
   const [loading, setLoading] = useState(!initialTrade);
   const [usingFallback, setUsingFallback] = useState(demoDataEnabled && Boolean(initialTrade));
-  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
+  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | 'delete' | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportMessage, setReportMessage] = useState('');
+  const [confirmCompletionOpen, setConfirmCompletionOpen] = useState(false);
+  const [deleteTradeOpen, setDeleteTradeOpen] = useState(false);
 
   async function loadLiveTrade() {
     setLoading(true);
@@ -145,10 +151,9 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   const canSubmitDelivery = auth.isAuthenticated && currentTrade.status === 'in_progress' && (isOwner || isProvider);
   const canConfirmCompletion = auth.isAuthenticated && currentTrade.status === 'submitted' && (isOwner || isProvider) && currentTrade.deliverySubmittedById !== actorId;
   const canReportProblem = auth.isAuthenticated && ['active', 'in_progress', 'submitted', 'completed'].includes(currentTrade.status);
-  const completionWarning = 'Confirm only when your trade is complete.';
+  const canDeleteTrade = auth.isAuthenticated && isOwner && ['draft', 'active', 'expired', 'cancelled', 'closed'].includes(currentTrade.status);
 
   async function updateTradeStatus(status: TradeActionStatus) {
-    if (status === 'completed' && !window.confirm(completionWarning)) return;
     setActionLoading(status);
     setActionNotice(null);
     try {
@@ -178,6 +183,21 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       await loadLiveTrade();
     } catch {
       setActionNotice('Could not send the report yet. Try again from Account > Support.');
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function deleteTrade() {
+    setActionLoading('delete');
+    setActionNotice(null);
+    try {
+      await api.trades.remove(currentTrade.id);
+      setDeleteTradeOpen(false);
+      router.push('/trades');
+      router.refresh();
+    } catch (cause) {
+      setActionNotice(getFriendlyApiErrorMessage(cause, 'Could not delete this trade yet. Check its status and try again.'));
     } finally {
       setActionLoading(null);
     }
@@ -234,7 +254,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
         <div className="trade-action-row">
           {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
-          {canConfirmCompletion ? <button type="button" className="success" onClick={() => void updateTradeStatus('completed')} disabled={Boolean(actionLoading)}>Confirm completed</button> : null}
+          {canConfirmCompletion ? <button type="button" className="success" onClick={() => setConfirmCompletionOpen(true)} disabled={Boolean(actionLoading)}>Confirm completed</button> : null}
           {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> Report problem</button> : null}
         </div>
         {reportOpen ? (
@@ -249,6 +269,49 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       </section>
 
       <TradeProposalPanel trade={currentTrade} onTradeChange={setTrade} />
+
+      {isOwner ? (
+        <section className="trade-social-section trade-social-section--compact trade-danger-zone">
+          <div className="trade-section-heading">
+            <div>
+              <p className="eyebrow">Owner controls</p>
+              <h2 className="icon-heading"><WebIcon name="warning" size={21} decorative /> Delete trade</h2>
+            </div>
+            <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? 'Available' : 'Protected'}</span>
+          </div>
+          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved Need and Offer will stay in your inventory.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
+          <div className="trade-action-row">
+            <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>Delete trade</button>
+          </div>
+        </section>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmCompletionOpen}
+        eyebrow="Confirmation"
+        title="Confirm completed?"
+        body="Confirm only when your trade is complete. This will close the exchange and update the trade status."
+        variant="warning"
+        confirmLabel="Confirm completed"
+        loading={actionLoading === 'completed'}
+        onCancel={() => setConfirmCompletionOpen(false)}
+        onConfirm={async () => {
+          await updateTradeStatus('completed');
+          setConfirmCompletionOpen(false);
+        }}
+      />
+
+      <ConfirmDialog
+        open={deleteTradeOpen}
+        eyebrow="Owner action"
+        title="Delete trade?"
+        body="This will remove the trade from the public feed and close pending proposals. Your saved Need and Offer will not be deleted."
+        variant="danger"
+        confirmLabel="Delete trade"
+        loading={actionLoading === 'delete'}
+        onCancel={() => setDeleteTradeOpen(false)}
+        onConfirm={deleteTrade}
+      />
     </article>
   );
 }

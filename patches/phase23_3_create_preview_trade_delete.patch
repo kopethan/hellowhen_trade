@@ -1,0 +1,490 @@
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 3d39af0..dcb0167 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -212,6 +212,36 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
+   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
+   res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
+ }));
++
++const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
++
++tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
++  const actorId = req.user!.id;
++  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: actorId }, include: tradeInclude });
++  if (!trade) return res.status(404).json({ error: 'not_found' });
++
++  if (!tradeDeleteAllowedStatuses.includes(trade.status as typeof tradeDeleteAllowedStatuses[number])) {
++    return res.status(409).json({
++      error: 'trade_not_deletable',
++      message: 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'
++    });
++  }
++
++  const deleted = await prisma.$transaction(async (tx) => {
++    await tx.tradeProposal.updateMany({
++      where: { tradeId: trade.id, status: 'pending' },
++      data: { status: 'declined', respondedAt: new Date() }
++    });
++
++    return tx.trade.update({
++      where: { id: trade.id },
++      data: { status: 'closed', isPublic: false, closedAt: trade.closedAt ?? new Date() },
++      include: tradeInclude
++    });
++  });
++
++  res.json({ trade: await withOneTradeDeckMedia(deleted, 'owner'), deleted: true });
++}));
+ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+   const input = createTradeRequestSchema.parse(req.body);
+   const actorId = req.user!.id;
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 1166b8a..24e0c98 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -931,3 +931,30 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   .trade-side-choice-card em { grid-column: 2; }
+   .trade-side-choice-card__media { width: 54px; height: 54px; }
+ }
++
++/* Phase 23.3: create-trade feed preview parity and trade delete flow */
++.square-stack-deck--no-open .square-stack-deck__surface,
++.square-stack-deck--no-open .square-stack-deck__layer.is-front { cursor: grab; }
++.square-stack-deck--no-open.is-interacting .square-stack-deck__surface,
++.square-stack-deck--no-open.is-interacting .square-stack-deck__layer.is-front { cursor: grabbing; }
++.trade-create-preview--deck { overflow: hidden; }
++.trade-create-preview__intro { display: grid; gap: 8px; }
++.trade-create-preview__intro p { margin: 0; }
++.trade-create-preview__deck { display: grid; justify-items: center; width: 100%; padding: 2px 0 0; }
++.trade-stack-deck--create-preview { width: min(100%, 390px); }
++.trade-stack-deck--preview .square-stack-deck__surface { cursor: grab; }
++.trade-stack-deck--preview.is-interacting .square-stack-deck__surface { cursor: grabbing; }
++.trade-create-preview__empty { display: grid; gap: 8px; border: 1px dashed var(--app-border-strong); border-radius: 24px; background: var(--app-surface-soft); padding: 16px; }
++.trade-create-preview__empty strong { font-size: 16px; }
++.trade-create-preview__empty small { color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.45; }
++.trade-danger-zone { border-color: color-mix(in srgb, var(--danger-text) 28%, var(--app-border)); background: color-mix(in srgb, var(--danger-bg) 40%, var(--app-surface)); }
++.trade-danger-zone .trade-section-heading h2 { color: var(--app-text); }
++
++@media (min-width: 900px) {
++  .trade-stack-deck--create-preview { width: min(100%, 420px); }
++}
++
++@media (max-width: 420px) {
++  .trade-stack-deck--create-preview { width: min(100%, 360px); }
++  .trade-create-preview--deck { padding-right: 12px; padding-left: 12px; }
++}
+diff --git a/apps/web/src/features/deck/SquareStackDeck.tsx b/apps/web/src/features/deck/SquareStackDeck.tsx
+index 37e2643..5be139e 100644
+--- a/apps/web/src/features/deck/SquareStackDeck.tsx
++++ b/apps/web/src/features/deck/SquareStackDeck.tsx
+@@ -110,6 +110,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
+   const canGoNext = itemCount > 1 && activeIndex < itemCount - 1;
+   const canGoPrev = itemCount > 1 && activeIndex > 0;
+   const activeItem = items[activeIndex];
++  const canOpenActive = Boolean(onOpen);
+ 
+   useEffect(() => {
+     setActiveIndex((index) => Math.min(index, Math.max(0, items.length - 1)));
+@@ -184,10 +185,10 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
+   }, [canGoNext, canGoPrev, itemCount, motion]);
+ 
+   const openActive = useCallback(() => {
+-    if (!activeItem || motion || drag?.swiping) return;
++    if (!canOpenActive || !activeItem || motion || drag?.swiping) return;
+     if (window.performance.now() < suppressOpenUntilRef.current) return;
+     onOpen?.(activeItem, activeIndex);
+-  }, [activeIndex, activeItem, drag?.swiping, motion, onOpen]);
++  }, [activeIndex, activeItem, canOpenActive, drag?.swiping, motion, onOpen]);
+ 
+   function handleWheel(event: WheelEvent<HTMLDivElement>) {
+     if (itemCount <= 1 || motion) return;
+@@ -400,6 +401,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
+     className,
+     isMobileDeckViewport ? 'square-stack-deck--native-mobile' : null,
+     (motion || drag?.swiping) ? 'is-interacting' : null,
++    !canOpenActive ? 'square-stack-deck--no-open' : null,
+   ].filter(Boolean).join(' ');
+ 
+   return (
+@@ -407,7 +409,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
+       <div
+         ref={surfaceRef}
+         className={motion === 'prev' && !isMobileDeckViewport ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
+-        role="button"
++        role={canOpenActive ? 'button' : 'group'}
+         tabIndex={0}
+         aria-label={activeItem?.ariaLabel ?? label}
+         onClick={openActive}
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index a1352de..ec7cb9d 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import type { FormEvent } from 'react';
+-import type { CreateTradeRequest, NeedDto, OfferDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
++import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { MobilePage, PageIntro } from '../../components/MobilePage';
+ import { api } from '../../lib/api';
+@@ -14,8 +14,9 @@ import { isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyP
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+-import { getInventoryMetadata, normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
++import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
+ import { TradeSidePicker } from './TradeSidePicker';
++import { TradeStackDeck } from './TradeStackDeck';
+ 
+ type CreateTradeResponse = { trade?: unknown; id?: unknown };
+ type InventoryLoadState = 'idle' | 'loading' | 'live' | 'demo';
+@@ -90,6 +91,40 @@ function isActiveOffer(offer: OfferDto) {
+   return offer.status === 'active' || offer.status === 'draft';
+ }
+ 
++function buildPreviewTrade(input: {
++  ownerId?: string | null;
++  title: string;
++  description: string;
++  need: NeedDto | null;
++  offer: OfferDto | null;
++  amountCents: number;
++  currency: SupportedCurrency;
++  expiresAt: string | null;
++}): TradeDto {
++  const now = new Date().toISOString();
++  return {
++    id: 'preview-trade',
++    ownerId: input.ownerId ?? 'preview-owner',
++    providerId: null,
++    needId: input.need?.id ?? null,
++    offerId: input.offer?.id ?? null,
++    title: input.title,
++    description: input.description,
++    creditAmount: 0,
++    amountCents: input.amountCents,
++    currency: input.currency,
++    status: 'active',
++    isPublic: true,
++    createdAt: now,
++    updatedAt: now,
++    expiresAt: input.expiresAt,
++    closedAt: null,
++    need: input.need,
++    offer: input.offer,
++    media: [],
++  };
++}
++
+ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: { initialNeedId?: string; initialOfferId?: string }) {
+   const auth = useWebAuth();
+   const router = useRouter();
+@@ -245,6 +280,19 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : null;
+   const hasRequiredSides = (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer));
+   const canSubmit = auth.isAuthenticated && hasRequiredSides && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
++  const previewTrade = useMemo(() => {
++    if (!hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
++    return buildPreviewTrade({
++      ownerId: auth.user?.id,
++      title: values.title.trim() || autoTitle,
++      description: values.description.trim() || autoDescription || 'Choose a saved Need and Offer to create this public trade.',
++      need: values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : selectedNeed,
++      offer: values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : selectedOffer,
++      amountCents: betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
++      currency: values.currency,
++      expiresAt: toIsoDate(values.expiresAt) ?? null,
++    });
++  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.description, values.expiresAt, values.needMode, values.offerMode, values.title]);
+ 
+   return (
+     <MobilePage className="trade-create-page">
+@@ -341,24 +389,23 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+           </section>
+         ) : null}
+ 
+-        <section className="mobile-card trade-create-preview">
+-          <div>
+-            <p className="eyebrow">Preview</p>
+-            <h3>{values.title.trim() || autoTitle}</h3>
+-            <p>{values.description.trim() || autoDescription}</p>
++        <section className="mobile-card trade-create-preview trade-create-preview--deck">
++          <div className="trade-create-preview__intro">
++            <p className="eyebrow">Preview in feed</p>
++            <h3>{previewTrade ? 'This is how your trade will appear' : 'Choose both sides to preview the deck'}</h3>
++            <p>{previewTrade ? 'Swipe this preview like the live feed deck. Tapping is disabled until the trade is created.' : 'Pick a saved Need and a saved Offer first, then the exact feed card and image pages will appear here.'}</p>
+           </div>
+-          <div className="trade-create-preview__sides">
+-            <div>
+-              <span className="semantic-badge need">I need</span>
+-              <strong>{values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? 'Wallet money' : selectedNeed?.title ?? 'Choose a Need'}</strong>
+-              {selectedNeed ? <small>{getInventoryMetadata(selectedNeed)}</small> : null}
++          {previewTrade ? (
++            <div className="trade-create-preview__deck">
++              <TradeStackDeck trade={previewTrade} preview className="trade-stack-deck--create-preview" />
+             </div>
+-            <div>
+-              <span className="semantic-badge offer">I offer</span>
+-              <strong>{values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? 'Wallet money' : selectedOffer?.title ?? 'Choose an Offer'}</strong>
+-              {selectedOffer ? <small>{getInventoryMetadata(selectedOffer)}</small> : null}
++          ) : (
++            <div className="trade-create-preview__empty">
++              <span className="semantic-badge instruction">Feed preview</span>
++              <strong>Click to choose a saved Need and Offer.</strong>
++              <small>The preview will reuse the same summary card, image cards, dots, and swipe behavior as the Trades feed.</small>
+             </div>
+-          </div>
++          )}
+         </section>
+ 
+         <section className="mobile-card trade-create-details">
+diff --git a/apps/web/src/features/trade/TradeDetailClient.tsx b/apps/web/src/features/trade/TradeDetailClient.tsx
+index 8b4a3b5..8c4161a 100644
+--- a/apps/web/src/features/trade/TradeDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeDetailClient.tsx
+@@ -1,11 +1,13 @@
+ 'use client';
+ 
+ import type { TradeActionStatus, TradeDto } from '@hellowhen/contracts';
++import { useRouter } from 'next/navigation';
+ import type { FormEvent } from 'react';
+ import { useEffect, useState } from 'react';
+ import { ConfirmDialog } from '../../components/ConfirmDialog';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockTrades } from '../../lib/mockData';
+@@ -64,15 +66,17 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
+ 
+ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; initialTrade?: TradeDto | null }) {
+   const auth = useWebAuth();
++  const router = useRouter();
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const [trade, setTrade] = useState<TradeDto | null>(initialTrade ?? (demoDataEnabled ? mockTrades.find((item) => item.id === tradeId) ?? null : null));
+   const [loading, setLoading] = useState(!initialTrade);
+   const [usingFallback, setUsingFallback] = useState(demoDataEnabled && Boolean(initialTrade));
+-  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
++  const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | 'delete' | null>(null);
+   const [actionNotice, setActionNotice] = useState<string | null>(null);
+   const [reportOpen, setReportOpen] = useState(false);
+   const [reportMessage, setReportMessage] = useState('');
+   const [confirmCompletionOpen, setConfirmCompletionOpen] = useState(false);
++  const [deleteTradeOpen, setDeleteTradeOpen] = useState(false);
+ 
+   async function loadLiveTrade() {
+     setLoading(true);
+@@ -147,6 +151,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+   const canSubmitDelivery = auth.isAuthenticated && currentTrade.status === 'in_progress' && (isOwner || isProvider);
+   const canConfirmCompletion = auth.isAuthenticated && currentTrade.status === 'submitted' && (isOwner || isProvider) && currentTrade.deliverySubmittedById !== actorId;
+   const canReportProblem = auth.isAuthenticated && ['active', 'in_progress', 'submitted', 'completed'].includes(currentTrade.status);
++  const canDeleteTrade = auth.isAuthenticated && isOwner && ['draft', 'active', 'expired', 'cancelled', 'closed'].includes(currentTrade.status);
+ 
+   async function updateTradeStatus(status: TradeActionStatus) {
+     setActionLoading(status);
+@@ -183,6 +188,21 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+     }
+   }
+ 
++  async function deleteTrade() {
++    setActionLoading('delete');
++    setActionNotice(null);
++    try {
++      await api.trades.remove(currentTrade.id);
++      setDeleteTradeOpen(false);
++      router.push('/trades');
++      router.refresh();
++    } catch (cause) {
++      setActionNotice(getFriendlyApiErrorMessage(cause, 'Could not delete this trade yet. Check its status and try again.'));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
+   const needSide = getNeedSide(currentTrade);
+   const offerSide = getOfferSide(currentTrade);
+   const ownerName = getOwnerName(currentTrade);
+@@ -250,6 +270,22 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+ 
+       <TradeProposalPanel trade={currentTrade} onTradeChange={setTrade} />
+ 
++      {isOwner ? (
++        <section className="trade-social-section trade-social-section--compact trade-danger-zone">
++          <div className="trade-section-heading">
++            <div>
++              <p className="eyebrow">Owner controls</p>
++              <h2 className="icon-heading"><WebIcon name="warning" size={21} decorative /> Delete trade</h2>
++            </div>
++            <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? 'Available' : 'Protected'}</span>
++          </div>
++          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved Need and Offer will stay in your inventory.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
++          <div className="trade-action-row">
++            <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>Delete trade</button>
++          </div>
++        </section>
++      ) : null}
++
+       <ConfirmDialog
+         open={confirmCompletionOpen}
+         eyebrow="Confirmation"
+@@ -264,6 +300,18 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+           setConfirmCompletionOpen(false);
+         }}
+       />
++
++      <ConfirmDialog
++        open={deleteTradeOpen}
++        eyebrow="Owner action"
++        title="Delete trade?"
++        body="This will remove the trade from the public feed and close pending proposals. Your saved Need and Offer will not be deleted."
++        variant="danger"
++        confirmLabel="Delete trade"
++        loading={actionLoading === 'delete'}
++        onCancel={() => setDeleteTradeOpen(false)}
++        onConfirm={deleteTrade}
++      />
+     </article>
+   );
+ }
+diff --git a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+index 819e1b5..0fdb6ab 100644
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx
+@@ -7,7 +7,6 @@ import { WebIcon } from '../../components/WebIcon';
+ import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
+ import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide } from './tradePresentation';
+ 
+-
+ function TradeStackImageCard({ image }: { image: ReturnType<typeof getDeckImages>[number] }) {
+   const [failed, setFailed] = useState(!image.url);
+ 
+@@ -27,61 +26,71 @@ function compactSideMeta(metadata: string, fallback: string) {
+   return metadata || fallback;
+ }
+ 
+-export function TradeStackDeck({ trade }: { trade: TradeDto }) {
+-  const router = useRouter();
++export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' | 'Preview' = 'Open'): SquareStackDeckItem[] {
+   const need = getNeedSide(trade);
+   const offer = getOfferSide(trade);
+   const images = getDeckImages(trade);
+   const exchange = getExchangeLabel(trade);
++  const totalCards = images.length + 1;
++
++  const summary: SquareStackDeckItem = {
++    id: `${trade.id}-summary`,
++    ariaLabel: `${actionLabel} ${trade.title}`,
++    content: (
++      <div className="trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity">
++        <div className="trade-stack-card__mobile-top">
++          <span>TRADE · {cardCountLabel(totalCards)}</span>
++          <strong>{trade.status}</strong>
++        </div>
+ 
+-  const items = useMemo<SquareStackDeckItem[]>(() => {
+-    const totalCards = images.length + 1;
+-    const summary: SquareStackDeckItem = {
+-      id: `${trade.id}-summary`,
+-      ariaLabel: `Open ${trade.title}`,
+-      content: (
+-        <div className="trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity">
+-          <div className="trade-stack-card__mobile-top">
+-            <span>TRADE · {cardCountLabel(totalCards)}</span>
+-            <strong>{trade.status}</strong>
+-          </div>
+-
+-          <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--need">
+-            <p>I need</p>
+-            <h2>{need.title}</h2>
+-            {compactSideMeta(need.metadata, need.description) ? <span>{compactSideMeta(need.metadata, need.description)}</span> : null}
+-          </div>
+-
+-          <div className="trade-stack-card__mobile-divider" aria-hidden="true">
+-            <span><WebIcon name="trade" size={17} decorative /></span>
+-          </div>
+-
+-          <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">
+-            <p>I offer</p>
+-            <h2>{offer.title}</h2>
+-            {compactSideMeta(offer.metadata, offer.description) ? <span>{compactSideMeta(offer.metadata, offer.description)}</span> : null}
+-          </div>
+-
+-          {exchange !== 'Need + Offer exchange' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
++        <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--need">
++          <p>I need</p>
++          <h2>{need.title}</h2>
++          {compactSideMeta(need.metadata, need.description) ? <span>{compactSideMeta(need.metadata, need.description)}</span> : null}
+         </div>
+-      ),
+-    };
+ 
+-    const imageItems: SquareStackDeckItem[] = images.map((image) => ({
+-      id: image.id,
+-      ariaLabel: `Open ${trade.title}`,
+-      content: <TradeStackImageCard image={image} />,
+-    }));
++        <div className="trade-stack-card__mobile-divider" aria-hidden="true">
++          <span><WebIcon name="trade" size={17} decorative /></span>
++        </div>
++
++        <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">
++          <p>I offer</p>
++          <h2>{offer.title}</h2>
++          {compactSideMeta(offer.metadata, offer.description) ? <span>{compactSideMeta(offer.metadata, offer.description)}</span> : null}
++        </div>
+ 
+-    return [summary, ...imageItems];
+-  }, [exchange, images, need.description, need.metadata, need.title, offer.description, offer.metadata, offer.title, trade.id, trade.status, trade.title]);
++        {exchange !== 'Need + Offer exchange' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
++      </div>
++    ),
++  };
++
++  const imageItems: SquareStackDeckItem[] = images.map((image) => ({
++    id: image.id,
++    ariaLabel: `${actionLabel} ${trade.title}`,
++    content: <TradeStackImageCard image={image} />,
++  }));
++
++  return [summary, ...imageItems];
++}
++
++type TradeStackDeckProps = {
++  trade: TradeDto;
++  className?: string;
++  preview?: boolean;
++  onOpen?: () => void;
++};
++
++export function TradeStackDeck({ trade, className, preview = false, onOpen }: TradeStackDeckProps) {
++  const router = useRouter();
++  const items = useMemo(() => buildTradeStackDeckItems(trade, preview ? 'Preview' : 'Open'), [preview, trade]);
++  const deckClassName = ['trade-stack-deck', preview ? 'trade-stack-deck--preview' : null, className].filter(Boolean).join(' ');
+ 
+   return (
+     <SquareStackDeck
+-      className="trade-stack-deck"
++      className={deckClassName}
+       items={items}
+       label={trade.title}
+-      onOpen={() => router.push(`/trades/${trade.id}`)}
++      onOpen={preview ? undefined : onOpen ?? (() => router.push(`/trades/${trade.id}`))}
+     />
+   );
+ }
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 48d71c3..75d4f59 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -20,7 +20,7 @@ export function createApiClient(options: ApiClientOptions) {
+     business: { mine: () => requestJson(options, '/business/mine'), create: (body: CreateBusinessProfileRequest) => requestJson(options, '/business', { method: 'POST', body: JSON.stringify(body) }), get: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}`), update: (businessProfileId: string, body: UpdateBusinessProfileRequest) => requestJson(options, `/business/${businessProfileId}`, { method: 'PATCH', body: JSON.stringify(body) }), requestReview: (businessProfileId: string, body?: RequestBusinessReviewRequest) => requestJson(options, `/business/${businessProfileId}/request-review`, { method: 'POST', body: JSON.stringify(body ?? {}) }), providerAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account`), createBusinessProviderOnboardingLink: (businessProfileId: string, body?: BusinessProviderOnboardingLinkRequest) => requestJson(options, `/business/${businessProfileId}/provider-account/onboarding-link`, { method: 'POST', body: JSON.stringify(body ?? {}) }), syncBusinessProviderAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account/sync`, { method: 'POST' }) },
+     needs: { create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/needs/mine'), get: (needId: string) => requestJson(options, `/needs/${needId}`), deleteImpact: (needId: string) => requestJson(options, `/needs/${needId}/delete-impact`), update: (needId: string, body: UpdateNeedRequest) => requestJson(options, `/needs/${needId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (needId: string) => requestJson(options, `/needs/${needId}`, { method: 'DELETE' }) },
+     offers: { create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/offers/mine'), get: (offerId: string) => requestJson(options, `/offers/${offerId}`), deleteImpact: (offerId: string) => requestJson(options, `/offers/${offerId}/delete-impact`), update: (offerId: string, body: UpdateOfferRequest) => requestJson(options, `/offers/${offerId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (offerId: string) => requestJson(options, `/offers/${offerId}`, { method: 'DELETE' }) },
+-    trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
++    trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+     admin: { moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: () => requestJson(options, '/admin/business-profiles'), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },

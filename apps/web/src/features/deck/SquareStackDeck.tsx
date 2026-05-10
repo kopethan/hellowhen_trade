@@ -45,6 +45,12 @@ type SquareStackDeckProps = {
   label: string;
   className?: string;
   onOpen?: (item: SquareStackDeckItem, index: number) => void;
+  /**
+   * Used by embedded preview decks where the surrounding form should not scroll
+   * while the user's finger/pointer starts inside the deck surface. Feed decks
+   * keep this disabled so vertical gestures can scroll the feed.
+   */
+  lockScrollWithinDeck?: boolean;
 };
 
 const VISIBLE_LAYERS = 4;
@@ -95,7 +101,7 @@ function scrollDeckContainer(surface: HTMLElement, deltaY: number) {
   window.scrollBy({ top: deltaY, left: 0, behavior: 'auto' });
 }
 
-export function SquareStackDeck({ items, label, className, onOpen }: SquareStackDeckProps) {
+export function SquareStackDeck({ items, label, className, onOpen, lockScrollWithinDeck = false }: SquareStackDeckProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [motion, setMotion] = useState<'next' | 'prev' | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -110,6 +116,7 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
   const canGoNext = itemCount > 1 && activeIndex < itemCount - 1;
   const canGoPrev = itemCount > 1 && activeIndex > 0;
   const activeItem = items[activeIndex];
+  const canOpenActive = Boolean(onOpen);
 
   useEffect(() => {
     setActiveIndex((index) => Math.min(index, Math.max(0, items.length - 1)));
@@ -184,12 +191,13 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
   }, [canGoNext, canGoPrev, itemCount, motion]);
 
   const openActive = useCallback(() => {
-    if (!activeItem || motion || drag?.swiping) return;
+    if (!canOpenActive || !activeItem || motion || drag?.swiping) return;
     if (window.performance.now() < suppressOpenUntilRef.current) return;
     onOpen?.(activeItem, activeIndex);
-  }, [activeIndex, activeItem, drag?.swiping, motion, onOpen]);
+  }, [activeIndex, activeItem, canOpenActive, drag?.swiping, motion, onOpen]);
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+  function handleWheel(event: WheelEvent<HTMLElement>) {
+    if (lockScrollWithinDeck) event.preventDefault();
     if (itemCount <= 1 || motion) return;
 
     const absX = Math.abs(event.deltaX);
@@ -251,7 +259,9 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
 
     if (isMobileDeckViewport && intent === 'SCROLL') {
       event.preventDefault();
-      scrollDeckContainer(event.currentTarget, drag.lastY - event.clientY);
+      if (!lockScrollWithinDeck) {
+        scrollDeckContainer(event.currentTarget, drag.lastY - event.clientY);
+      }
       suppressOpenUntilRef.current = window.performance.now() + 260;
       setDrag({
         ...drag,
@@ -270,6 +280,24 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     }
 
     if (intent === 'SCROLL') {
+      if (lockScrollWithinDeck) {
+        event.preventDefault();
+        suppressOpenUntilRef.current = window.performance.now() + 260;
+        setDrag({
+          ...drag,
+          dx,
+          dy,
+          intent,
+          swiping: false,
+          captured: false,
+          lastX: event.clientX,
+          lastY: event.clientY,
+          lastTime: velocity.now,
+          velocityX: velocity.velocityX,
+          velocityY: velocity.velocityY,
+        });
+        return;
+      }
       setDrag(null);
       return;
     }
@@ -400,14 +428,16 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
     className,
     isMobileDeckViewport ? 'square-stack-deck--native-mobile' : null,
     (motion || drag?.swiping) ? 'is-interacting' : null,
+    !canOpenActive ? 'square-stack-deck--no-open' : null,
+    lockScrollWithinDeck ? 'square-stack-deck--scroll-locked' : null,
   ].filter(Boolean).join(' ');
 
   return (
-    <section className={deckClassName} style={deckStyle} aria-label={label}>
+    <section className={deckClassName} style={deckStyle} aria-label={label} onWheelCapture={handleWheel}>
       <div
         ref={surfaceRef}
         className={motion === 'prev' && !isMobileDeckViewport ? 'square-stack-deck__surface is-prev-entering' : 'square-stack-deck__surface'}
-        role="button"
+        role={canOpenActive ? 'button' : 'group'}
         tabIndex={0}
         aria-label={activeItem?.ariaLabel ?? label}
         onClick={openActive}
@@ -429,7 +459,6 @@ export function SquareStackDeck({ items, label, className, onOpen }: SquareStack
         onPointerMove={handlePointerMove}
         onPointerUp={endTouchDrag}
         onPointerCancel={endTouchDrag}
-        onWheel={handleWheel}
       >
         {visibleItems.slice().reverse().map(({ item, itemIndex, layer }) => {
           const isFrontLayer = isMobileDeckViewport ? itemIndex === activeIndex : layer === 0;

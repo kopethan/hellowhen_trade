@@ -10,21 +10,31 @@ export function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function interpolate(value: number, input: number[], output: number[]) {
+function interpolate(value: number, input: readonly number[], output: readonly number[]) {
   if (input.length !== output.length || input.length === 0) return output[0] ?? 0;
-  if (value <= input[0]) return output[0];
+
+  const firstInput = input[0] ?? 0;
+  const firstOutput = output[0] ?? 0;
+  if (value <= firstInput) return firstOutput;
+
   for (let index = 1; index < input.length; index += 1) {
     const inputTo = input[index];
     const inputFrom = input[index - 1];
+    const outputFrom = output[index - 1];
+    const outputTo = output[index];
+
+    if (inputTo === undefined || inputFrom === undefined || outputFrom === undefined || outputTo === undefined) {
+      continue;
+    }
+
     if (value <= inputTo) {
-      const outputFrom = output[index - 1];
-      const outputTo = output[index];
       const range = inputTo - inputFrom;
       const ratio = range === 0 ? 0 : (value - inputFrom) / range;
       return outputFrom + (outputTo - outputFrom) * ratio;
     }
   }
-  return output[output.length - 1];
+
+  return output[output.length - 1] ?? firstOutput;
 }
 
 export function getLayerPose(layer: number) {

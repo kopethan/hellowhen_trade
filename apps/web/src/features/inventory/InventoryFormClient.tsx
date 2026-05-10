@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
@@ -27,10 +28,26 @@ import {
   type InventoryKind,
 } from './inventoryPresentation';
 
+type InventoryCreateRedirect = {
+  pathname: string;
+  selectedParam: 'needId' | 'offerId';
+  preservedParams?: Record<string, string | undefined>;
+};
+
 type InventoryFormClientProps = {
   kind: InventoryKind;
   itemId?: string;
   mode: 'create' | 'edit';
+  cancelHref?: string;
+  afterCreateRedirect?: InventoryCreateRedirect;
+};
+
+type DeleteImpact = {
+  blocked?: boolean;
+  linkedTradeCount?: number;
+  activeTradeCount?: number;
+  historicalTradeCount?: number;
+  activeTrades?: Array<{ id: string; title: string; status: string }>;
 };
 
 function selectedStatusOptions(kind: InventoryKind) {
@@ -77,7 +94,17 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): Cr
   };
 }
 
-export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientProps) {
+function buildCreateRedirectHref(redirect: InventoryCreateRedirect, savedId: string) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(redirect.preservedParams ?? {})) {
+    if (value) params.set(key, value);
+  }
+  params.set(redirect.selectedParam, savedId);
+  const query = params.toString();
+  return `${redirect.pathname}${query ? `?${query}` : ''}`;
+}
+
+export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreateRedirect }: InventoryFormClientProps) {
   const auth = useWebAuth();
   const router = useRouter();
   const [values, setValues] = useState<InventoryFormValues>(emptyInventoryFormValues);
@@ -87,11 +114,15 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [deleteImpact, setDeleteImpact] = useState<DeleteImpact | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const demoDataEnabled = isWebDemoDataEnabled();
 
   const baseHref = kind === 'need' ? '/needs' : '/offers';
+  const formCancelHref = cancelHref ?? baseHref;
   const noun = kindLabel(kind);
   const lowerNoun = noun.toLowerCase();
+  const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
 
   useEffect(() => {
     if (mode !== 'edit' || !itemId) return;
@@ -123,6 +154,22 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
     return () => { mounted = false; };
   }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, itemId, kind, mode]);
 
+  useEffect(() => {
+    if (mode !== 'edit' || !itemId || !auth.hydrated || !auth.isAuthenticated) return;
+    const requestedItemId = itemId;
+    let mounted = true;
+    async function loadDeleteImpact() {
+      try {
+        const response = kind === 'need' ? await api.needs.deleteImpact(requestedItemId) : await api.offers.deleteImpact(requestedItemId);
+        if (mounted) setDeleteImpact(response as DeleteImpact);
+      } catch {
+        if (mounted) setDeleteImpact(null);
+      }
+    }
+    void loadDeleteImpact();
+    return () => { mounted = false; };
+  }, [auth.hydrated, auth.isAuthenticated, itemId, kind, mode]);
+
   const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
 
   function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
@@ -130,7 +177,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
   }
 
   async function uploadFiles(files: FileList | null) {
-    if (!files?.length) return;
+    if (isEditProtected || !files?.length) return;
     setUploading(true);
     setError('');
     setMessage('');
@@ -153,11 +200,16 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
   }
 
   function removeMedia(mediaId: string) {
+    if (isEditProtected) return;
     setMedia((current) => current.filter((item) => item.id !== mediaId));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isEditProtected) {
+      setError(`Close or delete the active trade before editing this ${lowerNoun}.`);
+      return;
+    }
     setSaving(true);
     setError('');
     setMessage('');
@@ -175,7 +227,11 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
           : await api.offers.create(payload as CreateOfferRequest);
         saved = normalizeInventoryItem(response, kind);
       }
-      router.push(`${baseHref}/${saved?.id ?? itemId ?? ''}`.replace(/\/$/, ''));
+      if (mode === 'create' && afterCreateRedirect && saved?.id) {
+        router.push(buildCreateRedirectHref(afterCreateRedirect, saved.id));
+      } else {
+        router.push(`${baseHref}/${saved?.id ?? itemId ?? ''}`.replace(/\/$/, ''));
+      }
       router.refresh();
     } catch (cause) {
       setError(getFriendlyApiErrorMessage(cause));
@@ -184,8 +240,17 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
     }
   }
 
+  function openDeleteDialog() {
+    setError('');
+    setDeleteDialogOpen(true);
+  }
+
   async function handleDelete() {
-    if (!itemId || !window.confirm(`Delete this ${lowerNoun}? Linked trades may close it instead.`)) return;
+    if (!itemId) return;
+    if (deleteImpact?.blocked) {
+      setDeleteDialogOpen(false);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -195,8 +260,15 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
       router.refresh();
     } catch (cause) {
       setError(getFriendlyApiErrorMessage(cause));
+      try {
+        const response = kind === 'need' ? await api.needs.deleteImpact(itemId) : await api.offers.deleteImpact(itemId);
+        setDeleteImpact(response as DeleteImpact);
+      } catch {
+        // Keep the API error message visible if impact refresh also fails.
+      }
     } finally {
       setSaving(false);
+      setDeleteDialogOpen(false);
     }
   }
 
@@ -223,6 +295,15 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
       ) : null}
 
       <form className="inventory-form" onSubmit={handleSubmit}>
+        {isEditProtected ? (
+          <section className="notice-box warning inventory-delete-warning">
+            <strong>This {lowerNoun} is locked by an active trade.</strong>
+            <span>Close or delete that trade before editing or deleting this {lowerNoun}.</span>
+            {deleteImpact?.activeTrades?.[0] ? <Link href={`/trades/${deleteImpact.activeTrades[0].id}`} className="button secondary">View trade</Link> : null}
+          </section>
+        ) : null}
+
+        <fieldset className="inventory-form__editable" disabled={isEditProtected}>
         <section className="mobile-card inventory-form__hero">
           <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind)}</span>
           <label className="field-label">
@@ -294,7 +375,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
             <p>Images appear on this saved Need or Offer after upload. Support can remove reported images if needed.</p>
           </div>
           <label className="image-upload-button">
-            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={uploading || media.length >= 5} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={isEditProtected || uploading || media.length >= 5} />
             {uploading ? 'Uploading...' : media.length >= 5 ? 'Image limit reached' : 'Upload images'}
           </label>
           {media.length ? (
@@ -304,7 +385,7 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
                   <img src={mediaSrc(item)} alt={item.filename ?? `${noun} image`} />
                   <figcaption>
                     <span className="semantic-badge instruction">{item.status}</span>
-                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)}>Remove</button>
+                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>Remove</button>
                   </figcaption>
                 </figure>
               ))}
@@ -312,14 +393,33 @@ export function InventoryFormClient({ kind, itemId, mode }: InventoryFormClientP
           ) : null}
         </section>
 
+        </fieldset>
+
         {message ? <p className="form-message form-message--success">{message}</p> : null}
         {error ? <p className="form-message form-message--error">{error}</p> : null}
 
         <div className="sticky-form-actions">
-          {mode === 'edit' ? <button type="button" className="secondary danger-button" onClick={handleDelete} disabled={saving}>Delete</button> : <Link href={baseHref} className="button secondary">Cancel</Link>}
-          <button type="submit" disabled={saving || uploading}>{saving ? 'Saving...' : mode === 'edit' ? `Save ${noun}` : `Create ${noun}`}</button>
+          {mode === 'edit' ? <button type="button" className={deleteImpact?.blocked ? 'secondary warning-button' : 'secondary danger-button'} onClick={openDeleteDialog} disabled={saving}>{deleteImpact?.blocked ? 'Used in trade' : 'Delete'}</button> : <Link href={formCancelHref} className="button secondary">Cancel</Link>}
+          <button type="submit" disabled={saving || uploading || isEditProtected}>{saving ? 'Saving...' : mode === 'edit' ? `Save ${noun}` : `Create ${noun}`}</button>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        eyebrow={deleteImpact?.blocked ? 'Protected' : 'Delete'}
+        title={deleteImpact?.blocked ? `Can't delete this ${lowerNoun}` : `Delete ${lowerNoun}?`}
+        body={deleteImpact?.blocked
+          ? `This ${lowerNoun} is used by an active trade. Close or delete that trade before editing or deleting this ${lowerNoun}.`
+          : deleteImpact?.linkedTradeCount
+            ? `This ${lowerNoun} is linked to past trades. It will be removed from your inventory, and past trades will stay closed without deleting them.`
+            : `This ${lowerNoun} is not used in an active trade. Deleting it cannot be undone.`}
+        variant={deleteImpact?.blocked ? 'warning' : 'danger'}
+        confirmLabel={deleteImpact?.blocked ? 'OK' : 'Delete'}
+        showCancel={!deleteImpact?.blocked}
+        loading={saving}
+        onCancel={() => setDeleteDialogOpen(false)}
+        onConfirm={deleteImpact?.blocked ? () => setDeleteDialogOpen(false) : handleDelete}
+      />
     </section>
   );
 }

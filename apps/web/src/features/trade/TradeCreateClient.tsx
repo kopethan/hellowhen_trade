@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { CreateTradeRequest, NeedDto, OfferDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
+import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { MobilePage, PageIntro } from '../../components/MobilePage';
 import { api } from '../../lib/api';
@@ -14,8 +14,9 @@ import { isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyP
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
-import { getInventoryMetadata, mediaSrc, normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
+import { normalizeInventoryList, toIsoDate } from '../inventory/inventoryPresentation';
 import { TradeSidePicker } from './TradeSidePicker';
+import { TradeStackDeck } from './TradeStackDeck';
 
 type CreateTradeResponse = { trade?: unknown; id?: unknown };
 type InventoryLoadState = 'idle' | 'loading' | 'live' | 'demo';
@@ -66,6 +67,14 @@ function findOffer(offers: OfferDto[], offerId: string) {
   return offers.find((offer) => offer.id === offerId) ?? null;
 }
 
+function createSideChooseHref(side: 'need' | 'offer', values: TradeCreateValues) {
+  const params = new URLSearchParams();
+  if (values.needId) params.set('needId', values.needId);
+  if (values.offerId) params.set('offerId', values.offerId);
+  const query = params.toString();
+  return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
+}
+
 function sideTitle(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[]) {
   const need = values.needMode === 'money' ? 'Wallet money' : (findNeed(needs, values.needId)?.title ?? 'Need');
   const offer = values.offerMode === 'money' ? 'Wallet money' : (findOffer(offers, values.offerId)?.title ?? 'Offer');
@@ -88,6 +97,40 @@ function isActiveNeed(need: NeedDto) {
 
 function isActiveOffer(offer: OfferDto) {
   return offer.status === 'active' || offer.status === 'draft';
+}
+
+function buildPreviewTrade(input: {
+  ownerId?: string | null;
+  title: string;
+  description: string;
+  need: NeedDto | null;
+  offer: OfferDto | null;
+  amountCents: number;
+  currency: SupportedCurrency;
+  expiresAt: string | null;
+}): TradeDto {
+  const now = new Date().toISOString();
+  return {
+    id: 'preview-trade',
+    ownerId: input.ownerId ?? 'preview-owner',
+    providerId: null,
+    needId: input.need?.id ?? null,
+    offerId: input.offer?.id ?? null,
+    title: input.title,
+    description: input.description,
+    creditAmount: 0,
+    amountCents: input.amountCents,
+    currency: input.currency,
+    status: 'active',
+    isPublic: true,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt: input.expiresAt,
+    closedAt: null,
+    need: input.need,
+    offer: input.offer,
+    media: [],
+  };
 }
 
 export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: { initialNeedId?: string; initialOfferId?: string }) {
@@ -177,10 +220,10 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
 
   useEffect(() => {
     setValues((current) => {
-      const currentNeedExists = selectableNeeds.some((need) => need.id === current.needId);
-      const currentOfferExists = selectableOffers.some((offer) => offer.id === current.offerId);
-      const nextNeedId = current.needId && currentNeedExists ? current.needId : selectableNeeds[0]?.id || '';
-      const nextOfferId = current.offerId && currentOfferExists ? current.offerId : selectableOffers[0]?.id || '';
+      const currentNeedExists = !current.needId || selectableNeeds.some((need) => need.id === current.needId);
+      const currentOfferExists = !current.offerId || selectableOffers.some((offer) => offer.id === current.offerId);
+      const nextNeedId = currentNeedExists ? current.needId : '';
+      const nextOfferId = currentOfferExists ? current.offerId : '';
       if (nextNeedId === current.needId && nextOfferId === current.offerId) return current;
       return { ...current, needId: nextNeedId, offerId: nextOfferId };
     });
@@ -243,6 +286,24 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
   }
 
   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : null;
+  const hasRequiredSides = (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer));
+  const canSubmit = auth.isAuthenticated && hasRequiredSides && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
+  const previewTrade = useMemo(() => {
+    if (!hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
+    return buildPreviewTrade({
+      ownerId: auth.user?.id,
+      title: values.title.trim() || autoTitle,
+      description: values.description.trim() || autoDescription || 'Choose a saved Need and Offer to create this public trade.',
+      need: values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : selectedNeed,
+      offer: values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : selectedOffer,
+      amountCents: betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
+      currency: values.currency,
+      expiresAt: toIsoDate(values.expiresAt) ?? null,
+    });
+  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.description, values.expiresAt, values.needMode, values.offerMode, values.title]);
+
+  const chooseNeedHref = createSideChooseHref('need', values);
+  const chooseOfferHref = createSideChooseHref('offer', values);
 
   return (
     <MobilePage className="trade-create-page">
@@ -282,8 +343,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
             onModeChange={(mode) => updateValue('needMode', mode)}
             items={selectableNeeds}
             selectedId={values.needId}
-            onSelect={(needId) => updateValue('needId', needId)}
-            emptyHref="/needs/new"
+            chooseHref={chooseNeedHref}
             emptyTitle="Create a Need first"
             emptyBody="Saved Needs appear here after you create them."
             moneyEnabled={betaFeatures.moneyTradesEnabled}
@@ -295,8 +355,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
             onModeChange={(mode) => updateValue('offerMode', mode)}
             items={selectableOffers}
             selectedId={values.offerId}
-            onSelect={(offerId) => updateValue('offerId', offerId)}
-            emptyHref="/offers/new"
+            chooseHref={chooseOfferHref}
             emptyTitle="Create an Offer first"
             emptyBody="Saved Offers appear here after you create them."
             moneyEnabled={betaFeatures.moneyTradesEnabled}
@@ -339,24 +398,23 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
           </section>
         ) : null}
 
-        <section className="mobile-card trade-create-preview">
-          <div>
-            <p className="eyebrow">Preview</p>
-            <h3>{values.title.trim() || autoTitle}</h3>
-            <p>{values.description.trim() || autoDescription}</p>
+        <section className="mobile-card trade-create-preview trade-create-preview--deck">
+          <div className="trade-create-preview__intro">
+            <p className="eyebrow">Preview in feed</p>
+            <h3>{previewTrade ? 'This is how your trade will appear' : 'Choose both sides to preview the deck'}</h3>
+            <p>{previewTrade ? 'Swipe this preview like the live feed deck. Tapping is disabled until the trade is created.' : 'Pick a saved Need and a saved Offer first, then the exact feed card and image pages will appear here.'}</p>
           </div>
-          <div className="trade-create-preview__sides">
-            <div>
-              <span className="semantic-badge need">I need</span>
-              <strong>{values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? 'Wallet money' : selectedNeed?.title ?? 'Choose a Need'}</strong>
-              {selectedNeed ? <small>{getInventoryMetadata(selectedNeed)}</small> : null}
+          {previewTrade ? (
+            <div className="trade-create-preview__deck">
+              <TradeStackDeck trade={previewTrade} preview className="trade-stack-deck--create-preview" />
             </div>
-            <div>
-              <span className="semantic-badge offer">I offer</span>
-              <strong>{values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? 'Wallet money' : selectedOffer?.title ?? 'Choose an Offer'}</strong>
-              {selectedOffer ? <small>{getInventoryMetadata(selectedOffer)}</small> : null}
+          ) : (
+            <div className="trade-create-preview__empty">
+              <span className="semantic-badge instruction">Feed preview</span>
+              <strong>Click to choose a saved Need and Offer.</strong>
+              <small>The preview will reuse the same summary card, image cards, dots, and swipe behavior as the Trades feed.</small>
             </div>
-          </div>
+          )}
         </section>
 
         <section className="mobile-card trade-create-details">
@@ -379,7 +437,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
 
         <div className="sticky-form-actions">
           <Link href="/trades" className="button secondary">Back</Link>
-          <button type="submit" disabled={saving || !auth.isAuthenticated || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)}>{saving ? 'Creating...' : 'Create Trade'}</button>
+          <button type="submit" disabled={saving || !canSubmit}>{saving ? 'Creating...' : 'Create Trade'}</button>
         </div>
       </form>
     </MobilePage>

@@ -7,7 +7,6 @@ import { WebIcon } from '../../components/WebIcon';
 import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
 import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide } from './tradePresentation';
 
-
 function TradeStackImageCard({ image }: { image: ReturnType<typeof getDeckImages>[number] }) {
   const [failed, setFailed] = useState(!image.url);
 
@@ -27,61 +26,72 @@ function compactSideMeta(metadata: string, fallback: string) {
   return metadata || fallback;
 }
 
-export function TradeStackDeck({ trade }: { trade: TradeDto }) {
-  const router = useRouter();
+export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' | 'Preview' = 'Open'): SquareStackDeckItem[] {
   const need = getNeedSide(trade);
   const offer = getOfferSide(trade);
   const images = getDeckImages(trade);
   const exchange = getExchangeLabel(trade);
+  const totalCards = images.length + 1;
 
-  const items = useMemo<SquareStackDeckItem[]>(() => {
-    const totalCards = images.length + 1;
-    const summary: SquareStackDeckItem = {
-      id: `${trade.id}-summary`,
-      ariaLabel: `Open ${trade.title}`,
-      content: (
-        <div className="trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity">
-          <div className="trade-stack-card__mobile-top">
-            <span>TRADE · {cardCountLabel(totalCards)}</span>
-            <strong>{trade.status}</strong>
-          </div>
-
-          <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--need">
-            <p>I need</p>
-            <h2>{need.title}</h2>
-            {compactSideMeta(need.metadata, need.description) ? <span>{compactSideMeta(need.metadata, need.description)}</span> : null}
-          </div>
-
-          <div className="trade-stack-card__mobile-divider" aria-hidden="true">
-            <span><WebIcon name="trade" size={17} decorative /></span>
-          </div>
-
-          <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">
-            <p>I offer</p>
-            <h2>{offer.title}</h2>
-            {compactSideMeta(offer.metadata, offer.description) ? <span>{compactSideMeta(offer.metadata, offer.description)}</span> : null}
-          </div>
-
-          {exchange !== 'Need + Offer exchange' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
+  const summary: SquareStackDeckItem = {
+    id: `${trade.id}-summary`,
+    ariaLabel: `${actionLabel} ${trade.title}`,
+    content: (
+      <div className="trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity">
+        <div className="trade-stack-card__mobile-top">
+          <span>TRADE · {cardCountLabel(totalCards)}</span>
+          <strong>{trade.status}</strong>
         </div>
-      ),
-    };
 
-    const imageItems: SquareStackDeckItem[] = images.map((image) => ({
-      id: image.id,
-      ariaLabel: `Open ${trade.title}`,
-      content: <TradeStackImageCard image={image} />,
-    }));
+        <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--need">
+          <p>I need</p>
+          <h2>{need.title}</h2>
+          {compactSideMeta(need.metadata, need.description) ? <span>{compactSideMeta(need.metadata, need.description)}</span> : null}
+        </div>
 
-    return [summary, ...imageItems];
-  }, [exchange, images, need.description, need.metadata, need.title, offer.description, offer.metadata, offer.title, trade.id, trade.status, trade.title]);
+        <div className="trade-stack-card__mobile-divider" aria-hidden="true">
+          <span><WebIcon name="trade" size={17} decorative /></span>
+        </div>
+
+        <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">
+          <p>I offer</p>
+          <h2>{offer.title}</h2>
+          {compactSideMeta(offer.metadata, offer.description) ? <span>{compactSideMeta(offer.metadata, offer.description)}</span> : null}
+        </div>
+
+        {exchange !== 'Need + Offer exchange' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
+      </div>
+    ),
+  };
+
+  const imageItems: SquareStackDeckItem[] = images.map((image) => ({
+    id: image.id,
+    ariaLabel: `${actionLabel} ${trade.title}`,
+    content: <TradeStackImageCard image={image} />,
+  }));
+
+  return [summary, ...imageItems];
+}
+
+type TradeStackDeckProps = {
+  trade: TradeDto;
+  className?: string;
+  preview?: boolean;
+  onOpen?: () => void;
+};
+
+export function TradeStackDeck({ trade, className, preview = false, onOpen }: TradeStackDeckProps) {
+  const router = useRouter();
+  const items = useMemo(() => buildTradeStackDeckItems(trade, preview ? 'Preview' : 'Open'), [preview, trade]);
+  const deckClassName = ['trade-stack-deck', preview ? 'trade-stack-deck--preview' : null, className].filter(Boolean).join(' ');
 
   return (
     <SquareStackDeck
-      className="trade-stack-deck"
+      className={deckClassName}
       items={items}
       label={trade.title}
-      onOpen={() => router.push(`/trades/${trade.id}`)}
+      onOpen={preview ? undefined : onOpen ?? (() => router.push(`/trades/${trade.id}`))}
+      lockScrollWithinDeck={preview}
     />
   );
 }

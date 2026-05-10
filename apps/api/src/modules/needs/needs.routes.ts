@@ -8,6 +8,34 @@ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/m
 export const needsRoutes = Router();
 needsRoutes.use(requireAuth);
 
+const activeLinkedTradeStatuses = ['active', 'funded', 'in_progress', 'submitted', 'disputed'] as const;
+
+function activeLinkedTradeWhere(needId: string) {
+  return { needId, status: { in: [...activeLinkedTradeStatuses] } };
+}
+
+async function loadActiveLinkedTrades(needId: string) {
+  const [activeTradeCount, activeTrades] = await Promise.all([
+    prisma.trade.count({ where: activeLinkedTradeWhere(needId) }),
+    prisma.trade.findMany({
+      where: activeLinkedTradeWhere(needId),
+      select: { id: true, title: true, status: true },
+      orderBy: { createdAt: 'desc' },
+      take: 3
+    })
+  ]);
+  return { activeTradeCount, activeTrades };
+}
+
+function linkedNeedBlockedPayload(activeTradeCount: number, activeTrades: Array<{ id: string; title: string; status: string }>, action: 'edit' | 'delete') {
+  return {
+    error: 'need_in_active_trade',
+    message: `This need is used by an active trade. Close or delete that trade before ${action === 'edit' ? 'editing' : 'deleting'} this need.`,
+    activeTradeCount,
+    activeTrades
+  };
+}
+
 function cleanList(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : undefined;
 }
@@ -38,6 +66,22 @@ needsRoutes.get('/:needId', asyncRoute(async (req, res) => {
   res.json({ need: await withOneMedia('need', need) });
 }));
 
+needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
+  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const [linkedTradeCount, active] = await Promise.all([
+    prisma.trade.count({ where: { needId: existing.id } }),
+    loadActiveLinkedTrades(existing.id)
+  ]);
+  res.json({
+    blocked: active.activeTradeCount > 0,
+    linkedTradeCount,
+    historicalTradeCount: Math.max(0, linkedTradeCount - active.activeTradeCount),
+    activeTradeCount: active.activeTradeCount,
+    activeTrades: active.activeTrades
+  });
+}));
+
 needsRoutes.post('/', asyncRoute(async (req, res) => {
   const input = createNeedRequestSchema.parse(req.body);
   const need = await prisma.need.create({
@@ -63,6 +107,10 @@ needsRoutes.patch('/:needId', asyncRoute(async (req, res) => {
   const input = updateNeedRequestSchema.parse(req.body);
   const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
+  const active = await loadActiveLinkedTrades(existing.id);
+  if (active.activeTradeCount > 0) {
+    return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+  }
   const need = await prisma.need.update({ where: { id: existing.id }, data: buildNeedUpdateData(input) });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
   res.json({ need: await withOneMedia('need', need) });
@@ -71,12 +119,13 @@ needsRoutes.patch('/:needId', asyncRoute(async (req, res) => {
 needsRoutes.delete('/:needId', asyncRoute(async (req, res) => {
   const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
-  const linkedTradeCount = await prisma.trade.count({ where: { needId: existing.id } });
-  if (linkedTradeCount > 0) {
-    const archived = await prisma.need.update({ where: { id: existing.id }, data: { status: 'closed' } });
-    return res.json({ need: await withOneMedia('need', archived), archived: true });
+  const active = await loadActiveLinkedTrades(existing.id);
+  if (active.activeTradeCount > 0) {
+    return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'delete'));
   }
+
   await prisma.$transaction([
+    prisma.trade.updateMany({ where: { needId: existing.id }, data: { needId: null } }),
     prisma.mediaAsset.updateMany({ where: { entityType: 'need', entityId: existing.id, status: { not: 'removed' } }, data: { status: 'removed' } }),
     prisma.need.delete({ where: { id: existing.id } })
   ]);

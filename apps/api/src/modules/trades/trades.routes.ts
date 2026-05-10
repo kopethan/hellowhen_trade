@@ -212,6 +212,36 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
   res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
 }));
+
+const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
+
+tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
+  const actorId = req.user!.id;
+  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: actorId }, include: tradeInclude });
+  if (!trade) return res.status(404).json({ error: 'not_found' });
+
+  if (!tradeDeleteAllowedStatuses.includes(trade.status as typeof tradeDeleteAllowedStatuses[number])) {
+    return res.status(409).json({
+      error: 'trade_not_deletable',
+      message: 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'
+    });
+  }
+
+  const deleted = await prisma.$transaction(async (tx) => {
+    await tx.tradeProposal.updateMany({
+      where: { tradeId: trade.id, status: 'pending' },
+      data: { status: 'declined', respondedAt: new Date() }
+    });
+
+    return tx.trade.update({
+      where: { id: trade.id },
+      data: { status: 'closed', isPublic: false, closedAt: trade.closedAt ?? new Date() },
+      include: tradeInclude
+    });
+  });
+
+  res.json({ trade: await withOneTradeDeckMedia(deleted, 'owner'), deleted: true });
+}));
 tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   const input = createTradeRequestSchema.parse(req.body);
   const actorId = req.user!.id;
