@@ -35,7 +35,12 @@ export function createApp() {
   app.use('/stripe', requireMoneyFeaturesVisible('Stripe webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookRoutes);
   app.use('/airwallex', requireMoneyFeaturesVisible('Airwallex webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), airwallexWebhookRoutes);
   app.use(express.json({ limit: '1mb' }));
-  app.use('/uploads', express.static(env.uploadDir, {
+  app.use('/uploads', (_req, res, next) => {
+    // Apply to existing files and fallthrough 404s so missing uploads report as
+    // missing files instead of misleading browser CORP failures.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  }, express.static(env.uploadDir, {
     maxAge: env.nodeEnv === 'production' ? '1d' : 0,
     setHeaders(res) {
       // Web runs on a different origin from the API in local/dev and in many
