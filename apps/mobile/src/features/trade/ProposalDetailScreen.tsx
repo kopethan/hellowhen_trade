@@ -18,6 +18,14 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
 type ProposalResponse = { proposal: TradeProposalItem; trade?: unknown };
 type MessagesResponse = { messages: ProposalMessageItem[] };
 function personLabel(person?: { profile?: { displayName?: string | null; handle?: string | null } | null } | null) { return person?.profile?.displayName || person?.profile?.handle || 'Hellowhen member'; }
+function modeLabel(mode?: string | null) { if (mode === 'remote') return 'Remote'; if (mode === 'local') return 'Local'; if (mode === 'hybrid') return 'Hybrid'; return null; }
+function compactList(values: Array<string | null | undefined>) { return values.map((value) => value?.trim()).filter(Boolean).join(' · '); }
+function proposalSideMeta(proposal: TradeProposalItem) {
+  if (proposal.proposedNeed) return compactList([proposal.proposedNeed.category, proposal.proposedNeed.timing, modeLabel(proposal.proposedNeed.mode), proposal.proposedNeed.locationLabel]) || proposal.proposedNeed.itemType || 'Need details';
+  if (proposal.proposedOffer) return compactList([proposal.proposedOffer.category, proposal.proposedOffer.availability, modeLabel(proposal.proposedOffer.mode), proposal.proposedOffer.locationLabel]) || proposal.proposedOffer.itemType || 'Offer details';
+  return '';
+}
+function proposalSideDescription(proposal: TradeProposalItem) { return (proposal.proposedNeed?.description ?? proposal.proposedOffer?.description ?? '').trim() || 'No description added yet.'; }
 
 export function ProposalDetailScreen({ route, navigation }: Props) {
   const auth = useAuth();
@@ -99,6 +107,25 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   </ScrollView></AppScreen>;
 }
 function MiniPerson({ label, name, tone }: { label: string; name: string; tone: 'need' | 'offer' }) { const theme = useThemeTokens(); return <View style={[styles.personBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.personName}>{name}</AppText></View>; }
-function ProposalSideSummary({ proposal }: { proposal: TradeProposalItem }) { const theme = useThemeTokens(); const item = proposal.proposedNeed ?? proposal.proposedOffer; const kind = proposal.proposedNeed ? 'need' : proposal.proposedOffer ? 'offer' : null; if (!item || !kind) return null; return <View style={[styles.proposedSideBox, { backgroundColor: theme.semantic[kind].softBg, borderColor: theme.semantic[kind].border }]}><SemanticBadge label={kind === 'need' ? 'Proposed Need' : 'Proposed Offer'} tone={kind} size="sm" /><AppText style={styles.proposedSideTitle}>{item.title}</AppText><AppText style={[styles.proposedSideBody, { color: theme.semantic[kind].text }]}>{item.description}</AppText></View>; }
+function ProposalSideSummary({ proposal }: { proposal: TradeProposalItem }) {
+  const theme = useThemeTokens();
+  const need = proposal.proposedNeed;
+  const offer = proposal.proposedOffer;
+  if (!need && !offer) return null;
+  const kind = need ? 'need' : 'offer';
+  const item = need ?? offer!;
+  return (
+    <View style={[styles.proposedSideBox, { backgroundColor: theme.semantic[kind].softBg, borderColor: theme.semantic[kind].border }]}>
+      <View style={styles.proposedSideHeader}>
+        <SemanticBadge label={kind === 'need' ? 'Proposed Need' : 'Proposed Offer'} tone={kind} size="sm" />
+        <AppText style={[styles.proposedSideKind, { color: theme.semantic[kind].text }]}>{kind === 'need' ? 'Need proposal' : 'Offer proposal'}</AppText>
+      </View>
+      <AppText style={styles.proposedSideTitle} numberOfLines={2}>{item.title}</AppText>
+      <AppText style={[styles.proposedSideMeta, { color: theme.semantic[kind].text }]} numberOfLines={1}>{proposalSideMeta(proposal)}</AppText>
+      <AppText style={[styles.proposedSideBody, { color: theme.semantic[kind].text }]} numberOfLines={3}>{proposalSideDescription(proposal)}</AppText>
+    </View>
+  );
+}
+
 function ProposalActionButton({ label, variant, disabled, onPress }: { label: string; variant: 'primary' | 'danger'; disabled?: boolean; onPress: () => void }) { return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' ? styles.primaryButton : styles.dangerButton, disabled && styles.disabled, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionText, variant === 'primary' ? styles.primaryText : styles.dangerText]}>{label}</AppText></Pressable>; }
-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 30, lineHeight: 35, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { lineHeight: 20, fontWeight: '800' }, peopleRow: { flexDirection: 'row', gap: 10 }, proposedSideBox: { borderRadius: 16, borderWidth: 1, padding: 12, gap: 6 }, proposedSideTitle: { fontWeight: '900', fontSize: 17 }, proposedSideBody: { lineHeight: 20, fontWeight: '700' }, personBox: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 12, gap: 7 }, personName: { fontWeight: '900' }, messagesBox: { gap: 10 }, messageBubble: { alignSelf: 'flex-start', maxWidth: '92%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 6 }, myMessageBubble: { alignSelf: 'flex-end' }, messageBody: { lineHeight: 20, fontWeight: '600' }, composer: { gap: 8 }, input: { minHeight: 80, borderRadius: 16, borderWidth: 1, padding: 12, fontSize: 16, lineHeight: 22 }, actionRow: { flexDirection: 'row', gap: 10 }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 12 }, primaryButton: { backgroundColor: '#0F766E' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, actionText: { fontWeight: '900' }, primaryText: { color: '#FFFFFF' }, dangerText: { color: '#991B1B' }, muted: { fontWeight: '700' }, disabled: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 30, lineHeight: 35, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { lineHeight: 20, fontWeight: '800' }, peopleRow: { flexDirection: 'row', gap: 10 }, proposedSideBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, proposedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, proposedSideKind: { fontSize: 11, fontWeight: '900', letterSpacing: 0.45, textTransform: 'uppercase' }, proposedSideTitle: { fontWeight: '900', fontSize: 19, lineHeight: 24 }, proposedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, proposedSideBody: { lineHeight: 20, fontWeight: '700' }, personBox: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 12, gap: 7 }, personName: { fontWeight: '900' }, messagesBox: { gap: 10 }, messageBubble: { alignSelf: 'flex-start', maxWidth: '92%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 6 }, myMessageBubble: { alignSelf: 'flex-end' }, messageBody: { lineHeight: 20, fontWeight: '600' }, composer: { gap: 8 }, input: { minHeight: 80, borderRadius: 16, borderWidth: 1, padding: 12, fontSize: 16, lineHeight: 22 }, actionRow: { flexDirection: 'row', gap: 10 }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 12 }, primaryButton: { backgroundColor: '#0F766E' }, dangerButton: { backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FCA5A5' }, actionText: { fontWeight: '900' }, primaryText: { color: '#FFFFFF' }, dangerText: { color: '#991B1B' }, muted: { fontWeight: '700' }, disabled: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
