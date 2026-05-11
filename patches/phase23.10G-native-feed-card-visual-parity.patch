@@ -1,0 +1,348 @@
+diff --git a/apps/mobile/src/features/trade/components/TradePosterCard.tsx b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+index 084ef86..23bc11f 100644
+--- a/apps/mobile/src/features/trade/components/TradePosterCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradePosterCard.tsx
+@@ -4,6 +4,7 @@ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ 
+ export type TradePosterCardVariant = 'trade' | 'need' | 'offer';
++export type TradePosterCardStatusTone = 'normal' | 'soon' | 'urgent' | 'none' | 'expired';
+ 
+ type TradePosterCardProps = {
+   id: string;
+@@ -13,6 +14,7 @@ type TradePosterCardProps = {
+   title: string;
+   subtitle?: string;
+   chips?: string[];
++  status?: { label: string; tone: TradePosterCardStatusTone } | null;
+   variant?: TradePosterCardVariant;
+   onPress: () => void;
+ };
+@@ -86,7 +88,7 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
+   );
+ }
+ 
+-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, variant = 'trade', onPress }: TradePosterCardProps) {
++function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, variant = 'trade', onPress }: TradePosterCardProps) {
+   const theme = useThemeTokens();
+   const isDark = theme.mode === 'dark';
+   const [imageFailed, setImageFailed] = useState(!imageUrl);
+@@ -106,6 +108,15 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+   const overlayTextShadow = isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
+   const pillBg = isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
+   const pillBorder = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
++  const statusColor = status?.tone === 'none'
++    ? (isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
++    : status?.tone === 'expired'
++      ? '#ef4444'
++      : status?.tone === 'normal'
++        ? '#ef4444'
++        : status?.tone === 'soon'
++          ? '#dc2626'
++          : '#b91c1c';
+ 
+   return (
+     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: mediaSurface }, pressed && styles.pressed]}>
+@@ -188,6 +199,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
+               {subtitle}
+             </AppText>
+           ) : null}
++          {status?.label ? (
++            <AppText style={[styles.statusText, { color: statusColor, textShadowColor: overlayTextShadow }]} numberOfLines={1}>
++              {status.label}
++            </AppText>
++          ) : null}
+           {visibleChips.length ? (
+             <View style={styles.chipRow}>
+               {visibleChips.map((chip) => (
+@@ -250,7 +266,7 @@ const styles = StyleSheet.create({
+     justifyContent: 'space-between',
+     paddingHorizontal: 14,
+     paddingTop: 14,
+-    paddingBottom: 16,
++    paddingBottom: 18,
+   },
+   topBar: {
+     flexDirection: 'row',
+@@ -275,8 +291,9 @@ const styles = StyleSheet.create({
+   },
+   copyBlock: {
+     alignSelf: 'stretch',
+-    gap: 6,
++    gap: 5,
+     paddingRight: 8,
++    paddingBottom: 2,
+   },
+   eyebrow: {
+     fontSize: 11,
+@@ -288,20 +305,30 @@ const styles = StyleSheet.create({
+     textShadowRadius: 7,
+   },
+   title: {
+-    fontSize: 24,
+-    lineHeight: 28,
++    fontSize: 20,
++    lineHeight: 24,
+     fontWeight: '900',
+-    letterSpacing: -0.7,
++    letterSpacing: -0.45,
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 8,
+   },
+   subtitle: {
+-    fontSize: 13,
+-    lineHeight: 17,
++    fontSize: 12,
++    lineHeight: 16,
+     fontWeight: '700',
+     textShadowOffset: { width: 0, height: 1 },
+     textShadowRadius: 7,
+   },
++  statusText: {
++    alignSelf: 'flex-start',
++    marginTop: 2,
++    fontSize: 11,
++    lineHeight: 14,
++    fontWeight: '900',
++    letterSpacing: 0.8,
++    textShadowOffset: { width: 0, height: 1 },
++    textShadowRadius: 7,
++  },
+   chipRow: {
+     flexDirection: 'row',
+     flexWrap: 'wrap',
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 63c87e9..1fe1701 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -1,9 +1,13 @@
+-import React from 'react';
++import React, { useEffect, useMemo, useState } from 'react';
++import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import type { MediaAssetDto, TradePostType } from '@hellowhen/contracts';
+ import { formatMoney } from '@hellowhen/shared';
++import { AppText } from '../../../components/AppText';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { TradeExchangeIcon } from './TradeExchangeIcon';
+ import { resolveMediaUrl } from '../mediaUrls';
+ import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
+-import { TradePosterCard } from './TradePosterCard';
++import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
+ 
+ export type TradeSquareDeckCard = {
+   id: string;
+@@ -16,6 +20,7 @@ export type TradeSquareDeckCard = {
+ 
+ type TradeSummaryCardProps = { trade: TradeDeckItem; tradeIndex: number; tradeTotal: number; onOpen: () => void; };
+ type TradeImageCardProps = { trade: TradeDeckItem; kind: 'needImage' | 'offerImage'; media?: MediaAssetDto; onOpen: () => void; };
++type CountdownState = { label: string; tone: TradePosterCardStatusTone };
+ 
+ function deckMedia(media: MediaAssetDto[] | undefined) {
+   return (media ?? []).filter((asset) => asset.status === 'active');
+@@ -43,6 +48,7 @@ export function renderTradeSquareDeckCard(card: TradeSquareDeckCard, _index: num
+ }
+ 
+ function getTradeCounter(index: number, total: number) { return `${String(index + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`; }
++function getStatusLabel(status: string) { return status === 'active' ? 'ACTIVE' : status.replace(/_/g, ' ').toUpperCase(); }
+ function modeLabel(mode?: string | null) {
+   if (mode === 'remote') return 'Remote';
+   if (mode === 'local') return 'Local';
+@@ -53,7 +59,7 @@ function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents
+ function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
+ function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
+ function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
+-function compactJoin(values: Array<string | null | undefined>) { return values.filter((value): value is string => Boolean(value && value.trim())).join(' · '); }
++function compactJoin(values: Array<string | null | undefined>, limit = 3) { return values.filter((value): value is string => Boolean(value && value.trim())).slice(0, limit).join(' · '); }
+ function compactSideMeta(metadata: string, fallback?: string | null) { return metadata || fallback || ''; }
+ function tradePostType(trade: TradeDeckItem): TradePostType { return trade.postType ?? 'need_offer'; }
+ function summaryTitle(trade: TradeDeckItem) {
+@@ -64,8 +70,8 @@ function summaryTitle(trade: TradeDeckItem) {
+ }
+ function exchangeEyebrow(trade: TradeDeckItem) {
+   const postType = tradePostType(trade);
+-  if (postType === 'open_need') return 'Open Need · others propose offers';
+-  if (postType === 'open_offer') return 'Open Offer · others propose needs';
++  if (postType === 'open_need') return 'Others can propose offers';
++  if (postType === 'open_offer') return 'Others can propose needs';
+   if (moneySide(trade) === 'need') return 'Money + Offer exchange';
+   if (moneySide(trade) === 'offer') return 'Need + Money exchange';
+   return 'Need + Offer exchange';
+@@ -74,27 +80,90 @@ function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: numb
+   const prefix = tradePostType(trade) === 'open_need' ? 'Open Need' : tradePostType(trade) === 'open_offer' ? 'Open Offer' : 'Trade';
+   return `${prefix} · ${getTradeCounter(tradeIndex, tradeTotal)}`;
+ }
+-function getExpiryUrgencyBadge(expiresAt?: string | null) {
+-  if (!expiresAt) return null;
++function imagePlaceholderLabel(media?: MediaAssetDto) { if (media?.status === 'flagged') return 'Image unavailable'; return 'Image unavailable'; }
++function starterChips(trade: TradeDeckItem) { return [...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
++export function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, need.timing, modeLabel(need.mode), need.locationLabel], 2) || 'Need details' : 'Need details'; }
++export function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel], 2) || 'Offer details' : 'Offer details'; }
++
++function pad(value: number, size = 2) { return String(value).padStart(size, '0'); }
++function buildCountdownState(expiresAt?: string | null, now = Date.now()): CountdownState {
++  if (!expiresAt) return { label: 'NO EXPIRY', tone: 'none' };
+   const expiresMs = new Date(expiresAt).getTime();
+-  if (!Number.isFinite(expiresMs)) return null;
+-  const hoursLeft = (expiresMs - Date.now()) / 36e5;
+-  if (hoursLeft <= 0) return null;
+-  if (hoursLeft <= 24) return 'Expires soon';
+-  if (hoursLeft <= 72) return 'Urgent';
+-  return null;
++  if (!Number.isFinite(expiresMs)) return { label: 'NO EXPIRY', tone: 'none' };
++  const secondsLeft = Math.floor((expiresMs - now) / 1000);
++  if (secondsLeft <= 0) return { label: 'EXPIRED', tone: 'expired' };
++  const days = Math.floor(secondsLeft / 86400);
++  const hours = Math.floor((secondsLeft % 86400) / 3600);
++  const minutes = Math.floor((secondsLeft % 3600) / 60);
++  const seconds = secondsLeft % 60;
++  const tone: TradePosterCardStatusTone = secondsLeft <= 86400 ? 'urgent' : secondsLeft <= 259200 ? 'soon' : 'normal';
++  return { label: `${pad(days, 3)}:${pad(hours)}:${pad(minutes)}:${pad(seconds)}`, tone };
++}
++function useCountdownState(expiresAt?: string | null) {
++  const [now, setNow] = useState(() => Date.now());
++  useEffect(() => {
++    if (!expiresAt) return undefined;
++    const timer = setInterval(() => setNow(Date.now()), 1000);
++    return () => clearInterval(timer);
++  }, [expiresAt]);
++  return useMemo(() => buildCountdownState(expiresAt, now), [expiresAt, now]);
+ }
+-function starterChips(trade: TradeDeckItem) { return [getExpiryUrgencyBadge(trade.expiresAt), ...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
+-export function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
+-export function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
+ 
+-export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
++function TradeCountdown({ expiresAt, compact = false }: { expiresAt?: string | null; compact?: boolean }) {
++  const theme = useThemeTokens();
++  const countdown = useCountdownState(expiresAt);
++  const color = countdown.tone === 'none'
++    ? theme.color.muted
++    : countdown.tone === 'expired'
++      ? theme.semantic.danger.text
++      : countdown.tone === 'normal'
++        ? '#ef4444'
++        : countdown.tone === 'soon'
++          ? '#dc2626'
++          : '#b91c1c';
++  return <AppText style={[compact ? styles.posterCountdownText : styles.summaryCountdownText, { color }]} numberOfLines={1}>{countdown.label}</AppText>;
++}
++
++function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={styles.summaryHeaderRow}>
++        <AppText style={[styles.summaryHeader, { color: theme.color.muted }]}>TRADE · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
++        <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status)}</AppText>
++      </View>
++
++      <View style={styles.summaryBody}>
++        <View style={styles.tradeSideBlock}>
++          <AppText style={[styles.sideEyebrow, { color: '#60A5FA' }]}>I need</AppText>
++          <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{needTitle(trade)}</AppText>
++          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{needMeta(trade.need, trade)}</AppText>
++        </View>
++
++        <View style={styles.exchangeRow}>
++          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++          <TradeExchangeIcon color={theme.color.muted} size={16} strokeWidth={2.2} />
++          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
++        </View>
++
++        <View style={styles.tradeSideBlock}>
++          <AppText style={[styles.sideEyebrow, { color: '#34D399' }]}>I offer</AppText>
++          <AppText style={[styles.sideTitle, { color: theme.color.text }]} numberOfLines={2}>{offerTitle(trade)}</AppText>
++          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={1}>{offerMeta(trade.offer, trade)}</AppText>
++        </View>
++      </View>
++
++      <View style={styles.countdownSlot}><TradeCountdown expiresAt={trade.expiresAt} /></View>
++    </Pressable>
++  );
++}
++
++function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
+   const postType = tradePostType(trade);
++  const countdown = useCountdownState(trade.expiresAt);
+   const summarySubtitle = postType === 'open_need'
+     ? compactSideMeta(needMeta(trade.need, trade), trade.need?.description)
+-    : postType === 'open_offer'
+-      ? compactSideMeta(offerMeta(trade.offer, trade), trade.offer?.description)
+-      : compactJoin([compactSideMeta(needMeta(trade.need, trade), trade.need?.description), compactSideMeta(offerMeta(trade.offer, trade), trade.offer?.description)]);
++    : compactSideMeta(offerMeta(trade.offer, trade), trade.offer?.description);
+ 
+   return (
+     <TradePosterCard
+@@ -104,14 +173,37 @@ export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Trad
+       eyebrow={exchangeEyebrow(trade)}
+       title={summaryTitle(trade)}
+       subtitle={summarySubtitle}
++      status={countdown}
+       chips={starterChips(trade)}
+-      variant="trade"
++      variant={postType === 'open_need' ? 'need' : 'offer'}
+       onPress={onOpen}
+     />
+   );
+ }
+ 
++export function TradeSummaryCard(props: TradeSummaryCardProps) {
++  return tradePostType(props.trade) === 'need_offer' ? <CompleteTradeSummaryCard {...props} /> : <OpenTradeSummaryCard {...props} />;
++}
++
++function SimpleImageCard({ kind, media, onOpen }: TradeImageCardProps) {
++  const theme = useThemeTokens();
++  const isNeed = kind === 'needImage';
++  const [imageFailed, setImageFailed] = useState(!activeMediaUrl(media));
++  const imageUrl = activeMediaUrl(media);
++  useEffect(() => setImageFailed(!imageUrl), [imageUrl]);
++
++  return (
++    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, { backgroundColor: theme.color.elevated }, pressed && styles.pressed]}>
++      {imageUrl && !imageFailed ? <Image source={{ uri: imageUrl }} onError={() => setImageFailed(true)} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={[styles.imagePlaceholder, { backgroundColor: theme.color.surface }]}><AppText style={[styles.imagePlaceholderText, { color: theme.color.muted }]}>{imagePlaceholderLabel(media)}</AppText></View>}
++      <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{isNeed ? 'Need reference' : 'Offer sample'}</AppText></View>
++    </Pressable>
++  );
++}
++
+ export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardProps) {
++  const isCompleteTrade = tradePostType(trade) === 'need_offer';
++  if (isCompleteTrade) return <SimpleImageCard trade={trade} kind={kind} media={media} onOpen={onOpen} />;
++
+   const isNeed = kind === 'needImage';
+   const side = isNeed ? trade.need : trade.offer;
+   const sideTitle = isNeed ? needTitle(trade) : offerTitle(trade);
+@@ -132,3 +224,33 @@ export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardPro
+     />
+   );
+ }
++
++const styles = StyleSheet.create({
++  summaryCard: {
++    flex: 1,
++    borderWidth: StyleSheet.hairlineWidth,
++    paddingHorizontal: 26,
++    paddingVertical: 22,
++    gap: 12,
++  },
++  summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
++  summaryHeader: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
++  summaryStatus: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
++  summaryBody: { flex: 1, justifyContent: 'center', gap: 18, minHeight: 0 },
++  tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
++  sideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
++  sideTitle: { textAlign: 'center', fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.55, paddingBottom: 1 },
++  sideMeta: { textAlign: 'center', fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 1 },
++  exchangeLine: { flex: 1, height: StyleSheet.hairlineWidth },
++  countdownSlot: { minHeight: 20, alignItems: 'center', justifyContent: 'center' },
++  summaryCountdownText: { fontSize: 13, lineHeight: 17, fontWeight: '900', letterSpacing: 1.2 },
++  posterCountdownText: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.75 },
++  imageCard: { flex: 1, overflow: 'hidden' },
++  fullBleedImage: { width: '100%', height: '100%' },
++  imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18 },
++  imagePlaceholderText: { fontWeight: '900' },
++  floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
++  floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
++  pressed: { opacity: 0.82 },
++});

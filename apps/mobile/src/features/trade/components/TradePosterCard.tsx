@@ -4,6 +4,7 @@ import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
 export type TradePosterCardVariant = 'trade' | 'need' | 'offer';
+export type TradePosterCardStatusTone = 'normal' | 'soon' | 'urgent' | 'none' | 'expired';
 
 type TradePosterCardProps = {
   id: string;
@@ -13,6 +14,7 @@ type TradePosterCardProps = {
   title: string;
   subtitle?: string;
   chips?: string[];
+  status?: { label: string; tone: TradePosterCardStatusTone } | null;
   variant?: TradePosterCardVariant;
   onPress: () => void;
 };
@@ -86,7 +88,7 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
   );
 }
 
-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, variant = 'trade', onPress }: TradePosterCardProps) {
+function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, variant = 'trade', onPress }: TradePosterCardProps) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
   const [imageFailed, setImageFailed] = useState(!imageUrl);
@@ -106,6 +108,15 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
   const overlayTextShadow = isDark ? 'rgba(0,0,0,0.50)' : 'rgba(255,255,255,0.38)';
   const pillBg = isDark ? 'rgba(10,16,24,0.36)' : 'rgba(255,255,255,0.84)';
   const pillBorder = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(15,23,42,0.07)';
+  const statusColor = status?.tone === 'none'
+    ? (isDark ? 'rgba(255,255,255,0.58)' : 'rgba(15,23,42,0.58)')
+    : status?.tone === 'expired'
+      ? '#ef4444'
+      : status?.tone === 'normal'
+        ? '#ef4444'
+        : status?.tone === 'soon'
+          ? '#dc2626'
+          : '#b91c1c';
 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: mediaSurface }, pressed && styles.pressed]}>
@@ -188,6 +199,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
               {subtitle}
             </AppText>
           ) : null}
+          {status?.label ? (
+            <AppText style={[styles.statusText, { color: statusColor, textShadowColor: overlayTextShadow }]} numberOfLines={1}>
+              {status.label}
+            </AppText>
+          ) : null}
           {visibleChips.length ? (
             <View style={styles.chipRow}>
               {visibleChips.map((chip) => (
@@ -250,7 +266,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 14,
     paddingTop: 14,
-    paddingBottom: 16,
+    paddingBottom: 18,
   },
   topBar: {
     flexDirection: 'row',
@@ -275,8 +291,9 @@ const styles = StyleSheet.create({
   },
   copyBlock: {
     alignSelf: 'stretch',
-    gap: 6,
+    gap: 5,
     paddingRight: 8,
+    paddingBottom: 2,
   },
   eyebrow: {
     fontSize: 11,
@@ -288,17 +305,27 @@ const styles = StyleSheet.create({
     textShadowRadius: 7,
   },
   title: {
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '900',
-    letterSpacing: -0.7,
+    letterSpacing: -0.45,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 8,
   },
   subtitle: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '700',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 7,
+  },
+  statusText: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    letterSpacing: 0.8,
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 7,
   },
