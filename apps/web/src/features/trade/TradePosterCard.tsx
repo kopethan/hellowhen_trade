@@ -91,6 +91,7 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
           {eyebrow ? <p className="trade-poster-card__eyebrow">{eyebrow}</p> : null}
           <h2>{title}</h2>
           {subtitle ? <p className="trade-poster-card__subtitle">{subtitle}</p> : null}
+          {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
           {visibleChips.length ? (
             <div className="trade-poster-card__chips" aria-label="Trade tags">
               {visibleChips.map((chip) => (
@@ -98,7 +99,6 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
               ))}
             </div>
           ) : null}
-          {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
         </div>
       </div>
     </article>
