@@ -1,0 +1,919 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 6aea216..a776970 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1383,3 +1383,38 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   .trade-side-source-card > span,
+   .trade-side-template-option .trade-side-option__media { width: 50px; height: 50px; }
+ }
++
++/* Phase 23.9B: create-trade post-type wizard */
++.trade-post-type-step,
++.trade-create-mode-summary,
++.trade-create-open-side-note { display: grid; gap: 12px; }
++.trade-post-type-step__header { display: grid; gap: 8px; }
++.trade-post-type-step__header h3,
++.trade-post-type-step__header p,
++.trade-create-mode-summary p,
++.trade-create-open-side-note h3,
++.trade-create-open-side-note p { margin: 0; }
++.trade-post-type-step__header p,
++.trade-create-mode-summary p,
++.trade-create-open-side-note p { color: var(--app-text-muted); font-size: 13px; font-weight: 760; line-height: 1.45; }
++.trade-post-type-grid { display: grid; gap: 10px; }
++.trade-post-type-card { display: grid; gap: 7px; border: 1px solid var(--app-border); border-radius: 24px; background: var(--app-surface-soft); color: var(--app-text); padding: 14px; text-decoration: none; transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease, background .18s ease; }
++.trade-post-type-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--proposal-border) 58%, var(--app-border)); background: color-mix(in srgb, var(--proposal-bg) 18%, var(--app-surface)); box-shadow: 0 16px 34px rgba(15, 23, 42, 0.09); }
++.trade-post-type-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); outline-offset: 3px; }
++.trade-post-type-card strong { font-size: 18px; }
++.trade-post-type-card em { color: var(--app-text); font-size: 13px; font-style: normal; font-weight: 920; }
++.trade-post-type-card small { color: var(--app-text-muted); font-size: 12px; font-weight: 760; line-height: 1.4; }
++.trade-create-mode-summary { grid-template-columns: minmax(0, 1fr) auto; align-items: center; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
++.trade-create-mode-summary > div { display: grid; gap: 7px; min-width: 0; }
++.trade-create-mode-summary strong { font-size: 14px; }
++.trade-create-side-grid--single { grid-template-columns: minmax(0, 1fr); }
++.trade-create-open-side-note { align-content: center; min-height: 100%; }
++
++@media (min-width: 680px) {
++  .trade-post-type-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
++}
++
++@media (max-width: 520px) {
++  .trade-create-mode-summary { grid-template-columns: 1fr; }
++  .trade-create-mode-summary .trade-side-source-back { justify-self: start; }
++}
+diff --git a/apps/web/src/app/trades/create/choose-need/new/page.tsx b/apps/web/src/app/trades/create/choose-need/new/page.tsx
+index 0f7127e..7b2cb4c 100644
+--- a/apps/web/src/app/trades/create/choose-need/new/page.tsx
++++ b/apps/web/src/app/trades/create/choose-need/new/page.tsx
+@@ -1,13 +1,14 @@
+ import { InventoryFormClient } from '../../../../../features/inventory/InventoryFormClient';
+ 
+ type NewNeedFromTradePageProps = {
+-  searchParams?: Promise<{ needId?: string; offerId?: string }>;
++  searchParams?: Promise<{ needId?: string; offerId?: string; postType?: string }>;
+ };
+ 
+-function chooseNeedHref(params: { needId?: string; offerId?: string }) {
++function chooseNeedHref(params: { needId?: string; offerId?: string; postType?: string }) {
+   const queryParams = new URLSearchParams();
+-  if (params.needId) queryParams.set('needId', params.needId);
+-  if (params.offerId) queryParams.set('offerId', params.offerId);
++  if (params.postType) queryParams.set('postType', params.postType);
++  if (params.needId && params.postType !== 'open_offer') queryParams.set('needId', params.needId);
++  if (params.offerId && params.postType !== 'open_need') queryParams.set('offerId', params.offerId);
+   const query = queryParams.toString();
+   return `/trades/create/choose-need${query ? `?${query}` : ''}`;
+ }
+@@ -22,7 +23,7 @@ export default async function NewNeedFromTradePage({ searchParams }: NewNeedFrom
+       afterCreateRedirect={{
+         pathname: '/trades/create',
+         selectedParam: 'needId',
+-        preservedParams: { offerId: resolvedSearchParams.offerId },
++        preservedParams: { postType: resolvedSearchParams.postType, offerId: resolvedSearchParams.postType === 'open_need' ? undefined : resolvedSearchParams.offerId },
+       }}
+     />
+   );
+diff --git a/apps/web/src/app/trades/create/choose-need/page.tsx b/apps/web/src/app/trades/create/choose-need/page.tsx
+index f7abb08..467c320 100644
+--- a/apps/web/src/app/trades/create/choose-need/page.tsx
++++ b/apps/web/src/app/trades/create/choose-need/page.tsx
+@@ -1,10 +1,10 @@
+ import { TradeSideChoosePage } from '../../../../features/trade/TradeSideChoosePage';
+ 
+ type ChooseNeedPageProps = {
+-  searchParams?: Promise<{ needId?: string; offerId?: string; source?: string }>;
++  searchParams?: Promise<{ needId?: string; offerId?: string; source?: string; postType?: string }>;
+ };
+ 
+ export default async function ChooseNeedPage({ searchParams }: ChooseNeedPageProps) {
+   const resolvedSearchParams = searchParams ? await searchParams : {};
+-  return <TradeSideChoosePage side="need" currentNeedId={resolvedSearchParams.needId} currentOfferId={resolvedSearchParams.offerId} initialSource={resolvedSearchParams.source === 'mine' || resolvedSearchParams.source === 'starter' ? resolvedSearchParams.source : ''} />;
++  return <TradeSideChoosePage side="need" currentNeedId={resolvedSearchParams.needId} currentOfferId={resolvedSearchParams.offerId} initialSource={resolvedSearchParams.source === 'mine' || resolvedSearchParams.source === 'starter' ? resolvedSearchParams.source : ''} postType={resolvedSearchParams.postType === 'need_offer' || resolvedSearchParams.postType === 'open_need' || resolvedSearchParams.postType === 'open_offer' ? resolvedSearchParams.postType : 'need_offer'} />;
+ }
+diff --git a/apps/web/src/app/trades/create/choose-offer/new/page.tsx b/apps/web/src/app/trades/create/choose-offer/new/page.tsx
+index b99a32c..c60d86b 100644
+--- a/apps/web/src/app/trades/create/choose-offer/new/page.tsx
++++ b/apps/web/src/app/trades/create/choose-offer/new/page.tsx
+@@ -1,13 +1,14 @@
+ import { InventoryFormClient } from '../../../../../features/inventory/InventoryFormClient';
+ 
+ type NewOfferFromTradePageProps = {
+-  searchParams?: Promise<{ needId?: string; offerId?: string }>;
++  searchParams?: Promise<{ needId?: string; offerId?: string; postType?: string }>;
+ };
+ 
+-function chooseOfferHref(params: { needId?: string; offerId?: string }) {
++function chooseOfferHref(params: { needId?: string; offerId?: string; postType?: string }) {
+   const queryParams = new URLSearchParams();
+-  if (params.needId) queryParams.set('needId', params.needId);
+-  if (params.offerId) queryParams.set('offerId', params.offerId);
++  if (params.postType) queryParams.set('postType', params.postType);
++  if (params.needId && params.postType !== 'open_offer') queryParams.set('needId', params.needId);
++  if (params.offerId && params.postType !== 'open_need') queryParams.set('offerId', params.offerId);
+   const query = queryParams.toString();
+   return `/trades/create/choose-offer${query ? `?${query}` : ''}`;
+ }
+@@ -22,7 +23,7 @@ export default async function NewOfferFromTradePage({ searchParams }: NewOfferFr
+       afterCreateRedirect={{
+         pathname: '/trades/create',
+         selectedParam: 'offerId',
+-        preservedParams: { needId: resolvedSearchParams.needId },
++        preservedParams: { postType: resolvedSearchParams.postType, needId: resolvedSearchParams.postType === 'open_offer' ? undefined : resolvedSearchParams.needId },
+       }}
+     />
+   );
+diff --git a/apps/web/src/app/trades/create/choose-offer/page.tsx b/apps/web/src/app/trades/create/choose-offer/page.tsx
+index 37f24ee..8a9aa8d 100644
+--- a/apps/web/src/app/trades/create/choose-offer/page.tsx
++++ b/apps/web/src/app/trades/create/choose-offer/page.tsx
+@@ -1,10 +1,10 @@
+ import { TradeSideChoosePage } from '../../../../features/trade/TradeSideChoosePage';
+ 
+ type ChooseOfferPageProps = {
+-  searchParams?: Promise<{ needId?: string; offerId?: string; source?: string }>;
++  searchParams?: Promise<{ needId?: string; offerId?: string; source?: string; postType?: string }>;
+ };
+ 
+ export default async function ChooseOfferPage({ searchParams }: ChooseOfferPageProps) {
+   const resolvedSearchParams = searchParams ? await searchParams : {};
+-  return <TradeSideChoosePage side="offer" currentNeedId={resolvedSearchParams.needId} currentOfferId={resolvedSearchParams.offerId} initialSource={resolvedSearchParams.source === 'mine' || resolvedSearchParams.source === 'starter' ? resolvedSearchParams.source : ''} />;
++  return <TradeSideChoosePage side="offer" currentNeedId={resolvedSearchParams.needId} currentOfferId={resolvedSearchParams.offerId} initialSource={resolvedSearchParams.source === 'mine' || resolvedSearchParams.source === 'starter' ? resolvedSearchParams.source : ''} postType={resolvedSearchParams.postType === 'need_offer' || resolvedSearchParams.postType === 'open_need' || resolvedSearchParams.postType === 'open_offer' ? resolvedSearchParams.postType : 'need_offer'} />;
+ }
+diff --git a/apps/web/src/app/trades/create/page.tsx b/apps/web/src/app/trades/create/page.tsx
+index e9ca064..c402311 100644
+--- a/apps/web/src/app/trades/create/page.tsx
++++ b/apps/web/src/app/trades/create/page.tsx
+@@ -1,10 +1,10 @@
+ import { TradeCreateClient } from '../../../features/trade/TradeCreateClient';
+ 
+ type CreateTradePageProps = {
+-  searchParams?: Promise<{ needId?: string; offerId?: string }>;
++  searchParams?: Promise<{ needId?: string; offerId?: string; postType?: string }>;
+ };
+ 
+ export default async function CreateTradePage({ searchParams }: CreateTradePageProps) {
+   const resolvedSearchParams = searchParams ? await searchParams : {};
+-  return <TradeCreateClient initialNeedId={resolvedSearchParams.needId} initialOfferId={resolvedSearchParams.offerId} />;
++  return <TradeCreateClient initialNeedId={resolvedSearchParams.needId} initialOfferId={resolvedSearchParams.offerId} initialPostType={resolvedSearchParams.postType} />;
+ }
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index 900f07a..d0de855 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter, useSearchParams } from 'next/navigation';
+ import type { FormEvent } from 'react';
+-import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, WalletLimitsDto } from '@hellowhen/contracts';
++import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, TradePostType, WalletLimitsDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { MobilePage, PageIntro } from '../../components/MobilePage';
+ import { api } from '../../lib/api';
+@@ -19,13 +19,15 @@ import { TradeSidePicker } from './TradeSidePicker';
+ import { TradeStackDeck } from './TradeStackDeck';
+ 
+ type CreateTradeResponse = { trade?: unknown; id?: unknown };
+-type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'>;
++type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postType?: TradePostType };
+ type DuplicateTradeConflict = DuplicateTradeSummary & { message: string };
+ type InventoryLoadState = 'idle' | 'loading' | 'live' | 'demo';
+ 
+ type SideMode = 'saved' | 'money';
++type PublishMode = TradePostType | '';
+ 
+ type TradeCreateValues = {
++  postType: PublishMode;
+   needMode: SideMode;
+   offerMode: SideMode;
+   needId: string;
+@@ -61,6 +63,55 @@ function getPreferredCurrency(value?: string | null): SupportedCurrency {
+   return value && isSupportedCurrency(value) ? value : 'eur';
+ }
+ 
++
++const TRADE_POST_TYPE_OPTIONS: Array<{
++  value: TradePostType;
++  label: string;
++  badge: string;
++  title: string;
++  body: string;
++}> = [
++  {
++    value: 'need_offer',
++    label: 'Need + Offer',
++    badge: 'Complete trade',
++    title: 'I know both sides',
++    body: 'Publish what you need and what you can offer in exchange.',
++  },
++  {
++    value: 'open_need',
++    label: 'Open Need',
++    badge: 'Others propose offers',
++    title: 'I only want to post a need',
++    body: 'Publish one Need and let other people propose Offers.',
++  },
++  {
++    value: 'open_offer',
++    label: 'Open Offer',
++    badge: 'Others propose needs',
++    title: 'I only want to post an offer',
++    body: 'Publish one Offer and let other people propose Needs or requests.',
++  },
++];
++
++function parseTradePostType(value?: string | null): PublishMode {
++  return value === 'need_offer' || value === 'open_need' || value === 'open_offer' ? value : '';
++}
++
++function postTypeLabel(postType: PublishMode) {
++  return TRADE_POST_TYPE_OPTIONS.find((option) => option.value === postType)?.label ?? 'Publish type';
++}
++
++function createTradeHrefWithPostType(next: { postType?: PublishMode; needId?: string; offerId?: string }) {
++  const params = new URLSearchParams();
++  const postType = next.postType;
++  if (postType) params.set('postType', postType);
++  if (next.needId && postType !== 'open_offer') params.set('needId', next.needId);
++  if (next.offerId && postType !== 'open_need') params.set('offerId', next.offerId);
++  const query = params.toString();
++  return `/trades/create${query ? `?${query}` : ''}`;
++}
++
+ function findNeed(needs: NeedDto[], needId: string) {
+   return needs.find((need) => need.id === needId) ?? null;
+ }
+@@ -71,8 +122,9 @@ function findOffer(offers: OfferDto[], offerId: string) {
+ 
+ function createSideChooseHref(side: 'need' | 'offer', values: TradeCreateValues) {
+   const params = new URLSearchParams();
+-  if (values.needId) params.set('needId', values.needId);
+-  if (values.offerId) params.set('offerId', values.offerId);
++  if (values.postType) params.set('postType', values.postType);
++  if (values.needId && values.postType !== 'open_offer') params.set('needId', values.needId);
++  if (values.offerId && values.postType !== 'open_need') params.set('offerId', values.offerId);
+   const query = params.toString();
+   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
+ }
+@@ -80,6 +132,8 @@ function createSideChooseHref(side: 'need' | 'offer', values: TradeCreateValues)
+ function sideTitle(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[]) {
+   const need = values.needMode === 'money' ? 'Wallet money' : (findNeed(needs, values.needId)?.title ?? 'Need');
+   const offer = values.offerMode === 'money' ? 'Wallet money' : (findOffer(offers, values.offerId)?.title ?? 'Offer');
++  if (values.postType === 'open_need') return `Open Need: ${need}`;
++  if (values.postType === 'open_offer') return `Open Offer: ${offer}`;
+   return `${need} ↔ ${offer}`;
+ }
+ 
+@@ -90,6 +144,8 @@ function sideDescription(values: TradeCreateValues, needs: NeedDto[], offers: Of
+   const offer = values.offerMode === 'money'
+     ? `${formatWebMoney(amountCents, values.currency)} wallet money`
+     : (findOffer(offers, values.offerId)?.title ?? 'a saved Offer');
++  if (values.postType === 'open_need') return `I need ${need}. Others can propose offers that match this need. Proposal messages stay private on the Trade Detail page.`;
++  if (values.postType === 'open_offer') return `I offer ${offer}. Others can propose needs or requests for this offer. Proposal messages stay private on the Trade Detail page.`;
+   return `I need ${need}. I offer ${offer}. Proposal messages stay private on the Trade Detail page.`;
+ }
+ 
+@@ -126,10 +182,30 @@ function tradeOfferId(trade: TradeDto) {
+ 
+ function findDuplicateTradePair(trades: TradeDto[], needId?: string | null, offerId?: string | null) {
+   if (!needId || !offerId) return null;
+-  return trades.find((trade) => tradeNeedId(trade) === needId && tradeOfferId(trade) === offerId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
++  return trades.find((trade) => (trade.postType ?? 'need_offer') === 'need_offer' && tradeNeedId(trade) === needId && tradeOfferId(trade) === offerId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
++}
++
++function findDuplicateOpenNeed(trades: TradeDto[], needId?: string | null) {
++  if (!needId) return null;
++  return trades.find((trade) => trade.postType === 'open_need' && tradeNeedId(trade) === needId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
++}
++
++function findDuplicateOpenOffer(trades: TradeDto[], offerId?: string | null) {
++  if (!offerId) return null;
++  return trades.find((trade) => trade.postType === 'open_offer' && tradeOfferId(trade) === offerId && isDuplicateBlockingTradeStatus(trade.status)) ?? null;
+ }
+ 
+ function duplicateTradeMessage(trade: DuplicateTradeSummary) {
++  if (trade.postType === 'open_need') {
++    return trade.status === 'active'
++      ? 'You already have an active Open Need using this Need.'
++      : `You already have a ${trade.status.replace(/_/g, ' ')} Open Need using this Need.`;
++  }
++  if (trade.postType === 'open_offer') {
++    return trade.status === 'active'
++      ? 'You already have an active Open Offer using this Offer.'
++      : `You already have a ${trade.status.replace(/_/g, ' ')} Open Offer using this Offer.`;
++  }
+   return trade.status === 'active'
+     ? 'You already have an active trade using this exact Need and Offer.'
+     : `You already have a ${trade.status.replace(/_/g, ' ')} trade using this exact Need and Offer.`;
+@@ -140,17 +216,21 @@ function getDuplicateTradeConflict(error: unknown): DuplicateTradeConflict | nul
+   const body = (error as { body?: unknown }).body;
+   if (!body || typeof body !== 'object') return null;
+   const payload = body as { error?: unknown; message?: unknown; tradeId?: unknown; tradeStatus?: unknown; tradeTitle?: unknown };
+-  if (payload.error !== 'duplicate_trade_pair' || typeof payload.tradeId !== 'string') return null;
++  const errorCode = typeof payload.error === 'string' ? payload.error : '';
++  if (!['duplicate_trade_pair', 'duplicate_open_need', 'duplicate_open_offer'].includes(errorCode) || typeof payload.tradeId !== 'string') return null;
++  const postType: TradePostType = errorCode === 'duplicate_open_need' ? 'open_need' : errorCode === 'duplicate_open_offer' ? 'open_offer' : 'need_offer';
+   return {
+     id: payload.tradeId,
+     status: typeof payload.tradeStatus === 'string' ? payload.tradeStatus as TradeDto['status'] : 'active',
+     title: typeof payload.tradeTitle === 'string' ? payload.tradeTitle : 'Existing trade',
+-    message: typeof payload.message === 'string' ? payload.message : 'You already have an active trade using this exact Need and Offer.'
++    postType,
++    message: typeof payload.message === 'string' ? payload.message : duplicateTradeMessage({ id: payload.tradeId, status: 'active', title: 'Existing trade', postType })
+   };
+ }
+ 
+ function buildPreviewTrade(input: {
+   ownerId?: string | null;
++  postType: TradePostType;
+   title: string;
+   description: string;
+   need: NeedDto | null;
+@@ -166,6 +246,7 @@ function buildPreviewTrade(input: {
+     providerId: null,
+     needId: input.need?.id ?? null,
+     offerId: input.offer?.id ?? null,
++    postType: input.postType,
+     title: input.title,
+     description: input.description,
+     creditAmount: 0,
+@@ -183,12 +264,13 @@ function buildPreviewTrade(input: {
+   };
+ }
+ 
+-export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: { initialNeedId?: string; initialOfferId?: string }) {
++export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', initialPostType = '' }: { initialNeedId?: string; initialOfferId?: string; initialPostType?: string }) {
+   const auth = useWebAuth();
+   const router = useRouter();
+   const searchParams = useSearchParams();
+   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
+   const routeOfferId = searchParams.get('offerId') ?? initialOfferId;
++  const routePostType = parseTradePostType(searchParams.get('postType') ?? initialPostType) || (routeNeedId || routeOfferId ? 'need_offer' : '');
+   const preferredCurrency = getPreferredCurrency(auth.user?.profile?.preferredCurrency);
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const [needs, setNeeds] = useState<NeedDto[]>(() => demoDataEnabled ? mockNeeds : []);
+@@ -196,6 +278,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const [trades, setTrades] = useState<TradeDto[]>(() => demoDataEnabled ? mockTrades : []);
+   const [loadState, setLoadState] = useState<InventoryLoadState>('idle');
+   const [values, setValues] = useState<TradeCreateValues>({
++    postType: routePostType,
+     needMode: 'saved',
+     offerMode: 'saved',
+     needId: routeNeedId,
+@@ -220,24 +303,29 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+ 
+   useEffect(() => {
+     setValues((current) => {
+-      const nextNeedId = routeNeedId || '';
+-      const nextOfferId = routeOfferId || '';
++      const nextPostType = routePostType;
++      const nextNeedId = routePostType === 'open_offer' ? '' : routeNeedId || '';
++      const nextOfferId = routePostType === 'open_need' ? '' : routeOfferId || '';
+       const nextCurrency = current.currency || preferredCurrency;
+-      if (current.currency === nextCurrency && current.needId === nextNeedId && current.offerId === nextOfferId) {
++      if (current.currency === nextCurrency && current.postType === nextPostType && current.needId === nextNeedId && current.offerId === nextOfferId) {
+         return current;
+       }
+       return {
+         ...current,
++        postType: nextPostType,
+         currency: nextCurrency,
++        needMode: nextPostType === 'need_offer' ? current.needMode : 'saved',
++        offerMode: nextPostType === 'need_offer' ? current.offerMode : 'saved',
++        amount: nextPostType === 'need_offer' ? current.amount : '',
+         needId: nextNeedId,
+         offerId: nextOfferId,
+       };
+     });
+-  }, [preferredCurrency, routeNeedId, routeOfferId]);
++  }, [preferredCurrency, routeNeedId, routeOfferId, routePostType]);
+ 
+   useEffect(() => {
+     setDuplicateConflict(null);
+-  }, [values.needId, values.offerId]);
++  }, [values.needId, values.offerId, values.postType]);
+ 
+   useEffect(() => {
+     if (!auth.hydrated) return;
+@@ -284,12 +372,16 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   const selectedNeed = values.needMode === 'saved' ? findNeed(selectableNeeds, values.needId) : null;
+   const selectedOffer = values.offerMode === 'saved' ? findOffer(selectableOffers, values.offerId) : null;
+   const amountCents = parseMoneyToCents(values.amount);
+-  const duplicateTrade = values.needMode === 'saved' && values.offerMode === 'saved'
++  const duplicateTrade = values.postType === 'need_offer' && values.needMode === 'saved' && values.offerMode === 'saved'
+     ? findDuplicateTradePair(trades, selectedNeed?.id, selectedOffer?.id)
+-    : null;
++    : values.postType === 'open_need'
++      ? findDuplicateOpenNeed(trades, selectedNeed?.id)
++      : values.postType === 'open_offer'
++        ? findDuplicateOpenOffer(trades, selectedOffer?.id)
++        : null;
+   const visibleDuplicateTrade: DuplicateTradeConflict | DuplicateTradeSummary | null = duplicateTrade ?? duplicateConflict;
+-  const usesMoney = values.needMode === 'money' || values.offerMode === 'money';
+-  const blocksMoneyMoney = values.needMode === 'money' && values.offerMode === 'money';
++  const usesMoney = values.postType === 'need_offer' && (values.needMode === 'money' || values.offerMode === 'money');
++  const blocksMoneyMoney = values.postType === 'need_offer' && values.needMode === 'money' && values.offerMode === 'money';
+   const autoTitle = sideTitle(values, selectableNeeds, selectableOffers);
+   const autoDescription = Number.isFinite(amountCents) ? sideDescription(values, selectableNeeds, selectableOffers, amountCents || 0) : '';
+ 
+@@ -315,11 +407,12 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   function validate() {
+     if (!auth.hydrated) return 'Checking your session. Try again in a moment.';
+     if (!auth.isAuthenticated) return 'Sign in to create a live trade.';
++    if (!values.postType) return 'Choose what you want to publish first.';
+     if (usesMoney && !betaFeatures.moneyTradesEnabled) return 'Choose saved Needs and Offers for this beta.';
+     if (blocksMoneyMoney) return 'Choose saved Needs and Offers for this beta.';
+-    if (values.needMode === 'saved' && !selectedNeed) return 'Choose a saved Need under I need.';
+-    if (values.offerMode === 'saved' && !selectedOffer) return 'Choose a saved Offer under I offer.';
+-    if (visibleDuplicateTrade) return `${duplicateTradeMessage(visibleDuplicateTrade)} Delete or close the existing trade before creating it again.`;
++    if ((values.postType === 'need_offer' || values.postType === 'open_need') && values.needMode === 'saved' && !selectedNeed) return values.postType === 'open_need' ? 'Choose a saved Need to publish an Open Need.' : 'Choose a saved Need under I need.';
++    if ((values.postType === 'need_offer' || values.postType === 'open_offer') && values.offerMode === 'saved' && !selectedOffer) return values.postType === 'open_offer' ? 'Choose a saved Offer to publish an Open Offer.' : 'Choose a saved Offer under I offer.';
++    if (visibleDuplicateTrade) return `${duplicateTradeMessage(visibleDuplicateTrade)} Delete or close the existing post before creating it again.`;
+     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return 'Enter a wallet money amount of at least 1.00.';
+     if (usesMoney && limits && !limits.moneyTradesEnabled) return 'Money trades are disabled for your current launch trust tier.';
+     if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return `Money trades are limited to ${formatWebMoney(limits.perTradeMoneyCapCents, values.currency)} for your current tier.`;
+@@ -336,13 +429,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+       return;
+     }
+ 
++    const postType = values.postType || 'need_offer';
+     const payload: CreateTradeRequest = {
+-      needKind: (betaFeatures.moneyTradesEnabled && values.needMode === 'money' ? 'money' : 'need') as TradeNeedSideKind,
+-      offerKind: (betaFeatures.moneyTradesEnabled && values.offerMode === 'money' ? 'money' : 'offer') as TradeOfferSideKind,
+-      needId: values.needMode === 'saved' || !betaFeatures.moneyTradesEnabled ? selectedNeed?.id : undefined,
+-      offerId: values.offerMode === 'saved' || !betaFeatures.moneyTradesEnabled ? selectedOffer?.id : undefined,
++      postType,
++      needKind: (postType === 'need_offer' && betaFeatures.moneyTradesEnabled && values.needMode === 'money' ? 'money' : 'need') as TradeNeedSideKind,
++      offerKind: (postType === 'need_offer' && betaFeatures.moneyTradesEnabled && values.offerMode === 'money' ? 'money' : 'offer') as TradeOfferSideKind,
++      needId: postType !== 'open_offer' && (values.needMode === 'saved' || !betaFeatures.moneyTradesEnabled) ? selectedNeed?.id : undefined,
++      offerId: postType !== 'open_need' && (values.offerMode === 'saved' || !betaFeatures.moneyTradesEnabled) ? selectedOffer?.id : undefined,
+       creditAmount: 0,
+-      amountCents: betaFeatures.moneyTradesEnabled && usesMoney ? amountCents : 0,
++      amountCents: postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney ? amountCents : 0,
+       currency: values.currency,
+       expiresAt: toIsoDate(values.expiresAt),
+       title: values.title.trim() || autoTitle,
+@@ -371,33 +466,45 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+   }
+ 
+   const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : null;
+-  const hasRequiredSides = (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer));
+-  const selectedPairReady = values.needMode === 'saved' && values.offerMode === 'saved' && Boolean(selectedNeed) && Boolean(selectedOffer);
+-  const inventoryCheckingPair = selectedPairReady && loadState === 'loading';
+-  const canSubmit = auth.isAuthenticated && hasRequiredSides && !visibleDuplicateTrade && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
++  const hasRequiredSides = values.postType === 'need_offer'
++    ? (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer))
++    : values.postType === 'open_need'
++      ? Boolean(selectedNeed)
++      : values.postType === 'open_offer'
++        ? Boolean(selectedOffer)
++        : false;
++  const selectedPairReady = values.postType === 'need_offer' && values.needMode === 'saved' && values.offerMode === 'saved' && Boolean(selectedNeed) && Boolean(selectedOffer);
++  const selectedOpenNeedReady = values.postType === 'open_need' && Boolean(selectedNeed);
++  const selectedOpenOfferReady = values.postType === 'open_offer' && Boolean(selectedOffer);
++  const inventoryCheckingPair = (selectedPairReady || selectedOpenNeedReady || selectedOpenOfferReady) && loadState === 'loading';
++  const canSubmit = auth.isAuthenticated && Boolean(values.postType) && hasRequiredSides && !visibleDuplicateTrade && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
+   const previewTrade = useMemo(() => {
+-    if (!hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
++    if (!values.postType || !hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
+     return buildPreviewTrade({
+       ownerId: auth.user?.id,
++      postType: values.postType,
+       title: values.title.trim() || autoTitle,
+-      description: values.description.trim() || autoDescription || 'Choose a saved Need and Offer to create this public trade.',
+-      need: values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : selectedNeed,
+-      offer: values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : selectedOffer,
+-      amountCents: betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
++      description: values.description.trim() || autoDescription || 'Choose saved inventory to create this public post.',
++      need: values.postType !== 'open_offer' && values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_offer' ? null : selectedNeed,
++      offer: values.postType !== 'open_need' && values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_need' ? null : selectedOffer,
++      amountCents: values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
+       currency: values.currency,
+       expiresAt: toIsoDate(values.expiresAt) ?? null,
+     });
+-  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.description, values.expiresAt, values.needMode, values.offerMode, values.title]);
++  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.description, values.expiresAt, values.needMode, values.offerMode, values.postType, values.title]);
+ 
+   const chooseNeedHref = createSideChooseHref('need', values);
+   const chooseOfferHref = createSideChooseHref('offer', values);
++  const showPostTypeStep = !values.postType;
++  const changePostTypeHref = createTradeHrefWithPostType({});
++  const currentCreateHref = createTradeHrefWithPostType({ postType: values.postType, needId: values.needId, offerId: values.offerId });
+ 
+   return (
+     <MobilePage className="trade-create-page">
+       <PageIntro
+         eyebrow="Create trade"
+-        title="Choose what you need and what you offer"
+-        body={betaFeatures.moneyTradesEnabled ? 'Pick saved inventory or place wallet money under one side. Money is never a third extra field.' : 'Choose saved Needs and Offers to build a service or goods exchange.'}
++        title={showPostTypeStep ? "Choose what you want to publish" : postTypeLabel(values.postType)}
++        body={showPostTypeStep ? "Start with a complete Need + Offer trade, or publish only one side and let others propose the missing side." : values.postType === 'open_need' ? "Choose one saved Need. Other users will propose Offers on the Trade Detail page." : values.postType === 'open_offer' ? "Choose one saved Offer. Other users will propose Needs on the Trade Detail page." : betaFeatures.moneyTradesEnabled ? "Pick saved inventory or place wallet money under one side. Money is never a third extra field." : "Choose saved Needs and Offers to build a service or goods exchange."}
+         action={<Link href="/trades" className="button secondary">Cancel</Link>}
+       />
+ 
+@@ -412,42 +519,89 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+           <span className="semantic-badge instruction">Signed out</span>
+           <h3>Sign in to create a live trade</h3>
+           <p>You can preview the form, but creating a trade needs your account so the selected Need and Offer belong to you.</p>
+-          <Link href="/auth?next=/trades/create" className="button">Sign in</Link>
++          <Link href={`/auth?next=${encodeURIComponent(currentCreateHref)}`} className="button">Sign in</Link>
+         </section>
+       ) : null}
+ 
+       <form className="trade-create-form" onSubmit={handleSubmit}>
+         <div className="trade-create-status-row">
+-          <span className="semantic-badge trade">{loadState === 'loading' ? 'Loading inventory' : loadState === 'live' ? 'Live inventory' : loadState === 'demo' ? 'Demo inventory' : 'Inventory'}</span>
++          <span className="semantic-badge trade">{showPostTypeStep ? 'Publish type' : postTypeLabel(values.postType)}</span>
+           {betaFeatures.moneyTradesEnabled && amountPreview ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">Beta</span>}
+         </div>
+ 
+-        <div className="trade-create-side-grid">
+-          <TradeSidePicker
+-            label="I need"
+-            side="need"
+-            mode={values.needMode}
+-            onModeChange={(mode) => updateValue('needMode', mode)}
+-            items={selectableNeeds}
+-            selectedId={values.needId}
+-            chooseHref={chooseNeedHref}
+-            emptyTitle="Create a Need first"
+-            emptyBody="Saved Needs appear here after you create them."
+-            moneyEnabled={betaFeatures.moneyTradesEnabled}
+-          />
+-          <TradeSidePicker
+-            label="I offer"
+-            side="offer"
+-            mode={values.offerMode}
+-            onModeChange={(mode) => updateValue('offerMode', mode)}
+-            items={selectableOffers}
+-            selectedId={values.offerId}
+-            chooseHref={chooseOfferHref}
+-            emptyTitle="Create an Offer first"
+-            emptyBody="Saved Offers appear here after you create them."
+-            moneyEnabled={betaFeatures.moneyTradesEnabled}
+-          />
+-        </div>
++        {showPostTypeStep ? (
++          <section className="mobile-card trade-post-type-step">
++            <div className="trade-post-type-step__header">
++              <span className="semantic-badge instruction">Step 1 of 2</span>
++              <h3>What do you want to publish?</h3>
++              <p>Choose the shape of this post first. You can still use your private inventory or starter Needs/Offers in the next step.</p>
++            </div>
++            <div className="trade-post-type-grid">
++              {TRADE_POST_TYPE_OPTIONS.map((option) => (
++                <Link key={option.value} href={createTradeHrefWithPostType({ postType: option.value, needId: values.needId, offerId: values.offerId })} className="trade-post-type-card">
++                  <span className="semantic-badge trade">{option.badge}</span>
++                  <strong>{option.label}</strong>
++                  <em>{option.title}</em>
++                  <small>{option.body}</small>
++                </Link>
++              ))}
++            </div>
++          </section>
++        ) : (
++          <>
++            <section className="trade-create-mode-summary">
++              <div>
++                <span className="semantic-badge trade">{postTypeLabel(values.postType)}</span>
++                <strong>{values.postType === 'open_need' ? 'Publish one Need. Others propose Offers.' : values.postType === 'open_offer' ? 'Publish one Offer. Others propose Needs.' : 'Publish a complete Need + Offer exchange.'}</strong>
++              </div>
++              <Link href={changePostTypeHref} className="trade-side-source-back">Change publish type</Link>
++            </section>
++
++            <div className={values.postType === 'need_offer' ? 'trade-create-side-grid' : 'trade-create-side-grid trade-create-side-grid--single'}>
++              {values.postType !== 'open_offer' ? (
++                <TradeSidePicker
++                  label="I need"
++                  side="need"
++                  mode={values.needMode}
++                  onModeChange={(mode) => updateValue('needMode', mode)}
++                  items={selectableNeeds}
++                  selectedId={values.needId}
++                  chooseHref={chooseNeedHref}
++                  emptyTitle="Create a Need first"
++                  emptyBody="Saved Needs appear here after you create them."
++                  moneyEnabled={values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled}
++                />
++              ) : null}
++              {values.postType !== 'open_need' ? (
++                <TradeSidePicker
++                  label="I offer"
++                  side="offer"
++                  mode={values.offerMode}
++                  onModeChange={(mode) => updateValue('offerMode', mode)}
++                  items={selectableOffers}
++                  selectedId={values.offerId}
++                  chooseHref={chooseOfferHref}
++                  emptyTitle="Create an Offer first"
++                  emptyBody="Saved Offers appear here after you create them."
++                  moneyEnabled={values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled}
++                />
++              ) : null}
++              {values.postType === 'open_need' ? (
++                <section className="mobile-card mobile-card--soft trade-create-open-side-note">
++                  <span className="semantic-badge offer">Missing side</span>
++                  <h3>Others will propose Offers</h3>
++                  <p>You only publish your Need now. Applicants will choose or create an Offer when they propose.</p>
++                </section>
++              ) : values.postType === 'open_offer' ? (
++                <section className="mobile-card mobile-card--soft trade-create-open-side-note">
++                  <span className="semantic-badge need">Missing side</span>
++                  <h3>Others will propose Needs</h3>
++                  <p>You only publish your Offer now. Applicants will choose or create a Need when they propose.</p>
++                </section>
++              ) : null}
++            </div>
++          </>
++        )}
+ 
+         {blocksMoneyMoney ? (
+           <p className="form-message form-message--error">Choose saved Needs and Offers for this beta.</p>
+@@ -457,20 +611,20 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+           <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--warning" role="alert">
+             <span className="semantic-badge warning">Already exists</span>
+             <h3>{duplicateTradeMessage(visibleDuplicateTrade)}</h3>
+-            <p>Use the existing trade, or delete/close it before creating this exact Need + Offer pair again.</p>
+-            <Link href={`/trades/${visibleDuplicateTrade.id}`} className="button secondary">View existing trade</Link>
++            <p>Use the existing post, or delete/close it before publishing this same setup again.</p>
++            <Link href={`/trades/${visibleDuplicateTrade.id}`} className="button secondary">View existing post</Link>
+           </section>
+         ) : inventoryCheckingPair ? (
+           <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--info">
+             <span className="semantic-badge info">Checking</span>
+-            <h3>Checking this Need + Offer pair</h3>
+-            <p>We are checking whether you already created a trade with these exact saved items.</p>
++            <h3>Checking this setup</h3>
++            <p>We are checking whether you already published this same setup with these saved items.</p>
+           </section>
+-        ) : selectedPairReady ? (
++        ) : selectedPairReady || selectedOpenNeedReady || selectedOpenOfferReady ? (
+           <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--success">
+             <span className="semantic-badge success">Available</span>
+-            <h3>This Need + Offer pair is ready</h3>
+-            <p>No active trade currently uses this exact pair, so you can create it.</p>
++            <h3>This setup is ready</h3>
++            <p>No active post currently uses this same setup, so you can publish it.</p>
+           </section>
+         ) : null}
+ 
+@@ -509,8 +663,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+         <section className="mobile-card trade-create-preview trade-create-preview--deck">
+           <div className="trade-create-preview__intro">
+             <p className="eyebrow">Preview in feed</p>
+-            <h3>{previewTrade ? 'This is how your trade will appear' : 'Choose both sides to preview the deck'}</h3>
+-            <p>{previewTrade ? 'Swipe this preview like the live feed deck. Tapping is disabled until the trade is created.' : 'Pick a saved Need and a saved Offer first, then the exact feed card and image pages will appear here.'}</p>
++            <h3>{previewTrade ? 'This is how your post will appear' : values.postType ? 'Choose the required side to preview the deck' : 'Choose a publish type to preview the deck'}</h3>
++            <p>{previewTrade ? 'Swipe this preview like the live feed deck. Tapping is disabled until the post is created.' : values.postType === 'open_need' ? 'Pick one saved Need first, then the feed preview will appear here.' : values.postType === 'open_offer' ? 'Pick one saved Offer first, then the feed preview will appear here.' : values.postType === 'need_offer' ? 'Pick a saved Need and a saved Offer first, then the exact feed card and image pages will appear here.' : 'Choose Need + Offer, Open Need, or Open Offer first.'}</p>
+           </div>
+           {previewTrade ? (
+             <div className="trade-create-preview__deck">
+@@ -519,8 +673,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+           ) : (
+             <div className="trade-create-preview__empty">
+               <span className="semantic-badge instruction">Feed preview</span>
+-              <strong>Click to choose a saved Need and Offer.</strong>
+-              <small>The preview will reuse the same summary card, image cards, dots, and swipe behavior as the Trades feed.</small>
++              <strong>{values.postType ? 'Choose the required saved inventory.' : 'Choose what you want to publish.'}</strong>
++              <small>The preview will reuse the same poster card, image cards, dots, and swipe behavior as the Trades feed.</small>
+             </div>
+           )}
+         </section>
+@@ -545,7 +699,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '' }: {
+ 
+         <div className="sticky-form-actions">
+           <Link href="/trades" className="button secondary">Back</Link>
+-          <button type="submit" disabled={saving || !canSubmit}>{visibleDuplicateTrade ? 'Trade already exists' : saving ? 'Creating...' : 'Create Trade'}</button>
++          <button type="submit" disabled={saving || !canSubmit}>{visibleDuplicateTrade ? 'Post already exists' : saving ? 'Publishing...' : values.postType === 'open_need' ? 'Publish Open Need' : values.postType === 'open_offer' ? 'Publish Open Offer' : 'Create Trade'}</button>
+         </div>
+       </form>
+     </MobilePage>
+diff --git a/apps/web/src/features/trade/TradeSideChoosePage.tsx b/apps/web/src/features/trade/TradeSideChoosePage.tsx
+index b9843db..659e6e1 100644
+--- a/apps/web/src/features/trade/TradeSideChoosePage.tsx
++++ b/apps/web/src/features/trade/TradeSideChoosePage.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+-import type { InventoryItemType, InventoryTemplateDto, NeedDto, OfferDto } from '@hellowhen/contracts';
++import type { InventoryItemType, InventoryTemplateDto, NeedDto, OfferDto, TradePostType } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { MobilePage, PageIntro } from '../../components/MobilePage';
+ import { WebIcon } from '../../components/WebIcon';
+@@ -25,6 +25,7 @@ type TradeSideChoosePageProps = {
+   currentNeedId?: string;
+   currentOfferId?: string;
+   initialSource?: InitialSourceMode;
++  postType?: TradePostType | '';
+ };
+ 
+ type TemplateSection = {
+@@ -50,35 +51,38 @@ function itemSearchText(item: Inventory) {
+   return [item.title, item.description, item.category, getInventoryMetadata(item), ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase();
+ }
+ 
+-function createTradeHref(next: { needId?: string; offerId?: string }) {
++function createTradeHref(next: { postType?: TradePostType | ''; needId?: string; offerId?: string }) {
+   const params = new URLSearchParams();
+-  if (next.needId) params.set('needId', next.needId);
+-  if (next.offerId) params.set('offerId', next.offerId);
++  if (next.postType) params.set('postType', next.postType);
++  if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
++  if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+   const query = params.toString();
+   return `/trades/create${query ? `?${query}` : ''}`;
+ }
+ 
+-function choosePageHref(side: Side, next: { needId?: string; offerId?: string }, source?: SourceMode) {
++function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode) {
+   const params = new URLSearchParams();
+-  if (next.needId) params.set('needId', next.needId);
+-  if (next.offerId) params.set('offerId', next.offerId);
++  if (next.postType) params.set('postType', next.postType);
++  if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
++  if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+   if (source) params.set('source', source);
+   const query = params.toString();
+   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
+ }
+ 
+-function newItemHref(side: Side, next: { needId?: string; offerId?: string }) {
++function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }) {
+   const params = new URLSearchParams();
+-  if (next.needId) params.set('needId', next.needId);
+-  if (next.offerId) params.set('offerId', next.offerId);
++  if (next.postType) params.set('postType', next.postType);
++  if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
++  if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+   const query = params.toString();
+   return `/trades/create/choose-${side}/new${query ? `?${query}` : ''}`;
+ }
+ 
+-function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string) {
++function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '') {
+   return side === 'need'
+-    ? createTradeHref({ needId: itemId, offerId: currentOfferId })
+-    : createTradeHref({ needId: currentNeedId, offerId: itemId });
++    ? createTradeHref({ postType, needId: itemId, offerId: currentOfferId })
++    : createTradeHref({ postType, needId: currentNeedId, offerId: itemId });
+ }
+ 
+ function selectedIdForSide(side: Side, currentNeedId?: string, currentOfferId?: string) {
+@@ -192,7 +196,7 @@ function StarterTemplateOption({
+   );
+ }
+ 
+-export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '' }: TradeSideChoosePageProps) {
++export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer' }: TradeSideChoosePageProps) {
+   const router = useRouter();
+   const auth = useWebAuth();
+   const demoDataEnabled = isWebDemoDataEnabled();
+@@ -210,9 +214,9 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+   const lowerLabel = label.toLowerCase();
+   const pluralLabel = `${lowerLabel}s`;
+   const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
+-  const backHref = createTradeHref({ needId: currentNeedId, offerId: currentOfferId });
+-  const sourceChoiceHref = choosePageHref(side, { needId: currentNeedId, offerId: currentOfferId });
+-  const createHref = newItemHref(side, { needId: currentNeedId, offerId: currentOfferId });
++  const backHref = createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
++  const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
++  const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
+ 
+   useEffect(() => {
+     setSourceMode(initialSource);
+@@ -301,7 +305,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+       const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
+       const created = createdItemFromCloneResponse(response, side);
+       if (!created) throw new Error(`Starter ${label} was saved, but the response could not be read.`);
+-      const href = selectHref(side, created.id, currentNeedId, currentOfferId);
++      const href = selectHref(side, created.id, currentNeedId, currentOfferId, postType);
+       router.push(href);
+     } catch (cloneError) {
+       setTemplateError(getFriendlyApiErrorMessage(cloneError, `Could not save this starter ${label}.`));
+@@ -334,7 +338,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+           <span className="semantic-badge instruction">Signed out</span>
+           <h3>Sign in to choose live {pluralLabel}</h3>
+           <p>You can browse the starter library, but creating a live trade needs your account.</p>
+-          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined))}`} className="button">Sign in</Link>
++          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined))}`} className="button">Sign in</Link>
+         </section>
+       ) : null}
+ 
+@@ -345,12 +349,12 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+             <span className="semantic-badge instruction">Step 1 of 2</span>
+           </div>
+           <div className="trade-side-source-grid">
+-            <Link href={choosePageHref(side, { needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
++            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
+               <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={22} decorative /></span>
+               <strong>Use one of mine</strong>
+               <small>Choose from your private saved {pluralLabel}.</small>
+             </Link>
+-            <Link href={choosePageHref(side, { needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
++            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
+               <span><WebIcon name="trade" size={22} decorative /></span>
+               <strong>Use a starter</strong>
+               <small>Start from Hellowhen Library, then save a private copy.</small>
+@@ -389,7 +393,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+                   item={item}
+                   side={side}
+                   active={item.id === selectedId}
+-                  href={selectHref(side, item.id, currentNeedId, currentOfferId)}
++                  href={selectHref(side, item.id, currentNeedId, currentOfferId, postType)}
+                 />
+               ))}
+             </div>
+@@ -399,7 +403,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+               <span>{query.trim() ? 'Try a different search, create a new saved item, or use a starter.' : `Create a ${lowerLabel} first, or start from the Hellowhen Library.`}</span>
+               <div className="trade-side-empty-actions">
+                 <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> Create {label}</Link>
+-                <Link href={choosePageHref(side, { needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="button secondary">Use a starter</Link>
++                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="button secondary">Use a starter</Link>
+               </div>
+             </div>
+           )}
+@@ -464,7 +468,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+               <span>{query.trim() ? 'Try a different search or item type filter.' : `Starter ${pluralLabel} will appear here after the backend seed has been run.`}</span>
+               <div className="trade-side-empty-actions">
+                 <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> Create {label} manually</Link>
+-                <Link href={choosePageHref(side, { needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="button secondary">Use one of mine</Link>
++                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="button secondary">Use one of mine</Link>
+               </div>
+             </div>
+           )}
+diff --git a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+index 5d50ee8..b9da30d 100644
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx
+@@ -19,10 +19,31 @@ function compactJoin(values: Array<string | null | undefined>) {
+   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
+-function compactTradeTitle(needTitle: string, offerTitle: string) {
++function compactTradeTitle(trade: TradeDto, needTitle: string, offerTitle: string) {
++  if (trade.postType === 'open_need') return needTitle;
++  if (trade.postType === 'open_offer') return offerTitle;
+   return `${needTitle} ↔ ${offerTitle}`;
+ }
+ 
++function summarySubtitleForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSide>, offer: ReturnType<typeof getOfferSide>) {
++  if (trade.postType === 'open_need') return compactJoin([compactSideMeta(need.metadata, need.description), 'Others can propose offers']);
++  if (trade.postType === 'open_offer') return compactJoin([compactSideMeta(offer.metadata, offer.description), 'Others can propose needs']);
++  return compactJoin([compactSideMeta(need.metadata, need.description), compactSideMeta(offer.metadata, offer.description)]);
++}
++
++function summaryChipsForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSide>, offer: ReturnType<typeof getOfferSide>) {
++  if (trade.postType === 'open_need') return need.tags.slice(0, 3);
++  if (trade.postType === 'open_offer') return offer.tags.slice(0, 3);
++  return [...need.tags, ...offer.tags].slice(0, 3);
++}
++
++function summaryBadgeForTrade(trade: TradeDto, totalCards: number) {
++  const count = cardCountLabel(totalCards);
++  if (trade.postType === 'open_need') return `Open Need · ${count}`;
++  if (trade.postType === 'open_offer') return `Open Offer · ${count}`;
++  return `Trade · ${count}`;
++}
++
+ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' | 'Preview' = 'Open'): SquareStackDeckItem[] {
+   const need = getNeedSide(trade);
+   const offer = getOfferSide(trade);
+@@ -30,8 +51,8 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' |
+   const exchange = getExchangeLabel(trade);
+   const totalCards = images.length + 1;
+   const coverImage = images[0];
+-  const summarySubtitle = compactJoin([compactSideMeta(need.metadata, need.description), compactSideMeta(offer.metadata, offer.description)]);
+-  const summaryChips = [...need.tags, ...offer.tags].slice(0, 3);
++  const summarySubtitle = summarySubtitleForTrade(trade, need, offer);
++  const summaryChips = summaryChipsForTrade(trade, need, offer);
+ 
+   const summary: SquareStackDeckItem = {
+     id: `${trade.id}-summary`,
+@@ -41,9 +62,9 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' |
+         id={`${trade.id}-summary`}
+         imageUrl={coverImage?.url}
+         imageAlt={coverImage?.alt ?? trade.title}
+-        badge={`Trade · ${cardCountLabel(totalCards)}`}
+-        eyebrow={exchange === 'Need + Offer exchange' ? 'Need + Offer exchange' : exchange}
+-        title={compactTradeTitle(need.title, offer.title)}
++        badge={summaryBadgeForTrade(trade, totalCards)}
++        eyebrow={exchange === 'Need + Offer exchange' ? 'Need + Offer exchange' : exchange === 'Open Need' ? 'Others can propose offers' : exchange === 'Open Offer' ? 'Others can propose needs' : exchange}
++        title={compactTradeTitle(trade, need.title, offer.title)}
+         subtitle={summarySubtitle}
+         chips={summaryChips}
+         variant="trade"
+diff --git a/apps/web/src/features/trade/tradePresentation.ts b/apps/web/src/features/trade/tradePresentation.ts
+index e0d3148..cbf4f9a 100644
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -36,7 +36,9 @@ export function getOwnerName(trade: TradeDto) {
+   return trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
+ }
+ 
+-export function getExchangeLabel(_trade: TradeDto) {
++export function getExchangeLabel(trade: TradeDto) {
++  if (trade.postType === 'open_need') return 'Open Need';
++  if (trade.postType === 'open_offer') return 'Open Offer';
+   return 'Need + Offer exchange';
+ }
+ 

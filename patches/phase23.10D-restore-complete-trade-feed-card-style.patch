@@ -1,0 +1,162 @@
+diff --git a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+index 1a09f67..e4b6262 100644
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx
+@@ -1,12 +1,32 @@
+ 'use client';
+ 
+-import { useMemo } from 'react';
++import { useMemo, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import type { TradeDto } from '@hellowhen/contracts';
++import { WebIcon } from '../../components/WebIcon';
+ import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
+-import { getDeckImages, getExchangeLabel, getExpiryUrgencyBadge, getNeedSide, getOfferSide } from './tradePresentation';
++import { getDeckImages, getExchangeLabel, getExpiryUrgencyBadge, getNeedSide, getOfferSide, getTradePostType } from './tradePresentation';
+ import { TradePosterCard } from './TradePosterCard';
+ 
++
++function TradeStackImageCard({ image }: { image: ReturnType<typeof getDeckImages>[number] }) {
++  const [failed, setFailed] = useState(!image.url);
++
++  return (
++    <figure className={`trade-stack-card trade-stack-card--image${failed ? ' is-broken' : ''}`}>
++      {!failed ? (
++        <img src={image.url} alt={image.alt} loading="lazy" onError={() => setFailed(true)} />
++      ) : (
++        <div className="trade-stack-card__image-fallback">
++          <strong>Image unavailable</strong>
++          <span>This saved file could not be loaded from storage.</span>
++        </div>
++      )}
++      <figcaption className={image.badge === 'Need reference' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</figcaption>
++    </figure>
++  );
++}
++
+ function cardCountLabel(totalCards: number) {
+   return `01/${String(Math.max(totalCards, 1)).padStart(2, '0')}`;
+ }
+@@ -20,22 +40,25 @@ function compactJoin(values: Array<string | null | undefined>) {
+ }
+ 
+ function compactTradeTitle(trade: TradeDto, needTitle: string, offerTitle: string) {
+-  if (trade.postType === 'open_need') return needTitle;
+-  if (trade.postType === 'open_offer') return offerTitle;
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return needTitle;
++  if (postType === 'open_offer') return offerTitle;
+   return `${needTitle} ↔ ${offerTitle}`;
+ }
+ 
+ function summarySubtitleForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSide>, offer: ReturnType<typeof getOfferSide>) {
+-  if (trade.postType === 'open_need') return compactJoin([compactSideMeta(need.metadata, need.description), 'Others can propose offers']);
+-  if (trade.postType === 'open_offer') return compactJoin([compactSideMeta(offer.metadata, offer.description), 'Others can propose needs']);
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return compactJoin([compactSideMeta(need.metadata, need.description), 'Others can propose offers']);
++  if (postType === 'open_offer') return compactJoin([compactSideMeta(offer.metadata, offer.description), 'Others can propose needs']);
+   return compactJoin([compactSideMeta(need.metadata, need.description), compactSideMeta(offer.metadata, offer.description)]);
+ }
+ 
+ function summaryChipsForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSide>, offer: ReturnType<typeof getOfferSide>) {
+   const urgencyChip = getExpiryUrgencyBadge(trade.expiresAt);
+-  const baseChips = trade.postType === 'open_need'
++  const postType = getTradePostType(trade);
++  const baseChips = postType === 'open_need'
+     ? need.tags
+-    : trade.postType === 'open_offer'
++    : postType === 'open_offer'
+       ? offer.tags
+       : [...need.tags, ...offer.tags];
+   return [urgencyChip, ...baseChips].filter((chip): chip is string => Boolean(chip)).slice(0, 3);
+@@ -43,12 +66,14 @@ function summaryChipsForTrade(trade: TradeDto, need: ReturnType<typeof getNeedSi
+ 
+ function summaryBadgeForTrade(trade: TradeDto, totalCards: number) {
+   const count = cardCountLabel(totalCards);
+-  if (trade.postType === 'open_need') return `Open Need · ${count}`;
+-  if (trade.postType === 'open_offer') return `Open Offer · ${count}`;
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return `Open Need · ${count}`;
++  if (postType === 'open_offer') return `Open Offer · ${count}`;
+   return `Trade · ${count}`;
+ }
+ 
+ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' | 'Preview' = 'Open'): SquareStackDeckItem[] {
++  const postType = getTradePostType(trade);
+   const need = getNeedSide(trade);
+   const offer = getOfferSide(trade);
+   const images = getDeckImages(trade);
+@@ -58,25 +83,60 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' |
+   const summarySubtitle = summarySubtitleForTrade(trade, need, offer);
+   const summaryChips = summaryChipsForTrade(trade, need, offer);
+ 
++  const summaryContent = postType === 'need_offer' ? (
++    <div className="trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity">
++      <div className="trade-stack-card__mobile-top">
++        <span>TRADE · {cardCountLabel(totalCards)}</span>
++        <strong>{trade.status}</strong>
++      </div>
++
++      <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--need">
++        <p>I need</p>
++        <h2>{need.title}</h2>
++        {compactSideMeta(need.metadata, need.description) ? <span>{compactSideMeta(need.metadata, need.description)}</span> : null}
++      </div>
++
++      <div className="trade-stack-card__mobile-divider" aria-hidden="true">
++        <span><WebIcon name="trade" size={17} decorative /></span>
++      </div>
++
++      <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--offer">
++        <p>I offer</p>
++        <h2>{offer.title}</h2>
++        {compactSideMeta(offer.metadata, offer.description) ? <span>{compactSideMeta(offer.metadata, offer.description)}</span> : null}
++      </div>
++
++      {exchange !== 'Need + Offer exchange' ? <div className="trade-stack-card__mobile-money">{exchange}</div> : null}
++    </div>
++  ) : (
++    <TradePosterCard
++      id={`${trade.id}-summary`}
++      imageUrl={coverImage?.url}
++      imageAlt={coverImage?.alt ?? trade.title}
++      badge={summaryBadgeForTrade(trade, totalCards)}
++      eyebrow={exchange === 'Open Need' ? 'Others can propose offers' : exchange === 'Open Offer' ? 'Others can propose needs' : exchange}
++      title={compactTradeTitle(trade, need.title, offer.title)}
++      subtitle={summarySubtitle}
++      chips={summaryChips}
++      variant="trade"
++    />
++  );
++
+   const summary: SquareStackDeckItem = {
+     id: `${trade.id}-summary`,
+     ariaLabel: `${actionLabel} ${trade.title}`,
+-    content: (
+-      <TradePosterCard
+-        id={`${trade.id}-summary`}
+-        imageUrl={coverImage?.url}
+-        imageAlt={coverImage?.alt ?? trade.title}
+-        badge={summaryBadgeForTrade(trade, totalCards)}
+-        eyebrow={exchange === 'Need + Offer exchange' ? 'Need + Offer exchange' : exchange === 'Open Need' ? 'Others can propose offers' : exchange === 'Open Offer' ? 'Others can propose needs' : exchange}
+-        title={compactTradeTitle(trade, need.title, offer.title)}
+-        subtitle={summarySubtitle}
+-        chips={summaryChips}
+-        variant="trade"
+-      />
+-    ),
++    content: summaryContent,
+   };
+ 
+   const imageItems: SquareStackDeckItem[] = images.map((image) => {
++    if (postType === 'need_offer') {
++      return {
++        id: image.id,
++        ariaLabel: `${actionLabel} ${trade.title}`,
++        content: <TradeStackImageCard image={image} />,
++      };
++    }
++
+     const side = image.badge === 'Need reference' ? need : offer;
+     const variant = image.badge === 'Need reference' ? 'need' : 'offer';
+     const sideMeta = compactSideMeta(side.metadata, side.description);

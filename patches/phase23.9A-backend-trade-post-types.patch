@@ -1,0 +1,298 @@
+diff --git a/apps/api/prisma/migrations/20260511133000_trade_post_types/migration.sql b/apps/api/prisma/migrations/20260511133000_trade_post_types/migration.sql
+new file mode 100644
+index 0000000..380ba0c
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260511133000_trade_post_types/migration.sql
+@@ -0,0 +1,17 @@
++-- Phase 23.9A: trade post types for Need + Offer, Open Need, and Open Offer.
++
++DO $$ BEGIN
++  CREATE TYPE "TradePostType" AS ENUM ('need_offer', 'open_need', 'open_offer');
++EXCEPTION
++  WHEN duplicate_object THEN null;
++END $$;
++
++ALTER TABLE "Trade"
++  ADD COLUMN IF NOT EXISTS "postType" "TradePostType" NOT NULL DEFAULT 'need_offer';
++
++-- Existing trades are all complete Need + Offer posts unless a future migration/import says otherwise.
++UPDATE "Trade"
++SET "postType" = 'need_offer'
++WHERE "postType" IS NULL;
++
++CREATE INDEX IF NOT EXISTS "Trade_postType_status_isPublic_createdAt_idx" ON "Trade"("postType", "status", "isPublic", "createdAt");
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index b8b90ad..407e9c8 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -71,6 +71,12 @@ enum InventoryTemplateStatus {
+   archived
+ }
+ 
++enum TradePostType {
++  need_offer
++  open_need
++  open_offer
++}
++
+ enum TradeStatus {
+   draft
+   active
+@@ -541,6 +547,7 @@ model Trade {
+   creditAmount Int         @default(0)
+   amountCents  Int         @default(0)
+   currency     String      @default("eur")
++  postType     TradePostType @default(need_offer)
+   status       TradeStatus @default(draft)
+   isPublic     Boolean     @default(false)
+   createdAt    DateTime    @default(now())
+@@ -566,6 +573,7 @@ model Trade {
+   ledgerEntries CreditLedgerEntry[]
+ 
+   @@index([status, isPublic, createdAt])
++  @@index([postType, status, isPublic, createdAt])
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+   @@index([providerId, status])
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 0ff2cac..29d10c5 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -132,6 +132,10 @@ function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
+     and.push({ OR: [{ need: { is: { category: text } } }, { offer: { is: { category: text } } }] });
+   }
+ 
++  if (input.postType) {
++    and.push({ postType: input.postType });
++  }
++
+   if (!env.moneyFeaturesVisible || env.moneyLaunchMode === 'disabled') {
+     and.push(noMoneyTradeWhere());
+   } else if (input.hasMoney) {
+@@ -246,9 +250,12 @@ tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
+ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+   const input = createTradeRequestSchema.parse(req.body);
+   const actorId = req.user!.id;
++  const postType = input.postType ?? 'need_offer';
+ 
+-  const needIsMoney = input.needKind === 'money';
+-  const offerIsMoney = input.offerKind === 'money';
++  const needsOwnNeed = postType === 'need_offer' || postType === 'open_need';
++  const needsOwnOffer = postType === 'need_offer' || postType === 'open_offer';
++  const needIsMoney = postType === 'need_offer' && input.needKind === 'money';
++  const offerIsMoney = postType === 'need_offer' && input.offerKind === 'money';
+   const isMoneyPayload = input.amountCents > 0 || input.creditAmount > 0 || needIsMoney || offerIsMoney;
+   if (isMoneyPayload && betaMoneyOff()) {
+     return res.status(403).json(betaMoneyDisabledPayload());
+@@ -259,19 +266,26 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+       message: 'Credits are disabled for the first beta. Create Need + Offer exchanges only.'
+     });
+   }
++  if (postType !== 'need_offer' && isMoneyPayload) {
++    return res.status(400).json({
++      error: 'open_post_money_disabled',
++      message: 'Open Need and Open Offer posts cannot include wallet money yet.'
++    });
++  }
++
+   const [need, offer, wallet] = await Promise.all([
+-    needIsMoney ? Promise.resolve(null) : prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
+-    offerIsMoney ? Promise.resolve(null) : prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }),
++    needsOwnNeed && !needIsMoney ? prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }) : Promise.resolve(null),
++    needsOwnOffer && !offerIsMoney ? prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }) : Promise.resolve(null),
+     offerIsMoney && input.amountCents > 0 ? prisma.wallet.findUnique({ where: { userId: actorId } }) : Promise.resolve(null)
+   ]);
+-  if (!needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
+-  if (!offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
++  if (needsOwnNeed && !needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: postType === 'open_need' ? 'Choose one of your saved needs for this Open Need post.' : 'Choose one of your saved needs for this trade.' });
++  if (needsOwnOffer && !offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: postType === 'open_offer' ? 'Choose one of your saved offers for this Open Offer post.' : 'Choose one of your saved offers for this trade.' });
+   if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
+   if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
+ 
+-  if (need && offer) {
++  if (postType === 'need_offer' && need && offer) {
+     const existingTrade = await prisma.trade.findFirst({
+-      where: { ownerId: actorId, needId: need.id, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
++      where: { ownerId: actorId, postType, needId: need.id, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
+       select: { id: true, status: true, title: true }
+     });
+     if (existingTrade) {
+@@ -285,6 +299,38 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+     }
+   }
+ 
++  if (postType === 'open_need' && need) {
++    const existingTrade = await prisma.trade.findFirst({
++      where: { ownerId: actorId, postType, needId: need.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
++      select: { id: true, status: true, title: true }
++    });
++    if (existingTrade) {
++      return res.status(409).json({
++        error: 'duplicate_open_need',
++        message: 'You already have an active Open Need using this Need. Delete or close the existing post before publishing it again.',
++        tradeId: existingTrade.id,
++        tradeStatus: existingTrade.status,
++        tradeTitle: existingTrade.title
++      });
++    }
++  }
++
++  if (postType === 'open_offer' && offer) {
++    const existingTrade = await prisma.trade.findFirst({
++      where: { ownerId: actorId, postType, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
++      select: { id: true, status: true, title: true }
++    });
++    if (existingTrade) {
++      return res.status(409).json({
++        error: 'duplicate_open_offer',
++        message: 'You already have an active Open Offer using this Offer. Delete or close the existing post before publishing it again.',
++        tradeId: existingTrade.id,
++        tradeStatus: existingTrade.status,
++        tradeTitle: existingTrade.title
++      });
++    }
++  }
++
+   const limits = await buildLaunchLimits(prisma, actorId);
+   const isMoneyTrade = isMoneyPayload;
+   if (isMoneyTrade) {
+@@ -298,18 +344,30 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+   if (isMoneyTrade && !limits.moneyTradesEnabled) return res.status(403).json(limitExceeded('Money trades are disabled for the beta launch. Create service, goods, or other exchange trades instead.', { trustTier: limits.effectiveTrustTier }));
+   if (isMoneyTrade && input.amountCents > limits.perTradeMoneyCapCents) return res.status(409).json(limitExceeded(`Money trades are limited to ${(limits.perTradeMoneyCapCents / 100).toFixed(2)} ${input.currency.toUpperCase()} for your current trust tier.`, { trustTier: limits.effectiveTrustTier, perTradeMoneyCapCents: limits.perTradeMoneyCapCents }));
+   if (offerIsMoney && input.amountCents > 0 && (!wallet || wallet.availableBalanceCents < input.amountCents)) return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'You can only offer money that is available in your wallet.' });
+-  const moneyLabel = moneyTitle(input.amountCents, input.currency);
+-  const needTitle = needIsMoney ? moneyLabel : need!.title;
+-  const offerTitle = offerIsMoney ? moneyLabel : offer!.title;
+-  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need!.description;
+-  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer!.description;
+-  const title = input.title?.trim() || `${needTitle} <-> ${offerTitle}`;
+-  const description = input.description?.trim() || `I need: ${needDescription}
+ 
+-I offer: ${offerDescription}`;
++  const moneyLabel = moneyTitle(input.amountCents, input.currency);
++  const needTitle = needIsMoney ? moneyLabel : need?.title;
++  const offerTitle = offerIsMoney ? moneyLabel : offer?.title;
++  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need?.description;
++  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer?.description;
++
++  const title = input.title?.trim() || (
++    postType === 'open_need'
++      ? `Open Need: ${needTitle}`
++      : postType === 'open_offer'
++        ? `Open Offer: ${offerTitle}`
++        : `${needTitle} <-> ${offerTitle}`
++  );
++  const description = input.description?.trim() || (
++    postType === 'open_need'
++      ? `I need: ${needDescription}\n\nOthers can propose offers.`
++      : postType === 'open_offer'
++        ? `I offer: ${offerDescription}\n\nOthers can propose needs.`
++        : `I need: ${needDescription}\n\nI offer: ${offerDescription}`
++  );
+ 
+   const trade = await prisma.trade.create({
+-    data: { ownerId: actorId, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
++    data: { ownerId: actorId, postType, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
+     include: tradeInclude
+   });
+ 
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 462add8..be892fb 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -3,6 +3,7 @@ import { mediaAssetSchema } from './media.js';
+ 
+ export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
+ export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
++export const tradePostTypeSchema = z.enum(['need_offer', 'open_need', 'open_offer']);
+ export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
+ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
+ export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
+@@ -57,6 +58,7 @@ export const createTradeRequestSchema = z.object({
+   creditAmount: z.number().int().min(0).max(100000).optional().default(0),
+   amountCents: z.number().int().min(0).max(10000000).optional().default(0),
+   currency: z.string().trim().length(3).optional().default('eur'),
++  postType: tradePostTypeSchema.optional().default('need_offer'),
+   needKind: tradeNeedSideKindSchema.optional().default('need'),
+   offerKind: tradeOfferSideKindSchema.optional().default('offer'),
+   needId: z.string().min(1).optional(),
+@@ -67,19 +69,51 @@ export const createTradeRequestSchema = z.object({
+ }).superRefine((value, ctx) => {
+   const needIsMoney = value.needKind === 'money';
+   const offerIsMoney = value.offerKind === 'money';
++  const postType = value.postType ?? 'need_offer';
+ 
+   if (needIsMoney && offerIsMoney) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A trade cannot request and offer wallet money at the same time.', path: ['offerKind'] });
+   }
+-  if (!needIsMoney && !value.needId) {
+-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
++
++  if (postType === 'need_offer') {
++    if (!needIsMoney && !value.needId) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
++    }
++    if (!offerIsMoney && !value.offerId) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
++    }
++  }
++
++  if (postType === 'open_need') {
++    if (needIsMoney) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need posts must use one of your saved Needs.', path: ['needKind'] });
++    }
++    if (!value.needId) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need to publish an Open Need.', path: ['needId'] });
++    }
++    if (value.offerId || offerIsMoney) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need posts cannot include your own Offer. Others will propose offers.', path: ['offerId'] });
++    }
+   }
+-  if (!offerIsMoney && !value.offerId) {
+-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
++
++  if (postType === 'open_offer') {
++    if (offerIsMoney) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Offer posts must use one of your saved Offers.', path: ['offerKind'] });
++    }
++    if (!value.offerId) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer to publish an Open Offer.', path: ['offerId'] });
++    }
++    if (value.needId || needIsMoney) {
++      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Offer posts cannot include your own Need. Others will propose needs.', path: ['needId'] });
++    }
+   }
++
+   if ((needIsMoney || offerIsMoney) && value.amountCents <= 0) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Money trades must include an amount greater than zero.', path: ['amountCents'] });
+   }
++  if (postType !== 'need_offer' && (value.amountCents > 0 || value.creditAmount > 0)) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need and Open Offer posts cannot include wallet money yet.', path: ['amountCents'] });
++  }
+ });
+ 
+ const inventoryUpdateBaseSchema = z.object({
+@@ -117,6 +151,7 @@ export const listTradesFeedQuerySchema = z.object({
+   category: z.string().trim().min(1).max(80).optional(),
+   hasImages: z.coerce.boolean().optional(),
+   hasMoney: z.coerce.boolean().optional(),
++  postType: tradePostTypeSchema.optional(),
+   take: z.coerce.number().int().min(1).max(100).optional(),
+ });
+ export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
+@@ -237,6 +272,7 @@ export const tradeSchema = z.object({
+   creditAmount: z.number().int(),
+   amountCents: z.number().int().optional().default(0),
+   currency: z.string().optional().default('eur'),
++  postType: tradePostTypeSchema.optional().default('need_offer'),
+   status: tradeStatusSchema,
+   isPublic: z.boolean(),
+   createdAt: z.string(),
+@@ -267,6 +303,7 @@ export type OfferDto = z.infer<typeof offerSchema>;
+ export type InventoryTemplateDto = z.infer<typeof inventoryTemplateSchema>;
+ export type CloneInventoryTemplateResponse = z.infer<typeof cloneInventoryTemplateResponseSchema>;
+ export type TradeDto = z.infer<typeof tradeSchema>;
++export type TradePostType = z.infer<typeof tradePostTypeSchema>;
+ export type TradeStatus = z.infer<typeof tradeStatusSchema>;
+ export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
+ export type ProposalStatus = z.infer<typeof proposalStatusSchema>;

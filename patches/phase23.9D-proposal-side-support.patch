@@ -1,0 +1,513 @@
+diff --git a/apps/api/prisma/migrations/20260511143000_proposal_side_inventory/migration.sql b/apps/api/prisma/migrations/20260511143000_proposal_side_inventory/migration.sql
+new file mode 100644
+index 0000000..fed9de7
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260511143000_proposal_side_inventory/migration.sql
+@@ -0,0 +1,22 @@
++-- Phase 23.9D: proposal-side support for Open Need and Open Offer posts.
++-- Open Need proposals must reference one of the applicant's Offers.
++-- Open Offer proposals must reference one of the applicant's Needs.
++
++ALTER TABLE "TradeProposal"
++  ADD COLUMN IF NOT EXISTS "proposedNeedId" TEXT,
++  ADD COLUMN IF NOT EXISTS "proposedOfferId" TEXT;
++
++CREATE INDEX IF NOT EXISTS "TradeProposal_proposedNeedId_idx" ON "TradeProposal"("proposedNeedId");
++CREATE INDEX IF NOT EXISTS "TradeProposal_proposedOfferId_idx" ON "TradeProposal"("proposedOfferId");
++
++DO $$ BEGIN
++  ALTER TABLE "TradeProposal" ADD CONSTRAINT "TradeProposal_proposedNeedId_fkey" FOREIGN KEY ("proposedNeedId") REFERENCES "Need"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++EXCEPTION
++  WHEN duplicate_object THEN null;
++END $$;
++
++DO $$ BEGIN
++  ALTER TABLE "TradeProposal" ADD CONSTRAINT "TradeProposal_proposedOfferId_fkey" FOREIGN KEY ("proposedOfferId") REFERENCES "Offer"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++EXCEPTION
++  WHEN duplicate_object THEN null;
++END $$;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 407e9c8..c23d0b2 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -463,6 +463,7 @@ model Need {
+   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+   sourceTemplate InventoryTemplate? @relation("NeedSourceTemplate", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+   trades Trade[]
++  proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
+ 
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+@@ -495,6 +496,7 @@ model Offer {
+   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+   sourceTemplate InventoryTemplate? @relation("OfferSourceTemplate", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
+   trades Trade[]
++  proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
+ 
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+@@ -584,22 +586,28 @@ model Trade {
+ }
+ 
+ model TradeProposal {
+-  id          String         @id @default(cuid())
+-  tradeId     String
+-  applicantId String
+-  message     String
+-  status      ProposalStatus @default(pending)
+-  createdAt   DateTime       @default(now())
+-  updatedAt   DateTime       @updatedAt
+-  respondedAt DateTime?
+-
+-  trade     Trade             @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+-  applicant User              @relation("ApplicantProposals", fields: [applicantId], references: [id], onDelete: Cascade)
+-  messages  ProposalMessage[]
++  id              String         @id @default(cuid())
++  tradeId         String
++  applicantId     String
++  proposedNeedId  String?
++  proposedOfferId String?
++  message         String
++  status          ProposalStatus @default(pending)
++  createdAt       DateTime       @default(now())
++  updatedAt       DateTime       @updatedAt
++  respondedAt     DateTime?
++
++  trade         Trade             @relation(fields: [tradeId], references: [id], onDelete: Cascade)
++  applicant     User              @relation("ApplicantProposals", fields: [applicantId], references: [id], onDelete: Cascade)
++  proposedNeed  Need?             @relation("ProposalNeed", fields: [proposedNeedId], references: [id], onDelete: SetNull)
++  proposedOffer Offer?            @relation("ProposalOffer", fields: [proposedOfferId], references: [id], onDelete: SetNull)
++  messages      ProposalMessage[]
+ 
+   @@unique([tradeId, applicantId])
+   @@index([tradeId, status])
+   @@index([applicantId, status])
++  @@index([proposedNeedId])
++  @@index([proposedOfferId])
+ }
+ 
+ model ProposalMessage {
+diff --git a/apps/api/src/modules/proposals/proposals.routes.ts b/apps/api/src/modules/proposals/proposals.routes.ts
+index c9797ed..f6358a6 100644
+--- a/apps/api/src/modules/proposals/proposals.routes.ts
++++ b/apps/api/src/modules/proposals/proposals.routes.ts
+@@ -49,6 +49,8 @@ proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
+       if (code === 'INSUFFICIENT_WALLET_BALANCE') return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'Not enough wallet balance to accept this proposal.' });
+       if (code === 'INVALID_TRADE_STATUS_TRANSITION') return res.status(409).json({ error: 'invalid_trade_status_transition' });
+       if (code === 'TRADE_ALREADY_HAS_PROVIDER') return res.status(409).json({ error: 'trade_already_has_provider', message: 'This trade already has an accepted provider.' });
++      if (code === 'PROPOSAL_SIDE_REQUIRED') return res.status(409).json({ error: 'proposal_side_required', message: 'This proposal is missing the required Need or Offer side.' });
++      if (code === 'PROPOSAL_SIDE_UNAVAILABLE') return res.status(409).json({ error: 'proposal_side_unavailable', message: 'The proposed Need or Offer is no longer available.' });
+       if (code === 'MONEY_TRADES_DISABLED') return res.status(403).json({ error: 'money_trades_disabled', message: 'Money, wallet, and credit trades are disabled for the first beta. Create Need + Offer exchanges only.' });
+       if (code === 'FORBIDDEN') return res.status(403).json({ error: 'forbidden' });
+       if (code === 'NOT_FOUND') return res.status(404).json({ error: 'not_found' });
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 29d10c5..a4372ba 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -13,7 +13,7 @@ import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpe
+ export const tradesRoutes = Router();
+ const userPreviewSelect = { id: true, profile: true } as const;
+ export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+-export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
++export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+ 
+ type DeckRelatedEntity = { id: string } | null | undefined;
+ type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+@@ -96,6 +96,16 @@ function betaMoneyDisabledPayload() {
+   };
+ }
+ 
++function proposalSideRequirement(postType?: string | null) {
++  if (postType === 'open_need') return 'offer' as const;
++  if (postType === 'open_offer') return 'need' as const;
++  return null;
++}
++
++function inventoryUnavailable(status?: string | null) {
++  return Boolean(status && ['fulfilled', 'accepted', 'closed', 'expired'].includes(status));
++}
++
+ function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
+   const and: Prisma.TradeWhereInput[] = [
+     { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
+@@ -181,9 +191,26 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
+       mirrorInput.current = { buyerId, sellerId, amountCents, currency, moneySide };
+     }
+ 
++    const proposal = await tx.tradeProposal.findUnique({ where: { id: proposalId }, select: { id: true, applicantId: true, proposedNeedId: true, proposedOfferId: true } });
++    if (!proposal || proposal.applicantId !== applicantId) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
++
++    const acceptedSideUpdate: { needId?: string; offerId?: string } = {};
++    if (trade.postType === 'open_need') {
++      if (!proposal.proposedOfferId) throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
++      const proposedOffer = await tx.offer.findFirst({ where: { id: proposal.proposedOfferId, ownerId: applicantId } });
++      if (!proposedOffer || inventoryUnavailable(proposedOffer.status)) throw Object.assign(new Error('invalid_proposal_offer'), { code: 'PROPOSAL_SIDE_UNAVAILABLE' });
++      acceptedSideUpdate.offerId = proposedOffer.id;
++    }
++    if (trade.postType === 'open_offer') {
++      if (!proposal.proposedNeedId) throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
++      const proposedNeed = await tx.need.findFirst({ where: { id: proposal.proposedNeedId, ownerId: applicantId } });
++      if (!proposedNeed || inventoryUnavailable(proposedNeed.status)) throw Object.assign(new Error('invalid_proposal_need'), { code: 'PROPOSAL_SIDE_UNAVAILABLE' });
++      acceptedSideUpdate.needId = proposedNeed.id;
++    }
++
+     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
+     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+-    return tx.trade.update({ where: { id: trade.id }, data: { providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
++    return tx.trade.update({ where: { id: trade.id }, data: { ...acceptedSideUpdate, providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
+   });
+ 
+   const mirror = mirrorInput.current;
+@@ -390,11 +417,34 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res
+   if (!trade) return res.status(404).json({ error: 'not_found', message: 'This trade is no longer open for proposals.' });
+   if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
+   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
++
++  const requiredSide = proposalSideRequirement(trade.postType);
++  let proposedNeedId: string | null = null;
++  let proposedOfferId: string | null = null;
++
++  if (requiredSide === 'offer') {
++    if (!input.proposedOfferId) return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
++    if (input.proposedNeedId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Need proposals must include an Offer, not a Need.' });
++    const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
++    if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
++    proposedOfferId = offer.id;
++  } else if (requiredSide === 'need') {
++    if (!input.proposedNeedId) return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
++    if (input.proposedOfferId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Offer proposals must include a Need, not an Offer.' });
++    const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
++    if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
++    proposedNeedId = need.id;
++  } else if (input.proposedNeedId || input.proposedOfferId) {
++    return res.status(400).json({ error: 'proposal_side_not_supported', message: 'This trade already has a Need and Offer. Send a message proposal instead.' });
++  }
++
+   const existing = await prisma.tradeProposal.findUnique({ where: { tradeId_applicantId: { tradeId: trade.id, applicantId: actorId } }, include: proposalInclude });
+   if (existing && existing.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existing });
+   if (existing && existing.status === 'accepted') return res.status(409).json({ error: 'proposal_already_accepted', message: 'Your proposal was already accepted.', proposal: existing });
+   const proposal = await prisma.$transaction(async (tx) => {
+-    const proposalRecord = existing ? await tx.tradeProposal.update({ where: { id: existing.id }, data: { message: input.message, status: 'pending', respondedAt: null } }) : await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message } });
++    const proposalRecord = existing
++      ? await tx.tradeProposal.update({ where: { id: existing.id }, data: { message: input.message, proposedNeedId, proposedOfferId, status: 'pending', respondedAt: null } })
++      : await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId } });
+     await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
+     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
+   });
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 3cb9a2e..2ffb22b 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -314,6 +314,13 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .proposal-card__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+ .proposal-empty-state { display: grid; place-items: center; gap: 7px; min-height: 150px; border: 2px dashed var(--app-border-strong); border-radius: 24px; background: var(--app-surface-soft); padding: 20px; text-align: center; }
+ .proposal-empty-state span { color: var(--app-text-muted); }
++.proposal-side-picker { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
++.trade-section-heading.compact { align-items: start; }
++.trade-section-heading.compact h3 { font-size: 15px; }
++.proposal-side-option-list { max-height: 290px; }
++.proposal-side-summary { display: inline-flex; width: fit-content; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 6px 9px; font-size: 12px; font-weight: 900; }
++.message-bubble--proposal .proposal-side-summary { background: rgba(255, 255, 255, 0.55); color: inherit; }
++.proposal-empty-state--compact { min-height: 120px; }
+ .conversation-panel { display: grid; gap: 12px; border-top: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); padding-top: 16px; }
+ .message-list { display: grid; gap: 9px; }
+ .message-bubble { width: min(88%, 340px); border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface); padding: 12px; }
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 946e2ba..8818122 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from 'next/link';
+ import type { FormEvent } from 'react';
+-import type { ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
++import type { NeedDto, OfferDto, ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+@@ -24,6 +24,15 @@ function isProposalMessage(value: unknown): value is ProposalMessageDto {
+   return isRecord(value) && typeof value.id === 'string' && typeof value.proposalId === 'string' && typeof value.senderId === 'string' && typeof value.body === 'string';
+ }
+ 
++
++function isNeed(value: unknown): value is NeedDto {
++  return isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.description === 'string';
++}
++
++function isOffer(value: unknown): value is OfferDto {
++  return isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.description === 'string';
++}
++
+ function normalizeProposals(value: unknown): TradeProposalDto[] {
+   if (Array.isArray(value)) return value.filter(isProposal);
+   if (isRecord(value) && Array.isArray(value.proposals)) return value.proposals.filter(isProposal);
+@@ -51,6 +60,20 @@ function normalizeMessages(value: unknown): ProposalMessageDto[] {
+   return [];
+ }
+ 
++function normalizeNeeds(value: unknown): NeedDto[] {
++  if (Array.isArray(value)) return value.filter(isNeed);
++  if (isRecord(value) && Array.isArray(value.needs)) return value.needs.filter(isNeed);
++  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isNeed);
++  return [];
++}
++
++function normalizeOffers(value: unknown): OfferDto[] {
++  if (Array.isArray(value)) return value.filter(isOffer);
++  if (isRecord(value) && Array.isArray(value.offers)) return value.offers.filter(isOffer);
++  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isOffer);
++  return [];
++}
++
+ function normalizeProposalMessageResponse(value: unknown): ProposalMessageResponse {
+   if (!isRecord(value)) return {};
+   const response = value as { message?: unknown };
+@@ -85,20 +108,52 @@ function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
+   return 'proposal';
+ }
+ 
++
++function proposalSideRequirement(trade: TradeDto) {
++  if (trade.postType === 'open_need') return 'offer' as const;
++  if (trade.postType === 'open_offer') return 'need' as const;
++  return null;
++}
++
++function firstMediaUrl(item: NeedDto | OfferDto) {
++  return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
++}
++
++function sideMeta(item: NeedDto | OfferDto) {
++  return [item.category, item.mode, 'timing' in item ? item.timing : item.availability].filter(Boolean).join(' · ') || item.itemType || 'Saved item';
++}
++
++function proposalSideTitle(proposal: TradeProposalDto) {
++  if (proposal.proposedOffer?.title) return `Offer: ${proposal.proposedOffer.title}`;
++  if (proposal.proposedNeed?.title) return `Need: ${proposal.proposedNeed.title}`;
++  return null;
++}
++
+ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
+   const auth = useWebAuth();
+   const isOwner = auth.user?.id === trade.ownerId;
+   const proposalCopy = getTradeProposalCopy(trade);
++  const requiredProposalSide = proposalSideRequirement(trade);
+   const [proposals, setProposals] = useState<TradeProposalDto[]>([]);
+   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+   const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
+   const [proposalMessage, setProposalMessage] = useState('');
++  const [proposalNeeds, setProposalNeeds] = useState<NeedDto[]>([]);
++  const [proposalOffers, setProposalOffers] = useState<OfferDto[]>([]);
++  const [proposedNeedId, setProposedNeedId] = useState('');
++  const [proposedOfferId, setProposedOfferId] = useState('');
++  const [sideLoading, setSideLoading] = useState(false);
+   const [reply, setReply] = useState('');
+   const [loading, setLoading] = useState(false);
+   const [notice, setNotice] = useState<string | null>(null);
+ 
+   const selectedProposal = useMemo(() => proposals.find((proposal) => proposal.id === selectedProposalId) ?? proposals.find((proposal) => proposal.status === 'accepted') ?? proposals[0] ?? null, [proposals, selectedProposalId]);
+   const ownProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id), [auth.user?.id, proposals]);
++  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => !['fulfilled', 'closed', 'expired'].includes(need.status)), [proposalNeeds]);
++  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => !['accepted', 'closed', 'expired'].includes(offer.status)), [proposalOffers]);
++  const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
++  const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
++  const hasRequiredSide = requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
+   const canShowConversation = Boolean(selectedProposal && (selectedProposal.status === 'accepted' || isOwner || selectedProposal.applicantId === auth.user?.id));
+   const canReplyToSelectedProposal = Boolean(selectedProposal && canShowConversation && !['declined', 'withdrawn'].includes(selectedProposal.status));
+ 
+@@ -124,6 +179,36 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+     return () => { mounted = false; };
+   }, [auth.isAuthenticated, trade.id]);
+ 
++
++  useEffect(() => {
++    if (!auth.isAuthenticated || isOwner || ownProposal || !requiredProposalSide) return;
++    let mounted = true;
++    async function loadProposalInventory() {
++      setSideLoading(true);
++      try {
++        if (requiredProposalSide === 'offer') {
++          const response = await api.offers.mine();
++          const offers = normalizeOffers(response);
++          if (!mounted) return;
++          setProposalOffers(offers);
++          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current) ? current : offers.find((offer) => !['accepted', 'closed', 'expired'].includes(offer.status))?.id ?? '');
++        } else {
++          const response = await api.needs.mine();
++          const needs = normalizeNeeds(response);
++          if (!mounted) return;
++          setProposalNeeds(needs);
++          setProposedNeedId((current) => current && needs.some((need) => need.id === current) ? current : needs.find((need) => !['fulfilled', 'closed', 'expired'].includes(need.status))?.id ?? '');
++        }
++      } catch {
++        if (mounted) setNotice(requiredProposalSide === 'offer' ? 'Could not load your saved Offers yet.' : 'Could not load your saved Needs yet.');
++      } finally {
++        if (mounted) setSideLoading(false);
++      }
++    }
++    void loadProposalInventory();
++    return () => { mounted = false; };
++  }, [auth.isAuthenticated, isOwner, ownProposal, requiredProposalSide]);
++
+   useEffect(() => {
+     if (!selectedProposal || !auth.isAuthenticated || !canShowConversation) {
+       setMessages([]);
+@@ -148,11 +233,15 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+   async function submitProposal(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     const message = proposalMessage.trim();
+-    if (message.length < 3) return;
++    if (message.length < 3 || !hasRequiredSide) return;
+     setLoading(true);
+     setNotice(null);
+     try {
+-      const response = await api.trades.createProposal(trade.id, { message });
++      const response = await api.trades.createProposal(trade.id, {
++        message,
++        ...(requiredProposalSide === 'need' ? { proposedNeedId: selectedNeed?.id } : {}),
++        ...(requiredProposalSide === 'offer' ? { proposedOfferId: selectedOffer?.id } : {})
++      });
+       const proposal = normalizeProposal(response);
+       if (!proposal) throw new Error('missing_proposal_response');
+       setProposals((current) => upsertProposal(current, proposal));
+@@ -253,11 +342,81 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+ 
+       {!isOwner && !ownProposal ? (
+         <form className="proposal-composer" onSubmit={submitProposal}>
++          {requiredProposalSide === 'offer' ? (
++            <div className="proposal-side-picker">
++              <div className="trade-section-heading compact">
++                <div>
++                  <p className="eyebrow">Your Offer</p>
++                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> Choose what you can offer</h3>
++                </div>
++                {sideLoading ? <span className="semantic-badge instruction">Loading</span> : null}
++              </div>
++              {activeProposalOffers.length ? (
++                <div className="trade-side-option-list proposal-side-option-list">
++                  {activeProposalOffers.map((offer) => {
++                    const mediaUrl = firstMediaUrl(offer);
++                    return (
++                      <button key={offer.id} type="button" className={offer.id === proposedOfferId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedOfferId(offer.id)}>
++                        <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'O'}</span>
++                        <span className="trade-side-option__body">
++                          <span className="trade-side-option__top"><strong>{offer.title}</strong><em>Offer</em></span>
++                          <span>{sideMeta(offer)}</span>
++                        </span>
++                      </button>
++                    );
++                  })}
++                </div>
++              ) : (
++                <div className="proposal-empty-state proposal-empty-state--compact">
++                  <WebIcon name="offer" size={28} decorative />
++                  <strong>No active Offers yet</strong>
++                  <span>Create or save an Offer first, then come back to propose it.</span>
++                  <Link href="/offers" className="button secondary full">Go to Offers</Link>
++                </div>
++              )}
++            </div>
++          ) : null}
++
++          {requiredProposalSide === 'need' ? (
++            <div className="proposal-side-picker">
++              <div className="trade-section-heading compact">
++                <div>
++                  <p className="eyebrow">Your Need</p>
++                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> Choose what you need</h3>
++                </div>
++                {sideLoading ? <span className="semantic-badge instruction">Loading</span> : null}
++              </div>
++              {activeProposalNeeds.length ? (
++                <div className="trade-side-option-list proposal-side-option-list">
++                  {activeProposalNeeds.map((need) => {
++                    const mediaUrl = firstMediaUrl(need);
++                    return (
++                      <button key={need.id} type="button" className={need.id === proposedNeedId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedNeedId(need.id)}>
++                        <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'N'}</span>
++                        <span className="trade-side-option__body">
++                          <span className="trade-side-option__top"><strong>{need.title}</strong><em>Need</em></span>
++                          <span>{sideMeta(need)}</span>
++                        </span>
++                      </button>
++                    );
++                  })}
++                </div>
++              ) : (
++                <div className="proposal-empty-state proposal-empty-state--compact">
++                  <WebIcon name="need" size={28} decorative />
++                  <strong>No active Needs yet</strong>
++                  <span>Create or save a Need first, then come back to propose it.</span>
++                  <Link href="/needs" className="button secondary full">Go to Needs</Link>
++                </div>
++              )}
++            </div>
++          ) : null}
++
+           <label className="field-label">
+             Message
+             <textarea value={proposalMessage} onChange={(event) => setProposalMessage(event.target.value)} placeholder={proposalCopy.placeholder} rows={4} />
+           </label>
+-          <button type="submit" disabled={loading || proposalMessage.trim().length < 3}>{proposalCopy.actionButton}</button>
++          <button type="submit" disabled={loading || sideLoading || proposalMessage.trim().length < 3 || !hasRequiredSide}>{proposalCopy.actionButton}</button>
+         </form>
+       ) : null}
+ 
+@@ -270,6 +429,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
+                   <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
+                   <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
++                  {proposalSideTitle(proposal) ? <span className="proposal-side-summary">{proposalSideTitle(proposal)}</span> : null}
+                   <span>{proposal.message}</span>
+                 </button>
+                 {isOwner && proposal.status === 'pending' ? (
+@@ -301,6 +461,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+           <div className="message-list">
+             <article className="message-bubble message-bubble--proposal">
+               <strong>{personName(selectedProposal)}</strong>
++              {proposalSideTitle(selectedProposal) ? <p className="proposal-side-summary">{proposalSideTitle(selectedProposal)}</p> : null}
+               <p>{selectedProposal.message}</p>
+             </article>
+             {messages.map((message) => (
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index be892fb..9a09b4a 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -156,7 +156,11 @@ export const listTradesFeedQuerySchema = z.object({
+ });
+ export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
+ export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
+-export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
++export const createTradeProposalRequestSchema = z.object({
++  message: z.string().min(3).max(1200),
++  proposedNeedId: z.string().min(1).optional(),
++  proposedOfferId: z.string().min(1).optional()
++});
+ export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
+ export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
+ 
+@@ -296,7 +300,23 @@ export const tradeSchema = z.object({
+   media: z.array(mediaAssetSchema).optional()
+ });
+ export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
+-export const tradeProposalSchema = z.object({ id: z.string(), tradeId: z.string(), applicantId: z.string(), message: z.string(), status: proposalStatusSchema, createdAt: z.string(), updatedAt: z.string(), respondedAt: z.string().nullable().optional(), applicant: userPreviewSchema.optional(), trade: tradeSchema.optional(), messages: z.array(proposalMessageSchema).optional() });
++export const tradeProposalSchema = z.object({
++  id: z.string(),
++  tradeId: z.string(),
++  applicantId: z.string(),
++  proposedNeedId: z.string().nullable().optional(),
++  proposedOfferId: z.string().nullable().optional(),
++  message: z.string(),
++  status: proposalStatusSchema,
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  respondedAt: z.string().nullable().optional(),
++  applicant: userPreviewSchema.optional(),
++  trade: tradeSchema.optional(),
++  proposedNeed: needSchema.nullable().optional(),
++  proposedOffer: offerSchema.nullable().optional(),
++  messages: z.array(proposalMessageSchema).optional()
++});
+ 
+ export type NeedDto = z.infer<typeof needSchema>;
+ export type OfferDto = z.infer<typeof offerSchema>;

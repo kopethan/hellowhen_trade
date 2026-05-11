@@ -1,0 +1,51 @@
+diff --git a/apps/api/prisma/migrations/20260510190000_inventory_templates/migration.sql b/apps/api/prisma/migrations/20260510190000_inventory_templates/migration.sql
+index ebbd0ba..f7bac13 100644
+--- a/apps/api/prisma/migrations/20260510190000_inventory_templates/migration.sql
++++ b/apps/api/prisma/migrations/20260510190000_inventory_templates/migration.sql
+@@ -1,5 +1,12 @@
+ -- Phase 23.7A: starter inventory templates for reusable Need/Offer library.
+ 
++
++DO $$ BEGIN
++  CREATE TYPE "InventoryItemType" AS ENUM ('service', 'goods', 'other');
++EXCEPTION
++  WHEN duplicate_object THEN null;
++END $$;
++
+ DO $$ BEGIN
+   CREATE TYPE "InventoryTemplateKind" AS ENUM ('need', 'offer');
+ EXCEPTION
+@@ -42,9 +49,11 @@ CREATE TABLE IF NOT EXISTS "InventoryTemplate" (
+ );
+ 
+ ALTER TABLE "Need"
++  ADD COLUMN IF NOT EXISTS "itemType" "InventoryItemType" NOT NULL DEFAULT 'service',
+   ADD COLUMN IF NOT EXISTS "sourceTemplateId" TEXT;
+ 
+ ALTER TABLE "Offer"
++  ADD COLUMN IF NOT EXISTS "itemType" "InventoryItemType" NOT NULL DEFAULT 'service',
+   ADD COLUMN IF NOT EXISTS "sourceTemplateId" TEXT;
+ 
+ CREATE UNIQUE INDEX IF NOT EXISTS "InventoryTemplate_key_key" ON "InventoryTemplate"("key");
+@@ -52,6 +61,8 @@ CREATE INDEX IF NOT EXISTS "InventoryTemplate_kind_status_itemType_sortOrder_idx
+ CREATE INDEX IF NOT EXISTS "InventoryTemplate_sourceType_status_idx" ON "InventoryTemplate"("sourceType", "status");
+ CREATE INDEX IF NOT EXISTS "InventoryTemplate_businessProfileId_status_idx" ON "InventoryTemplate"("businessProfileId", "status");
+ CREATE INDEX IF NOT EXISTS "InventoryTemplate_category_idx" ON "InventoryTemplate"("category");
++CREATE INDEX IF NOT EXISTS "Need_itemType_idx" ON "Need"("itemType");
++CREATE INDEX IF NOT EXISTS "Offer_itemType_idx" ON "Offer"("itemType");
+ CREATE INDEX IF NOT EXISTS "Need_sourceTemplateId_idx" ON "Need"("sourceTemplateId");
+ CREATE INDEX IF NOT EXISTS "Offer_sourceTemplateId_idx" ON "Offer"("sourceTemplateId");
+ 
+diff --git a/package.json b/package.json
+index 580c931..1cf32b4 100644
+--- a/package.json
++++ b/package.json
+@@ -23,5 +23,8 @@
+   },
+   "engines": {
+     "node": ">=20"
++  },
++  "prisma": {
++    "seed": "tsx apps/api/prisma/seed.ts"
+   }
+ }

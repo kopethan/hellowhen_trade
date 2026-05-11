@@ -2,16 +2,19 @@ import Link from 'next/link';
 import type { TradeDto } from '@hellowhen/contracts';
 import { truncateText } from '@hellowhen/shared';
 import { formatWebMoney } from '../../lib/webFormat';
+import { getExchangeLabel, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
 
 function formatTradeExchange(trade: TradeDto) {
-  if (trade.amountCents > 0) return formatWebMoney(trade.amountCents, trade.currency);
-  return 'Service-for-service';
+  if ((trade.amountCents ?? 0) > 0) return formatWebMoney(trade.amountCents ?? 0, trade.currency);
+  return getExchangeLabel(trade);
 }
 
 export function TradeCard({ trade }: { trade: TradeDto }) {
-  const needTitle = trade.need?.title ?? 'I need';
-  const offerTitle = trade.offer?.title ?? (trade.amountCents > 0 ? 'Wallet money' : 'I offer');
   const ownerName = trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
+  const postType = getTradePostType(trade);
+  const proposalCopy = getTradeProposalCopy(trade);
+  const needTitle = trade.need?.title ?? 'Need details';
+  const offerTitle = trade.offer?.title ?? 'Offer details';
 
   return (
     <Link href={`/trades/${trade.id}`} className="trade-card" aria-label={`Open ${trade.title}`}>
@@ -20,10 +23,20 @@ export function TradeCard({ trade }: { trade: TradeDto }) {
         <span className="meta">{ownerName}</span>
       </div>
       <div className="trade-card__body">
-        <p className="eyebrow">I need</p>
-        <h2 className="trade-card__title">{needTitle}</h2>
-        <p className="eyebrow">I offer</p>
-        <h2 className="trade-card__title">{offerTitle}</h2>
+        {postType === 'need_offer' ? (
+          <>
+            <p className="eyebrow">I need</p>
+            <h2 className="trade-card__title">{needTitle}</h2>
+            <p className="eyebrow">I offer</p>
+            <h2 className="trade-card__title">{offerTitle}</h2>
+          </>
+        ) : (
+          <>
+            <p className="eyebrow">{getExchangeLabel(trade)}</p>
+            <h2 className="trade-card__title">{getTradeHeadline(trade)}</h2>
+            <p className="meta">{proposalCopy.inviteTitle}</p>
+          </>
+        )}
         <p>{truncateText(trade.description, 120)}</p>
       </div>
       <div className="trade-card__footer">

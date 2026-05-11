@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import type { FormEvent } from 'react';
-import type { TradeDto } from '@hellowhen/contracts';
+import type { TradeDto, TradePostType } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { WebIcon } from '../../components/WebIcon';
@@ -17,9 +17,10 @@ type FeedFilters = {
   mode: string;
   hasImages: boolean;
   hasMoney: boolean;
+  postType: '' | TradePostType;
 };
 
-const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false };
+const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false, postType: '' };
 
 function normalizeFeedResponse(value: unknown): TradeDto[] {
   if (Array.isArray(value)) return value as TradeDto[];
@@ -37,6 +38,7 @@ function localFilter(trades: TradeDto[], filters: FeedFilters) {
     const hasMoney = (trade.amountCents ?? 0) > 0;
     if (query && !haystack.includes(query)) return false;
     if (filters.mode && mode !== filters.mode) return false;
+    if (filters.postType && (trade.postType ?? 'need_offer') !== filters.postType) return false;
     if (filters.hasImages && !hasImages) return false;
     if (filters.hasMoney && !hasMoney) return false;
     return true;
@@ -65,6 +67,7 @@ export function TradeFeedClient() {
           mode: appliedFilters.mode || undefined,
           hasImages: appliedFilters.hasImages || undefined,
           hasMoney: betaFeatures.moneyTradesEnabled ? (appliedFilters.hasMoney || undefined) : undefined,
+          postType: appliedFilters.postType || undefined,
           take: 30,
         });
         const nextTrades = normalizeFeedResponse(response);
@@ -132,6 +135,15 @@ export function TradeFeedClient() {
                 <option value="remote">Remote</option>
                 <option value="local">Local</option>
                 <option value="hybrid">Hybrid</option>
+              </select>
+            </label>
+            <label>
+              <span>Post type</span>
+              <select value={filters.postType} onChange={(event) => setFilters((current) => ({ ...current, postType: event.target.value as FeedFilters['postType'] }))}>
+                <option value="">Any post type</option>
+                <option value="need_offer">Need + Offer</option>
+                <option value="open_need">Open Need</option>
+                <option value="open_offer">Open Offer</option>
               </select>
             </label>
             <label className="checkbox-row">

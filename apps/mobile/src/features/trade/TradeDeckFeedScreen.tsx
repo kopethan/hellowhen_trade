@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { ListTradesFeedQuery, TradeExchangeMode } from '@hellowhen/contracts';
+import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType } from '@hellowhen/contracts';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -20,12 +20,19 @@ import type { TradeDeckItem } from './types';
 
 type FeedResponse = { trades: TradeDeckItem[] };
 type ModeFilter = 'all' | TradeExchangeMode;
+type PostTypeFilter = 'all' | TradePostType;
 
 const modeOptions: Array<{ label: string; value: ModeFilter }> = [
   { label: 'All', value: 'all' },
   { label: 'Remote', value: 'remote' },
   { label: 'Local', value: 'local' },
   { label: 'Hybrid', value: 'hybrid' },
+];
+const postTypeOptions: Array<{ label: string; value: PostTypeFilter }> = [
+  { label: 'Any post type', value: 'all' },
+  { label: 'Need + Offer', value: 'need_offer' },
+  { label: 'Open Need', value: 'open_need' },
+  { label: 'Open Offer', value: 'open_offer' },
 ];
 
 function hasApprovedImages(trade: TradeDeckItem) {
@@ -36,10 +43,11 @@ function hasWalletAmount(trade: TradeDeckItem) {
   return (trade.amountCents ?? 0) > 0;
 }
 
-function buildFeedQuery(query: string, modeFilter: ModeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean): ListTradesFeedQuery {
+function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: PostTypeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean): ListTradesFeedQuery {
   return {
     q: query.trim() || undefined,
     mode: modeFilter === 'all' ? undefined : modeFilter,
+    postType: postTypeFilter === 'all' ? undefined : postTypeFilter,
     category: category.trim() || undefined,
     hasImages: imagesOnly || undefined,
     hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined,
@@ -56,14 +64,15 @@ export function TradeDeckFeedScreen() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [modeFilter, setModeFilter] = useState<ModeFilter>('all');
+  const [postTypeFilter, setPostTypeFilter] = useState<PostTypeFilter>('all');
   const [category, setCategory] = useState('');
   const [imagesOnly, setImagesOnly] = useState(false);
   const [moneyOnly, setMoneyOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, category, imagesOnly, moneyOnly), [category, imagesOnly, modeFilter, moneyOnly, query]);
-  const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
+  const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly), [category, imagesOnly, modeFilter, moneyOnly, postTypeFilter, query]);
+  const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.postType, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
 
   const loadFeed = useCallback(async () => {
     setLoading(true);
@@ -115,6 +124,7 @@ export function TradeDeckFeedScreen() {
   const clearFilters = useCallback(() => {
     setQuery('');
     setModeFilter('all');
+    setPostTypeFilter('all');
     setCategory('');
     setImagesOnly(false);
     setMoneyOnly(false);
@@ -142,7 +152,7 @@ export function TradeDeckFeedScreen() {
         </View>
       </View>
       {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder="Search trades, needs, offers" placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /> : null}
-      {filtersOpen ? <AppCard style={styles.filterCard}><View style={styles.filterPanel}><View style={styles.filterHeaderRow}><AppText style={styles.filterTitle}>Filters</AppText>{hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>Clear</AppText></Pressable> : null}</View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Mode</AppText><View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{option.label}</AppText></Pressable>; })}</View></View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Category</AppText><TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /></View><View style={styles.chipRow}><Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>Has images</AppText></Pressable>{betaFeatures.moneyTradesEnabled ? <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>Wallet amount</AppText></Pressable> : null}</View></View></AppCard> : null}
+      {filtersOpen ? <AppCard style={styles.filterCard}><View style={styles.filterPanel}><View style={styles.filterHeaderRow}><AppText style={styles.filterTitle}>Filters</AppText>{hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>Clear</AppText></Pressable> : null}</View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Mode</AppText><View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{option.label}</AppText></Pressable>; })}</View></View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Post type</AppText><View style={styles.chipRow}>{postTypeOptions.map((option) => { const selected = postTypeFilter === option.value; return <Pressable key={option.value} onPress={() => setPostTypeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{option.label}</AppText></Pressable>; })}</View></View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>Category</AppText><TextInput value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /></View><View style={styles.chipRow}><Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>Has images</AppText></Pressable>{betaFeatures.moneyTradesEnabled ? <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>Wallet amount</AppText></Pressable> : null}</View></View></AppCard> : null}
     </View>
   );
 

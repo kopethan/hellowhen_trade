@@ -1,0 +1,137 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 97471c6..2db3e85 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -342,8 +342,25 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .proposal-list { display: grid; gap: 10px; }
+ .proposal-card { display: grid; gap: 10px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 12px; }
+ .proposal-card--active { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 38%, var(--app-surface)); }
+-.proposal-card__main { display: grid; justify-items: start; gap: 7px; width: 100%; border: 0; background: transparent; color: var(--app-text); padding: 0; text-align: left; }
+-.proposal-card__main span:last-child { color: var(--app-text-muted); font-weight: 700; line-height: 1.45; }
++.proposal-card__main { display: grid; justify-items: stretch; gap: 10px; width: 100%; border: 0; background: transparent; color: var(--app-text); padding: 0; text-align: left; }
++.proposal-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; }
++.proposal-card__person { display: flex; align-items: center; gap: 9px; min-width: 0; }
++.proposal-card__person strong { display: block; max-width: 100%; overflow: hidden; color: var(--app-text); font-size: 14px; font-weight: 950; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
++.proposal-card__person em { display: block; margin-top: 2px; color: var(--app-text-muted); font-size: 11px; font-style: normal; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
++.proposal-card__avatar { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; border: 1px solid color-mix(in srgb, var(--proposal-border) 55%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--proposal-bg) 44%, var(--app-surface)); color: var(--proposal-text); font-size: 13px; font-weight: 950; }
++.proposal-card__message { display: block; width: 100%; border-left: 3px solid color-mix(in srgb, var(--proposal-border) 60%, transparent); color: var(--app-text-muted); font-size: 13px; font-weight: 750; line-height: 1.45; padding-left: 10px; }
++.proposal-side-preview { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 11px; width: 100%; border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface-soft) 70%, var(--app-surface)); padding: 9px; }
++.proposal-side-preview--compact { grid-template-columns: 50px minmax(0, 1fr); border-radius: 18px; padding: 8px; }
++.proposal-side-preview__media { display: grid; place-items: center; aspect-ratio: 1; overflow: hidden; border-radius: 15px; background: linear-gradient(135deg, color-mix(in srgb, var(--proposal-bg) 70%, var(--app-surface)), color-mix(in srgb, var(--app-border-strong) 45%, var(--app-surface))); color: var(--proposal-text); font-size: 13px; font-weight: 950; }
++.proposal-side-preview__media img { width: 100%; height: 100%; object-fit: cover; display: block; }
++.proposal-side-preview__body { display: grid; align-content: center; min-width: 0; gap: 3px; }
++.proposal-side-preview__label { color: var(--proposal-text); font-size: 10px; font-weight: 950; letter-spacing: .09em; text-transform: uppercase; }
++.proposal-side-preview__body strong { display: block; overflow: hidden; color: var(--app-text); font-size: 13px; font-weight: 950; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
++.proposal-side-preview__body p { display: -webkit-box; overflow: hidden; margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 700; line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
++.proposal-side-preview__body em { display: block; overflow: hidden; color: var(--app-text-muted); font-size: 11px; font-style: normal; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
++.message-bubble--proposal .proposal-side-preview { background: color-mix(in srgb, var(--app-surface) 76%, transparent); color: var(--app-text); }
++.message-bubble--proposal .proposal-side-preview__label { color: var(--proposal-text); }
++.proposal-message-field textarea { min-height: 118px; }
+ .proposal-card__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+ .proposal-empty-state { display: grid; place-items: center; gap: 7px; min-height: 150px; border: 2px dashed var(--app-border-strong); border-radius: 24px; background: var(--app-surface-soft); padding: 20px; text-align: center; }
+ .proposal-empty-state span { color: var(--app-text-muted); }
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 927e5d9..d963b7f 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -125,12 +125,31 @@ function sideMeta(item: NeedDto | OfferDto) {
+   return [item.category, item.mode, sideTiming].filter(Boolean).join(' · ') || item.itemType || 'Saved item';
+ }
+ 
+-function proposalSideTitle(proposal: TradeProposalDto) {
+-  if (proposal.proposedOffer?.title) return `Offer: ${proposal.proposedOffer.title}`;
+-  if (proposal.proposedNeed?.title) return `Need: ${proposal.proposedNeed.title}`;
++
++function proposalSideItem(proposal: TradeProposalDto): { kind: 'need'; item: NeedDto } | { kind: 'offer'; item: OfferDto } | null {
++  if (proposal.proposedOffer) return { kind: 'offer', item: proposal.proposedOffer };
++  if (proposal.proposedNeed) return { kind: 'need', item: proposal.proposedNeed };
+   return null;
+ }
+ 
++function ProposalSidePreview({ kind, item, label, compact = false }: { kind: 'need' | 'offer'; item: NeedDto | OfferDto; label?: string; compact?: boolean }) {
++  const mediaUrl = firstMediaUrl(item);
++  const iconName: WebIconName = kind === 'offer' ? 'offer' : 'need';
++  return (
++    <div className={compact ? 'proposal-side-preview proposal-side-preview--compact' : 'proposal-side-preview'}>
++      <div className="proposal-side-preview__media">
++        {mediaUrl ? <img src={mediaUrl} alt="" /> : <WebIcon name={iconName} size={22} decorative />}
++      </div>
++      <div className="proposal-side-preview__body">
++        <span className="proposal-side-preview__label">{label ?? (kind === 'offer' ? 'Proposed Offer' : 'Proposed Need')}</span>
++        <strong>{item.title}</strong>
++        <p>{item.description}</p>
++        <em>{sideMeta(item)}</em>
++      </div>
++    </div>
++  );
++}
++
+ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
+   const auth = useWebAuth();
+   const isOwner = auth.user?.id === trade.ownerId;
+@@ -422,7 +441,15 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+             </div>
+           ) : null}
+ 
+-          <label className="field-label">
++          {requiredProposalSide === 'offer' && selectedOffer ? (
++            <ProposalSidePreview kind="offer" item={selectedOffer} label="Selected Offer" />
++          ) : null}
++
++          {requiredProposalSide === 'need' && selectedNeed ? (
++            <ProposalSidePreview kind="need" item={selectedNeed} label="Selected Need" />
++          ) : null}
++
++          <label className="field-label proposal-message-field">
+             Message
+             <textarea value={proposalMessage} onChange={(event) => setProposalMessage(event.target.value)} placeholder={proposalCopy.placeholder} rows={4} />
+           </label>
+@@ -434,13 +461,22 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+         <div className="proposal-list">
+           {proposals.map((proposal) => {
+             const active = selectedProposal?.id === proposal.id;
++            const sideItem = proposalSideItem(proposal);
+             return (
+               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active' : 'proposal-card'}>
+                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
+-                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
+-                  <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
+-                  {proposalSideTitle(proposal) ? <span className="proposal-side-summary">{proposalSideTitle(proposal)}</span> : null}
+-                  <span>{proposal.message}</span>
++                  <span className="proposal-card__header">
++                    <span className="proposal-card__person">
++                      <span className="proposal-card__avatar">{personName(proposal).slice(0, 1).toUpperCase()}</span>
++                      <span>
++                        <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
++                        <em>{sideItem ? (sideItem.kind === 'offer' ? 'Offer proposal' : 'Need proposal') : 'Trade request'}</em>
++                      </span>
++                    </span>
++                    <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
++                  </span>
++                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
++                  <span className="proposal-card__message">{proposal.message}</span>
+                 </button>
+                 {isOwner && proposal.status === 'pending' ? (
+                   <div className="proposal-card__actions">
+@@ -469,11 +505,16 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+             </div>
+           </div>
+           <div className="message-list">
+-            <article className="message-bubble message-bubble--proposal">
+-              <strong>{personName(selectedProposal)}</strong>
+-              {proposalSideTitle(selectedProposal) ? <p className="proposal-side-summary">{proposalSideTitle(selectedProposal)}</p> : null}
+-              <p>{selectedProposal.message}</p>
+-            </article>
++            {(() => {
++              const sideItem = proposalSideItem(selectedProposal);
++              return (
++                <article className="message-bubble message-bubble--proposal">
++                  <strong>{personName(selectedProposal)}</strong>
++                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
++                  <p>{selectedProposal.message}</p>
++                </article>
++              );
++            })()}
+             {messages.map((message) => (
+               <article key={message.id} className="message-bubble">
+                 <strong>{messageSender(message)}</strong>

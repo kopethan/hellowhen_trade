@@ -1,0 +1,72 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 666c4a3..deaa8ef 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -766,10 +766,10 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+   margin: 0;
+   overflow: hidden;
+   color: #fff;
+-  font-size: clamp(25px, 7vw, 33px);
++  font-size: clamp(22px, 6.2vw, 29px);
+   font-weight: 950;
+-  letter-spacing: -0.065em;
+-  line-height: 0.98;
++  letter-spacing: -0.058em;
++  line-height: 1.05;
+   text-shadow: 0 2px 18px rgba(0, 0, 0, 0.36);
+   -webkit-box-orient: vertical;
+   -webkit-line-clamp: 2;
+@@ -778,9 +778,9 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-poster-card__subtitle {
+   display: -webkit-box;
+   overflow: hidden;
+-  font-size: 13px;
+-  font-weight: 750;
+-  line-height: 1.32;
++  font-size: 12px;
++  font-weight: 760;
++  line-height: 1.28;
+   -webkit-box-orient: vertical;
+   -webkit-line-clamp: 2;
+ }
+@@ -1015,17 +1015,18 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+ .trade-stack-card__mobile-section p { margin: 0; font-size: 13px; font-weight: 950; letter-spacing: -0.02em; }
+ .trade-stack-card__mobile-section--need p { color: color-mix(in srgb, #2563eb 76%, var(--app-text)); }
+ .trade-stack-card__mobile-section--offer p { color: color-mix(in srgb, #059669 78%, var(--app-text)); }
+-.trade-stack-card__mobile-section h2 { display: -webkit-box; width: 100%; max-width: 100%; margin: 0; overflow: hidden; overflow-wrap: anywhere; color: var(--app-text); font-size: clamp(22px, 6.1vw, 29px); line-height: 1.1; letter-spacing: -0.055em; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+-.trade-stack-card__mobile-section span { display: block; max-width: min(90%, 280px); overflow: hidden; color: var(--app-text-muted); font-size: 12px; font-weight: 850; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
++.trade-stack-card__mobile-section h2 { display: -webkit-box; width: 100%; max-width: 100%; margin: 0; overflow: hidden; overflow-wrap: anywhere; color: var(--app-text); font-size: clamp(19px, 5.3vw, 25px); line-height: 1.16; letter-spacing: -0.048em; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
++.trade-stack-card__mobile-section span { display: block; max-width: min(90%, 280px); overflow: hidden; color: var(--app-text-muted); font-size: 11px; font-weight: 850; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+ .trade-stack-card__mobile-divider { display: grid; grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr); align-items: center; gap: 12px; min-height: 34px; color: var(--app-text-muted); }
+ .trade-stack-card__mobile-divider i { display: block; height: 2px; border-radius: 999px; background: color-mix(in srgb, var(--app-border-strong) 62%, transparent); }
+ .trade-stack-card__mobile-divider > span { display: grid; place-items: center; width: 24px; height: 24px; color: color-mix(in srgb, var(--app-text-muted) 82%, var(--app-text)); }
+ .trade-stack-card__mobile-footer { display: flex; align-items: flex-end; justify-content: center; gap: 10px; min-height: 22px; }
+ .trade-stack-card__mobile-money { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--money-border); border-radius: 999px; background: var(--money-bg); color: var(--money-text); padding: 0 12px; font-size: 12px; font-weight: 950; }
+-.trade-stack-card__mobile-countdown { display: inline-flex; align-items: center; justify-content: center; color: color-mix(in srgb, #2563eb 74%, var(--app-text)); font-weight: 950; letter-spacing: .04em; line-height: 1.1; }
++.trade-stack-card__mobile-countdown { display: inline-flex; align-items: center; justify-content: center; color: #ef4444; font-weight: 950; letter-spacing: .04em; line-height: 1.1; }
+ .trade-stack-card__mobile-countdown strong { font-variant-numeric: tabular-nums; font-size: 13px; letter-spacing: .06em; }
+-.trade-stack-card__mobile-countdown.is-soon strong { color: #d97706; }
+-.trade-stack-card__mobile-countdown.is-urgent strong { color: #dc2626; }
++.trade-stack-card__mobile-countdown.is-normal strong { color: #ef4444; }
++.trade-stack-card__mobile-countdown.is-soon strong { color: #dc2626; }
++.trade-stack-card__mobile-countdown.is-urgent strong { color: #b91c1c; }
+ 
+ /* Phase 22.4: web dark-mode surface polish */
+ html[data-theme="dark"] .web-top-header,
+@@ -1075,13 +1076,13 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ 
+ @media (min-width: 760px) {
+   .trade-stack-card--mobile-parity { padding: 30px; }
+-  .trade-stack-card__mobile-section h2 { font-size: clamp(24px, 1.9vw, 30px); }
+-  .trade-stack-card__mobile-section span { font-size: 13px; }
++  .trade-stack-card__mobile-section h2 { font-size: clamp(20px, 1.55vw, 25px); }
++  .trade-stack-card__mobile-section span { font-size: 12px; }
+ }
+ 
+ @media (max-width: 420px) {
+   .trade-stack-card--mobile-parity { padding: 22px; }
+-  .trade-stack-card__mobile-section h2 { font-size: 22px; }
++  .trade-stack-card__mobile-section h2 { font-size: 20px; }
+   .trade-stack-card__mobile-countdown strong { font-size: 12px; }
+ }
+ 

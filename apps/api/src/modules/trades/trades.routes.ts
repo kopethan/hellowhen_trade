@@ -13,7 +13,7 @@ import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpe
 export const tradesRoutes = Router();
 const userPreviewSelect = { id: true, profile: true } as const;
 export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
-export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
 
 type DeckRelatedEntity = { id: string } | null | undefined;
 type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
@@ -96,6 +96,65 @@ function betaMoneyDisabledPayload() {
   };
 }
 
+function proposalSideRequirement(postType?: string | null) {
+  if (postType === 'open_need') return 'offer' as const;
+  if (postType === 'open_offer') return 'need' as const;
+  return null;
+}
+
+function inventoryUnavailable(status?: string | null) {
+  return Boolean(status && ['fulfilled', 'accepted', 'closed', 'expired'].includes(status));
+}
+
+
+const FEED_URGENCY = {
+  expired: -1000,
+  expiresWithin24h: 28,
+  expiresWithin72h: 18,
+  expiresWithin7d: 8,
+  expiresWithin14d: 0,
+  longExpiry: -6,
+  noExpiry: -8,
+} as const;
+
+function toDateMs(value?: Date | string | null) {
+  if (!value) return null;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function getExpiryUrgencyBoost(expiresAt?: Date | string | null) {
+  const expiresMs = toDateMs(expiresAt);
+  if (!expiresMs) return FEED_URGENCY.noExpiry;
+
+  const hoursLeft = (expiresMs - Date.now()) / 36e5;
+  if (hoursLeft <= 0) return FEED_URGENCY.expired;
+  if (hoursLeft <= 24) return FEED_URGENCY.expiresWithin24h;
+  if (hoursLeft <= 72) return FEED_URGENCY.expiresWithin72h;
+  if (hoursLeft <= 168) return FEED_URGENCY.expiresWithin7d;
+  if (hoursLeft <= 336) return FEED_URGENCY.expiresWithin14d;
+  return FEED_URGENCY.longExpiry;
+}
+
+function getFeedVisibilityScore(trade: { createdAt?: Date | string | null; expiresAt?: Date | string | null; need?: { media?: unknown[] } | null; offer?: { media?: unknown[] } | null }) {
+  const createdMs = toDateMs(trade.createdAt) ?? Date.now();
+  const ageHours = Math.max(0, (Date.now() - createdMs) / 36e5);
+  const recencyScore = Math.max(0, 100 - ageHours * 0.65);
+  const mediaScore = ((trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0)) > 0 ? 4 : 0;
+  return recencyScore + getExpiryUrgencyBoost(trade.expiresAt) + mediaScore;
+}
+
+function sortTradesForDiscovery<T extends { id: string; createdAt?: Date | string | null; expiresAt?: Date | string | null; need?: { media?: unknown[] } | null; offer?: { media?: unknown[] } | null }>(trades: T[]) {
+  return [...trades].sort((left, right) => {
+    const scoreDelta = getFeedVisibilityScore(right) - getFeedVisibilityScore(left);
+    if (Math.abs(scoreDelta) > 0.001) return scoreDelta;
+
+    const createdDelta = (toDateMs(right.createdAt) ?? 0) - (toDateMs(left.createdAt) ?? 0);
+    if (createdDelta !== 0) return createdDelta;
+    return left.id.localeCompare(right.id);
+  });
+}
+
 function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
   const and: Prisma.TradeWhereInput[] = [
     { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
@@ -130,6 +189,10 @@ function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
   if (category) {
     const text = containsText(category);
     and.push({ OR: [{ need: { is: { category: text } } }, { offer: { is: { category: text } } }] });
+  }
+
+  if (input.postType) {
+    and.push({ postType: input.postType });
   }
 
   if (!env.moneyFeaturesVisible || env.moneyLaunchMode === 'disabled') {
@@ -177,9 +240,26 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
       mirrorInput.current = { buyerId, sellerId, amountCents, currency, moneySide };
     }
 
+    const proposal = await tx.tradeProposal.findUnique({ where: { id: proposalId }, select: { id: true, applicantId: true, proposedNeedId: true, proposedOfferId: true } });
+    if (!proposal || proposal.applicantId !== applicantId) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
+
+    const acceptedSideUpdate: { needId?: string; offerId?: string } = {};
+    if (trade.postType === 'open_need') {
+      if (!proposal.proposedOfferId) throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+      const proposedOffer = await tx.offer.findFirst({ where: { id: proposal.proposedOfferId, ownerId: applicantId } });
+      if (!proposedOffer || inventoryUnavailable(proposedOffer.status)) throw Object.assign(new Error('invalid_proposal_offer'), { code: 'PROPOSAL_SIDE_UNAVAILABLE' });
+      acceptedSideUpdate.offerId = proposedOffer.id;
+    }
+    if (trade.postType === 'open_offer') {
+      if (!proposal.proposedNeedId) throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+      const proposedNeed = await tx.need.findFirst({ where: { id: proposal.proposedNeedId, ownerId: applicantId } });
+      if (!proposedNeed || inventoryUnavailable(proposedNeed.status)) throw Object.assign(new Error('invalid_proposal_need'), { code: 'PROPOSAL_SIDE_UNAVAILABLE' });
+      acceptedSideUpdate.needId = proposedNeed.id;
+    }
+
     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
-    return tx.trade.update({ where: { id: trade.id }, data: { providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
+    return tx.trade.update({ where: { id: trade.id }, data: { ...acceptedSideUpdate, providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
   });
 
   const mirror = mirrorInput.current;
@@ -192,12 +272,14 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
 tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const input = listTradesFeedQuerySchema.parse(req.query);
   const actorId = req.user?.id;
-  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: tradeInclude, orderBy: { createdAt: 'desc' }, take: input.take ?? 50 });
+  const requestedTake = input.take ?? 50;
+  const candidateTake = Math.min(100, Math.max(requestedTake, requestedTake * 3));
+  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: tradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake });
   const hydratedTrades = await withTradeDeckMediaForActor(trades, actorId);
   const filteredTrades = input.hasImages
     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
     : hydratedTrades;
-  res.json({ trades: filteredTrades });
+  res.json({ trades: sortTradesForDiscovery(filteredTrades).slice(0, requestedTake) });
 }));
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
@@ -246,9 +328,12 @@ tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
 tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   const input = createTradeRequestSchema.parse(req.body);
   const actorId = req.user!.id;
+  const postType = input.postType ?? 'need_offer';
 
-  const needIsMoney = input.needKind === 'money';
-  const offerIsMoney = input.offerKind === 'money';
+  const needsOwnNeed = postType === 'need_offer' || postType === 'open_need';
+  const needsOwnOffer = postType === 'need_offer' || postType === 'open_offer';
+  const needIsMoney = postType === 'need_offer' && input.needKind === 'money';
+  const offerIsMoney = postType === 'need_offer' && input.offerKind === 'money';
   const isMoneyPayload = input.amountCents > 0 || input.creditAmount > 0 || needIsMoney || offerIsMoney;
   if (isMoneyPayload && betaMoneyOff()) {
     return res.status(403).json(betaMoneyDisabledPayload());
@@ -259,25 +344,64 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
       message: 'Credits are disabled for the first beta. Create Need + Offer exchanges only.'
     });
   }
+  if (postType !== 'need_offer' && isMoneyPayload) {
+    return res.status(400).json({
+      error: 'open_post_money_disabled',
+      message: 'Open Need and Open Offer posts cannot include wallet money yet.'
+    });
+  }
+
   const [need, offer, wallet] = await Promise.all([
-    needIsMoney ? Promise.resolve(null) : prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }),
-    offerIsMoney ? Promise.resolve(null) : prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }),
+    needsOwnNeed && !needIsMoney ? prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }) : Promise.resolve(null),
+    needsOwnOffer && !offerIsMoney ? prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }) : Promise.resolve(null),
     offerIsMoney && input.amountCents > 0 ? prisma.wallet.findUnique({ where: { userId: actorId } }) : Promise.resolve(null)
   ]);
-  if (!needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: 'Choose one of your saved needs for this trade.' });
-  if (!offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: 'Choose one of your saved offers for this trade.' });
+  if (needsOwnNeed && !needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: postType === 'open_need' ? 'Choose one of your saved needs for this Open Need post.' : 'Choose one of your saved needs for this trade.' });
+  if (needsOwnOffer && !offerIsMoney && !offer) return res.status(400).json({ error: 'invalid_offer', message: postType === 'open_offer' ? 'Choose one of your saved offers for this Open Offer post.' : 'Choose one of your saved offers for this trade.' });
   if (need && ['fulfilled', 'closed', 'expired'].includes(need.status)) return res.status(409).json({ error: 'need_not_available', message: 'This need is no longer available for a public trade.' });
   if (offer && ['accepted', 'closed', 'expired'].includes(offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'This offer is no longer available for a public trade.' });
 
-  if (need && offer) {
+  if (postType === 'need_offer' && need && offer) {
     const existingTrade = await prisma.trade.findFirst({
-      where: { ownerId: actorId, needId: need.id, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
+      where: { ownerId: actorId, postType, needId: need.id, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
       select: { id: true, status: true, title: true }
     });
     if (existingTrade) {
       return res.status(409).json({
         error: 'duplicate_trade_pair',
         message: 'You already have an active trade using this exact Need and Offer. Delete or close the existing trade before creating it again.',
+        tradeId: existingTrade.id,
+        tradeStatus: existingTrade.status,
+        tradeTitle: existingTrade.title
+      });
+    }
+  }
+
+  if (postType === 'open_need' && need) {
+    const existingTrade = await prisma.trade.findFirst({
+      where: { ownerId: actorId, postType, needId: need.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
+      select: { id: true, status: true, title: true }
+    });
+    if (existingTrade) {
+      return res.status(409).json({
+        error: 'duplicate_open_need',
+        message: 'You already have an active Open Need using this Need. Delete or close the existing post before publishing it again.',
+        tradeId: existingTrade.id,
+        tradeStatus: existingTrade.status,
+        tradeTitle: existingTrade.title
+      });
+    }
+  }
+
+  if (postType === 'open_offer' && offer) {
+    const existingTrade = await prisma.trade.findFirst({
+      where: { ownerId: actorId, postType, offerId: offer.id, status: { in: [...tradeDuplicateBlockingStatuses] } },
+      select: { id: true, status: true, title: true }
+    });
+    if (existingTrade) {
+      return res.status(409).json({
+        error: 'duplicate_open_offer',
+        message: 'You already have an active Open Offer using this Offer. Delete or close the existing post before publishing it again.',
         tradeId: existingTrade.id,
         tradeStatus: existingTrade.status,
         tradeTitle: existingTrade.title
@@ -298,18 +422,30 @@ tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
   if (isMoneyTrade && !limits.moneyTradesEnabled) return res.status(403).json(limitExceeded('Money trades are disabled for the beta launch. Create service, goods, or other exchange trades instead.', { trustTier: limits.effectiveTrustTier }));
   if (isMoneyTrade && input.amountCents > limits.perTradeMoneyCapCents) return res.status(409).json(limitExceeded(`Money trades are limited to ${(limits.perTradeMoneyCapCents / 100).toFixed(2)} ${input.currency.toUpperCase()} for your current trust tier.`, { trustTier: limits.effectiveTrustTier, perTradeMoneyCapCents: limits.perTradeMoneyCapCents }));
   if (offerIsMoney && input.amountCents > 0 && (!wallet || wallet.availableBalanceCents < input.amountCents)) return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'You can only offer money that is available in your wallet.' });
-  const moneyLabel = moneyTitle(input.amountCents, input.currency);
-  const needTitle = needIsMoney ? moneyLabel : need!.title;
-  const offerTitle = offerIsMoney ? moneyLabel : offer!.title;
-  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need!.description;
-  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer!.description;
-  const title = input.title?.trim() || `${needTitle} <-> ${offerTitle}`;
-  const description = input.description?.trim() || `I need: ${needDescription}
 
-I offer: ${offerDescription}`;
+  const moneyLabel = moneyTitle(input.amountCents, input.currency);
+  const needTitle = needIsMoney ? moneyLabel : need?.title;
+  const offerTitle = offerIsMoney ? moneyLabel : offer?.title;
+  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need?.description;
+  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer?.description;
+
+  const title = input.title?.trim() || (
+    postType === 'open_need'
+      ? `Open Need: ${needTitle}`
+      : postType === 'open_offer'
+        ? `Open Offer: ${offerTitle}`
+        : `${needTitle} <-> ${offerTitle}`
+  );
+  const description = input.description?.trim() || (
+    postType === 'open_need'
+      ? `I need: ${needDescription}\n\nOthers can propose offers.`
+      : postType === 'open_offer'
+        ? `I offer: ${offerDescription}\n\nOthers can propose needs.`
+        : `I need: ${needDescription}\n\nI offer: ${offerDescription}`
+  );
 
   const trade = await prisma.trade.create({
-    data: { ownerId: actorId, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
+    data: { ownerId: actorId, postType, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
     include: tradeInclude
   });
 
@@ -332,11 +468,34 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res
   if (!trade) return res.status(404).json({ error: 'not_found', message: 'This trade is no longer open for proposals.' });
   if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
+
+  const requiredSide = proposalSideRequirement(trade.postType);
+  let proposedNeedId: string | null = null;
+  let proposedOfferId: string | null = null;
+
+  if (requiredSide === 'offer') {
+    if (!input.proposedOfferId) return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
+    if (input.proposedNeedId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Need proposals must include an Offer, not a Need.' });
+    const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
+    if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+    proposedOfferId = offer.id;
+  } else if (requiredSide === 'need') {
+    if (!input.proposedNeedId) return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
+    if (input.proposedOfferId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Offer proposals must include a Need, not an Offer.' });
+    const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
+    if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+    proposedNeedId = need.id;
+  } else if (input.proposedNeedId || input.proposedOfferId) {
+    return res.status(400).json({ error: 'proposal_side_not_supported', message: 'This trade already has a Need and Offer. Send a message proposal instead.' });
+  }
+
   const existing = await prisma.tradeProposal.findUnique({ where: { tradeId_applicantId: { tradeId: trade.id, applicantId: actorId } }, include: proposalInclude });
   if (existing && existing.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existing });
   if (existing && existing.status === 'accepted') return res.status(409).json({ error: 'proposal_already_accepted', message: 'Your proposal was already accepted.', proposal: existing });
   const proposal = await prisma.$transaction(async (tx) => {
-    const proposalRecord = existing ? await tx.tradeProposal.update({ where: { id: existing.id }, data: { message: input.message, status: 'pending', respondedAt: null } }) : await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message } });
+    const proposalRecord = existing
+      ? await tx.tradeProposal.update({ where: { id: existing.id }, data: { message: input.message, proposedNeedId, proposedOfferId, status: 'pending', respondedAt: null } })
+      : await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId } });
     await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
   });

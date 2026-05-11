@@ -1,12 +1,9 @@
 import React from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
-import type { MediaAssetDto } from '@hellowhen/contracts';
+import type { MediaAssetDto, TradePostType } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
-import { AppText } from '../../../components/AppText';
-import { useThemeTokens } from '../../../providers/ThemeProvider';
-import { TradeExchangeIcon } from './TradeExchangeIcon';
 import { resolveMediaUrl } from '../mediaUrls';
 import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
+import { TradePosterCard } from './TradePosterCard';
 
 export type TradeSquareDeckCard = {
   id: string;
@@ -24,6 +21,15 @@ function deckMedia(media: MediaAssetDto[] | undefined) {
   return (media ?? []).filter((asset) => asset.status === 'active');
 }
 
+function activeMediaUrl(media?: MediaAssetDto | null) {
+  if (!media?.url || media.status !== 'active') return null;
+  return resolveMediaUrl(media.url);
+}
+
+function firstDeckImage(trade: TradeDeckItem) {
+  return activeMediaUrl(deckMedia(trade.need?.media)[0]) ?? activeMediaUrl(deckMedia(trade.offer?.media)[0]);
+}
+
 export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, tradeTotal = 1): TradeSquareDeckCard[] {
   const cards: TradeSquareDeckCard[] = [{ id: `${trade.id}:summary`, kind: 'summary', trade, tradeIndex, tradeTotal }];
   for (const [index, media] of deckMedia(trade.need?.media).entries()) cards.push({ id: `${trade.id}:need:${media.id}:${index}`, kind: 'needImage', trade, tradeIndex, tradeTotal, media });
@@ -37,7 +43,6 @@ export function renderTradeSquareDeckCard(card: TradeSquareDeckCard, _index: num
 }
 
 function getTradeCounter(index: number, total: number) { return `${String(index + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`; }
-function getStatusLabel(status: string) { return status === 'active' ? 'OPEN' : status.replace(/_/g, ' ').toUpperCase(); }
 function modeLabel(mode?: string | null) {
   if (mode === 'remote') return 'Remote';
   if (mode === 'local') return 'Local';
@@ -45,74 +50,85 @@ function modeLabel(mode?: string | null) {
   return null;
 }
 function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
-function imagePlaceholderLabel(media?: MediaAssetDto) { if (media?.status === 'flagged') return 'Image unavailable'; return 'Image unavailable'; }
 function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
 function needTitle(trade: TradeDeckItem) { return moneySide(trade) === 'need' ? 'Wallet money' : trade.need?.title || trade.title || 'Open request'; }
 function offerTitle(trade: TradeDeckItem) { return moneySide(trade) === 'offer' ? 'Wallet money' : trade.offer?.title || 'Open offer'; }
+function compactJoin(values: Array<string | null | undefined>) { return values.filter((value): value is string => Boolean(value && value.trim())).join(' · '); }
+function compactSideMeta(metadata: string, fallback?: string | null) { return metadata || fallback || ''; }
+function tradePostType(trade: TradeDeckItem): TradePostType { return trade.postType ?? 'need_offer'; }
+function summaryTitle(trade: TradeDeckItem) {
+  const postType = tradePostType(trade);
+  if (postType === 'open_need') return needTitle(trade);
+  if (postType === 'open_offer') return offerTitle(trade);
+  return `${needTitle(trade)} ↔ ${offerTitle(trade)}`;
+}
+function exchangeEyebrow(trade: TradeDeckItem) {
+  const postType = tradePostType(trade);
+  if (postType === 'open_need') return 'Open Need · others propose offers';
+  if (postType === 'open_offer') return 'Open Offer · others propose needs';
+  if (moneySide(trade) === 'need') return 'Money + Offer exchange';
+  if (moneySide(trade) === 'offer') return 'Need + Money exchange';
+  return 'Need + Offer exchange';
+}
+function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: number) {
+  const prefix = tradePostType(trade) === 'open_need' ? 'Open Need' : tradePostType(trade) === 'open_offer' ? 'Open Offer' : 'Trade';
+  return `${prefix} · ${getTradeCounter(tradeIndex, tradeTotal)}`;
+}
+function getExpiryUrgencyBadge(expiresAt?: string | null) {
+  if (!expiresAt) return null;
+  const expiresMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiresMs)) return null;
+  const hoursLeft = (expiresMs - Date.now()) / 36e5;
+  if (hoursLeft <= 0) return null;
+  if (hoursLeft <= 24) return 'Expires soon';
+  if (hoursLeft <= 72) return 'Urgent';
+  return null;
+}
+function starterChips(trade: TradeDeckItem) { return [getExpiryUrgencyBadge(trade.expiresAt), ...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
 export function needMeta(need?: NeedItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? [need.category, need.timing, modeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details' : 'Need details'; }
 export function offerMeta(offer?: OfferItem | null, trade?: TradeDeckItem) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? [offer.includes?.[0], offer.availability, modeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details' : 'Offer details'; }
+
 export function TradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
-  const theme = useThemeTokens();
+  const postType = tradePostType(trade);
+  const summarySubtitle = postType === 'open_need'
+    ? compactSideMeta(needMeta(trade.need, trade), trade.need?.description)
+    : postType === 'open_offer'
+      ? compactSideMeta(offerMeta(trade.offer, trade), trade.offer?.description)
+      : compactJoin([compactSideMeta(needMeta(trade.need, trade), trade.need?.description), compactSideMeta(offerMeta(trade.offer, trade), trade.offer?.description)]);
+
   return (
-    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
-      <View style={styles.summaryHeaderRow}>
-        <AppText style={[styles.summaryHeader, { color: theme.color.muted }]}>TRADE · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
-        <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status)}</AppText>
-      </View>
-
-      <View style={styles.summaryBody}>
-        <View style={styles.tradeSideBlock}>
-          <AppText style={[styles.sideEyebrow, { color: theme.color.muted }]}>I need</AppText>
-          <AppText style={styles.sideTitle} numberOfLines={2}>{needTitle(trade)}</AppText>
-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={2}>{needMeta(trade.need, trade)}</AppText>
-        </View>
-
-        <View style={styles.exchangeRow}>
-          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
-          <View style={[styles.exchangeCircle, { backgroundColor: theme.color.elevated }]}><TradeExchangeIcon color={theme.color.text} size={22} strokeWidth={2.4} /></View>
-          <View style={[styles.exchangeLine, { backgroundColor: theme.color.border }]} />
-        </View>
-
-        <View style={styles.tradeSideBlock}>
-          <AppText style={[styles.sideEyebrow, { color: theme.color.muted }]}>I offer</AppText>
-          <AppText style={styles.sideTitle} numberOfLines={2}>{offerTitle(trade)}</AppText>
-          <AppText style={[styles.sideMeta, { color: theme.color.muted }]} numberOfLines={2}>{offerMeta(trade.offer, trade)}</AppText>
-        </View>
-      </View>
-    </Pressable>
+    <TradePosterCard
+      id={`${trade.id}:summary`}
+      imageUrl={firstDeckImage(trade)}
+      badge={summaryBadge(trade, tradeIndex, tradeTotal)}
+      eyebrow={exchangeEyebrow(trade)}
+      title={summaryTitle(trade)}
+      subtitle={summarySubtitle}
+      chips={starterChips(trade)}
+      variant="trade"
+      onPress={onOpen}
+    />
   );
 }
 
-export function TradeImageCard({ kind, media, onOpen }: TradeImageCardProps) {
+export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardProps) {
   const isNeed = kind === 'needImage';
-  const label = isNeed ? 'Need reference' : 'Offer sample';
+  const side = isNeed ? trade.need : trade.offer;
+  const sideTitle = isNeed ? needTitle(trade) : offerTitle(trade);
+  const sideMeta = isNeed ? needMeta(trade.need, trade) : offerMeta(trade.offer, trade);
+  const sideDescription = side?.description;
 
   return (
-    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.imageCard, pressed && styles.pressed]}>
-      {media?.url ? <Image source={{ uri: resolveMediaUrl(media.url) }} style={styles.fullBleedImage} resizeMode="cover" /> : <View style={styles.imagePlaceholder}><AppText style={styles.imagePlaceholderText}>{imagePlaceholderLabel(media)}</AppText></View>}
-      <View style={styles.floatingBadge}><AppText style={styles.floatingBadgeText}>{label}</AppText></View>
-    </Pressable>
+    <TradePosterCard
+      id={`${trade.id}:${kind}:${media?.id ?? 'fallback'}`}
+      imageUrl={activeMediaUrl(media)}
+      badge={isNeed ? 'Need reference' : 'Offer sample'}
+      eyebrow={isNeed ? 'I need' : 'I offer'}
+      title={sideTitle}
+      subtitle={compactSideMeta(sideMeta, sideDescription)}
+      chips={(side?.tags ?? []).slice(0, 3)}
+      variant={isNeed ? 'need' : 'offer'}
+      onPress={onOpen}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  summaryCard: { flex: 1, paddingHorizontal: 22, paddingVertical: 20, gap: 14 },
-  summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
-  summaryHeader: { fontSize: 11, fontWeight: '900', letterSpacing: 0.95 },
-  summaryStatus: { fontSize: 11, fontWeight: '900', letterSpacing: 0.95 },
-  summaryBody: { flex: 1, justifyContent: 'center', gap: 19 },
-  tradeSideBlock: { alignItems: 'center', gap: 7 },
-  sideEyebrow: { fontSize: 12, fontWeight: '900' },
-  sideTitle: { textAlign: 'center', fontSize: 25, lineHeight: 29, fontWeight: '900', letterSpacing: -0.75 },
-  sideMeta: { textAlign: 'center', fontSize: 13, lineHeight: 18, fontWeight: '800' },
-  exchangeRow: { flexDirection: 'row', alignItems: 'center', gap: 13, marginVertical: 2 },
-  exchangeLine: { flex: 1, height: 1 },
-  exchangeCircle: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  imageCard: { flex: 1, overflow: 'hidden', backgroundColor: '#0F172A' },
-  fullBleedImage: { width: '100%', height: '100%' },
-  imagePlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 18, backgroundColor: '#E2E8F0' },
-  imagePlaceholderText: { color: '#64748B', fontWeight: '900' },
-  floatingBadge: { position: 'absolute', left: 14, top: 14, borderRadius: 999, backgroundColor: 'rgba(15, 23, 42, 0.72)', paddingHorizontal: 10, paddingVertical: 6 },
-  floatingBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900', letterSpacing: 0.35 },
-  pressed: { opacity: 0.82 },
-});

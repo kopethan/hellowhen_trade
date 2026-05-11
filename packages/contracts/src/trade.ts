@@ -3,12 +3,17 @@ import { mediaAssetSchema } from './media.js';
 
 export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
 export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
+export const tradePostTypeSchema = z.enum(['need_offer', 'open_need', 'open_offer']);
 export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
 export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
 export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
+export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
+export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
+export const inventoryTemplateStatusSchema = z.enum(['draft', 'active', 'archived']);
+export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
 export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
 export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
 
@@ -53,6 +58,7 @@ export const createTradeRequestSchema = z.object({
   creditAmount: z.number().int().min(0).max(100000).optional().default(0),
   amountCents: z.number().int().min(0).max(10000000).optional().default(0),
   currency: z.string().trim().length(3).optional().default('eur'),
+  postType: tradePostTypeSchema.optional().default('need_offer'),
   needKind: tradeNeedSideKindSchema.optional().default('need'),
   offerKind: tradeOfferSideKindSchema.optional().default('offer'),
   needId: z.string().min(1).optional(),
@@ -63,18 +69,50 @@ export const createTradeRequestSchema = z.object({
 }).superRefine((value, ctx) => {
   const needIsMoney = value.needKind === 'money';
   const offerIsMoney = value.offerKind === 'money';
+  const postType = value.postType ?? 'need_offer';
 
   if (needIsMoney && offerIsMoney) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A trade cannot request and offer wallet money at the same time.', path: ['offerKind'] });
   }
-  if (!needIsMoney && !value.needId) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
+
+  if (postType === 'need_offer') {
+    if (!needIsMoney && !value.needId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
+    }
+    if (!offerIsMoney && !value.offerId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
+    }
   }
-  if (!offerIsMoney && !value.offerId) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
+
+  if (postType === 'open_need') {
+    if (needIsMoney) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need posts must use one of your saved Needs.', path: ['needKind'] });
+    }
+    if (!value.needId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need to publish an Open Need.', path: ['needId'] });
+    }
+    if (value.offerId || offerIsMoney) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need posts cannot include your own Offer. Others will propose offers.', path: ['offerId'] });
+    }
   }
+
+  if (postType === 'open_offer') {
+    if (offerIsMoney) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Offer posts must use one of your saved Offers.', path: ['offerKind'] });
+    }
+    if (!value.offerId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer to publish an Open Offer.', path: ['offerId'] });
+    }
+    if (value.needId || needIsMoney) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Offer posts cannot include your own Need. Others will propose needs.', path: ['needId'] });
+    }
+  }
+
   if ((needIsMoney || offerIsMoney) && value.amountCents <= 0) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Money trades must include an amount greater than zero.', path: ['amountCents'] });
+  }
+  if (postType !== 'need_offer' && (value.amountCents > 0 || value.creditAmount > 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need and Open Offer posts cannot include wallet money yet.', path: ['amountCents'] });
   }
 });
 
@@ -96,17 +134,33 @@ const inventoryUpdateBaseSchema = z.object({
 
 export const updateNeedRequestSchema = inventoryUpdateBaseSchema.extend({ status: needStatusSchema.optional() });
 export const updateOfferRequestSchema = inventoryUpdateBaseSchema.extend({ status: offerStatusSchema.optional() });
+export const listInventoryTemplatesQuerySchema = z.object({
+  kind: inventoryTemplateKindSchema.optional(),
+  itemType: inventoryItemTypeSchema.optional(),
+  sourceType: inventoryTemplateSourceTypeSchema.optional(),
+  businessProfileId: z.string().trim().min(1).optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional(),
+});
+export const cloneInventoryTemplateRequestSchema = z.object({
+  status: cloneInventoryTemplateStatusSchema.optional().default('active'),
+});
 export const listTradesFeedQuerySchema = z.object({
   q: z.string().trim().min(1).max(120).optional(),
   mode: tradeExchangeModeSchema.optional(),
   category: z.string().trim().min(1).max(80).optional(),
   hasImages: z.coerce.boolean().optional(),
   hasMoney: z.coerce.boolean().optional(),
+  postType: tradePostTypeSchema.optional(),
   take: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
 export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
-export const createTradeProposalRequestSchema = z.object({ message: z.string().min(3).max(1200) });
+export const createTradeProposalRequestSchema = z.object({
+  message: z.string().min(3).max(1200),
+  proposedNeedId: z.string().min(1).optional(),
+  proposedOfferId: z.string().min(1).optional()
+});
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
 
@@ -116,6 +170,7 @@ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePrev
 export const needSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
+  sourceTemplateId: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),
   itemType: inventoryItemTypeSchema.optional().default('service'),
@@ -134,6 +189,7 @@ export const needSchema = z.object({
 export const offerSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
+  sourceTemplateId: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),
   itemType: inventoryItemTypeSchema.optional().default('service'),
@@ -150,6 +206,42 @@ export const offerSchema = z.object({
   media: z.array(mediaAssetSchema).optional()
 });
 
+export const inventoryTemplateBusinessProfileSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  handle: z.string().nullable().optional(),
+  type: z.string().optional(),
+  status: z.string().optional(),
+}).passthrough().nullable().optional();
+
+export const inventoryTemplateSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  kind: inventoryTemplateKindSchema,
+  sourceType: inventoryTemplateSourceTypeSchema,
+  businessProfileId: z.string().nullable().optional(),
+  title: z.string(),
+  description: z.string(),
+  itemType: inventoryItemTypeSchema.optional().default('service'),
+  category: z.string().nullable().optional(),
+  timing: z.string().nullable().optional(),
+  availability: z.string().nullable().optional(),
+  mode: tradeExchangeModeSchema.nullable().optional(),
+  locationLabel: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  includes: z.array(z.string()).optional(),
+  status: inventoryTemplateStatusSchema,
+  sortOrder: z.number().int().optional().default(0),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  businessProfile: inventoryTemplateBusinessProfileSchema,
+});
+
+export const cloneInventoryTemplateResponseSchema = z.object({
+  template: inventoryTemplateSchema,
+  need: needSchema.optional(),
+  offer: offerSchema.optional(),
+});
 
 export const tradePaymentSchema = z.object({
   id: z.string(),
@@ -184,6 +276,7 @@ export const tradeSchema = z.object({
   creditAmount: z.number().int(),
   amountCents: z.number().int().optional().default(0),
   currency: z.string().optional().default('eur'),
+  postType: tradePostTypeSchema.optional().default('need_offer'),
   status: tradeStatusSchema,
   isPublic: z.boolean(),
   createdAt: z.string(),
@@ -207,17 +300,39 @@ export const tradeSchema = z.object({
   media: z.array(mediaAssetSchema).optional()
 });
 export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
-export const tradeProposalSchema = z.object({ id: z.string(), tradeId: z.string(), applicantId: z.string(), message: z.string(), status: proposalStatusSchema, createdAt: z.string(), updatedAt: z.string(), respondedAt: z.string().nullable().optional(), applicant: userPreviewSchema.optional(), trade: tradeSchema.optional(), messages: z.array(proposalMessageSchema).optional() });
+export const tradeProposalSchema = z.object({
+  id: z.string(),
+  tradeId: z.string(),
+  applicantId: z.string(),
+  proposedNeedId: z.string().nullable().optional(),
+  proposedOfferId: z.string().nullable().optional(),
+  message: z.string(),
+  status: proposalStatusSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  respondedAt: z.string().nullable().optional(),
+  applicant: userPreviewSchema.optional(),
+  trade: tradeSchema.optional(),
+  proposedNeed: needSchema.nullable().optional(),
+  proposedOffer: offerSchema.nullable().optional(),
+  messages: z.array(proposalMessageSchema).optional()
+});
 
 export type NeedDto = z.infer<typeof needSchema>;
 export type OfferDto = z.infer<typeof offerSchema>;
+export type InventoryTemplateDto = z.infer<typeof inventoryTemplateSchema>;
+export type CloneInventoryTemplateResponse = z.infer<typeof cloneInventoryTemplateResponseSchema>;
 export type TradeDto = z.infer<typeof tradeSchema>;
+export type TradePostType = z.infer<typeof tradePostTypeSchema>;
 export type TradeStatus = z.infer<typeof tradeStatusSchema>;
 export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
 export type InventoryItemType = z.infer<typeof inventoryItemTypeSchema>;
+export type InventoryTemplateKind = z.infer<typeof inventoryTemplateKindSchema>;
+export type InventoryTemplateSourceType = z.infer<typeof inventoryTemplateSourceTypeSchema>;
+export type InventoryTemplateStatus = z.infer<typeof inventoryTemplateStatusSchema>;
 export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
 export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
 export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
@@ -227,6 +342,8 @@ export type CreateOfferRequest = z.infer<typeof createOfferRequestSchema>;
 export type CreateTradeRequest = z.infer<typeof createTradeRequestSchema>;
 export type UpdateNeedRequest = z.infer<typeof updateNeedRequestSchema>;
 export type UpdateOfferRequest = z.infer<typeof updateOfferRequestSchema>;
+export type ListInventoryTemplatesQuery = z.infer<typeof listInventoryTemplatesQuerySchema>;
+export type CloneInventoryTemplateRequest = z.infer<typeof cloneInventoryTemplateRequestSchema>;
 export type ListTradesFeedQuery = z.infer<typeof listTradesFeedQuerySchema>;
 export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSchema>;
 export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;

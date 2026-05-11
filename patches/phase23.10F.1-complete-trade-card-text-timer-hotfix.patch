@@ -1,0 +1,68 @@
+diff --git a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+index e6ba63d..0639ff7 100644
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx
+@@ -149,7 +149,6 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel: 'Open' |
+           {countdown ? (
+             <span className={`trade-stack-card__mobile-countdown is-${countdown.tone}`} aria-label={`Expires in ${countdown.value}`}>
+               <strong>{countdown.value}</strong>
+-              <small>DDD:HH:MM:SS</small>
+             </span>
+           ) : null}
+         </div>
+
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 4753875..666c4a3 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1011,22 +1011,21 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+ .trade-stack-card--mobile-parity { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 0; padding: clamp(22px, 7vw, 32px); text-align: center; }
+ .trade-stack-card__mobile-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: .12em; text-transform: uppercase; }
+ .trade-stack-card__mobile-top strong { color: var(--app-text); font-size: 12px; font-weight: 950; }
+-.trade-stack-card__mobile-section { display: grid; align-content: center; justify-items: center; gap: 7px; min-height: 0; overflow: hidden; }
+-.trade-stack-card__mobile-section p { margin: 0; font-size: 14px; font-weight: 950; letter-spacing: -0.02em; }
++.trade-stack-card__mobile-section { display: grid; align-content: center; justify-items: center; gap: 6px; min-height: 0; overflow: hidden; padding-block: 2px; }
++.trade-stack-card__mobile-section p { margin: 0; font-size: 13px; font-weight: 950; letter-spacing: -0.02em; }
+ .trade-stack-card__mobile-section--need p { color: color-mix(in srgb, #2563eb 76%, var(--app-text)); }
+ .trade-stack-card__mobile-section--offer p { color: color-mix(in srgb, #059669 78%, var(--app-text)); }
+-.trade-stack-card__mobile-section h2 { display: -webkit-box; width: 100%; max-width: 100%; margin: 0; overflow: hidden; overflow-wrap: anywhere; color: var(--app-text); font-size: clamp(26px, 7.25vw, 34px); line-height: .98; letter-spacing: -0.06em; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+-.trade-stack-card__mobile-section span { display: block; max-width: min(90%, 280px); overflow: hidden; color: var(--app-text-muted); font-size: 13px; font-weight: 850; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
++.trade-stack-card__mobile-section h2 { display: -webkit-box; width: 100%; max-width: 100%; margin: 0; overflow: hidden; overflow-wrap: anywhere; color: var(--app-text); font-size: clamp(22px, 6.1vw, 29px); line-height: 1.1; letter-spacing: -0.055em; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
++.trade-stack-card__mobile-section span { display: block; max-width: min(90%, 280px); overflow: hidden; color: var(--app-text-muted); font-size: 12px; font-weight: 850; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+ .trade-stack-card__mobile-divider { display: grid; grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr); align-items: center; gap: 12px; min-height: 34px; color: var(--app-text-muted); }
+ .trade-stack-card__mobile-divider i { display: block; height: 2px; border-radius: 999px; background: color-mix(in srgb, var(--app-border-strong) 62%, transparent); }
+ .trade-stack-card__mobile-divider > span { display: grid; place-items: center; width: 24px; height: 24px; color: color-mix(in srgb, var(--app-text-muted) 82%, var(--app-text)); }
+-.trade-stack-card__mobile-footer { display: flex; align-items: flex-end; justify-content: center; gap: 10px; min-height: 28px; }
++.trade-stack-card__mobile-footer { display: flex; align-items: flex-end; justify-content: center; gap: 10px; min-height: 22px; }
+ .trade-stack-card__mobile-money { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--money-border); border-radius: 999px; background: var(--money-bg); color: var(--money-text); padding: 0 12px; font-size: 12px; font-weight: 950; }
+-.trade-stack-card__mobile-countdown { display: grid; gap: 1px; justify-items: center; color: var(--app-text-muted); font-weight: 950; letter-spacing: .04em; line-height: 1; }
+-.trade-stack-card__mobile-countdown strong { font-variant-numeric: tabular-nums; font-size: 13px; letter-spacing: .07em; }
+-.trade-stack-card__mobile-countdown small { color: var(--app-text-muted); font-size: 8px; font-weight: 950; letter-spacing: .16em; }
+-.trade-stack-card__mobile-countdown.is-soon strong { color: #b45309; }
+-.trade-stack-card__mobile-countdown.is-urgent strong { color: #b91c1c; }
++.trade-stack-card__mobile-countdown { display: inline-flex; align-items: center; justify-content: center; color: color-mix(in srgb, #2563eb 74%, var(--app-text)); font-weight: 950; letter-spacing: .04em; line-height: 1.1; }
++.trade-stack-card__mobile-countdown strong { font-variant-numeric: tabular-nums; font-size: 13px; letter-spacing: .06em; }
++.trade-stack-card__mobile-countdown.is-soon strong { color: #d97706; }
++.trade-stack-card__mobile-countdown.is-urgent strong { color: #dc2626; }
+ 
+ /* Phase 22.4: web dark-mode surface polish */
+ html[data-theme="dark"] .web-top-header,
+@@ -1076,15 +1075,14 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ 
+ @media (min-width: 760px) {
+   .trade-stack-card--mobile-parity { padding: 30px; }
+-  .trade-stack-card__mobile-section h2 { font-size: clamp(28px, 2.1vw, 36px); }
+-  .trade-stack-card__mobile-section span { font-size: 14px; }
++  .trade-stack-card__mobile-section h2 { font-size: clamp(24px, 1.9vw, 30px); }
++  .trade-stack-card__mobile-section span { font-size: 13px; }
+ }
+ 
+ @media (max-width: 420px) {
+   .trade-stack-card--mobile-parity { padding: 22px; }
+-  .trade-stack-card__mobile-section h2 { font-size: 26px; }
++  .trade-stack-card__mobile-section h2 { font-size: 22px; }
+   .trade-stack-card__mobile-countdown strong { font-size: 12px; }
+-  .trade-stack-card__mobile-countdown small { font-size: 7px; }
+ }
+ 
+ .payout-fee-box {

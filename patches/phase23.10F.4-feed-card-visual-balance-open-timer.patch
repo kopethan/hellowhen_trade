@@ -1,0 +1,198 @@
+diff -ruN a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+--- a/apps/web/src/app/globals.css	2026-05-11 19:56:46.987165199 +0000
++++ b/apps/web/src/app/globals.css	2026-05-11 19:57:40.710671392 +0000
+@@ -804,6 +804,50 @@
+   line-height: 1.1;
+ }
+ 
++.trade-poster-card__footer {
++  display: flex;
++  align-items: center;
++  margin-top: 4px;
++}
++
++.trade-poster-card__countdown,
++.trade-poster-card__expiry {
++  display: inline-flex;
++  align-items: center;
++  min-height: 18px;
++  color: #ef4444;
++  font-size: 11.5px;
++  font-weight: 950;
++  letter-spacing: .07em;
++  line-height: 1.1;
++  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.34);
++}
++
++.trade-poster-card__countdown strong {
++  color: inherit;
++  font-variant-numeric: tabular-nums;
++}
++
++.trade-poster-card__countdown.is-normal { color: #ef4444; }
++.trade-poster-card__countdown.is-soon { color: #dc2626; }
++.trade-poster-card__countdown.is-urgent { color: #b91c1c; }
++.trade-poster-card__expiry.is-none { color: rgba(255, 255, 255, 0.76); }
++.trade-poster-card__expiry.is-expired { color: #b91c1c; }
++
++.trade-poster-card.has-fallback .trade-poster-card__countdown,
++.trade-poster-card.has-fallback .trade-poster-card__expiry {
++  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.26);
++}
++
++.trade-poster-card.has-fallback .trade-poster-card__expiry.is-none {
++  color: rgba(15, 23, 42, 0.58);
++}
++
++.trade-poster-card.has-fallback .trade-poster-card__countdown.is-normal { color: #ef4444; }
++.trade-poster-card.has-fallback .trade-poster-card__countdown.is-soon { color: #dc2626; }
++.trade-poster-card.has-fallback .trade-poster-card__countdown.is-urgent,
++.trade-poster-card.has-fallback .trade-poster-card__expiry.is-expired { color: #b91c1c; }
++
+ .trade-poster-card.has-fallback .trade-poster-card__eyebrow,
+ .trade-poster-card.has-fallback .trade-poster-card__subtitle,
+ .trade-poster-card.has-fallback h2 {
+@@ -1013,11 +1057,11 @@
+ .trade-stack-card__mobile-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: .12em; text-transform: uppercase; }
+ .trade-stack-card__mobile-top strong { color: var(--app-text); font-size: 12px; font-weight: 950; }
+ .trade-stack-card__mobile-section { display: grid; align-content: center; justify-items: center; gap: 5px; min-height: 0; overflow: visible; padding-block: 5px; }
+-.trade-stack-card__mobile-section p { margin: 0; font-size: 13px; font-weight: 950; letter-spacing: -0.02em; }
++.trade-stack-card__mobile-section p { margin: 0; font-size: 13.5px; font-weight: 950; letter-spacing: -0.02em; }
+ .trade-stack-card__mobile-section--need p { color: color-mix(in srgb, #2563eb 76%, var(--app-text)); }
+ .trade-stack-card__mobile-section--offer p { color: color-mix(in srgb, #059669 78%, var(--app-text)); }
+-.trade-stack-card__mobile-section h2 { display: -webkit-box; width: 100%; max-width: 100%; margin: 0 0 -0.08em; padding-bottom: 0.12em; overflow: hidden; overflow-wrap: anywhere; color: var(--app-text); font-size: clamp(18px, 5vw, 23px); line-height: 1.24; letter-spacing: -0.044em; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+-.trade-stack-card__mobile-section span { display: block; max-width: min(90%, 280px); overflow: hidden; color: var(--app-text-muted); font-size: 10.5px; font-weight: 850; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
++.trade-stack-card__mobile-section h2 { display: -webkit-box; width: 100%; max-width: 100%; margin: 0 0 -0.08em; padding-bottom: 0.12em; overflow: hidden; overflow-wrap: anywhere; color: var(--app-text); font-size: clamp(19px, 5.25vw, 24px); line-height: 1.25; letter-spacing: -0.044em; text-overflow: ellipsis; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
++.trade-stack-card__mobile-section span { display: block; max-width: min(90%, 280px); overflow: hidden; color: var(--app-text-muted); font-size: 11px; font-weight: 850; line-height: 1.36; text-overflow: ellipsis; white-space: nowrap; }
+ .trade-stack-card__mobile-divider { display: grid; grid-template-columns: minmax(64px, 1fr) auto minmax(64px, 1fr); align-items: center; gap: 12px; min-height: 34px; color: var(--app-text-muted); }
+ .trade-stack-card__mobile-divider i { display: block; height: 2px; border-radius: 999px; background: color-mix(in srgb, var(--app-border-strong) 62%, transparent); }
+ .trade-stack-card__mobile-divider > span { display: grid; place-items: center; width: 24px; height: 24px; color: color-mix(in srgb, var(--app-text-muted) 82%, var(--app-text)); }
+@@ -1025,11 +1069,11 @@
+ .trade-stack-card__mobile-money { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--money-border); border-radius: 999px; background: var(--money-bg); color: var(--money-text); padding: 0 12px; font-size: 12px; font-weight: 950; }
+ .trade-stack-card__mobile-countdown,
+ .trade-stack-card__mobile-expiry { display: inline-flex; align-items: center; justify-content: center; font-weight: 950; letter-spacing: .04em; line-height: 1.15; }
+-.trade-stack-card__mobile-countdown strong { color: #ef4444; font-variant-numeric: tabular-nums; font-size: 12.5px; letter-spacing: .06em; }
++.trade-stack-card__mobile-countdown strong { color: #ef4444; font-variant-numeric: tabular-nums; font-size: 13.5px; letter-spacing: .065em; }
+ .trade-stack-card__mobile-countdown.is-normal strong { color: #ef4444; }
+ .trade-stack-card__mobile-countdown.is-soon strong { color: #dc2626; }
+ .trade-stack-card__mobile-countdown.is-urgent strong { color: #b91c1c; }
+-.trade-stack-card__mobile-expiry { color: var(--app-text-muted); font-size: 11px; letter-spacing: .12em; }
++.trade-stack-card__mobile-expiry { color: var(--app-text-muted); font-size: 11.5px; letter-spacing: .12em; }
+ .trade-stack-card__mobile-expiry.is-expired { color: #b91c1c; }
+ 
+ /* Phase 22.4: web dark-mode surface polish */
+@@ -1080,14 +1124,16 @@
+ 
+ @media (min-width: 760px) {
+   .trade-stack-card--mobile-parity { padding: 30px; }
+-  .trade-stack-card__mobile-section h2 { font-size: clamp(18px, 1.42vw, 23px); }
+-  .trade-stack-card__mobile-section span { font-size: 11px; }
++  .trade-stack-card__mobile-section h2 { font-size: clamp(20px, 1.55vw, 25px); }
++  .trade-stack-card__mobile-section span { font-size: 11.5px; }
+ }
+ 
+ @media (max-width: 420px) {
+   .trade-stack-card--mobile-parity { padding: 22px; }
+-  .trade-stack-card__mobile-section h2 { font-size: 18px; }
+-  .trade-stack-card__mobile-countdown strong { font-size: 12px; }
++  .trade-stack-card__mobile-section h2 { font-size: 19px; }
++  .trade-stack-card__mobile-countdown strong { font-size: 12.5px; }
++  .trade-poster-card__countdown,
++  .trade-poster-card__expiry { font-size: 11px; }
+ }
+ 
+ .payout-fee-box {
+diff -ruN a/apps/web/src/features/trade/TradePosterCard.tsx b/apps/web/src/features/trade/TradePosterCard.tsx
+--- a/apps/web/src/features/trade/TradePosterCard.tsx	2026-05-11 19:56:47.010905314 +0000
++++ b/apps/web/src/features/trade/TradePosterCard.tsx	2026-05-11 19:56:59.374757995 +0000
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
++import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+ 
+ type TradePosterCardProps = {
+   id: string;
+@@ -11,6 +11,7 @@
+   title: string;
+   subtitle?: string;
+   chips?: string[];
++  footer?: ReactNode;
+   variant?: 'trade' | 'need' | 'offer';
+ };
+ 
+@@ -40,7 +41,7 @@
+   };
+ }
+ 
+-export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, chips = [], variant = 'trade' }: TradePosterCardProps) {
++export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, chips = [], footer, variant = 'trade' }: TradePosterCardProps) {
+   const [imageFailed, setImageFailed] = useState(!imageUrl);
+   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
+   const fallback = useMemo(() => fallbackModel(id, variant), [id, variant]);
+@@ -97,6 +98,7 @@
+               ))}
+             </div>
+           ) : null}
++          {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
+         </div>
+       </div>
+     </article>
+diff -ruN a/apps/web/src/features/trade/TradeStackDeck.tsx b/apps/web/src/features/trade/TradeStackDeck.tsx
+--- a/apps/web/src/features/trade/TradeStackDeck.tsx	2026-05-11 19:56:46.948052335 +0000
++++ b/apps/web/src/features/trade/TradeStackDeck.tsx	2026-05-11 19:57:11.990069442 +0000
+@@ -67,7 +67,7 @@
+   };
+ }
+ 
+-function TradeCountdown({ expiresAt }: { expiresAt?: string | null }) {
++function TradeCountdown({ expiresAt, variant = 'mobile' }: { expiresAt?: string | null; variant?: 'mobile' | 'poster' }) {
+   const [now, setNow] = useState(() => Date.now());
+ 
+   useEffect(() => {
+@@ -82,7 +82,7 @@
+ 
+   if (!expiresAt) {
+     return (
+-      <span className="trade-stack-card__mobile-expiry is-none" aria-label="No expiry date set">
++      <span className={`${variant === 'poster' ? 'trade-poster-card__expiry' : 'trade-stack-card__mobile-expiry'} is-none`} aria-label="No expiry date set">
+         NO EXPIRY
+       </span>
+     );
+@@ -91,7 +91,7 @@
+   const countdown = formatExpiryCountdown(expiresAt, now);
+   if (!countdown) {
+     return (
+-      <span className="trade-stack-card__mobile-expiry is-none" aria-label="No expiry date set">
++      <span className={`${variant === 'poster' ? 'trade-poster-card__expiry' : 'trade-stack-card__mobile-expiry'} is-none`} aria-label="No expiry date set">
+         NO EXPIRY
+       </span>
+     );
+@@ -99,14 +99,17 @@
+ 
+   if (countdown.tone === 'expired') {
+     return (
+-      <span className="trade-stack-card__mobile-expiry is-expired" aria-label="Trade expired">
++      <span className={`${variant === 'poster' ? 'trade-poster-card__expiry' : 'trade-stack-card__mobile-expiry'} is-expired`} aria-label="Trade expired">
+         EXPIRED
+       </span>
+     );
+   }
+ 
+   return (
+-    <span className={`trade-stack-card__mobile-countdown is-${countdown.tone}`} aria-label={`Expires in ${countdown.value}`}>
++    <span
++      className={`${variant === 'poster' ? 'trade-poster-card__countdown' : 'trade-stack-card__mobile-countdown'} is-${countdown.tone}`}
++      aria-label={`Expires in ${countdown.value}`}
++    >
+       <strong>{countdown.value}</strong>
+     </span>
+   );
+@@ -206,6 +209,7 @@
+       title={compactTradeTitle(trade, need.title, offer.title)}
+       subtitle={summarySubtitle}
+       chips={summaryChips}
++      footer={<TradeCountdown expiresAt={trade.expiresAt} variant="poster" />}
+       variant="trade"
+     />
+   );

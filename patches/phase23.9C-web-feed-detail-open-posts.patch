@@ -1,0 +1,510 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index a776970..3cb9a2e 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1418,3 +1418,20 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   .trade-create-mode-summary { grid-template-columns: 1fr; }
+   .trade-create-mode-summary .trade-side-source-back { justify-self: start; }
+ }
++
++/* Phase 23.9C: web Open Need / Open Offer feed and detail support */
++.trade-open-response-section {
++  border-color: color-mix(in srgb, var(--proposal-border) 58%, var(--app-border));
++  background: linear-gradient(135deg, color-mix(in srgb, var(--proposal-bg) 18%, transparent), transparent 64%);
++}
++.trade-how-it-works {
++  margin: 0;
++  border: 1px solid color-mix(in srgb, var(--proposal-border) 50%, var(--app-border));
++  border-radius: 20px;
++  background: color-mix(in srgb, var(--proposal-bg) 18%, var(--app-surface));
++  color: var(--app-text-muted);
++  padding: 12px;
++  font-size: 13px;
++  font-weight: 760;
++  line-height: 1.45;
++}
+diff --git a/apps/web/src/features/trade/TradeCard.tsx b/apps/web/src/features/trade/TradeCard.tsx
+index 3e798da..e9ee6bb 100644
+--- a/apps/web/src/features/trade/TradeCard.tsx
++++ b/apps/web/src/features/trade/TradeCard.tsx
+@@ -2,16 +2,19 @@ import Link from 'next/link';
+ import type { TradeDto } from '@hellowhen/contracts';
+ import { truncateText } from '@hellowhen/shared';
+ import { formatWebMoney } from '../../lib/webFormat';
++import { getExchangeLabel, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
+ 
+ function formatTradeExchange(trade: TradeDto) {
+-  if (trade.amountCents > 0) return formatWebMoney(trade.amountCents, trade.currency);
+-  return 'Service-for-service';
++  if ((trade.amountCents ?? 0) > 0) return formatWebMoney(trade.amountCents ?? 0, trade.currency);
++  return getExchangeLabel(trade);
+ }
+ 
+ export function TradeCard({ trade }: { trade: TradeDto }) {
+-  const needTitle = trade.need?.title ?? 'I need';
+-  const offerTitle = trade.offer?.title ?? (trade.amountCents > 0 ? 'Wallet money' : 'I offer');
+   const ownerName = trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
++  const postType = getTradePostType(trade);
++  const proposalCopy = getTradeProposalCopy(trade);
++  const needTitle = trade.need?.title ?? 'Need details';
++  const offerTitle = trade.offer?.title ?? 'Offer details';
+ 
+   return (
+     <Link href={`/trades/${trade.id}`} className="trade-card" aria-label={`Open ${trade.title}`}>
+@@ -20,10 +23,20 @@ export function TradeCard({ trade }: { trade: TradeDto }) {
+         <span className="meta">{ownerName}</span>
+       </div>
+       <div className="trade-card__body">
+-        <p className="eyebrow">I need</p>
+-        <h2 className="trade-card__title">{needTitle}</h2>
+-        <p className="eyebrow">I offer</p>
+-        <h2 className="trade-card__title">{offerTitle}</h2>
++        {postType === 'need_offer' ? (
++          <>
++            <p className="eyebrow">I need</p>
++            <h2 className="trade-card__title">{needTitle}</h2>
++            <p className="eyebrow">I offer</p>
++            <h2 className="trade-card__title">{offerTitle}</h2>
++          </>
++        ) : (
++          <>
++            <p className="eyebrow">{getExchangeLabel(trade)}</p>
++            <h2 className="trade-card__title">{getTradeHeadline(trade)}</h2>
++            <p className="meta">{proposalCopy.inviteTitle}</p>
++          </>
++        )}
+         <p>{truncateText(trade.description, 120)}</p>
+       </div>
+       <div className="trade-card__footer">
+diff --git a/apps/web/src/features/trade/TradeDeck.tsx b/apps/web/src/features/trade/TradeDeck.tsx
+index 072f10d..0bfa2d0 100644
+--- a/apps/web/src/features/trade/TradeDeck.tsx
++++ b/apps/web/src/features/trade/TradeDeck.tsx
+@@ -1,7 +1,7 @@
+ import Link from 'next/link';
+ import type { TradeDto } from '@hellowhen/contracts';
+ import { truncateText } from '@hellowhen/shared';
+-import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName } from './tradePresentation';
++import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
+ 
+ export function TradeDeck({ trade }: { trade: TradeDto }) {
+   const need = getNeedSide(trade);
+@@ -9,6 +9,8 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
+   const images = getDeckImages(trade);
+   const ownerName = getOwnerName(trade);
+   const exchange = getExchangeLabel(trade);
++  const postType = getTradePostType(trade);
++  const proposalCopy = getTradeProposalCopy(trade);
+ 
+   return (
+     <section className="trade-deck" aria-label={trade.title}>
+@@ -19,10 +21,20 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
+             <span className="meta">{ownerName}</span>
+           </div>
+           <div className="trade-deck-card__body">
+-            <p className="eyebrow">I need</p>
+-            <h2>{need.title}</h2>
+-            <p className="eyebrow">I offer</p>
+-            <h2>{offer.title}</h2>
++            {postType === 'need_offer' ? (
++              <>
++                <p className="eyebrow">I need</p>
++                <h2>{need.title}</h2>
++                <p className="eyebrow">I offer</p>
++                <h2>{offer.title}</h2>
++              </>
++            ) : (
++              <>
++                <p className="eyebrow">{exchange}</p>
++                <h2>{getTradeHeadline(trade)}</h2>
++                <p className="meta">{proposalCopy.inviteTitle}</p>
++              </>
++            )}
+             <p>{truncateText(trade.description, 126)}</p>
+           </div>
+           <div className="trade-deck-card__footer">
+diff --git a/apps/web/src/features/trade/TradeDetailClient.tsx b/apps/web/src/features/trade/TradeDetailClient.tsx
+index 8c4161a..a543f58 100644
+--- a/apps/web/src/features/trade/TradeDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeDetailClient.tsx
+@@ -13,7 +13,7 @@ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockTrades } from '../../lib/mockData';
+ import { TradeImageGrid } from './TradeImageGrid';
+ import { TradeProposalPanel } from './TradeProposalPanel';
+-import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeMode } from './tradePresentation';
++import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
+ 
+ function normalizeTradeResponse(value: unknown): TradeDto | null {
+   if (!value || typeof value !== 'object') return null;
+@@ -40,7 +40,7 @@ function completionHint(trade: TradeDto, _userId?: string | null) {
+ }
+ 
+ 
+-function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
++function SideSection({ side }: { side: TradeSide }) {
+   const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : 'instruction';
+ 
+   return (
+@@ -64,6 +64,27 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
+   );
+ }
+ 
++function OpenResponseSection({ trade }: { trade: TradeDto }) {
++  const copy = getTradeProposalCopy(trade);
++  const postType = getTradePostType(trade);
++  const iconName = postType === 'open_need' ? 'offer' : 'need';
++  const badgeClass = postType === 'open_need' ? 'offer' : 'need';
++
++  return (
++    <section className="trade-social-section trade-open-response-section">
++      <div className="trade-section-heading">
++        <div>
++          <p className="eyebrow">What can others propose?</p>
++          <h2 className="icon-heading"><WebIcon name={iconName} size={21} decorative /> {copy.inviteTitle}</h2>
++        </div>
++        <span className={`semantic-badge ${badgeClass}`}>{copy.responseNeeded}</span>
++      </div>
++      <p>{copy.inviteBody}</p>
++      <p className="meta">Use the private proposal area below to respond to this post.</p>
++    </section>
++  );
++}
++
+ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; initialTrade?: TradeDto | null }) {
+   const auth = useWebAuth();
+   const router = useRouter();
+@@ -207,6 +228,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+   const offerSide = getOfferSide(currentTrade);
+   const ownerName = getOwnerName(currentTrade);
+   const exchange = getExchangeLabel(currentTrade);
++  const headline = getTradeHeadline(currentTrade);
++  const howItWorks = getTradeHowItWorks(currentTrade);
++  const postType = getTradePostType(currentTrade);
++  const proposalCopy = getTradeProposalCopy(currentTrade);
+   const mode = getTradeMode(currentTrade);
+ 
+   return (
+@@ -217,13 +242,14 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+           <span className="semantic-badge trade">{exchange}</span>
+           {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
+         </div>
+-        <h2>{currentTrade.title}</h2>
++        <h2>{headline}</h2>
+         <p>{currentTrade.description}</p>
+         <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
+       </section>
+ 
+-      <SideSection side={needSide} />
+-      <SideSection side={offerSide} />
++      {postType !== 'open_offer' ? <SideSection side={needSide} /> : null}
++      {postType !== 'open_need' ? <SideSection side={offerSide} /> : null}
++      {postType === 'open_need' || postType === 'open_offer' ? <OpenResponseSection trade={currentTrade} /> : null}
+ 
+       <section className="trade-social-section trade-social-section--compact">
+         <div className="trade-section-heading">
+@@ -235,10 +261,12 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         <dl className="trade-detail-list">
+           <div><dt>Status</dt><dd>{currentTrade.status}</dd></div>
+           <div><dt>Exchange</dt><dd>{exchange}</dd></div>
++          <div><dt>Response needed</dt><dd>{proposalCopy.responseNeeded}</dd></div>
+           <div><dt>Mode</dt><dd>{mode ?? 'Not specified'}</dd></div>
+           <div><dt>Created</dt><dd>{formatDateLabel(currentTrade.createdAt)}</dd></div>
+           <div><dt>Expires</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt)}</dd></div>
+         </dl>
++        <p className="trade-how-it-works">{howItWorks}</p>
+       </section>
+ 
+       <section className="trade-social-section trade-social-section--compact">
+@@ -279,7 +307,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+             </div>
+             <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? 'Available' : 'Protected'}</span>
+           </div>
+-          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved Need and Offer will stay in your inventory.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
++          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved inventory item will stay in your account.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
+           <div className="trade-action-row">
+             <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>Delete trade</button>
+           </div>
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index 2cca3a6..3be4a94 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from 'next/link';
+ import type { FormEvent } from 'react';
+-import type { TradeDto } from '@hellowhen/contracts';
++import type { TradeDto, TradePostType } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { api } from '../../lib/api';
+ import { WebIcon } from '../../components/WebIcon';
+@@ -17,9 +17,10 @@ type FeedFilters = {
+   mode: string;
+   hasImages: boolean;
+   hasMoney: boolean;
++  postType: '' | TradePostType;
+ };
+ 
+-const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false };
++const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false, postType: '' };
+ 
+ function normalizeFeedResponse(value: unknown): TradeDto[] {
+   if (Array.isArray(value)) return value as TradeDto[];
+@@ -37,6 +38,7 @@ function localFilter(trades: TradeDto[], filters: FeedFilters) {
+     const hasMoney = (trade.amountCents ?? 0) > 0;
+     if (query && !haystack.includes(query)) return false;
+     if (filters.mode && mode !== filters.mode) return false;
++    if (filters.postType && (trade.postType ?? 'need_offer') !== filters.postType) return false;
+     if (filters.hasImages && !hasImages) return false;
+     if (filters.hasMoney && !hasMoney) return false;
+     return true;
+@@ -65,6 +67,7 @@ export function TradeFeedClient() {
+           mode: appliedFilters.mode || undefined,
+           hasImages: appliedFilters.hasImages || undefined,
+           hasMoney: betaFeatures.moneyTradesEnabled ? (appliedFilters.hasMoney || undefined) : undefined,
++          postType: appliedFilters.postType || undefined,
+           take: 30,
+         });
+         const nextTrades = normalizeFeedResponse(response);
+@@ -134,6 +137,15 @@ export function TradeFeedClient() {
+                 <option value="hybrid">Hybrid</option>
+               </select>
+             </label>
++            <label>
++              <span>Post type</span>
++              <select value={filters.postType} onChange={(event) => setFilters((current) => ({ ...current, postType: event.target.value as FeedFilters['postType'] }))}>
++                <option value="">Any post type</option>
++                <option value="need_offer">Need + Offer</option>
++                <option value="open_need">Open Need</option>
++                <option value="open_offer">Open Offer</option>
++              </select>
++            </label>
+             <label className="checkbox-row">
+               <input type="checkbox" checked={filters.hasImages} onChange={(event) => setFilters((current) => ({ ...current, hasImages: event.target.checked }))} />
+               Has images
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 816eff7..946e2ba 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -6,6 +6,7 @@ import type { ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/
+ import { useEffect, useMemo, useState } from 'react';
+ import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
++import { getTradeProposalCopy } from './tradePresentation';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ 
+ type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
+@@ -87,6 +88,7 @@ function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
+ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
+   const auth = useWebAuth();
+   const isOwner = auth.user?.id === trade.ownerId;
++  const proposalCopy = getTradeProposalCopy(trade);
+   const [proposals, setProposals] = useState<TradeProposalDto[]>([]);
+   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+   const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
+@@ -230,8 +232,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+   if (!auth.isAuthenticated) {
+     return (
+       <section className="trade-social-section">
+-        <h2><WebIcon name="proposal" size={21} decorative /> Ask to trade</h2>
+-        <p>Proposal messages are private between the creator and applicant, but they live here on the Trade Detail page.</p>
++        <h2><WebIcon name="proposal" size={21} decorative /> {proposalCopy.signedOutTitle}</h2>
++        <p>{proposalCopy.helper}</p>
+         <Link href={`/auth?next=${encodeURIComponent(`/trades/${trade.id}`)}`} className="button primary full">Sign in to send a proposal</Link>
+       </section>
+     );
+@@ -242,7 +244,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+       <div className="trade-section-heading">
+         <div>
+           <p className="eyebrow">Private thread</p>
+-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : 'Ask to trade'}</h2>
++          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : proposalCopy.actionTitle}</h2>
+         </div>
+         {loading ? <span className="semantic-badge instruction">Updating</span> : null}
+       </div>
+@@ -253,9 +255,9 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+         <form className="proposal-composer" onSubmit={submitProposal}>
+           <label className="field-label">
+             Message
+-            <textarea value={proposalMessage} onChange={(event) => setProposalMessage(event.target.value)} placeholder="Write a short note about how you can trade..." rows={4} />
++            <textarea value={proposalMessage} onChange={(event) => setProposalMessage(event.target.value)} placeholder={proposalCopy.placeholder} rows={4} />
+           </label>
+-          <button type="submit" disabled={loading || proposalMessage.trim().length < 3}>Send proposal</button>
++          <button type="submit" disabled={loading || proposalMessage.trim().length < 3}>{proposalCopy.actionButton}</button>
+         </form>
+       ) : null}
+ 
+@@ -284,7 +286,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+         <div className="proposal-empty-state">
+           <WebIcon name="proposal" size={30} decorative />
+           <strong>No proposals yet</strong>
+-          <span>When someone asks to trade, the request will appear here.</span>
++          <span>{proposalCopy.ownerEmpty}</span>
+         </div>
+       ) : null}
+ 
+diff --git a/apps/web/src/features/trade/tradePresentation.ts b/apps/web/src/features/trade/tradePresentation.ts
+index cbf4f9a..6dcaa54 100644
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -36,16 +36,78 @@ export function getOwnerName(trade: TradeDto) {
+   return trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
+ }
+ 
++export function getTradePostType(trade: TradeDto) {
++  return trade.postType ?? 'need_offer';
++}
++
+ export function getExchangeLabel(trade: TradeDto) {
+-  if (trade.postType === 'open_need') return 'Open Need';
+-  if (trade.postType === 'open_offer') return 'Open Offer';
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return 'Open Need';
++  if (postType === 'open_offer') return 'Open Offer';
+   return 'Need + Offer exchange';
+ }
+ 
++export function getTradeHeadline(trade: TradeDto) {
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return trade.need?.title ?? trade.title;
++  if (postType === 'open_offer') return trade.offer?.title ?? trade.title;
++  const needTitle = trade.need?.title ?? 'Need details';
++  const offerTitle = trade.offer?.title ?? 'Offer details';
++  return `${needTitle} ↔ ${offerTitle}`;
++}
++
+ export function getTradeMode(trade: TradeDto) {
+   return trade.need?.mode ?? trade.offer?.mode ?? null;
+ }
+ 
++export function getTradeProposalCopy(trade: TradeDto) {
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') {
++    return {
++      actionTitle: 'Propose an offer',
++      actionButton: 'Send offer proposal',
++      signedOutTitle: 'Propose an offer',
++      ownerEmpty: 'When someone proposes an offer for this need, the request will appear here.',
++      placeholder: 'Tell the creator what you can offer for this need...',
++      helper: 'This Open Need is looking for offers. Proposal details stay private between both members.',
++      inviteTitle: 'Open for offers',
++      inviteBody: 'The creator posted only what they need. Others can propose what they can offer below.',
++      responseNeeded: 'Offer proposal',
++    };
++  }
++  if (postType === 'open_offer') {
++    return {
++      actionTitle: 'Propose a need',
++      actionButton: 'Send need proposal',
++      signedOutTitle: 'Propose a need',
++      ownerEmpty: 'When someone proposes a need for this offer, the request will appear here.',
++      placeholder: 'Tell the creator what you need in return for this offer...',
++      helper: 'This Open Offer is waiting for needs or requests. Proposal details stay private between both members.',
++      inviteTitle: 'Open for needs',
++      inviteBody: 'The creator posted only what they offer. Others can propose what they need or want in return below.',
++      responseNeeded: 'Need proposal',
++    };
++  }
++  return {
++    actionTitle: 'Ask to trade',
++    actionButton: 'Send proposal',
++    signedOutTitle: 'Ask to trade',
++    ownerEmpty: 'When someone asks to trade, the request will appear here.',
++    placeholder: 'Write a short note about how you can trade...',
++    helper: 'Proposal messages are private between the creator and applicant, but they live here on the Trade Detail page.',
++    inviteTitle: 'Need + Offer exchange',
++    inviteBody: 'The creator already posted both sides of this exchange. Applicants can ask to trade below.',
++    responseNeeded: 'Trade proposal',
++  };
++}
++
++export function getTradeHowItWorks(trade: TradeDto) {
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return 'The creator posted a Need only. Applicants should propose what they can offer for it.';
++  if (postType === 'open_offer') return 'The creator posted an Offer only. Applicants should propose what they need or want in return.';
++  return 'The creator posted both a Need and an Offer. Applicants can ask to accept the exchange.';
++}
++
+ export function getNeedSide(trade: TradeDto): TradeSide {
+   return needToSide(trade.need, 'I need');
+ }
+diff --git a/apps/web/src/lib/mockData.ts b/apps/web/src/lib/mockData.ts
+index ec5d619..418bf53 100644
+--- a/apps/web/src/lib/mockData.ts
++++ b/apps/web/src/lib/mockData.ts
+@@ -281,6 +281,76 @@ export const mockTrades: TradeDto[] = [
+       media: offerAuditMedia,
+     },
+   },
++
++  {
++    id: 'demo-trade-open-need-1',
++    ownerId: 'demo-user-4',
++    title: 'Open Need: Mobile web beta test',
++    description: 'I need someone to test the mobile web flow and send clear notes. I am open to offers from testers, designers, or product people.',
++    creditAmount: 0,
++    amountCents: 0,
++    currency: 'eur',
++    postType: 'open_need',
++    status: 'active',
++    isPublic: true,
++    createdAt: now,
++    updatedAt: now,
++    expiresAt: inSixDays,
++    owner: { id: 'demo-user-4', profile: { displayName: 'Yara', handle: 'yara', avatarUrl: null } },
++    need: {
++      id: 'demo-open-need-1',
++      ownerId: 'demo-user-4',
++      title: 'Mobile web beta test',
++      description: 'I need a focused mobile web test with screenshots, bugs, and friction notes for onboarding and create trade.',
++      itemType: 'service',
++      category: 'Testing',
++      timing: 'This week',
++      mode: 'remote',
++      locationLabel: 'Remote',
++      tags: ['testing', 'mobile web'],
++      status: 'active',
++      createdAt: now,
++      updatedAt: now,
++      expiresAt: inSixDays,
++      media: [],
++    },
++    offer: null,
++  },
++  {
++    id: 'demo-trade-open-offer-1',
++    ownerId: 'demo-user-5',
++    title: 'Open Offer: UI polish review',
++    description: 'I can review one app screen and send quick UI polish notes. Tell me what you need in return or what screen needs review.',
++    creditAmount: 0,
++    amountCents: 0,
++    currency: 'eur',
++    postType: 'open_offer',
++    status: 'active',
++    isPublic: true,
++    createdAt: now,
++    updatedAt: now,
++    expiresAt: null,
++    owner: { id: 'demo-user-5', profile: { displayName: 'Leo', handle: 'leo', avatarUrl: null } },
++    need: null,
++    offer: {
++      id: 'demo-open-offer-1',
++      ownerId: 'demo-user-5',
++      title: 'UI polish review',
++      description: 'I can review a screen, point out layout issues, and suggest copy and spacing improvements.',
++      itemType: 'service',
++      category: 'Design',
++      availability: '48 hours',
++      mode: 'remote',
++      locationLabel: 'Remote',
++      includes: ['One screen review', 'Prioritized notes'],
++      tags: ['ui', 'design'],
++      status: 'active',
++      createdAt: now,
++      updatedAt: now,
++      expiresAt: null,
++      media: [],
++    },
++  },
+ ];
+ 
+ type StressMockFixture = {

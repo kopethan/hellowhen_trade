@@ -4,6 +4,7 @@ import { authRoutes } from './modules/auth/auth.routes.js';
 import { businessRoutes } from './modules/business/business.routes.js';
 import { creditsRoutes } from './modules/credits/credits.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
+import { inventoryTemplatesRoutes } from './modules/inventory-templates/inventoryTemplates.routes.js';
 import { needsRoutes } from './modules/needs/needs.routes.js';
 import { mediaRoutes } from './modules/media/media.routes.js';
 import { offersRoutes } from './modules/offers/offers.routes.js';
@@ -18,6 +19,7 @@ import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireWal
 export const routes = Router();
 
 routes.use('/health', healthRoutes);
+routes.use('/inventory-templates', inventoryTemplatesRoutes);
 routes.use('/auth', authRoutes);
 routes.use('/business', requireBusinessAccountsVisible(), businessRoutes);
 routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);

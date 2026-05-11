@@ -53,6 +53,30 @@ enum InventoryItemType {
   other
 }
 
+enum InventoryTemplateKind {
+  need
+  offer
+}
+
+enum InventoryTemplateSourceType {
+  hellowhen
+  business
+  brand
+  partner
+}
+
+enum InventoryTemplateStatus {
+  draft
+  active
+  archived
+}
+
+enum TradePostType {
+  need_offer
+  open_need
+  open_offer
+}
+
 enum TradeStatus {
   draft
   active
@@ -421,6 +445,7 @@ model Need {
   id            String             @id @default(cuid())
   ownerId       String
   businessProfileId String?
+  sourceTemplateId String?
   title         String
   description   String
   itemType      InventoryItemType @default(service)
@@ -436,10 +461,13 @@ model Need {
 
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+  sourceTemplate InventoryTemplate? @relation("NeedSourceTemplate", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   trades Trade[]
+  proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
+  @@index([sourceTemplateId])
   @@index([category])
   @@index([itemType])
   @@index([mode])
@@ -449,6 +477,7 @@ model Offer {
   id            String             @id @default(cuid())
   ownerId       String
   businessProfileId String?
+  sourceTemplateId String?
   title         String
   description   String
   itemType      InventoryItemType @default(service)
@@ -465,13 +494,47 @@ model Offer {
 
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+  sourceTemplate InventoryTemplate? @relation("OfferSourceTemplate", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   trades Trade[]
+  proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
+  @@index([sourceTemplateId])
   @@index([category])
   @@index([itemType])
   @@index([mode])
+}
+
+model InventoryTemplate {
+  id                String                      @id @default(cuid())
+  key               String                      @unique
+  kind              InventoryTemplateKind
+  sourceType        InventoryTemplateSourceType @default(hellowhen)
+  businessProfileId String?
+  title             String
+  description       String
+  itemType          InventoryItemType           @default(service)
+  category          String?
+  timing            String?
+  availability      String?
+  mode              TradeExchangeMode?
+  locationLabel     String?
+  tags              String[]                    @default([])
+  includes          String[]                    @default([])
+  status            InventoryTemplateStatus     @default(active)
+  sortOrder         Int                         @default(0)
+  createdAt         DateTime                    @default(now())
+  updatedAt         DateTime                    @updatedAt
+
+  businessProfile   BusinessProfile?            @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
+  createdNeeds      Need[]                      @relation("NeedSourceTemplate")
+  createdOffers     Offer[]                     @relation("OfferSourceTemplate")
+
+  @@index([kind, status, itemType, sortOrder])
+  @@index([sourceType, status])
+  @@index([businessProfileId, status])
+  @@index([category])
 }
 
 model Trade {
@@ -486,6 +549,7 @@ model Trade {
   creditAmount Int         @default(0)
   amountCents  Int         @default(0)
   currency     String      @default("eur")
+  postType     TradePostType @default(need_offer)
   status       TradeStatus @default(draft)
   isPublic     Boolean     @default(false)
   createdAt    DateTime    @default(now())
@@ -511,6 +575,7 @@ model Trade {
   ledgerEntries CreditLedgerEntry[]
 
   @@index([status, isPublic, createdAt])
+  @@index([postType, status, isPublic, createdAt])
   @@index([ownerId, status])
   @@index([businessProfileId, status])
   @@index([providerId, status])
@@ -521,22 +586,28 @@ model Trade {
 }
 
 model TradeProposal {
-  id          String         @id @default(cuid())
-  tradeId     String
-  applicantId String
-  message     String
-  status      ProposalStatus @default(pending)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  respondedAt DateTime?
+  id              String         @id @default(cuid())
+  tradeId         String
+  applicantId     String
+  proposedNeedId  String?
+  proposedOfferId String?
+  message         String
+  status          ProposalStatus @default(pending)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  respondedAt     DateTime?
 
-  trade     Trade             @relation(fields: [tradeId], references: [id], onDelete: Cascade)
-  applicant User              @relation("ApplicantProposals", fields: [applicantId], references: [id], onDelete: Cascade)
-  messages  ProposalMessage[]
+  trade         Trade             @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  applicant     User              @relation("ApplicantProposals", fields: [applicantId], references: [id], onDelete: Cascade)
+  proposedNeed  Need?             @relation("ProposalNeed", fields: [proposedNeedId], references: [id], onDelete: SetNull)
+  proposedOffer Offer?            @relation("ProposalOffer", fields: [proposedOfferId], references: [id], onDelete: SetNull)
+  messages      ProposalMessage[]
 
   @@unique([tradeId, applicantId])
   @@index([tradeId, status])
   @@index([applicantId, status])
+  @@index([proposedNeedId])
+  @@index([proposedOfferId])
 }
 
 model ProposalMessage {
@@ -806,6 +877,7 @@ model BusinessProfile {
   needs                 Need[]
   offers                Offer[]
   trades                Trade[]
+  inventoryTemplates    InventoryTemplate[]
 
   @@index([ownerId, status])
   @@index([type, status])

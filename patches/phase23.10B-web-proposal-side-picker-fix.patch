@@ -1,0 +1,120 @@
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -37,7 +37,16 @@
+ }
+ 
+ export function getTradePostType(trade: TradeDto) {
+-  return trade.postType ?? 'need_offer';
++  if (trade.postType === 'open_need' || trade.postType === 'open_offer') return trade.postType;
++
++  // Be defensive for existing/local mock records or older API responses that may
++  // not carry postType yet. A trade with only a Need should behave as Open Need;
++  // a trade with only an Offer should behave as Open Offer. Accepted open posts
++  // keep their explicit postType above once both sides are attached.
++  if (trade.need && !trade.offer) return 'open_need';
++  if (trade.offer && !trade.need) return 'open_offer';
++
++  return 'need_offer';
+ }
+ 
+ export function getExchangeLabel(trade: TradeDto) {
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -6,7 +6,7 @@
+ import { useEffect, useMemo, useState } from 'react';
+ import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+-import { getTradeProposalCopy } from './tradePresentation';
++import { getTradePostType, getTradeProposalCopy } from './tradePresentation';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ 
+ type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
+@@ -110,8 +110,9 @@
+ 
+ 
+ function proposalSideRequirement(trade: TradeDto) {
+-  if (trade.postType === 'open_need') return 'offer' as const;
+-  if (trade.postType === 'open_offer') return 'need' as const;
++  const postType = getTradePostType(trade);
++  if (postType === 'open_need') return 'offer' as const;
++  if (postType === 'open_offer') return 'need' as const;
+   return null;
+ }
+ 
+@@ -342,13 +343,21 @@
+       {notice ? <p className="notice-box info">{notice}</p> : null}
+ 
+       {!isOwner && !ownProposal ? (
+-        <form className="proposal-composer" onSubmit={submitProposal}>
++        <form className={requiredProposalSide ? 'proposal-composer proposal-composer--with-side' : 'proposal-composer'} onSubmit={submitProposal}>
++          {requiredProposalSide ? (
++            <p className="proposal-side-callout">
++              <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
++              {requiredProposalSide === 'offer'
++                ? 'Choose one of your active Offers first. This is what you are proposing for the creator’s Open Need.'
++                : 'Choose one of your active Needs first. This is what you are proposing for the creator’s Open Offer.'}
++            </p>
++          ) : null}
+           {requiredProposalSide === 'offer' ? (
+             <div className="proposal-side-picker">
+               <div className="trade-section-heading compact">
+                 <div>
+                   <p className="eyebrow">Your Offer</p>
+-                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> Choose what you can offer</h3>
++                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> Choose existing Offer to propose</h3>
+                 </div>
+                 {sideLoading ? <span className="semantic-badge instruction">Loading</span> : null}
+               </div>
+@@ -371,7 +380,7 @@
+                 <div className="proposal-empty-state proposal-empty-state--compact">
+                   <WebIcon name="offer" size={28} decorative />
+                   <strong>No active Offers yet</strong>
+-                  <span>Create or save an Offer first, then come back to propose it.</span>
++                  <span>Create or save an Offer first, then come back to propose it for this Open Need.</span>
+                   <Link href="/offers" className="button secondary full">Go to Offers</Link>
+                 </div>
+               )}
+@@ -383,7 +392,7 @@
+               <div className="trade-section-heading compact">
+                 <div>
+                   <p className="eyebrow">Your Need</p>
+-                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> Choose what you need</h3>
++                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> Choose existing Need to propose</h3>
+                 </div>
+                 {sideLoading ? <span className="semantic-badge instruction">Loading</span> : null}
+               </div>
+@@ -406,7 +415,7 @@
+                 <div className="proposal-empty-state proposal-empty-state--compact">
+                   <WebIcon name="need" size={28} decorative />
+                   <strong>No active Needs yet</strong>
+-                  <span>Create or save a Need first, then come back to propose it.</span>
++                  <span>Create or save a Need first, then come back to propose it for this Open Offer.</span>
+                   <Link href="/needs" className="button secondary full">Go to Needs</Link>
+                 </div>
+               )}
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -336,6 +336,9 @@
+ .trade-detail-list dt { color: var(--app-text-muted); font-weight: 800; }
+ .trade-detail-list dd { margin: 0; color: var(--app-text); font-weight: 900; text-align: right; text-transform: capitalize; }
+ .proposal-composer, .conversation-reply { display: grid; gap: 10px; }
++.proposal-composer--with-side { gap: 12px; }
++.proposal-side-callout { display: flex; align-items: flex-start; gap: 9px; width: 100%; margin: 0; border: 1px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); border-radius: 18px; background: color-mix(in srgb, var(--proposal-bg) 58%, var(--app-surface)); color: var(--proposal-text); padding: 12px 13px; font-size: 13px; font-weight: 850; line-height: 1.38; }
++.proposal-side-callout svg { flex: 0 0 auto; margin-top: 1px; }
+ .proposal-list { display: grid; gap: 10px; }
+ .proposal-card { display: grid; gap: 10px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 12px; }
+ .proposal-card--active { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 38%, var(--app-surface)); }
+@@ -344,10 +347,11 @@
+ .proposal-card__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+ .proposal-empty-state { display: grid; place-items: center; gap: 7px; min-height: 150px; border: 2px dashed var(--app-border-strong); border-radius: 24px; background: var(--app-surface-soft); padding: 20px; text-align: center; }
+ .proposal-empty-state span { color: var(--app-text-muted); }
+-.proposal-side-picker { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
++.proposal-side-picker { display: grid; gap: 10px; width: 100%; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
+ .trade-section-heading.compact { align-items: start; }
+ .trade-section-heading.compact h3 { font-size: 15px; }
+-.proposal-side-option-list { max-height: 290px; }
++.proposal-side-option-list { width: 100%; max-height: 290px; overflow: auto; padding-right: 2px; }
++.proposal-side-option-list .trade-side-option { width: 100%; }
+ .proposal-side-summary { display: inline-flex; width: fit-content; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 6px 9px; font-size: 12px; font-weight: 900; }
+ .message-bubble--proposal .proposal-side-summary { background: rgba(255, 255, 255, 0.55); color: inherit; }
+ .proposal-empty-state--compact { min-height: 120px; }

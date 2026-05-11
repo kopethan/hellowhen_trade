@@ -13,7 +13,7 @@ import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
 import { TradeProposalPanel } from './TradeProposalPanel';
-import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeMode } from './tradePresentation';
+import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
 
 function normalizeTradeResponse(value: unknown): TradeDto | null {
   if (!value || typeof value !== 'object') return null;
@@ -40,7 +40,7 @@ function completionHint(trade: TradeDto, _userId?: string | null) {
 }
 
 
-function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
+function SideSection({ side }: { side: TradeSide }) {
   const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : 'instruction';
 
   return (
@@ -60,6 +60,27 @@ function SideSection({ side }: { side: ReturnType<typeof getNeedSide> }) {
         </div>
       ) : null}
       <TradeImageGrid images={side.media} title={side.title} badge={side.kind === 'need' ? 'Need reference' : side.kind === 'offer' ? 'Offer sample' : undefined} />
+    </section>
+  );
+}
+
+function OpenResponseSection({ trade }: { trade: TradeDto }) {
+  const copy = getTradeProposalCopy(trade);
+  const postType = getTradePostType(trade);
+  const iconName = postType === 'open_need' ? 'offer' : 'need';
+  const badgeClass = postType === 'open_need' ? 'offer' : 'need';
+
+  return (
+    <section className="trade-social-section trade-open-response-section">
+      <div className="trade-section-heading">
+        <div>
+          <p className="eyebrow">What can others propose?</p>
+          <h2 className="icon-heading"><WebIcon name={iconName} size={21} decorative /> {copy.inviteTitle}</h2>
+        </div>
+        <span className={`semantic-badge ${badgeClass}`}>{copy.responseNeeded}</span>
+      </div>
+      <p>{copy.inviteBody}</p>
+      <p className="meta">Use the private proposal area below to respond to this post.</p>
     </section>
   );
 }
@@ -207,6 +228,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   const offerSide = getOfferSide(currentTrade);
   const ownerName = getOwnerName(currentTrade);
   const exchange = getExchangeLabel(currentTrade);
+  const headline = getTradeHeadline(currentTrade);
+  const howItWorks = getTradeHowItWorks(currentTrade);
+  const postType = getTradePostType(currentTrade);
+  const proposalCopy = getTradeProposalCopy(currentTrade);
   const mode = getTradeMode(currentTrade);
 
   return (
@@ -217,13 +242,14 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           <span className="semantic-badge trade">{exchange}</span>
           {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
         </div>
-        <h2>{currentTrade.title}</h2>
+        <h2>{headline}</h2>
         <p>{currentTrade.description}</p>
         <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
       </section>
 
-      <SideSection side={needSide} />
-      <SideSection side={offerSide} />
+      {postType !== 'open_offer' ? <SideSection side={needSide} /> : null}
+      {postType !== 'open_need' ? <SideSection side={offerSide} /> : null}
+      {postType === 'open_need' || postType === 'open_offer' ? <OpenResponseSection trade={currentTrade} /> : null}
 
       <section className="trade-social-section trade-social-section--compact">
         <div className="trade-section-heading">
@@ -235,10 +261,12 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <dl className="trade-detail-list">
           <div><dt>Status</dt><dd>{currentTrade.status}</dd></div>
           <div><dt>Exchange</dt><dd>{exchange}</dd></div>
+          <div><dt>Response needed</dt><dd>{proposalCopy.responseNeeded}</dd></div>
           <div><dt>Mode</dt><dd>{mode ?? 'Not specified'}</dd></div>
           <div><dt>Created</dt><dd>{formatDateLabel(currentTrade.createdAt)}</dd></div>
           <div><dt>Expires</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt)}</dd></div>
         </dl>
+        <p className="trade-how-it-works">{howItWorks}</p>
       </section>
 
       <section className="trade-social-section trade-social-section--compact">
@@ -279,7 +307,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
             </div>
             <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? 'Available' : 'Protected'}</span>
           </div>
-          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved Need and Offer will stay in your inventory.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
+          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved inventory item will stay in your account.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
           <div className="trade-action-row">
             <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>Delete trade</button>
           </div>
