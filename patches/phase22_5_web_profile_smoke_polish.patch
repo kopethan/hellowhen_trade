@@ -1,0 +1,294 @@
+diff -ruN apps/web/src/app/globals.css apps/web/src/app/globals.css
+--- apps/web/src/app/globals.css	2026-05-12 07:12:48.865933674 +0000
++++ apps/web/src/app/globals.css	2026-05-12 07:30:46.225686648 +0000
+@@ -1584,6 +1584,7 @@
+ .user-identity-link--compact { padding: 3px 7px 3px 3px; }
+ .user-identity-link--row { width: fit-content; max-width: 100%; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); background: var(--app-surface); padding: 6px 11px 6px 6px; box-shadow: var(--app-card-shadow); }
+ .user-identity-link--static { cursor: default; }
++.user-identity-link[title] { cursor: pointer; }
+ .user-identity-link__body { display: grid; min-width: 0; gap: 1px; line-height: 1.08; }
+ .user-identity-link__name { overflow: hidden; color: var(--app-text); font-size: 13px; font-weight: 900; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; }
+ .user-identity-link__meta { overflow: hidden; color: var(--app-text-muted); font-size: 11px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+@@ -1610,13 +1611,17 @@
+ .public-profile-section { display: grid; gap: 12px; border-top: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent); padding: 20px 4px 0; }
+ .public-profile-section .trade-section-heading p { margin-bottom: 0; }
+ .public-profile-post-list { display: grid; gap: 10px; }
+-.public-profile-post-card { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; align-items: stretch; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: 26px; background: var(--app-surface); padding: 10px; box-shadow: var(--app-card-shadow); }
++.public-profile-error-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 4px; }
++.public-profile-post-card { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; align-items: stretch; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: 26px; background: var(--app-surface); color: inherit; padding: 10px; text-decoration: none; box-shadow: var(--app-card-shadow); transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease; }
++.public-profile-post-card:hover { border-color: color-mix(in srgb, var(--proposal-border) 38%, var(--app-border)); transform: translateY(-1px); }
++.public-profile-post-card:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 52%, transparent); outline-offset: 3px; }
+ .public-profile-post-card__image { display: block; width: 88px; height: 100%; min-height: 104px; border-radius: 20px; background: var(--app-surface-soft); object-fit: cover; }
+ .public-profile-post-card__image--fallback { display: grid; place-items: center; color: var(--app-text-soft); }
+ .public-profile-post-card__body { display: grid; gap: 7px; min-width: 0; padding: 4px 4px 4px 0; }
+ .public-profile-post-card h3 { margin: 0; color: var(--app-text); font-size: 17px; letter-spacing: -0.025em; }
+ .public-profile-post-card p { display: -webkit-box; overflow: hidden; margin: 0; font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+-.public-profile-post-card .status-row { align-items: center; justify-content: space-between; gap: 8px; }
++.public-profile-post-card .status-row { align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
++.public-profile-post-card .status-row .semantic-badge { flex: 0 0 auto; }
+ .public-profile-post-card .status-row .meta { overflow: hidden; font-size: 11px; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
+ .public-profile-post-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--app-text-muted); font-size: 12px; font-weight: 850; }
+ .public-profile-post-card__meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@@ -1627,8 +1632,14 @@
+ 
+ @media (max-width: 420px) {
+   .public-profile-hero { grid-template-columns: 1fr; }
+-  .public-profile-avatar { width: 82px; height: 82px; }
++  .public-profile-hero .user-avatar--lg { width: 82px; height: 82px; }
+   .public-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .public-profile-post-card { grid-template-columns: 78px minmax(0, 1fr); }
+   .public-profile-post-card__image { width: 78px; min-height: 112px; }
+ }
++
++@media (max-width: 360px) {
++  .public-profile-post-card { grid-template-columns: 64px minmax(0, 1fr); gap: 10px; border-radius: 22px; padding: 8px; }
++  .public-profile-post-card__image { width: 64px; min-height: 100px; border-radius: 17px; }
++  .public-profile-post-card__meta { align-items: flex-start; flex-direction: column; gap: 4px; }
++}
+diff -ruN apps/web/src/features/users/PublicUserProfileClient.tsx apps/web/src/features/users/PublicUserProfileClient.tsx
+--- apps/web/src/features/users/PublicUserProfileClient.tsx	2026-05-12 07:06:21.000000000 +0000
++++ apps/web/src/features/users/PublicUserProfileClient.tsx	2026-05-12 07:31:27.867087252 +0000
+@@ -3,7 +3,7 @@
+ import type { PublicProfileResponse, PublicProfileTradeSummary } from '@hellowhen/contracts';
+ import { truncateText } from '@hellowhen/shared';
+ import Link from 'next/link';
+-import { useEffect, useMemo, useState } from 'react';
++import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api, resolveWebAssetUrl } from '../../lib/api';
+ import { UserAvatar } from './UserAvatar';
+@@ -75,21 +75,33 @@
+   return needImage ?? offerImage ?? tradeImage ?? null;
+ }
+ 
+-function PostCard({ post }: { post: PublicProfileTradeSummary }) {
++function PublicProfilePostImage({ post }: { post: PublicProfileTradeSummary }) {
+   const image = postImage(post);
+   const imageSrc = image ? resolveWebAssetUrl(image.url, image.storageKey) : '';
++  const [imageFailed, setImageFailed] = useState(false);
++
++  useEffect(() => {
++    setImageFailed(false);
++  }, [imageSrc]);
++
++  if (imageSrc && !imageFailed) {
++    return <img className="public-profile-post-card__image" src={imageSrc} alt="" loading="lazy" onError={() => setImageFailed(true)} />;
++  }
++
++  return (
++    <div className="public-profile-post-card__image public-profile-post-card__image--fallback" aria-hidden="true">
++      <WebIcon name={post.postType === 'open_need' ? 'need' : post.postType === 'open_offer' ? 'offer' : 'trade'} size={28} decorative />
++    </div>
++  );
++}
++
++function PostCard({ post }: { post: PublicProfileTradeSummary }) {
+   const amountCents = post.amountCents ?? 0;
+   const hasMoney = amountCents > 0;
+ 
+   return (
+     <Link href={`/trades/${post.id}`} className="public-profile-post-card" aria-label={`Open ${postTitle(post)}`}>
+-      {imageSrc ? (
+-        <img className="public-profile-post-card__image" src={imageSrc} alt="" loading="lazy" />
+-      ) : (
+-        <div className="public-profile-post-card__image public-profile-post-card__image--fallback" aria-hidden="true">
+-          <WebIcon name={post.postType === 'open_need' ? 'need' : post.postType === 'open_offer' ? 'offer' : 'trade'} size={28} decorative />
+-        </div>
+-      )}
++      <PublicProfilePostImage post={post} />
+       <div className="public-profile-post-card__body">
+         <div className="status-row">
+           <span className={`semantic-badge ${postBadgeClass(post)}`}>{postTypeLabel(post)}</span>
+@@ -151,9 +163,23 @@
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState<string | null>(null);
+ 
++  const loadProfile = useCallback(async () => {
++    setLoading(true);
++    setError(null);
++    try {
++      const response = await api.users.publicProfile(userId);
++      setProfile(response);
++    } catch (cause) {
++      setProfile(null);
++      setError(getFriendlyApiErrorMessage(cause, 'This public profile could not be loaded yet.'));
++    } finally {
++      setLoading(false);
++    }
++  }, [userId]);
++
+   useEffect(() => {
+     let mounted = true;
+-    async function loadProfile() {
++    async function loadMountedProfile() {
+       setLoading(true);
+       setError(null);
+       try {
+@@ -168,7 +194,8 @@
+         if (mounted) setLoading(false);
+       }
+     }
+-    void loadProfile();
++
++    void loadMountedProfile();
+     return () => { mounted = false; };
+   }, [userId]);
+ 
+@@ -196,7 +223,12 @@
+             <p>{error ?? 'This public profile could not be loaded.'}</p>
+           </div>
+         </section>
+-        <Link href="/trades" className="button secondary">Back to trades</Link>
++        <div className="public-profile-error-actions">
++          <button type="button" className="button primary" onClick={() => void loadProfile()} disabled={loading}>
++            {loading ? 'Retrying...' : 'Try again'}
++          </button>
++          <Link href="/trades" className="button secondary">Back to trades</Link>
++        </div>
+       </article>
+     );
+   }
+diff -ruN apps/web/src/features/users/UserAvatar.tsx apps/web/src/features/users/UserAvatar.tsx
+--- apps/web/src/features/users/UserAvatar.tsx	2026-05-12 07:06:10.000000000 +0000
++++ apps/web/src/features/users/UserAvatar.tsx	2026-05-12 07:31:15.933644110 +0000
+@@ -1,4 +1,7 @@
++'use client';
++
+ import type { CSSProperties } from 'react';
++import { useEffect, useMemo, useState } from 'react';
+ import { resolveWebAssetUrl } from '../../lib/api';
+ 
+ export type UserAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
+@@ -39,15 +42,28 @@
+   decorative = false,
+   style,
+ }: UserAvatarProps) {
+-  const imageSrc = resolveWebAssetUrl(src, storageKey);
++  const imageSrc = useMemo(() => resolveWebAssetUrl(src, storageKey), [src, storageKey]);
++  const [imageFailed, setImageFailed] = useState(false);
++
++  useEffect(() => {
++    setImageFailed(false);
++  }, [imageSrc]);
++
+   const name = getUserDisplayName(displayName, handle);
+   const imageAlt = decorative ? '' : (alt ?? `${name} avatar`);
+   const classes = ['user-avatar', `user-avatar--${size}`, className].filter(Boolean).join(' ');
++  const showImage = Boolean(imageSrc && !imageFailed);
+ 
+-  if (imageSrc) {
++  if (showImage) {
+     return (
+       <span className={classes} style={style} aria-hidden={decorative || undefined}>
+-        <img className="user-avatar__image" src={imageSrc} alt={imageAlt} loading="lazy" />
++        <img
++          className="user-avatar__image"
++          src={imageSrc}
++          alt={imageAlt}
++          loading="lazy"
++          onError={() => setImageFailed(true)}
++        />
+       </span>
+     );
+   }
+diff -ruN apps/web/src/features/users/UserIdentityLink.tsx apps/web/src/features/users/UserIdentityLink.tsx
+--- apps/web/src/features/users/UserIdentityLink.tsx	2026-05-12 07:08:38.000000000 +0000
++++ apps/web/src/features/users/UserIdentityLink.tsx	2026-05-12 07:29:34.825085589 +0000
+@@ -1,5 +1,7 @@
++'use client';
++
+ import Link from 'next/link';
+-import type { ReactNode } from 'react';
++import type { MouseEvent, ReactNode } from 'react';
+ import { UserAvatar, getUserDisplayName, type UserAvatarSize } from './UserAvatar';
+ 
+ type UserIdentityProfile = {
+@@ -28,6 +30,7 @@
+   statusText?: ReactNode;
+   showHandle?: boolean;
+   disabled?: boolean;
++  stopPropagation?: boolean;
+   className?: string;
+   ariaLabel?: string;
+ };
+@@ -57,6 +60,7 @@
+   statusText,
+   showHandle = true,
+   disabled = false,
++  stopPropagation = true,
+   className = '',
+   ariaLabel,
+ }: UserIdentityLinkProps) {
+@@ -91,12 +95,22 @@
+     </>
+   );
+ 
++  function handleClick(event: MouseEvent<HTMLElement>) {
++    if (stopPropagation) event.stopPropagation();
++  }
++
+   if (!targetHref || disabled) {
+-    return <span className={classes}>{content}</span>;
++    return <span className={classes} onClick={handleClick}>{content}</span>;
+   }
+ 
+   return (
+-    <Link className={classes} href={targetHref} aria-label={ariaLabel ?? `Open ${name}'s public profile`}>
++    <Link
++      className={classes}
++      href={targetHref}
++      aria-label={ariaLabel ?? `Open ${name}'s public profile`}
++      title={`Open ${name}'s public profile`}
++      onClick={handleClick}
++    >
+       {content}
+     </Link>
+   );
+diff -ruN apps/web/src/lib/webRoutes.ts apps/web/src/lib/webRoutes.ts
+--- apps/web/src/lib/webRoutes.ts	2026-05-12 06:52:49.000000000 +0000
++++ apps/web/src/lib/webRoutes.ts	2026-05-12 07:30:09.574187104 +0000
+@@ -14,7 +14,7 @@
+     label: 'Trades',
+     href: '/trades',
+     icon: 'trade',
+-    match: (pathname) => pathname === '/' || pathname.startsWith('/trades'),
++    match: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users'),
+   },
+   {
+     key: 'needs',
+diff -ruN docs/tests/phase22_5_web_public_profile_smoke.md docs/tests/phase22_5_web_public_profile_smoke.md
+--- docs/tests/phase22_5_web_public_profile_smoke.md	1970-01-01 00:00:00.000000000 +0000
++++ docs/tests/phase22_5_web_public_profile_smoke.md	2026-05-12 07:32:15.398174298 +0000
+@@ -0,0 +1,32 @@
++# Phase 22.5 — Web public profile smoke test
++
++Scope: public profile navigation and clickable identity polish only. Do not change proposal logic, wallet logic, feed animations, or native mobile behavior.
++
++## Smoke checklist
++
++1. Open `/users/:userId` directly.
++   - Profile loads when the user exists.
++   - Missing/deleted user shows the unavailable state.
++   - Retry button attempts to load again.
++   - Back to trades returns to `/trades`.
++
++2. Click identity links from key web surfaces.
++   - Trade detail owner row opens `/users/:ownerId`.
++   - Proposal applicant row opens `/users/:applicantId` without selecting the proposal card by accident.
++   - Conversation sender identity opens `/users/:senderId` without submitting or changing proposal state.
++   - Trade list/card owner identity opens the public profile.
++   - Trade card body still opens `/trades/:tradeId`.
++
++3. Avatar and media fallbacks.
++   - Missing avatar shows fallback initial.
++   - Broken avatar URL falls back to the initial.
++   - Missing/broken public post image falls back to the semantic Need/Offer/Trade icon tile.
++
++4. Mobile web layout.
++   - Public profile stats wrap into two columns on narrow screens.
++   - Public post cards remain readable at small widths.
++   - Bottom tab shell stays visible and highlights Trades while viewing `/users/:userId`.
++
++5. Privacy check.
++   - Public profile shows only public-safe profile fields, public counts, and public active posts.
++   - It does not show email, phone, wallet data, settings, private proposal threads, support info, or payout data.

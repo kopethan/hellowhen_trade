@@ -1,0 +1,230 @@
+diff -ruN a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+--- a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx	2026-05-12 07:41:32.000000000 +0000
++++ b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx	2026-05-12 08:21:58.337541033 +0000
+@@ -13,6 +13,7 @@
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { UserAvatar, getUserDisplayName, resolveNativeAssetUrl } from './UserAvatar';
++import { isPublicUserId } from './UserIdentityPressable';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
+ 
+@@ -22,6 +23,11 @@
+   return getUserDisplayName(profile?.displayName, profile?.handle, '');
+ }
+ 
++function formatHandle(handle?: string | null) {
++  const normalized = handle?.trim().replace(/^@+/, '') ?? '';
++  return normalized ? `@${normalized}` : null;
++}
++
+ function formatDate(value?: string | null) {
+   if (!value) return null;
+   const date = new Date(value);
+@@ -37,10 +43,15 @@
+ 
+ function postImageUrl(post: PublicProfileTradeSummary) {
+   const media = [...(post.need?.media ?? []), ...(post.offer?.media ?? []), ...(post.media ?? [])];
+-  const active = media.find((item) => item.status === 'active') ?? media[0];
++  const active = media.find((item) => item.status === 'active');
+   return resolveNativeAssetUrl(active?.url);
+ }
+ 
++function postTitle(post: PublicProfileTradeSummary, kind: PostKind) {
++  const title = kind === 'need' ? post.need?.title || post.title : kind === 'offer' ? post.offer?.title || post.title : post.title;
++  return title?.trim() || postKindLabel(kind);
++}
++
+ function postDescription(post: PublicProfileTradeSummary, kind: PostKind) {
+   if (kind === 'need') return post.need?.description || post.description;
+   if (kind === 'offer') return post.offer?.description || post.description;
+@@ -80,7 +91,7 @@
+   const [imageFailed, setImageFailed] = useState(false);
+   const imageUrl = postImageUrl(post);
+   const hasImage = Boolean(imageUrl) && !imageFailed;
+-  const title = kind === 'need' ? post.need?.title || post.title : kind === 'offer' ? post.offer?.title || post.title : post.title;
++  const title = postTitle(post, kind);
+   const description = postDescription(post, kind);
+   const meta = postMeta(post, kind);
+ 
+@@ -144,10 +155,17 @@
+   const [error, setError] = useState<string | null>(null);
+ 
+   const loadProfile = useCallback(async () => {
++    if (!isPublicUserId(userId)) {
++      setProfile(null);
++      setError('This public profile link is no longer available.');
++      setLoading(false);
++      return;
++    }
++
+     setLoading(true);
+     setError(null);
+     try {
+-      const result = await api.users.publicProfile(userId);
++      const result = await api.users.publicProfile(userId.trim());
+       setProfile(result);
+     } catch (caughtError) {
+       setProfile(null);
+@@ -162,7 +180,11 @@
+   }, [loadProfile]);
+ 
+   const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || 'Hellowhen member', [displayName, profile?.user.profile]);
++  const handleLabel = formatHandle(profile?.user.profile?.handle);
+   const memberSince = formatDate(profile?.user.memberSince);
++  const activeTrades = profile?.sections.activeTrades ?? [];
++  const openNeeds = profile?.sections.openNeeds ?? [];
++  const openOffers = profile?.sections.openOffers ?? [];
+ 
+   const openPost = useCallback((post: PublicProfileTradeSummary) => {
+     navigation.navigate('TradeDetail', {
+@@ -182,7 +204,7 @@
+       <ScrollView
+         contentContainerStyle={styles.content}
+         showsVerticalScrollIndicator={false}
+-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProfile(); }} />}
++        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProfile(); }} tintColor={theme.color.text} />}
+       >
+         {error ? (
+           <AppCard>
+@@ -208,7 +230,7 @@
+               <UserAvatar src={profile.user.profile?.avatarUrl} displayName={name} handle={profile.user.profile?.handle} size="lg" />
+               <View style={styles.heroCopy}>
+                 <AppText style={styles.displayName}>{name}</AppText>
+-                {profile.user.profile?.handle ? <AppText style={[styles.handle, { color: theme.color.muted }]}>@{profile.user.profile.handle}</AppText> : null}
++                {handleLabel ? <AppText style={[styles.handle, { color: theme.color.muted }]}>{handleLabel}</AppText> : null}
+                 {profile.user.profile?.bio ? <AppText style={[styles.bio, { color: theme.color.text }]}>{profile.user.profile.bio}</AppText> : null}
+                 <View style={styles.metaRow}>
+                   {profile.user.profile?.countryCode ? <SemanticBadge label={profile.user.profile.countryCode} tone="muted" size="sm" /> : null}
+@@ -224,9 +246,9 @@
+               <StatTile label="open offers" value={profile.stats.openOffersCount} />
+             </View>
+ 
+-            <PublicPostSection kind="trade" posts={profile.sections.activeTrades} onOpenPost={openPost} />
+-            <PublicPostSection kind="need" posts={profile.sections.openNeeds} onOpenPost={openPost} />
+-            <PublicPostSection kind="offer" posts={profile.sections.openOffers} onOpenPost={openPost} />
++            <PublicPostSection kind="trade" posts={activeTrades} onOpenPost={openPost} />
++            <PublicPostSection kind="need" posts={openNeeds} onOpenPost={openPost} />
++            <PublicPostSection kind="offer" posts={openOffers} onOpenPost={openPost} />
+           </>
+         ) : !error ? (
+           <InfoNotice tone="info" title="Loading profile" body="Opening this public marketplace profile..." />
+@@ -239,13 +261,13 @@
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 32, gap: 16 },
+   heroCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 16 },
+-  heroCopy: { flex: 1, gap: 7 },
++  heroCopy: { flex: 1, minWidth: 0, gap: 7 },
+   displayName: { fontSize: 26, lineHeight: 31, fontWeight: '900', letterSpacing: -0.5 },
+   handle: { fontSize: 14, fontWeight: '800' },
+   bio: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
+   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+-  statTile: { width: '48%', minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
++  statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
+   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+   statLabel: { marginTop: 2, fontSize: 12, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.45 },
+   section: { gap: 10 },
+@@ -266,7 +288,7 @@
+   errorBox: { alignItems: 'center', gap: 11, paddingVertical: 16 },
+   errorTitle: { fontSize: 23, lineHeight: 28, fontWeight: '900', textAlign: 'center' },
+   errorBody: { textAlign: 'center', fontWeight: '700', lineHeight: 20 },
+-  errorActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
++  errorActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 4 },
+   primaryButton: { minHeight: 46, borderRadius: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+   primaryButtonText: { fontWeight: '900' },
+   secondaryButton: { minHeight: 46, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+diff -ruN a/apps/mobile/src/features/users/UserIdentityPressable.tsx b/apps/mobile/src/features/users/UserIdentityPressable.tsx
+--- a/apps/mobile/src/features/users/UserIdentityPressable.tsx	2026-05-12 07:43:03.000000000 +0000
++++ b/apps/mobile/src/features/users/UserIdentityPressable.tsx	2026-05-12 08:22:51.966032182 +0000
+@@ -38,6 +38,12 @@
+   accessibilityLabel?: string;
+ };
+ 
++export function isPublicUserId(value?: string | null) {
++  const normalized = value?.trim() ?? '';
++  if (!normalized) return false;
++  return !['preview', 'unknown', 'mock', 'demo', 'local'].includes(normalized.toLowerCase());
++}
++
+ function cleanHandle(handle?: string | null) {
+   const value = handle?.trim().replace(/^@+/, '') ?? '';
+   return value || null;
+@@ -83,7 +89,8 @@
+   const resolvedAvatarUrl = avatarUrl ?? profile?.avatarUrl ?? null;
+   const name = getUserDisplayName(resolvedDisplayName, resolvedHandle);
+   const handleLabel = cleanHandle(resolvedHandle);
+-  const isStatic = disabled || (!resolvedUserId && !onPress);
++  const canOpenProfile = isPublicUserId(resolvedUserId);
++  const isStatic = disabled || (!canOpenProfile && !onPress);
+ 
+   const secondary = useMemo(() => {
+     if (subtitle) return subtitle;
+@@ -123,7 +130,7 @@
+       onPress();
+       return;
+     }
+-    if (!resolvedUserId) return;
++    if (!canOpenProfile || !resolvedUserId) return;
+     navigation.navigate('UserProfile', { userId: resolvedUserId, displayName: name });
+   }
+ 
+@@ -135,6 +142,8 @@
+     <Pressable
+       accessibilityRole="button"
+       accessibilityLabel={accessibilityLabel ?? `Open ${name}'s public profile`}
++      accessibilityHint="Shows public marketplace profile information only."
++      hitSlop={6}
+       onPress={handlePress}
+       disabled={isStatic && !onPress}
+       style={({ pressed }) => [baseStyle, pressed && styles.pressed]}
+diff -ruN a/docs/tests/phase22_m5_native_public_profile_smoke_polish.md b/docs/tests/phase22_m5_native_public_profile_smoke_polish.md
+--- a/docs/tests/phase22_m5_native_public_profile_smoke_polish.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/tests/phase22_m5_native_public_profile_smoke_polish.md	2026-05-12 08:21:35.664679916 +0000
+@@ -0,0 +1,46 @@
++# Phase 22.M5 — Native public profile smoke test and polish
++
++Scope: native public profile and identity navigation hardening only. No proposal, wallet, backend, web, or deck mechanics changes.
++
++## Public profile screen
++
++- Open a valid `UserProfile` route with `{ userId }`.
++- Confirm the screen loads avatar/fallback initial, display name, optional handle, optional bio, country badge, member-since badge, and stats.
++- Pull to refresh and confirm the profile reloads without leaving the screen.
++- Turn off the API/server and confirm the unavailable state shows `Try again` and `Back to trades`.
++- Open a route with an invalid placeholder id like `preview`, `unknown`, `mock`, or an empty id and confirm no API request is needed and the unavailable state is shown.
++
++## Public post sections
++
++- Confirm `Active trades`, `Open needs`, and `Open offers` render counts and empty states.
++- Confirm tapping a public post still opens `TradeDetail`.
++- Confirm posts with missing titles use a semantic fallback title instead of showing blank/undefined text.
++- Confirm missing or broken post images fall back to the Need / Offer / Trade semantic tile.
++- Confirm inactive/flagged media is not used as a public profile preview image.
++
++## Identity pressables
++
++- From Trade Detail owner, proposal applicant, proposal messages, and feed/deck owner chips, tap identity rows and confirm they open `UserProfile`.
++- Confirm placeholder owner ids like `preview`, `unknown`, `mock`, `demo`, or `local` do not navigate.
++- Confirm tapping an identity chip does not also trigger the parent trade card, proposal card, or deck card action.
++- Confirm small chips are still tappable with hit slop on a phone screen.
++
++## Avatar fallback
++
++- Confirm valid remote avatar URLs render.
++- Confirm API-relative upload URLs render.
++- Confirm broken avatar URLs switch to fallback initial.
++- Confirm missing display names use handle or `Hellowhen member` fallback.
++
++## Privacy smoke
++
++Confirm the native public profile screen does not display:
++
++- email
++- phone
++- wallet balances
++- ledger entries
++- private settings
++- support tickets
++- private proposal threads
++- private message bodies outside the current authorized proposal screens

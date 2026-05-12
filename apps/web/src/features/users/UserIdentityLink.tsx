@@ -1,5 +1,7 @@
+'use client';
+
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { UserAvatar, getUserDisplayName, type UserAvatarSize } from './UserAvatar';
 
 type UserIdentityProfile = {
@@ -28,6 +30,7 @@ export type UserIdentityLinkProps = {
   statusText?: ReactNode;
   showHandle?: boolean;
   disabled?: boolean;
+  stopPropagation?: boolean;
   className?: string;
   ariaLabel?: string;
 };
@@ -57,6 +60,7 @@ export function UserIdentityLink({
   statusText,
   showHandle = true,
   disabled = false,
+  stopPropagation = true,
   className = '',
   ariaLabel,
 }: UserIdentityLinkProps) {
@@ -91,12 +95,22 @@ export function UserIdentityLink({
     </>
   );
 
+  function handleClick(event: MouseEvent<HTMLElement>) {
+    if (stopPropagation) event.stopPropagation();
+  }
+
   if (!targetHref || disabled) {
-    return <span className={classes}>{content}</span>;
+    return <span className={classes} onClick={handleClick}>{content}</span>;
   }
 
   return (
-    <Link className={classes} href={targetHref} aria-label={ariaLabel ?? `Open ${name}'s public profile`}>
+    <Link
+      className={classes}
+      href={targetHref}
+      aria-label={ariaLabel ?? `Open ${name}'s public profile`}
+      title={`Open ${name}'s public profile`}
+      onClick={handleClick}
+    >
       {content}
     </Link>
   );

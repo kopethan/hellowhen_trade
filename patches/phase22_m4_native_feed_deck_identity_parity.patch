@@ -1,0 +1,223 @@
+diff -ruN apps/mobile/src/features/trade/components/TradeDeckCard.tsx apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+--- apps/mobile/src/features/trade/components/TradeDeckCard.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/mobile/src/features/trade/components/TradeDeckCard.tsx	2026-05-12 08:06:07.859689458 +0000
+@@ -3,6 +3,7 @@
+ import { truncateText } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
+ import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
++import { UserIdentityPressable } from '../../users/UserIdentityPressable';
+ import type { TradeDeckItem } from '../types';
+ import { resolveMediaUrl } from '../mediaUrls';
+ 
+@@ -22,8 +23,9 @@
+   return { label: 'Public trade', tone: 'trade' };
+ }
+ 
+-function getOwnerLabel(trade: TradeDeckItem) {
+-  return trade.owner?.profile?.displayName || trade.owner?.profile?.handle || 'Hellowhen member';
++function getPublicOwnerId(ownerId?: string | null) {
++  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
++  return ownerId;
+ }
+ 
+ function getExpiryLabel(expiresAt?: string | null) {
+@@ -53,13 +55,14 @@
+       </View>
+       <View style={styles.creditPanel}>
+         {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}
+-        <View style={styles.ownerPill}>
+-          <View style={styles.avatarPlaceholder} />
+-          <View style={styles.ownerCopy}>
+-            <AppText style={styles.ownerLabel}>Owner</AppText>
+-            <AppText style={styles.ownerName} numberOfLines={1}>{getOwnerLabel(trade)}</AppText>
+-          </View>
+-        </View>
++        <UserIdentityPressable
++          user={trade.owner}
++          userId={trade.owner?.id ?? getPublicOwnerId(trade.ownerId)}
++          variant="compact"
++          avatarSize="sm"
++          subtitle="Owner"
++          style={styles.ownerIdentity}
++        />
+       </View>
+       <View style={styles.metaRow}>
+         <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
+@@ -83,11 +86,7 @@
+   title: { fontSize: 32, lineHeight: 36, fontWeight: '900', letterSpacing: -0.8 },
+   description: { color: '#475569', fontSize: 16, lineHeight: 23, fontWeight: '600' },
+   creditPanel: { borderRadius: 24, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 16, gap: 14 },
+-  ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+-  avatarPlaceholder: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' },
+-  ownerCopy: { flex: 1 },
+-  ownerLabel: { color: '#64748B', fontSize: 12, fontWeight: '800' },
+-  ownerName: { marginTop: 2, fontWeight: '900' },
++  ownerIdentity: { alignSelf: 'stretch' },
+   metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
+   actionsRow: { flexDirection: 'row', gap: 10 },
+   primaryButton: { flex: 1.35, minHeight: 48, borderRadius: 16, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+diff -ruN apps/mobile/src/features/trade/components/TradePosterCard.tsx apps/mobile/src/features/trade/components/TradePosterCard.tsx
+--- apps/mobile/src/features/trade/components/TradePosterCard.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/mobile/src/features/trade/components/TradePosterCard.tsx	2026-05-12 08:05:18.346175281 +0000
+@@ -15,6 +15,7 @@
+   subtitle?: string;
+   chips?: string[];
+   status?: { label: string; tone: TradePosterCardStatusTone } | null;
++  identity?: React.ReactNode;
+   variant?: TradePosterCardVariant;
+   onPress: () => void;
+ };
+@@ -88,7 +89,7 @@
+   );
+ }
+ 
+-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, variant = 'trade', onPress }: TradePosterCardProps) {
++function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, identity, variant = 'trade', onPress }: TradePosterCardProps) {
+   const theme = useThemeTokens();
+   const isDark = theme.mode === 'dark';
+   const [imageFailed, setImageFailed] = useState(!imageUrl);
+@@ -156,6 +157,7 @@
+           <View style={[styles.badge, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+             <AppText style={[styles.badgeText, { color: eyebrowColor }]} numberOfLines={1}>{badge}</AppText>
+           </View>
++          {identity ? <View style={styles.identitySlot}>{identity}</View> : null}
+         </View>
+ 
+         <View style={styles.copyBlock}>
+@@ -271,11 +273,12 @@
+   topBar: {
+     flexDirection: 'row',
+     alignItems: 'center',
+-    justifyContent: 'flex-start',
++    justifyContent: 'space-between',
++    gap: 8,
+   },
+   badge: {
+     minHeight: 26,
+-    maxWidth: '72%',
++    maxWidth: '58%',
+     borderRadius: 999,
+     borderWidth: StyleSheet.hairlineWidth,
+     paddingHorizontal: 11,
+@@ -283,6 +286,11 @@
+     alignItems: 'center',
+     justifyContent: 'center',
+   },
++  identitySlot: {
++    maxWidth: '48%',
++    flexShrink: 1,
++    alignItems: 'flex-end',
++  },
+   badgeText: {
+     fontSize: 11,
+     lineHeight: 14,
+diff -ruN apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+--- apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx	2026-05-12 08:07:44.773873410 +0000
+@@ -8,6 +8,7 @@
+ import { resolveMediaUrl } from '../mediaUrls';
+ import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
+ import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
++import { UserIdentityPressable } from '../../users/UserIdentityPressable';
+ 
+ export type TradeSquareDeckCard = {
+   id: string;
+@@ -47,6 +48,33 @@
+   return <TradeImageCard trade={card.trade} kind={card.kind} media={card.media} onOpen={onOpen} />;
+ }
+ 
++
++function getPublicOwnerId(ownerId?: string | null) {
++  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
++  return ownerId;
++}
++
++function hasOwnerIdentity(trade: TradeDeckItem) {
++  return Boolean(trade.owner || getPublicOwnerId(trade.ownerId));
++}
++
++function OwnerIdentityChip({ trade, compact = false }: { trade: TradeDeckItem; compact?: boolean }) {
++  const userId = trade.owner?.id ?? getPublicOwnerId(trade.ownerId);
++  if (!trade.owner && !userId) return null;
++
++  return (
++    <UserIdentityPressable
++      user={trade.owner}
++      userId={userId}
++      variant={compact ? 'compact' : 'chip'}
++      avatarSize="xs"
++      showHandle={false}
++      subtitle={compact ? 'Owner' : undefined}
++      style={compact ? styles.summaryOwnerIdentity : styles.posterOwnerIdentity}
++    />
++  );
++}
++
+ function getTradeCounter(index: number, total: number) { return `${String(index + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`; }
+ function getStatusLabel(status: string) { return status === 'active' ? 'ACTIVE' : status.replace(/_/g, ' ').toUpperCase(); }
+ function modeLabel(mode?: string | null) {
+@@ -133,6 +161,8 @@
+         <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status)}</AppText>
+       </View>
+ 
++      {hasOwnerIdentity(trade) ? <View style={styles.summaryOwnerRow}><OwnerIdentityChip trade={trade} compact /></View> : null}
++
+       <View style={styles.summaryBody}>
+         <View style={styles.tradeSideBlock}>
+           <AppText style={[styles.sideEyebrow, { color: '#60A5FA' }]}>I need</AppText>
+@@ -175,6 +205,7 @@
+       subtitle={summarySubtitle}
+       status={countdown}
+       chips={starterChips(trade)}
++      identity={hasOwnerIdentity(trade) ? <OwnerIdentityChip trade={trade} /> : undefined}
+       variant={postType === 'open_need' ? 'need' : 'offer'}
+       onPress={onOpen}
+     />
+@@ -235,6 +266,9 @@
+   },
+   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+   summaryHeader: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
++  summaryOwnerRow: { alignItems: 'center', minHeight: 24 },
++  summaryOwnerIdentity: { alignSelf: 'center' },
++  posterOwnerIdentity: { minHeight: 30, paddingVertical: 3, paddingLeft: 4, paddingRight: 8, maxWidth: 142 },
+   summaryStatus: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
+   summaryBody: { flex: 1, justifyContent: 'center', gap: 18, minHeight: 0 },
+   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
+diff -ruN docs/tests/phase22_m4_native_feed_deck_identity_parity.md docs/tests/phase22_m4_native_feed_deck_identity_parity.md
+--- docs/tests/phase22_m4_native_feed_deck_identity_parity.md	1970-01-01 00:00:00.000000000 +0000
++++ docs/tests/phase22_m4_native_feed_deck_identity_parity.md	2026-05-12 08:06:43.647540428 +0000
+@@ -0,0 +1,34 @@
++# Phase 22.M4 native feed/deck identity parity smoke checklist
++
++Scope: native feed/deck identity surfaces only. This phase should not change square-stack swipe physics, proposal status actions, wallet logic, backend API behavior, or web UI.
++
++## Square stack feed
++
++- Open the native Trades tab.
++- Confirm every summary card that has an owner preview shows a small avatar/name identity element.
++- Tap the owner identity on a summary card and confirm it opens `UserProfile` for that user.
++- Tap the rest of the summary card and confirm it still opens `TradeDetail`.
++- Swipe the square stack forward/backward and confirm the gesture behavior is unchanged.
++- Confirm image cards still behave as full-bleed image/reference cards and open the trade detail when tapped.
++
++## Open Need / Open Offer cards
++
++- Confirm Open Need summary poster cards show owner identity beside the post badge when owner data is available.
++- Confirm Open Offer summary poster cards show owner identity beside the post badge when owner data is available.
++- Confirm missing owner preview data does not crash the card.
++
++## Legacy deck card component
++
++- Confirm the older `TradeDeckCard` owner panel uses the shared native identity component.
++- Confirm the avatar fallback initial appears when the owner has no avatar.
++- Confirm owner identity opens `UserProfile` when a real owner id is available.
++
++## Create trade preview guard
++
++- Open Create Trade and view the deck preview.
++- Confirm preview cards do not navigate to fake users such as `preview` or `unknown`.
++
++## Privacy
++
++- Confirm feed/deck identity only displays public-safe fields: avatar, display name, and optional handle/status text.
++- Confirm no email, phone, wallet, private settings, support, or private proposal thread data appears in feed/deck cards.

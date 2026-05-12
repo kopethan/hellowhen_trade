@@ -3,6 +3,7 @@ import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { truncateText } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
+import { UserIdentityPressable } from '../../users/UserIdentityPressable';
 import type { TradeDeckItem } from '../types';
 import { resolveMediaUrl } from '../mediaUrls';
 
@@ -22,8 +23,9 @@ function getTradeKind(trade: TradeDeckItem): { label: string; tone: 'need' | 'of
   return { label: 'Public trade', tone: 'trade' };
 }
 
-function getOwnerLabel(trade: TradeDeckItem) {
-  return trade.owner?.profile?.displayName || trade.owner?.profile?.handle || 'Hellowhen member';
+function getPublicOwnerId(ownerId?: string | null) {
+  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
+  return ownerId;
 }
 
 function getExpiryLabel(expiresAt?: string | null) {
@@ -53,13 +55,14 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
       </View>
       <View style={styles.creditPanel}>
         {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}
-        <View style={styles.ownerPill}>
-          <View style={styles.avatarPlaceholder} />
-          <View style={styles.ownerCopy}>
-            <AppText style={styles.ownerLabel}>Owner</AppText>
-            <AppText style={styles.ownerName} numberOfLines={1}>{getOwnerLabel(trade)}</AppText>
-          </View>
-        </View>
+        <UserIdentityPressable
+          user={trade.owner}
+          userId={trade.owner?.id ?? getPublicOwnerId(trade.ownerId)}
+          variant="compact"
+          avatarSize="sm"
+          subtitle="Owner"
+          style={styles.ownerIdentity}
+        />
       </View>
       <View style={styles.metaRow}>
         <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
@@ -83,11 +86,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, lineHeight: 36, fontWeight: '900', letterSpacing: -0.8 },
   description: { color: '#475569', fontSize: 16, lineHeight: 23, fontWeight: '600' },
   creditPanel: { borderRadius: 24, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 16, gap: 14 },
-  ownerPill: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatarPlaceholder: { width: 38, height: 38, borderRadius: 19, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4' },
-  ownerCopy: { flex: 1 },
-  ownerLabel: { color: '#64748B', fontSize: 12, fontWeight: '800' },
-  ownerName: { marginTop: 2, fontWeight: '900' },
+  ownerIdentity: { alignSelf: 'stretch' },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
   actionsRow: { flexDirection: 'row', gap: 10 },
   primaryButton: { flex: 1.35, minHeight: 48, borderRadius: 16, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },

@@ -3,7 +3,7 @@
 import type { PublicProfileResponse, PublicProfileTradeSummary } from '@hellowhen/contracts';
 import { truncateText } from '@hellowhen/shared';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { api, resolveWebAssetUrl } from '../../lib/api';
 import { UserAvatar } from './UserAvatar';
@@ -75,21 +75,33 @@ function postImage(post: PublicProfileTradeSummary) {
   return needImage ?? offerImage ?? tradeImage ?? null;
 }
 
-function PostCard({ post }: { post: PublicProfileTradeSummary }) {
+function PublicProfilePostImage({ post }: { post: PublicProfileTradeSummary }) {
   const image = postImage(post);
   const imageSrc = image ? resolveWebAssetUrl(image.url, image.storageKey) : '';
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageSrc]);
+
+  if (imageSrc && !imageFailed) {
+    return <img className="public-profile-post-card__image" src={imageSrc} alt="" loading="lazy" onError={() => setImageFailed(true)} />;
+  }
+
+  return (
+    <div className="public-profile-post-card__image public-profile-post-card__image--fallback" aria-hidden="true">
+      <WebIcon name={post.postType === 'open_need' ? 'need' : post.postType === 'open_offer' ? 'offer' : 'trade'} size={28} decorative />
+    </div>
+  );
+}
+
+function PostCard({ post }: { post: PublicProfileTradeSummary }) {
   const amountCents = post.amountCents ?? 0;
   const hasMoney = amountCents > 0;
 
   return (
     <Link href={`/trades/${post.id}`} className="public-profile-post-card" aria-label={`Open ${postTitle(post)}`}>
-      {imageSrc ? (
-        <img className="public-profile-post-card__image" src={imageSrc} alt="" loading="lazy" />
-      ) : (
-        <div className="public-profile-post-card__image public-profile-post-card__image--fallback" aria-hidden="true">
-          <WebIcon name={post.postType === 'open_need' ? 'need' : post.postType === 'open_offer' ? 'offer' : 'trade'} size={28} decorative />
-        </div>
-      )}
+      <PublicProfilePostImage post={post} />
       <div className="public-profile-post-card__body">
         <div className="status-row">
           <span className={`semantic-badge ${postBadgeClass(post)}`}>{postTypeLabel(post)}</span>
@@ -151,9 +163,23 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadProfile = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.users.publicProfile(userId);
+      setProfile(response);
+    } catch (cause) {
+      setProfile(null);
+      setError(getFriendlyApiErrorMessage(cause, 'This public profile could not be loaded yet.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [userId]);
+
   useEffect(() => {
     let mounted = true;
-    async function loadProfile() {
+    async function loadMountedProfile() {
       setLoading(true);
       setError(null);
       try {
@@ -168,7 +194,8 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
         if (mounted) setLoading(false);
       }
     }
-    void loadProfile();
+
+    void loadMountedProfile();
     return () => { mounted = false; };
   }, [userId]);
 
@@ -196,7 +223,12 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
             <p>{error ?? 'This public profile could not be loaded.'}</p>
           </div>
         </section>
-        <Link href="/trades" className="button secondary">Back to trades</Link>
+        <div className="public-profile-error-actions">
+          <button type="button" className="button primary" onClick={() => void loadProfile()} disabled={loading}>
+            {loading ? 'Retrying...' : 'Try again'}
+          </button>
+          <Link href="/trades" className="button secondary">Back to trades</Link>
+        </div>
       </article>
     );
   }

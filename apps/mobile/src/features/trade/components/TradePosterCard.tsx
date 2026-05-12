@@ -15,6 +15,7 @@ type TradePosterCardProps = {
   subtitle?: string;
   chips?: string[];
   status?: { label: string; tone: TradePosterCardStatusTone } | null;
+  identity?: React.ReactNode;
   variant?: TradePosterCardVariant;
   onPress: () => void;
 };
@@ -88,7 +89,7 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
   );
 }
 
-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, variant = 'trade', onPress }: TradePosterCardProps) {
+function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, identity, variant = 'trade', onPress }: TradePosterCardProps) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
   const [imageFailed, setImageFailed] = useState(!imageUrl);
@@ -156,6 +157,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           <View style={[styles.badge, { backgroundColor: pillBg, borderColor: pillBorder }]}>
             <AppText style={[styles.badgeText, { color: eyebrowColor }]} numberOfLines={1}>{badge}</AppText>
           </View>
+          {identity ? <View style={styles.identitySlot}>{identity}</View> : null}
         </View>
 
         <View style={styles.copyBlock}>
@@ -271,17 +273,23 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   badge: {
     minHeight: 26,
-    maxWidth: '72%',
+    maxWidth: '58%',
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 11,
     paddingVertical: 5,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  identitySlot: {
+    maxWidth: '48%',
+    flexShrink: 1,
+    alignItems: 'flex-end',
   },
   badgeText: {
     fontSize: 11,

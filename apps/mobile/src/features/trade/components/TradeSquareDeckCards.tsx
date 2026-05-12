@@ -8,6 +8,7 @@ import { TradeExchangeIcon } from './TradeExchangeIcon';
 import { resolveMediaUrl } from '../mediaUrls';
 import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
 import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
+import { UserIdentityPressable } from '../../users/UserIdentityPressable';
 
 export type TradeSquareDeckCard = {
   id: string;
@@ -45,6 +46,32 @@ export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, 
 export function renderTradeSquareDeckCard(card: TradeSquareDeckCard, _index: number, _total: number, onOpen: () => void) {
   if (card.kind === 'summary') return <TradeSummaryCard trade={card.trade} tradeIndex={card.tradeIndex} tradeTotal={card.tradeTotal} onOpen={onOpen} />;
   return <TradeImageCard trade={card.trade} kind={card.kind} media={card.media} onOpen={onOpen} />;
+}
+
+function getPublicOwnerId(ownerId?: string | null) {
+  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
+  return ownerId;
+}
+
+function hasOwnerIdentity(trade: TradeDeckItem) {
+  return Boolean(trade.owner || getPublicOwnerId(trade.ownerId));
+}
+
+function OwnerIdentityChip({ trade, compact = false }: { trade: TradeDeckItem; compact?: boolean }) {
+  const userId = trade.owner?.id ?? getPublicOwnerId(trade.ownerId);
+  if (!trade.owner && !userId) return null;
+
+  return (
+    <UserIdentityPressable
+      user={trade.owner}
+      userId={userId}
+      variant={compact ? 'compact' : 'chip'}
+      avatarSize="xs"
+      showHandle={false}
+      subtitle={compact ? 'Owner' : undefined}
+      style={compact ? styles.summaryOwnerIdentity : styles.posterOwnerIdentity}
+    />
+  );
 }
 
 function getTradeCounter(index: number, total: number) { return `${String(index + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`; }
@@ -133,6 +160,8 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
         <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status)}</AppText>
       </View>
 
+      {hasOwnerIdentity(trade) ? <View style={styles.summaryOwnerRow}><OwnerIdentityChip trade={trade} compact /></View> : null}
+
       <View style={styles.summaryBody}>
         <View style={styles.tradeSideBlock}>
           <AppText style={[styles.sideEyebrow, { color: '#60A5FA' }]}>I need</AppText>
@@ -175,6 +204,7 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
       subtitle={summarySubtitle}
       status={countdown}
       chips={starterChips(trade)}
+      identity={hasOwnerIdentity(trade) ? <OwnerIdentityChip trade={trade} /> : undefined}
       variant={postType === 'open_need' ? 'need' : 'offer'}
       onPress={onOpen}
     />
@@ -235,6 +265,9 @@ const styles = StyleSheet.create({
   },
   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   summaryHeader: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
+  summaryOwnerRow: { alignItems: 'center', minHeight: 24 },
+  summaryOwnerIdentity: { alignSelf: 'center' },
+  posterOwnerIdentity: { minHeight: 30, paddingVertical: 3, paddingLeft: 4, paddingRight: 8, maxWidth: 142 },
   summaryStatus: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
   summaryBody: { flex: 1, justifyContent: 'center', gap: 18, minHeight: 0 },
   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },

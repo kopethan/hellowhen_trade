@@ -1,4 +1,7 @@
+'use client';
+
 import type { CSSProperties } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { resolveWebAssetUrl } from '../../lib/api';
 
 export type UserAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
@@ -39,15 +42,28 @@ export function UserAvatar({
   decorative = false,
   style,
 }: UserAvatarProps) {
-  const imageSrc = resolveWebAssetUrl(src, storageKey);
+  const imageSrc = useMemo(() => resolveWebAssetUrl(src, storageKey), [src, storageKey]);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [imageSrc]);
+
   const name = getUserDisplayName(displayName, handle);
   const imageAlt = decorative ? '' : (alt ?? `${name} avatar`);
   const classes = ['user-avatar', `user-avatar--${size}`, className].filter(Boolean).join(' ');
+  const showImage = Boolean(imageSrc && !imageFailed);
 
-  if (imageSrc) {
+  if (showImage) {
     return (
       <span className={classes} style={style} aria-hidden={decorative || undefined}>
-        <img className="user-avatar__image" src={imageSrc} alt={imageAlt} loading="lazy" />
+        <img
+          className="user-avatar__image"
+          src={imageSrc}
+          alt={imageAlt}
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+        />
       </span>
     );
   }

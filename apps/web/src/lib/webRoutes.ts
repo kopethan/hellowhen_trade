@@ -14,7 +14,7 @@ export const webTabs: WebTab[] = [
     label: 'Trades',
     href: '/trades',
     icon: 'trade',
-    match: (pathname) => pathname === '/' || pathname.startsWith('/trades'),
+    match: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users'),
   },
   {
     key: 'needs',

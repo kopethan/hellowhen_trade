@@ -13,6 +13,7 @@ import { SupportTicketDetailScreen } from '../features/account/SupportTicketDeta
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { ProfileScreen } from '../features/me/MeScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
+import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScreen';
 import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
 import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
 import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
@@ -54,6 +55,7 @@ export type RootStackParamList = {
   CreateProposal: { tradeId: string; title?: string };
   ProposalDetail: { proposalId: string };
   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
+  UserProfile: { userId: string; displayName?: string };
   Login: undefined;
 };
 
@@ -163,6 +165,7 @@ export function RootNavigator() {
     <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+      <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
