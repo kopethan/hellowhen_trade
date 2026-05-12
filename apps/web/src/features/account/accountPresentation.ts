@@ -1,6 +1,7 @@
 import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
+import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 
 export const fallbackCurrency = 'eur';
 
@@ -62,15 +63,17 @@ export function normalizePayouts(payload: unknown) {
   };
 }
 
-export function formatMoney(cents = 0, currency = fallbackCurrency) {
-  return formatWebMoney(cents, currency);
+export function formatMoney(cents = 0, currency = fallbackCurrency, language?: SupportedLanguage) {
+  return formatWebMoney(cents, currency, language);
 }
 
-export function formatDateTime(value?: string | null) {
-  return formatWebDateTime(value, '—');
+export function formatDateTime(value?: string | null, language?: SupportedLanguage) {
+  return formatWebDateTime(value, '—', language);
 }
 
-export function ledgerLabel(type: string) {
+export function ledgerLabel(type: string, t?: (key: string, values?: TranslationValues) => string) {
+  const localized = t?.(`account.ledger.${type}`);
+  if (localized && localized !== `account.ledger.${type}`) return localized;
   const labels: Record<string, string> = {
     starting_demo_credits: 'Starting demo balance',
     test_credit_grant: 'Demo top-up',
@@ -104,7 +107,10 @@ export function assetUrl(value?: string | null) {
 }
 
 
-export function trustTierLabel(tier?: string | null) {
+export function trustTierLabel(tier?: string | null, t?: (key: string, values?: TranslationValues) => string) {
+  const key = tier || 'new';
+  const localized = t?.(`account.trustTiers.${key}`);
+  if (localized && localized !== `account.trustTiers.${key}`) return localized;
   const labels: Record<string, string> = {
     new: 'New account',
     email_verified: 'Email verified',
@@ -112,7 +118,7 @@ export function trustTierLabel(tier?: string | null) {
     trusted: 'Trusted',
     restricted: 'Restricted',
   };
-  return tier ? labels[tier] ?? tier.replace(/_/g, ' ') : 'New account';
+  return tier ? labels[tier] ?? tier.replace(/_/g, ' ') : labels.new;
 }
 
 export function formatLimitCount(used = 0, limit = 0) {

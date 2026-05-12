@@ -3,8 +3,8 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } fr
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { LedgerEntryDto, MoneySafetyStatusDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
-import { formatMoney } from '@hellowhen/shared';
-import type { ThemeTokens } from '@hellowhen/theme';
+import { formatLocalizedMoney, formatLocalizedShortDate } from '@hellowhen/i18n';
+import type { SupportedLanguage } from '@hellowhen/i18n';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
@@ -15,6 +15,7 @@ import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BuyCredits'>;
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null; message?: string };
@@ -28,18 +29,19 @@ function parseMoneyToCents(value: string) {
   return (Number.parseInt(whole || '0', 10) * 100) + Number.parseInt(fraction.padEnd(2, '0').slice(0, 2) || '0', 10);
 }
 
-function formatDate(value: string) {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+function money(value: number, currency: string, language: SupportedLanguage) {
+  return formatLocalizedMoney(value, currency, language);
 }
 
-function entryAmount(entry: LedgerEntryDto) {
-  if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}`;
-  return formatMoney(0, entry.currency ?? 'eur');
+function entryAmount(entry: LedgerEntryDto, language: SupportedLanguage) {
+  const currency = entry.currency ?? 'eur';
+  if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${money(entry.amountCents, currency, language)}`;
+  return money(0, currency, language);
 }
 
 export function BuyCreditsScreen({ navigation }: Props) {
   const theme = useThemeTokens();
+  const { t, language } = useTranslation();
   const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
   const [limits, setLimits] = useState<WalletLimitsDto | null>(null);
   const [moneySafety, setMoneySafety] = useState<MoneySafetyStatusDto | null>(null);
@@ -57,17 +59,17 @@ export function BuyCreditsScreen({ navigation }: Props) {
       setLimits(limitResult.limits ?? null);
       setMoneySafety(safetyResult.moneySafety ?? null);
     } catch (caughtError) {
-      setWallet(null); setNotice({ tone: 'danger', title: 'Wallet unavailable', body: getFriendlyApiErrorMessage(caughtError) });
+      setWallet(null); setNotice({ tone: 'danger', title: t('account.walletUnavailable'), body: getFriendlyApiErrorMessage(caughtError) });
     } finally { setLoading(false); }
-  }, []);
+  }, [t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   if (!betaFeatures.walletVisible) {
     return (
-      <AppFixedHeaderScreen header={<AppHeader title="Add money" onBack={() => navigation.goBack()} />}>
+      <AppFixedHeaderScreen header={<AppHeader title={t('account.addMoney.title')} onBack={() => navigation.goBack()} />}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <InfoNotice tone="info" title="Add money hidden for beta" body="Wallet top-ups are disabled for the first international beta. Use Needs and Offers for service or goods exchanges." />
+          <InfoNotice tone="info" title={t('account.addMoney.hiddenTitle')} body={t('account.addMoney.hiddenBody')} />
         </ScrollView>
       </AppFixedHeaderScreen>
     );
@@ -88,9 +90,9 @@ export function BuyCreditsScreen({ navigation }: Props) {
     try {
       const result = await api.wallet.acknowledgeMoneySafety({ accepted: true }) as { moneySafety: MoneySafetyStatusDto };
       setMoneySafety(result.moneySafety ?? null);
-      setNotice({ tone: 'success', title: 'Policies accepted', body: 'Money safety policies were accepted for this launch version.' });
+      setNotice({ tone: 'success', title: t('account.addMoney.safetyAccepted'), body: t('account.addMoney.policyAcknowledged') });
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Could not accept policies', body: getFriendlyApiErrorMessage(caughtError, 'Please try again.') });
+      setNotice({ tone: 'danger', title: t('account.addMoney.safetyReview'), body: getFriendlyApiErrorMessage(caughtError, t('common.actions.tryAgain')) });
     } finally { setAdding(false); }
   }
 
@@ -101,19 +103,19 @@ export function BuyCreditsScreen({ navigation }: Props) {
       const result = await api.wallet.demoTopUp({ amountCents: selectedAmount, currency }) as WalletResponse;
       setWallet(result.wallet ?? null);
       setAmountText('');
-      setNotice({ tone: 'success', title: 'Demo money added', body: `${formatMoney(selectedAmount, currency)} was added to your wallet. No real card was charged.` });
+      setNotice({ tone: 'success', title: t('account.addMoney.demoMoneyAddedTitle'), body: t('account.addMoney.demoMoneyAddedBody', { amount: money(selectedAmount, currency, language) }) });
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Could not add demo money', body: getFriendlyApiErrorMessage(caughtError, 'Please try again.') });
+      setNotice({ tone: 'danger', title: t('account.addMoney.couldNotAdd'), body: getFriendlyApiErrorMessage(caughtError, t('common.actions.tryAgain')) });
     } finally { setAdding(false); }
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Add money" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('account.addMoney.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
         <View style={styles.headerCopy}>
           <SemanticBadge label="Stripe demo" tone="credits" />
-          <AppText style={styles.title}>Add demo money</AppText>
-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Simulate a Stripe wallet top-up for testing trades. No real card is charged.</AppText>
+          <AppText style={styles.title}>{t('account.addMoney.addDemoMoney')}</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.addMoney.simulationBody')}</AppText>
         </View>
 
         {notice ? <InfoNotice tone={notice.tone} title={notice.title} body={notice.body} /> : null}
@@ -122,50 +124,50 @@ export function BuyCreditsScreen({ navigation }: Props) {
           <AppCard>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
-                <AppText style={styles.sectionTitle}>Money launch safety</AppText>
+                <AppText style={styles.sectionTitle}>{t('account.addMoney.safetyTitle')}</AppText>
                 <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafety.message}</AppText>
               </View>
-              <SemanticBadge label={moneySafety.policyAcknowledged ? 'accepted' : 'review'} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
+              <SemanticBadge label={moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
             </View>
             {!moneySafety.policyAcknowledged ? (
               <Pressable accessibilityRole="button" disabled={adding} onPress={() => { void acknowledgeSafety(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border }, pressed && styles.pressed]}>
-                <AppText style={styles.secondaryButtonText}>Accept wallet, payout, refund, and dispute policies</AppText>
+                <AppText style={styles.secondaryButtonText}>{t('account.addMoney.acceptPolicies')}</AppText>
               </Pressable>
-            ) : <AppText style={[styles.disclaimer, { color: theme.color.muted }]}>Policy version {moneySafety.policyVersion} accepted.</AppText>}
+            ) : <AppText style={[styles.disclaimer, { color: theme.color.muted }]}>{t('account.addMoney.policyAccepted', { version: moneySafety.policyVersion })}</AppText>}
           </AppCard>
         ) : null}
 
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Wallet balance</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Available money can be offered inside “I offer” on a trade.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.addMoney.walletBalance')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.addMoney.balanceBody')}</AppText>
             </View>
             <View style={[styles.balancePill, { backgroundColor: theme.semantic.credits.softBg, borderColor: theme.semantic.credits.border }]}>
-              <AppText style={[styles.balanceValue, { color: theme.semantic.credits.text }]}>{formatMoney(wallet?.availableBalanceCents ?? 0, currency)}</AppText>
-              <AppText style={[styles.balanceLabel, { color: theme.semantic.credits.text }]}>available</AppText>
+              <AppText style={[styles.balanceValue, { color: theme.semantic.credits.text }]}>{money(wallet?.availableBalanceCents ?? 0, currency, language)}</AppText>
+              <AppText style={[styles.balanceLabel, { color: theme.semantic.credits.text }]}>{t('account.addMoney.available')}</AppText>
             </View>
           </View>
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Choose demo amount</AppText>
-          <View style={styles.amountGrid}>{demoAmounts.map((amount) => <Pressable key={amount} accessibilityRole="button" onPress={() => setAmountText((amount / 100).toFixed(2))} style={({ pressed }) => [styles.amountOption, { borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }, selectedAmount === amount && { borderColor: theme.semantic.credits.border, backgroundColor: theme.semantic.credits.softBg }, pressed && styles.pressed]}><AppText style={[styles.amountOptionValue, selectedAmount === amount && { color: theme.semantic.credits.text }]}>{formatMoney(amount, currency)}</AppText><AppText style={[styles.amountOptionLabel, { color: selectedAmount === amount ? theme.semantic.credits.text : theme.color.muted }]}>demo</AppText></Pressable>)}</View>
-          <TextInput value={amountText} onChangeText={setAmountText} keyboardType="decimal-pad" placeholder="Custom amount" placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
-          {limits ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Launch wallet cap: {formatMoney(walletCapCents, currency)} · remaining: {formatMoney(remainingCapCents, currency)}.</AppText> : null}
-          {safetyBlocked ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Accept the current money safety policies before adding demo money.</AppText> : null}
-          {limitBlocked ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>This top-up is above your current launch limit.</AppText> : null}
-          {selectedAmount > 100000 ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Demo top-up limit is {formatMoney(100000, currency)}.</AppText> : null}
-          {selectedAmount > 0 && selectedAmount < 100 ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Minimum demo top-up is {formatMoney(100, currency)}.</AppText> : null}
+          <AppText style={styles.sectionTitle}>{t('account.addMoney.chooseDemoAmount')}</AppText>
+          <View style={styles.amountGrid}>{demoAmounts.map((amount) => <Pressable key={amount} accessibilityRole="button" onPress={() => setAmountText((amount / 100).toFixed(2))} style={({ pressed }) => [styles.amountOption, { borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }, selectedAmount === amount && { borderColor: theme.semantic.credits.border, backgroundColor: theme.semantic.credits.softBg }, pressed && styles.pressed]}><AppText style={[styles.amountOptionValue, selectedAmount === amount && { color: theme.semantic.credits.text }]}>{money(amount, currency, language)}</AppText><AppText style={[styles.amountOptionLabel, { color: selectedAmount === amount ? theme.semantic.credits.text : theme.color.muted }]}>{t('account.addMoney.demo')}</AppText></Pressable>)}</View>
+          <TextInput value={amountText} onChangeText={setAmountText} keyboardType="decimal-pad" placeholder={t('account.addMoney.customAmount')} placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+          {limits ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>{t('account.addMoney.launchWalletCap', { cap: money(walletCapCents, currency, language), remaining: money(remainingCapCents, currency, language) })}</AppText> : null}
+          {safetyBlocked ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.addMoney.blockedSafety')}</AppText> : null}
+          {limitBlocked ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.addMoney.blockedLimit')}</AppText> : null}
+          {selectedAmount > 100000 ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.addMoney.topUpLimit', { amount: money(100000, currency, language) })}</AppText> : null}
+          {selectedAmount > 0 && selectedAmount < 100 ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>{t('account.addMoney.minimumTopUp', { amount: money(100, currency, language) })}</AppText> : null}
           <Pressable accessibilityRole="button" disabled={!canAdd || adding} onPress={() => { void addDemoMoney(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.credits.bg }, (!canAdd || adding) && styles.disabled, pressed && canAdd && styles.pressed]}>
-            <AppText style={styles.primaryButtonText}>{adding ? 'Adding...' : 'Continue with Stripe demo'}</AppText>
+            <AppText style={styles.primaryButtonText}>{adding ? t('account.addMoney.adding') : t('account.addMoney.continueStripeDemo')}</AppText>
           </Pressable>
-          <AppText style={[styles.disclaimer, { color: theme.color.muted }]}>This is test wallet money for product simulation. It is not a deposit and cannot be withdrawn as real money.</AppText>
+          <AppText style={[styles.disclaimer, { color: theme.color.muted }]}>{t('account.addMoney.simulationDisclaimer')}</AppText>
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Recent demo top-ups</AppText>
-          {topUps.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No demo top-up history yet.</AppText> : topUps.map((entry) => <View key={entry.id} style={[styles.topUpRow, { borderTopColor: theme.color.border }]}><View style={styles.topUpCopy}><SemanticBadge label={entry.type === 'test_credit_grant' ? 'demo top-up' : 'top-up'} tone="credits" size="sm" /><AppText style={styles.topUpTitle}>{entry.description ?? 'Wallet top-up'}</AppText></View><View style={styles.topUpAmount}><AppText style={styles.topUpValue}>{entryAmount(entry)}</AppText><AppText style={[styles.topUpDate, { color: theme.color.muted }]}>{formatDate(entry.createdAt)}</AppText></View></View>)}
+          <AppText style={styles.sectionTitle}>{t('account.addMoney.recentTopUps')}</AppText>
+          {topUps.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.addMoney.noTopUpHistory')}</AppText> : topUps.map((entry) => <View key={entry.id} style={[styles.topUpRow, { borderTopColor: theme.color.border }]}><View style={styles.topUpCopy}><SemanticBadge label={entry.type === 'test_credit_grant' ? t('account.addMoney.demo') : t('account.addMoney.topUp')} tone="credits" size="sm" /><AppText style={styles.topUpTitle}>{entry.description ?? t('account.addMoney.walletTopUp')}</AppText></View><View style={styles.topUpAmount}><AppText style={styles.topUpValue}>{entryAmount(entry, language)}</AppText><AppText style={[styles.topUpDate, { color: theme.color.muted }]}>{formatLocalizedShortDate(entry.createdAt, language, '')}</AppText></View></View>)}
         </AppCard>
       </ScrollView>
     </AppFixedHeaderScreen>

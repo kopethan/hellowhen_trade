@@ -1,11 +1,14 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { truncateText } from '@hellowhen/shared';
+import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
 import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
 import { UserIdentityPressable } from '../../users/UserIdentityPressable';
 import type { TradeDeckItem } from '../types';
 import { resolveMediaUrl } from '../mediaUrls';
+
+type TFunction = ReturnType<typeof useTranslation>['t'];
 
 type TradeDeckCardProps = {
   trade: TradeDeckItem;
@@ -17,10 +20,10 @@ type TradeDeckCardProps = {
   onSave: () => void;
 };
 
-function getTradeKind(trade: TradeDeckItem): { label: string; tone: 'need' | 'offer' | 'trade' } {
-  if (trade.needId) return { label: 'Need trade', tone: 'need' };
-  if (trade.offerId) return { label: 'Offer trade', tone: 'offer' };
-  return { label: 'Public trade', tone: 'trade' };
+function getTradeKind(trade: TradeDeckItem, t: TFunction): { label: string; tone: 'need' | 'offer' | 'trade' } {
+  if (trade.needId) return { label: t('trade.labels.needTrade'), tone: 'need' };
+  if (trade.offerId) return { label: t('trade.labels.offerTrade'), tone: 'offer' };
+  return { label: t('trade.labels.publicTrade'), tone: 'trade' };
 }
 
 function getPublicOwnerId(ownerId?: string | null) {
@@ -28,19 +31,20 @@ function getPublicOwnerId(ownerId?: string | null) {
   return ownerId;
 }
 
-function getExpiryLabel(expiresAt?: string | null) {
-  if (!expiresAt) return 'Open expiry';
+function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction) {
+  if (!expiresAt) return t('trade.labels.openExpiry');
   const expiresMs = new Date(expiresAt).getTime();
-  if (!Number.isFinite(expiresMs)) return 'Open expiry';
+  if (!Number.isFinite(expiresMs)) return t('trade.labels.openExpiry');
   const diffMs = expiresMs - Date.now();
-  if (diffMs <= 0) return 'Expired';
+  if (diffMs <= 0) return t('trade.expiry.expired');
   const hours = Math.ceil(diffMs / 1000 / 60 / 60);
-  if (hours < 24) return `${hours}h left`;
-  return `${Math.ceil(hours / 24)}d left`;
+  if (hours < 24) return t('trade.expiry.hoursLeft', { count: hours });
+  return t('trade.expiry.daysLeft', { count: Math.ceil(hours / 24) });
 }
 
 export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSave }: TradeDeckCardProps) {
-  const kind = getTradeKind(trade);
+  const { t } = useTranslation();
+  const kind = getTradeKind(trade, t);
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
@@ -54,24 +58,24 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
         <AppText style={styles.description}>{truncateText(trade.description, 190)}</AppText>
       </View>
       <View style={styles.creditPanel}>
-        {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label="optional" /> : <SemanticBadge label="Service trade" tone="trade" />}
+        {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={t('trade.labels.optionalMoney').toLowerCase()} /> : <SemanticBadge label={t('trade.labels.serviceForService')} tone="trade" />}
         <UserIdentityPressable
           user={trade.owner}
           userId={trade.owner?.id ?? getPublicOwnerId(trade.ownerId)}
           variant="compact"
           avatarSize="sm"
-          subtitle="Owner"
+          subtitle={t('trade.labels.owner')}
           style={styles.ownerIdentity}
         />
       </View>
       <View style={styles.metaRow}>
-        <SemanticBadge label={getExpiryLabel(trade.expiresAt)} tone="time" size="sm" />
-        <SemanticBadge label="Optional money" tone="info" size="sm" />
+        <SemanticBadge label={getExpiryLabel(trade.expiresAt, t)} tone="time" size="sm" />
+        <SemanticBadge label={t('trade.labels.optionalMoney')} tone="info" size="sm" />
       </View>
       <View style={styles.actionsRow}>
-        <Pressable accessibilityRole="button" onPress={onPass} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Pass</AppText></Pressable>
-        <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>Open Detail</AppText></Pressable>
-        <Pressable accessibilityRole="button" onPress={onSave} style={({ pressed }) => [styles.secondaryButton, saved && styles.savedButton, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, saved && styles.savedButtonText]}>{saved ? 'Saved' : 'Save'}</AppText></Pressable>
+        <Pressable accessibilityRole="button" onPress={onPass} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>{t('trade.deck.pass')}</AppText></Pressable>
+        <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{t('trade.deck.openDetail')}</AppText></Pressable>
+        <Pressable accessibilityRole="button" onPress={onSave} style={({ pressed }) => [styles.secondaryButton, saved && styles.savedButton, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, saved && styles.savedButtonText]}>{saved ? t('common.states.saved') : t('common.actions.save')}</AppText></Pressable>
       </View>
     </View>
   );

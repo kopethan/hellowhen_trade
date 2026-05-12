@@ -1,35 +1,36 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { assetUrl, fallbackCurrency, formatMoney, formatPayoutFeeRate, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
 
 type AccountHubItem = {
   href: string;
-  title: string;
-  body: string;
-  badge?: string;
+  titleKey: string;
+  bodyKey: string;
   icon?: WebIconName;
 };
 
-const accountItems: AccountHubItem[] = [
-  { href: '/account/profile', title: 'Profile', body: 'Display name, handle, bio, profile photo, country, and display currency.', icon: 'profile' },
-  ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', title: 'Business / brand', body: 'Create future business, agency, brand, or enterprise profiles for KYB-ready onboarding.' }] : []),
-  ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', title: 'Wallet', body: 'Optional wallet money, held money, earnings, and recent activity.' }] : []),
-  ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', title: 'Payouts', body: 'Connect the demo payout account, preview the platform fee, and simulate payout requests.' }] : []),
-  { href: '/account/settings', title: 'Settings', body: 'Appearance, dark mode, and notification preferences.', icon: 'settings' },
-  { href: '/account/support', title: 'Support', body: 'Create support tickets, attach screenshots, and follow replies.', icon: 'help' },
-];
-
 export function AccountHubClient() {
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const [wallet, setWallet] = useState<WalletDto | null>(null);
   const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
+
+  const accountItems = useMemo<AccountHubItem[]>(() => [
+    { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
+    ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
+    ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
+    ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),
+    { href: '/account/settings', titleKey: 'account.items.settings.title', bodyKey: 'account.items.settings.body', icon: 'settings' },
+    { href: '/account/support', titleKey: 'account.items.support.title', bodyKey: 'account.items.support.body', icon: 'help' },
+  ], []);
 
   useEffect(() => {
     let mounted = true;
@@ -62,30 +63,30 @@ export function AccountHubClient() {
             {auth.user?.profile?.avatarUrl ? <img src={assetUrl(auth.user.profile.avatarUrl)} alt="" /> : <span>{auth.user?.profile?.displayName?.slice(0, 1).toUpperCase() ?? 'H'}</span>}
           </div>
           <div>
-            <span className="semantic-badge instruction">Signed in</span>
+            <span className="semantic-badge instruction">{t('common.states.signedIn')}</span>
             <h2>{auth.user?.profile?.displayName ?? auth.user?.email}</h2>
-            <p>{auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle on your profile.'}</p>
+            <p>{auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandleOnProfile')}</p>
           </div>
         </section>
       ) : auth.hydrated ? (
         <section className="mobile-card mobile-card--soft">
-          <span className="semantic-badge instruction">Signed out</span>
-          <h3>Login to open your account</h3>
-          <p>Profile, settings, wallet, and support are available after login.</p>
-          <Link href="/auth?next=/account" className="button primary">Login or register</Link>
+          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+          <h3>{t('account.signedOut.title')}</h3>
+          <p>{t('account.signedOut.body')}</p>
+          <Link href="/auth?next=/account" className="button primary">{t('common.actions.loginOrRegister')}</Link>
         </section>
       ) : null}
 
       {auth.isAuthenticated && (betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
         <section className="wallet-preview-strip">
           <div>
-            <span>Wallet money</span>
+            <span>{t('account.walletMoney')}</span>
             <strong>{formatMoney(wallet?.availableBalanceCents ?? 0, currency)}</strong>
           </div>
           <div>
-            <span>Available earnings</span>
+            <span>{t('account.availableEarnings')}</span>
             <strong>{formatMoney(wallet?.pendingPayoutCents ?? summary?.availableForPayoutCents ?? 0, currency)}</strong>
-            <small>{formatPayoutFeeRate(platformFeeRateBps)} payout fee</small>
+            <small>{t('account.payoutFee', { rate: formatPayoutFeeRate(platformFeeRateBps) })}</small>
           </div>
         </section>
       ) : null}
@@ -97,9 +98,9 @@ export function AccountHubClient() {
             <Link key={item.href} href={href} className="mobile-link-card">
               {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
               <span className="mobile-link-card__body">
-                <strong>{item.title}</strong>
+                <strong>{t(item.titleKey)}</strong>
                 <br />
-                {item.body}
+                {t(item.bodyKey)}
               </span>
               <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
             </Link>

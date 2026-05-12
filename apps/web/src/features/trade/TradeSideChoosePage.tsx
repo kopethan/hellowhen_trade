@@ -11,6 +11,7 @@ import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { getInventoryMetadata, itemTypeLabel, mediaSrc, normalizeInventoryList } from '../inventory/inventoryPresentation';
 
 type Side = 'need' | 'offer';
@@ -34,11 +35,11 @@ type TemplateSection = {
   items: InventoryTemplateDto[];
 };
 
-const ITEM_TYPE_FILTERS: Array<{ value: ItemTypeFilter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'service', label: 'Services' },
-  { value: 'goods', label: 'Goods' },
-  { value: 'other', label: 'Other' },
+const ITEM_TYPE_FILTERS: Array<{ value: ItemTypeFilter; key: string }> = [
+  { value: 'all', key: 'inventory.itemTypes.all' },
+  { value: 'service', key: 'inventory.itemTypes.services' },
+  { value: 'goods', key: 'inventory.itemTypes.goods' },
+  { value: 'other', key: 'inventory.itemTypes.other' },
 ];
 
 const ITEM_TYPE_ORDER: InventoryItemType[] = ['service', 'goods', 'other'];
@@ -159,17 +160,21 @@ function StarterTemplateOption({
   side,
   disabled,
   cloning,
+  itemLabel,
+  t,
   onUse,
 }: {
   template: InventoryTemplateDto;
   side: Side;
   disabled: boolean;
   cloning: boolean;
+  itemLabel: string;
+  t: (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
   onUse: (template: InventoryTemplateDto) => void;
 }) {
   const metadata = templateMetadata(template);
   const tags = templateTags(template);
-  const label = side === 'need' ? 'Need' : 'Offer';
+  const label = itemLabel;
 
   return (
     <article className="trade-side-template-option">
@@ -189,7 +194,7 @@ function StarterTemplateOption({
           </div>
         ) : null}
         <button type="button" className="button secondary trade-side-template-option__button" disabled={disabled || cloning} onClick={() => onUse(template)}>
-          {cloning ? 'Saving...' : `Use this ${label}`}
+          {cloning ? t('trade.sidePicker.savingStarter') : t('trade.sidePicker.useThis', { item: label })}
         </button>
       </div>
     </article>
@@ -199,6 +204,7 @@ function StarterTemplateOption({
 export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer' }: TradeSideChoosePageProps) {
   const router = useRouter();
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const demoDataEnabled = isWebDemoDataEnabled();
   const [sourceMode, setSourceMode] = useState<InitialSourceMode>(initialSource);
   const [items, setItems] = useState<Inventory[]>(() => demoDataEnabled ? (side === 'need' ? mockNeeds : mockOffers) : []);
@@ -210,9 +216,9 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
   const [notice, setNotice] = useState('');
   const [templateError, setTemplateError] = useState('');
   const [cloningTemplateId, setCloningTemplateId] = useState('');
-  const label = side === 'need' ? 'Need' : 'Offer';
+  const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
   const lowerLabel = label.toLowerCase();
-  const pluralLabel = `${lowerLabel}s`;
+  const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
   const backHref = createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
   const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
@@ -244,7 +250,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
         if (!mounted) return;
         setItems(demoDataEnabled ? (side === 'need' ? mockNeeds : mockOffers) : []);
         setLoadState(demoDataEnabled ? 'demo' : 'idle');
-        setNotice(demoDataEnabled ? `Using demo ${pluralLabel} because your live inventory could not be loaded.` : getFriendlyApiErrorMessage(loadError, `Your saved ${pluralLabel} could not be loaded. Check your connection and try again.`));
+        setNotice(demoDataEnabled ? t('trade.sidePicker.usingDemoItems', { items: pluralLabel }) : getFriendlyApiErrorMessage(loadError, t('trade.sidePicker.savedItemsCouldNotLoad', { items: pluralLabel })));
       }
     }
     void loadItems();
@@ -264,7 +270,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
       } catch (loadError) {
         if (!mounted) return;
         setTemplates([]);
-        setTemplateError(getFriendlyApiErrorMessage(loadError, 'Starter library could not be loaded.'));
+        setTemplateError(getFriendlyApiErrorMessage(loadError, t('trade.sidePicker.starterLibraryCouldNotLoad')));
       } finally {
         if (mounted) setTemplateLoading(false);
       }
@@ -296,7 +302,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
     setTemplateError('');
 
     if (!auth.isAuthenticated) {
-      setTemplateError(`Sign in first, then you can save starter ${pluralLabel} to your account.`);
+      setTemplateError(t('trade.sidePicker.signInSaveStarter', { items: pluralLabel }));
       return;
     }
 
@@ -304,11 +310,11 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
       setCloningTemplateId(template.id);
       const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
       const created = createdItemFromCloneResponse(response, side);
-      if (!created) throw new Error(`Starter ${label} was saved, but the response could not be read.`);
+      if (!created) throw new Error(t('trade.sidePicker.starterSavedUnreadable', { item: label }));
       const href = selectHref(side, created.id, currentNeedId, currentOfferId, postType);
       router.push(href);
     } catch (cloneError) {
-      setTemplateError(getFriendlyApiErrorMessage(cloneError, `Could not save this starter ${label}.`));
+      setTemplateError(getFriendlyApiErrorMessage(cloneError, t('trade.sidePicker.couldNotSaveStarter', { item: label })));
       setCloningTemplateId('');
     }
   }
@@ -318,27 +324,27 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
   return (
     <MobilePage className="trade-side-choose-page">
       <PageIntro
-        eyebrow="Create trade"
-        title={showSourceChoice ? `Choose ${lowerLabel} source` : sourceMode === 'starter' ? `Choose a starter ${lowerLabel}` : `Choose one of your ${pluralLabel}`}
+        eyebrow={t('trade.create.title')}
+        title={showSourceChoice ? t('trade.sidePicker.chooseSourceTitle', { item: lowerLabel }) : sourceMode === 'starter' ? t('trade.sidePicker.chooseStarterTitle', { item: lowerLabel }) : t('trade.sidePicker.chooseMineTitle', { items: pluralLabel })}
         body={showSourceChoice
-          ? `Start from your private ${pluralLabel}, or use a starter ${lowerLabel} from the Hellowhen Library.`
+          ? t('trade.sidePicker.chooseSourceBody', { items: pluralLabel, item: lowerLabel })
           : sourceMode === 'starter'
-            ? `Pick a starter ${lowerLabel}. We save a private copy to your account, then return you to Create Trade.`
-            : `Pick a saved ${lowerLabel} for this trade, or create a new one without losing your current selection.`}
-        action={<Link href={backHref} className="button secondary">Back</Link>}
+            ? t('trade.sidePicker.chooseStarterBody', { item: lowerLabel })
+            : t('trade.sidePicker.chooseMineBody', { item: lowerLabel })}
+        action={<Link href={backHref} className="button secondary">{t('common.actions.back')}</Link>}
       />
 
       {!auth.hydrated ? (
         <section className="mobile-card mobile-card--soft">
-          <span className="semantic-badge instruction">Loading</span>
-          <h3>Checking your account...</h3>
+          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
+          <h3>{t('trade.create.checkingAccount')}</h3>
         </section>
       ) : !auth.isAuthenticated ? (
         <section className="mobile-card mobile-card--soft">
-          <span className="semantic-badge instruction">Signed out</span>
-          <h3>Sign in to choose live {pluralLabel}</h3>
-          <p>You can browse the starter library, but creating a live trade needs your account.</p>
-          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined))}`} className="button">Sign in</Link>
+          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+          <h3>{t('trade.create.signInChoose', { items: pluralLabel })}</h3>
+          <p>{t('trade.create.signInChooseBody')}</p>
+          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined))}`} className="button">{t('auth.actions.signIn')}</Link>
         </section>
       ) : null}
 
@@ -346,18 +352,18 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
         <section className="mobile-card trade-side-choose-panel trade-side-source-step">
           <div className="trade-side-choose-panel__top">
             <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}</span>
-            <span className="semantic-badge instruction">Step 1 of 2</span>
+            <span className="semantic-badge instruction">{t('trade.create.stepOneOfTwo')}</span>
           </div>
           <div className="trade-side-source-grid">
             <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
               <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={22} decorative /></span>
-              <strong>Use one of mine</strong>
-              <small>Choose from your private saved {pluralLabel}.</small>
+              <strong>{t('trade.sidePicker.useMine')}</strong>
+              <small>{t('trade.sidePicker.useMineBody', { items: pluralLabel })}</small>
             </Link>
             <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
               <span><WebIcon name="trade" size={22} decorative /></span>
-              <strong>Use a starter</strong>
-              <small>Start from Hellowhen Library, then save a private copy.</small>
+              <strong>{t('trade.sidePicker.useStarter')}</strong>
+              <small>{t('trade.sidePicker.useStarterBody')}</small>
             </Link>
           </div>
         </section>
@@ -366,21 +372,21 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
       {sourceMode === 'mine' ? (
         <section className="mobile-card trade-side-choose-panel">
           <div className="trade-side-choose-panel__top">
-            <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> My {label}s</span>
-            <span className="semantic-badge instruction">{loadState === 'loading' ? 'Loading' : loadState === 'live' ? 'Live inventory' : loadState === 'demo' ? 'Demo inventory' : `${selectableItems.length} available`}</span>
+            <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {t('trade.sidePicker.myItems', { items: pluralLabel })}</span>
+            <span className="semantic-badge instruction">{loadState === 'loading' ? t('common.states.loading') : loadState === 'live' ? t('inventory.labels.liveInventory') : loadState === 'demo' ? t('inventory.labels.demoInventory') : t('inventory.messages.visibleItems', { count: selectableItems.length, items: pluralLabel })}</span>
           </div>
-          <Link href={sourceChoiceHref} className="trade-side-source-back">Change source</Link>
+          <Link href={sourceChoiceHref} className="trade-side-source-back">{t('trade.sidePicker.changeSource')}</Link>
 
           <label className="trade-search-field trade-side-choose-search">
-            <span className="sr-only">Search saved {pluralLabel}</span>
+            <span className="sr-only">{t('trade.sidePicker.searchSaved', { items: pluralLabel })}</span>
             <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search saved ${pluralLabel}`} type="search" autoFocus />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('trade.sidePicker.searchSaved', { items: pluralLabel })} type="search" autoFocus />
           </label>
 
           <Link href={createHref} className="trade-side-create-link">
             <span><WebIcon name="add" size={18} decorative /></span>
-            <strong>Create a new {lowerLabel}</strong>
-            <small>Save it, then return to Create Trade with it selected.</small>
+            <strong>{t('trade.sidePicker.createNew', { item: lowerLabel })}</strong>
+            <small>{t('trade.sidePicker.createNewBody')}</small>
           </Link>
 
           {notice ? <p className="form-message form-message--success">{notice}</p> : null}
@@ -399,11 +405,11 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
             </div>
           ) : (
             <div className="trade-side-empty-state trade-side-empty-state--page">
-              <strong>{query.trim() ? 'No matches found' : `No saved ${pluralLabel} yet`}</strong>
-              <span>{query.trim() ? 'Try a different search, create a new saved item, or use a starter.' : `Create a ${lowerLabel} first, or start from the Hellowhen Library.`}</span>
+              <strong>{query.trim() ? t('trade.sidePicker.noMatches') : t('trade.sidePicker.noSavedYet', { items: pluralLabel })}</strong>
+              <span>{query.trim() ? t('trade.sidePicker.noMatchesBody') : t('trade.sidePicker.noSavedBody', { item: lowerLabel })}</span>
               <div className="trade-side-empty-actions">
-                <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> Create {label}</Link>
-                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="button secondary">Use a starter</Link>
+                <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> {t('common.actions.create')} {label}</Link>
+                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="button secondary">{t('trade.sidePicker.useStarter')}</Link>
               </div>
             </div>
           )}
@@ -413,21 +419,21 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
       {sourceMode === 'starter' ? (
         <section className="mobile-card trade-side-choose-panel">
           <div className="trade-side-choose-panel__top">
-            <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> Starter {label}s</span>
-            <span className="semantic-badge success">Hellowhen Library</span>
+            <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {t('trade.sidePicker.starterItems', { items: pluralLabel })}</span>
+            <span className="semantic-badge success">{t('inventory.sourceLabels.hellowhenLibrary')}</span>
           </div>
-          <Link href={sourceChoiceHref} className="trade-side-source-back">Change source</Link>
+          <Link href={sourceChoiceHref} className="trade-side-source-back">{t('trade.sidePicker.changeSource')}</Link>
 
           <label className="trade-search-field trade-side-choose-search">
-            <span className="sr-only">Search starter {pluralLabel}</span>
+            <span className="sr-only">{t('trade.sidePicker.searchStarter', { items: pluralLabel })}</span>
             <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search starter ${pluralLabel}`} type="search" autoFocus />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('trade.sidePicker.searchStarter', { items: pluralLabel })} type="search" autoFocus />
           </label>
 
-          <div className="inventory-type-filters trade-side-template-filters" aria-label="Starter item type filters">
+          <div className="inventory-type-filters trade-side-template-filters" aria-label={t('inventory.labels.type')}>
             {ITEM_TYPE_FILTERS.map((filter) => (
               <button key={filter.value} type="button" className={itemTypeFilter === filter.value ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter.value)}>
-                {filter.label}
+                {t(filter.key)}
               </button>
             ))}
           </div>
@@ -436,8 +442,8 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
 
           {templateLoading ? (
             <div className="trade-side-empty-state trade-side-empty-state--page">
-              <strong>Loading starter {pluralLabel}...</strong>
-              <span>Checking the Hellowhen Library.</span>
+              <strong>{t('trade.sidePicker.loadingStarter', { items: pluralLabel })}</strong>
+              <span>{t('trade.sidePicker.checkingLibrary')}</span>
             </div>
           ) : templateSections.length ? (
             <div className="trade-side-template-library">
@@ -455,6 +461,8 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
                         side={side}
                         disabled={!auth.isAuthenticated}
                         cloning={cloningTemplateId === template.id}
+                        itemLabel={label}
+                        t={t}
                         onUse={handleUseTemplate}
                       />
                     ))}
@@ -464,11 +472,11 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
             </div>
           ) : (
             <div className="trade-side-empty-state trade-side-empty-state--page">
-              <strong>{query.trim() ? 'No starter matches found' : `No starter ${pluralLabel} yet`}</strong>
-              <span>{query.trim() ? 'Try a different search or item type filter.' : `Starter ${pluralLabel} will appear here after the backend seed has been run.`}</span>
+              <strong>{query.trim() ? t('inventory.empty.noStarterMatches') : t('inventory.empty.noStarterKind', { items: pluralLabel })}</strong>
+              <span>{query.trim() ? t('inventory.empty.searchOrFilterBody') : t('inventory.empty.starterSeedBody', { items: pluralLabel })}</span>
               <div className="trade-side-empty-actions">
-                <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> Create {label} manually</Link>
-                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="button secondary">Use one of mine</Link>
+                <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> {t('common.actions.create')} {label}</Link>
+                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="button secondary">{t('trade.sidePicker.useMine')}</Link>
               </div>
             </div>
           )}

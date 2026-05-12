@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
-import { MobilePage, PageIntro } from '../../../../components/MobilePage';
+import { MobilePage } from '../../../../components/MobilePage';
+import { TranslatedPageIntro } from '../../../../components/TranslatedPageIntro';
 import { betaFeatures } from '../../../../lib/betaFeatures';
 import { AddMoneyClient } from '../../../../features/account/AddMoneyClient';
 
@@ -8,10 +9,10 @@ export default function AddMoneyPage() {
 
   return (
     <MobilePage>
-      <PageIntro
-        eyebrow="Account"
-        title="Add balance"
-        body="Manage exchange balance when this roadmap feature is enabled."
+      <TranslatedPageIntro
+        eyebrowKey="account.title"
+        titleKey="account.addBalanceTitle"
+        bodyKey="account.addBalanceBody"
       />
       <AddMoneyClient />
     </MobilePage>

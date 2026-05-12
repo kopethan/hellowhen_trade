@@ -2,7 +2,7 @@ export type RootTabKey = 'trades' | 'needs' | 'offers' | 'account';
 
 export type WebTab = {
   key: RootTabKey;
-  label: string;
+  labelKey: string;
   href: string;
   icon: 'trade' | 'need' | 'offer' | 'profile';
   match: (pathname: string) => boolean;
@@ -11,28 +11,28 @@ export type WebTab = {
 export const webTabs: WebTab[] = [
   {
     key: 'trades',
-    label: 'Trades',
+    labelKey: 'navigation.tabs.trades',
     href: '/trades',
     icon: 'trade',
     match: (pathname) => pathname === '/' || pathname.startsWith('/trades') || pathname.startsWith('/users'),
   },
   {
     key: 'needs',
-    label: 'Needs',
+    labelKey: 'navigation.tabs.needs',
     href: '/needs',
     icon: 'need',
     match: (pathname) => pathname.startsWith('/needs'),
   },
   {
     key: 'offers',
-    label: 'Offers',
+    labelKey: 'navigation.tabs.offers',
     href: '/offers',
     icon: 'offer',
     match: (pathname) => pathname.startsWith('/offers'),
   },
   {
     key: 'account',
-    label: 'Account',
+    labelKey: 'navigation.tabs.account',
     href: '/account',
     icon: 'profile',
     match: (pathname) => pathname.startsWith('/account'),
@@ -46,28 +46,28 @@ export function isUtilityRoute(pathname: string) {
   return utilityRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; root?: boolean; backHref?: string }> = [
-  { match: (pathname) => pathname === '/trades', title: 'Trades', root: true },
-  { match: (pathname) => pathname === '/needs', title: 'Needs', root: true },
-  { match: (pathname) => pathname === '/offers', title: 'Offers', root: true },
-  { match: (pathname) => pathname === '/account', title: 'Account', root: true },
-  { match: (pathname) => pathname === '/trades/create', title: 'Create trade', backHref: '/trades' },
-  { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), title: 'Profile', backHref: '/trades' },
-  { match: (pathname) => /^\/trades\/[^/]+$/.test(pathname), title: 'Trade', backHref: '/trades' },
-  { match: (pathname) => pathname === '/needs/new', title: 'Create need', backHref: '/needs' },
-  { match: (pathname) => /^\/needs\/[^/]+\/edit$/.test(pathname), title: 'Edit need', backHref: '/needs' },
-  { match: (pathname) => /^\/needs\/[^/]+$/.test(pathname), title: 'Need', backHref: '/needs' },
-  { match: (pathname) => pathname === '/offers/new', title: 'Create offer', backHref: '/offers' },
-  { match: (pathname) => /^\/offers\/[^/]+\/edit$/.test(pathname), title: 'Edit offer', backHref: '/offers' },
-  { match: (pathname) => /^\/offers\/[^/]+$/.test(pathname), title: 'Offer', backHref: '/offers' },
-  { match: (pathname) => pathname === '/account/profile', title: 'Profile', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/settings', title: 'Settings', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/wallet', title: 'Account', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/wallet/add', title: 'Account', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/payouts', title: 'Account', backHref: '/account' },
-  { match: (pathname) => pathname === '/account/support', title: 'Support', backHref: '/account' },
+const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: string; root?: boolean; backHref?: string }> = [
+  { match: (pathname) => pathname === '/trades', titleKey: 'navigation.routes.trades', root: true },
+  { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true },
+  { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true },
+  { match: (pathname) => pathname === '/account', titleKey: 'navigation.routes.account', root: true },
+  { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
+  { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.profile', backHref: '/trades' },
+  { match: (pathname) => /^\/trades\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.trade', backHref: '/trades' },
+  { match: (pathname) => pathname === '/needs/new', titleKey: 'navigation.routes.createNeed', backHref: '/needs' },
+  { match: (pathname) => /^\/needs\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editNeed', backHref: '/needs' },
+  { match: (pathname) => /^\/needs\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.need', backHref: '/needs' },
+  { match: (pathname) => pathname === '/offers/new', titleKey: 'navigation.routes.createOffer', backHref: '/offers' },
+  { match: (pathname) => /^\/offers\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editOffer', backHref: '/offers' },
+  { match: (pathname) => /^\/offers\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.offer', backHref: '/offers' },
+  { match: (pathname) => pathname === '/account/profile', titleKey: 'navigation.routes.profile', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/settings', titleKey: 'navigation.routes.settings', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/wallet', titleKey: 'navigation.routes.account', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/wallet/add', titleKey: 'navigation.routes.account', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/payouts', titleKey: 'navigation.routes.account', backHref: '/account' },
+  { match: (pathname) => pathname === '/account/support', titleKey: 'navigation.routes.support', backHref: '/account' },
 ];
 
 export function getRouteHeader(pathname: string) {
-  return routeTitles.find((route) => route.match(pathname)) ?? { title: 'Hellowhen', root: true };
+  return routeTitles.find((route) => route.match(pathname)) ?? { titleKey: 'navigation.routes.hellowhen', root: true };
 }

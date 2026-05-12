@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 type TradePosterCardProps = {
   id: string;
@@ -42,6 +43,7 @@ function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
 }
 
 export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, chips = [], footer, variant = 'trade' }: TradePosterCardProps) {
+  const { t } = useWebTranslation();
   const [imageFailed, setImageFailed] = useState(!imageUrl);
   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
   const fallback = useMemo(() => fallbackModel(id, variant), [id, variant]);
@@ -93,7 +95,7 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
           {subtitle ? <p className="trade-poster-card__subtitle">{subtitle}</p> : null}
           {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
           {visibleChips.length ? (
-            <div className="trade-poster-card__chips" aria-label="Trade tags">
+            <div className="trade-poster-card__chips" aria-label={t('trade.labels.tags')}>
               {visibleChips.map((chip) => (
                 <span key={`${id}-${chip}`}>{chip}</span>
               ))}

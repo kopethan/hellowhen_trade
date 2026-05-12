@@ -3,6 +3,7 @@
 import type { CSSProperties, PointerEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import {
   SQUARE_DECK_COMMIT_THRESHOLD,
   SQUARE_DECK_PROGRESS_DISTANCE_FACTOR,
@@ -125,6 +126,7 @@ function isPointInsideDeckActiveZone(rect: DOMRect, clientX: number, clientY: nu
 }
 
 export function SquareStackDeck({ items, label, className, onOpen, lockScrollWithinDeck = false }: SquareStackDeckProps) {
+  const { t } = useWebTranslation();
   const [activeIndex, setActiveIndex] = useState(0);
   const [motion, setMotion] = useState<'next' | 'prev' | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -543,7 +545,7 @@ export function SquareStackDeck({ items, label, className, onOpen, lockScrollWit
               className="square-stack-deck__control square-stack-deck__control--prev"
               disabled={Boolean(motion)}
               onClick={(event) => { event.stopPropagation(); commit('prev'); }}
-              aria-label="Previous card"
+              aria-label={t('common.actions.previousCard')}
             >
               <WebIcon name="deck-back" size={22} decorative />
             </button>
@@ -555,7 +557,7 @@ export function SquareStackDeck({ items, label, className, onOpen, lockScrollWit
               className="square-stack-deck__control square-stack-deck__control--next"
               disabled={Boolean(motion)}
               onClick={(event) => { event.stopPropagation(); commit('next'); }}
-              aria-label="Next card"
+              aria-label={t('common.actions.nextCard')}
             >
               <WebIcon name="deck-advance" size={22} decorative />
             </button>

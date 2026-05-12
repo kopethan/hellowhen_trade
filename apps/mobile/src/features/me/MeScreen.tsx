@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileDto } from '@hellowhen/contracts';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
@@ -20,7 +21,6 @@ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpl
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
 type ProfileResponse = { profile: ProfileDto };
-const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `Default currency ${country.currency.toUpperCase()}` }));
 const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
 
 function optionalText(value: string) {
@@ -37,6 +37,7 @@ function getAvatarSource(url?: string | null) {
 export function ProfileScreen({ navigation }: Props) {
   const auth = useAuth();
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [displayName, setDisplayName] = useState(auth.user?.profile?.displayName ?? '');
   const [handle, setHandle] = useState(auth.user?.profile?.handle ?? '');
   const [bio, setBio] = useState(auth.user?.profile?.bio ?? '');
@@ -49,11 +50,12 @@ export function ProfileScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
+  const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `${t('profile.edit.countryHelper')}: ${country.currency.toUpperCase()}` }));
 
   async function pickAvatar() {
     setError(null);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) { setError('Allow photo library access to choose a profile picture.'); return; }
+    if (!permission.granted) { setError(t('profile.edit.photoPermission')); return; }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: false, quality: 0.85 });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
@@ -63,11 +65,11 @@ export function ProfileScreen({ navigation }: Props) {
 
   async function handleSave() {
     if (displayName.trim().length < 1) {
-      setError('Add a display name.');
+      setError(t('validation.displayNameRequired'));
       return;
     }
     if (handle.trim() && !/^[a-zA-Z0-9_]{3,32}$/.test(handle.trim())) {
-      setError('Handles can use letters, numbers, and underscores, with 3 to 32 characters.');
+      setError(t('profile.edit.invalidHandle'));
       return;
     }
 
@@ -110,15 +112,15 @@ export function ProfileScreen({ navigation }: Props) {
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <AppHeader title="Profile" onBack={() => navigation.goBack()} />
+        <AppHeader title={t('profile.title')} onBack={() => navigation.goBack()} />
         <View style={styles.header}>
-          <SemanticBadge label="Profile" tone="info" />
-          <AppText style={styles.title}>Profile</AppText>
-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Your public identity for trades, needs, and offers.</AppText>
+          <SemanticBadge label={t('profile.title')} tone="info" />
+          <AppText style={styles.title}>{t('profile.title')}</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('profile.edit.body')}</AppText>
         </View>
 
-        {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
-        {saved ? <InfoNotice tone="success" title="Saved" body="Your profile has been updated." /> : null}
+        {error ? <InfoNotice tone="danger" title={t('profile.edit.couldNotSaveTitle')} body={error} /> : null}
+        {saved ? <InfoNotice tone="success" title={t('common.states.saved')} body={t('profile.edit.updated')} /> : null}
 
         <AppCard>
           <View style={styles.avatarPanel}>
@@ -126,37 +128,37 @@ export function ProfileScreen({ navigation }: Props) {
               {avatarSource ? <Image source={{ uri: avatarSource }} style={styles.avatarImage} /> : <AppText style={styles.avatarText}>{(displayName || auth.user?.email || 'H').slice(0, 1).toUpperCase()}</AppText>}
             </View>
             <View style={styles.previewCopy}>
-              <AppText style={styles.previewName}>{displayName.trim() || 'Display name'}</AppText>
-              <AppText style={styles.previewHandle}>{handle.trim() ? `@${handle.trim()}` : 'Add a handle'}</AppText>
-              <AppText style={styles.previewEmail}>{auth.user?.email ?? 'Signed in'}</AppText>
+              <AppText style={styles.previewName}>{displayName.trim() || t('profile.edit.displayNamePreview')}</AppText>
+              <AppText style={styles.previewHandle}>{handle.trim() ? `@${handle.trim()}` : t('profile.edit.addHandle')}</AppText>
+              <AppText style={styles.previewEmail}>{auth.user?.email ?? t('common.states.signedIn')}</AppText>
             </View>
           </View>
           <View style={styles.avatarActions}>
             <Pressable accessibilityRole="button" disabled={saving || removingAvatar} onPress={pickAvatar} style={({ pressed }) => [styles.avatarButton, (saving || removingAvatar) && styles.disabled, pressed && styles.pressed]}>
-              <AppText style={styles.avatarButtonText}>{avatarSource ? 'Change photo' : 'Add photo'}</AppText>
+              <AppText style={styles.avatarButtonText}>{avatarSource ? t('profile.edit.changePhoto') : t('profile.edit.addPhoto')}</AppText>
             </Pressable>
             {avatarSource ? (
               <Pressable accessibilityRole="button" disabled={saving || removingAvatar} onPress={handleRemoveAvatar} style={({ pressed }) => [styles.avatarRemoveButton, (saving || removingAvatar) && styles.disabled, pressed && styles.pressed]}>
-                <AppText style={styles.avatarRemoveButtonText}>{removingAvatar ? 'Removing...' : 'Remove'}</AppText>
+                <AppText style={styles.avatarRemoveButtonText}>{removingAvatar ? t('profile.edit.removing') : t('common.actions.remove')}</AppText>
               </Pressable>
             ) : null}
           </View>
-          <InfoNotice tone="info" body="Profile pictures appear after upload. If an image is reported and removed, it disappears from your public profile." />
+          <InfoNotice tone="info" body={t('profile.edit.profilePictureNotice')} />
         </AppCard>
 
         <AppCard>
-          <ProfileField label="Display name" value={displayName} onChangeText={setDisplayName} placeholder="Kopy" disabled={saving} />
-          <ProfileField label="Handle" hint="Letters, numbers, underscores" value={handle} onChangeText={setHandle} placeholder="kopy" disabled={saving} autoCapitalize="none" />
-          <ProfileField label="Bio" hint="Optional" value={bio} onChangeText={setBio} placeholder="What do you trade, need, or offer?" disabled={saving} multiline />
+          <ProfileField label={t('profile.edit.fields.displayName')} value={displayName} onChangeText={setDisplayName} placeholder="Kopy" disabled={saving} />
+          <ProfileField label={t('profile.edit.fields.handle')} hint={t('profile.edit.handleHint')} value={handle} onChangeText={setHandle} placeholder="kopy" disabled={saving} autoCapitalize="none" />
+          <ProfileField label={t('profile.edit.fields.bio')} hint={t('inventory.labels.optional')} value={bio} onChangeText={setBio} placeholder={t('profile.edit.bioPlaceholderNative')} disabled={saving} multiline />
         </AppCard>
 
         <AppCard>
-          <SemanticBadge label="Local display" tone="info" size="sm" />
-          <AppText style={styles.sectionTitle}>Local display</AppText>
-          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used to localize trade display. Hellowhen does not ask for a full address in this beta.</AppText>
+          <SemanticBadge label={t('profile.edit.localDisplayTitle')} tone="info" size="sm" />
+          <AppText style={styles.sectionTitle}>{t('profile.edit.localDisplayTitle')}</AppText>
+          <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>{t('profile.edit.localDisplayBody')}</AppText>
           <AppSelect
-            label="Country"
-            helper="Used for local display defaults"
+            label={t('profile.edit.fields.country')}
+            helper={t('profile.edit.countryHelper')}
             value={countryCode}
             options={countrySelectOptions}
             disabled={saving}
@@ -167,8 +169,8 @@ export function ProfileScreen({ navigation }: Props) {
             }}
           />
           <AppSelect
-            label="Display currency"
-            helper="Display only"
+            label={t('profile.edit.fields.displayCurrency')}
+            helper={t('profile.edit.displayOnly')}
             value={preferredCurrency}
             options={currencySelectOptions}
             disabled={saving}
@@ -178,7 +180,7 @@ export function ProfileScreen({ navigation }: Props) {
 
         <View style={styles.actions}>
           <Pressable accessibilityRole="button" disabled={saving} onPress={handleSave} style={({ pressed }) => [styles.primaryButton, saving && styles.disabled, pressed && styles.pressed]}>
-            <AppText style={styles.primaryButtonText}>{saving ? 'Saving...' : 'Save Profile'}</AppText>
+            <AppText style={styles.primaryButtonText}>{saving ? t('common.states.saving') : t('profile.edit.saveProfile')}</AppText>
           </Pressable>
 
         </View>

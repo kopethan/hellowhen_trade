@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useTranslation } from '../providers/MobileI18nProvider';
 import { AppText } from './AppText';
 import { useThemeTokens } from '../providers/ThemeProvider';
 
@@ -11,6 +12,7 @@ export type AppSelectOption = {
 
 export function AppSelect({ label, value, options, onSelect, disabled, helper, placeholder = 'Select' }: { label: string; value?: string | null; options: AppSelectOption[]; onSelect: (value: string) => void; disabled?: boolean; helper?: string; placeholder?: string }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const selected = useMemo(() => options.find((option) => option.value === value) ?? null, [options, value]);
 
@@ -39,7 +41,7 @@ export function AppSelect({ label, value, options, onSelect, disabled, helper, p
             <View style={styles.sheetHeader}>
               <View>
                 <AppText style={styles.sheetTitle}>{label}</AppText>
-                <AppText style={[styles.sheetSubtitle, { color: theme.color.muted }]}>Choose one option</AppText>
+                <AppText style={[styles.sheetSubtitle, { color: theme.color.muted }]}>{t('common.messages.chooseOneOption')}</AppText>
               </View>
               <Pressable accessibilityRole="button" onPress={() => setOpen(false)} style={({ pressed }) => [styles.closeButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
                 <AppText style={styles.closeText}>×</AppText>

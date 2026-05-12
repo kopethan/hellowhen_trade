@@ -4,6 +4,7 @@ import type { MediaAssetDto } from '@hellowhen/contracts';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { StatusBadge } from '../../../components/SemanticUI';
+import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { resolveMediaUrl } from '../mediaUrls';
 
 export type InventoryMode = 'remote' | 'local' | 'hybrid';
@@ -23,10 +24,10 @@ export function normalizeMode(value: unknown): InventoryMode {
   return value === 'local' || value === 'hybrid' ? value : 'remote';
 }
 
-export function modeLabel(mode: InventoryMode) {
-  if (mode === 'remote') return 'Remote';
-  if (mode === 'local') return 'Local';
-  return 'Hybrid';
+export function modeLabel(mode: InventoryMode, t?: (key: string) => string) {
+  if (mode === 'remote') return t?.('inventory.modes.remote') ?? 'Remote';
+  if (mode === 'local') return t?.('inventory.modes.local') ?? 'Local';
+  return t?.('inventory.modes.hybrid') ?? 'Hybrid';
 }
 
 export function parseCsv(value: string, maxItems = 8) {
@@ -53,14 +54,16 @@ export function InventoryTextField({ label, value, onChangeText, placeholder, mu
 
 export function InventoryModePicker({ value, onChange, disabled }: { value: InventoryMode; onChange: (value: InventoryMode) => void; disabled?: boolean }) {
   const theme = useThemeTokens();
-  return <View style={styles.field}><AppText style={styles.label}>Mode</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode)}</AppText></Pressable>; })}</View></View>;
+  const { t } = useTranslation();
+  return <View style={styles.field}><AppText style={styles.label}>{t('inventory.labels.mode')}</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode, t)}</AppText></Pressable>; })}</View></View>;
 }
 
 export function ExistingMediaManager({ media, disabled, onRemove }: { media?: MediaAssetDto[]; disabled?: boolean; onRemove: (mediaId: string) => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const visible = (media ?? []).filter((item) => item.status !== 'removed');
-  if (visible.length === 0) return <View style={[styles.emptyMedia, { borderColor: theme.color.border }]}><AppText style={[styles.emptyMediaText, { color: theme.color.muted }]}>No saved images yet.</AppText></View>;
-  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item) => <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>Remove</AppText></Pressable></View>)}</ScrollView>;
+  if (visible.length === 0) return <View style={[styles.emptyMedia, { borderColor: theme.color.border }]}><AppText style={[styles.emptyMediaText, { color: theme.color.muted }]}>{t('inventory.labels.noImages')}</AppText></View>;
+  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item) => <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>{t('common.actions.remove')}</AppText></Pressable></View>)}</ScrollView>;
 }
 
 

@@ -3,6 +3,7 @@ import { Button, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpa
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority } from '@hellowhen/contracts';
+import { formatLocalizedDateTime } from '@hellowhen/i18n';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
@@ -12,6 +13,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { ImagePickerField } from '../trade/components/ImagePickerField';
 import { MediaStrip } from '../trade/components/MediaStrip';
 import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpload';
@@ -22,7 +24,6 @@ type CreateTicketResponse = { ticket: SupportTicketDto };
 const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
 const priorities: SupportTicketPriority[] = ['low', 'normal', 'high', 'urgent'];
 
-function labelize(value: string) { return value === 'credits_issue' ? 'account issue' : value.replaceAll('_', ' '); }
 function categoryTone(category: SupportTicketCategory) {
   if (category === 'trade_issue') return 'trade' as const;
   if (category === 'media_issue') return 'warning' as const;
@@ -39,6 +40,7 @@ function priorityTone(priority: SupportTicketPriority) {
 
 export function SupportCenterScreen() {
   const theme = useThemeTokens();
+  const { t, language } = useTranslation();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [tickets, setTickets] = useState<SupportTicketDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -77,19 +79,19 @@ export function SupportCenterScreen() {
   }
 
   return <AppScreen><ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTickets(); }} />}>
-    <AppHeader title="Support" onBack={() => navigation.goBack()} />
-    <View style={styles.header}><SemanticBadge label="Support" tone="instruction" /><AppText style={styles.title}>Feedback & Support</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Send feedback, report a trade problem, or ask for help. This is separate from proposal conversations.</AppText></View>
-    <InfoNotice tone="info" title="What support is for" body="Use support for product feedback, safety concerns, bugs, image/content issues, and trade problems that need admin attention." />
-    {error ? <InfoNotice tone="warning" title="Support message" body={error} /> : null}
-    <AppCard><AppText style={styles.sectionTitle}>Create a ticket</AppText>
-      <AppText style={styles.label}>Category</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={labelize(item)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
-      <AppText style={styles.label}>Priority</AppText><View style={styles.wrap}>{priorities.map((item) => <TouchableOpacity key={item} onPress={() => setPriority(item)}><SemanticBadge label={item} tone={priority === item ? priorityTone(item) : 'muted'} /></TouchableOpacity>)}</View>
-      <TextInput value={subject} onChangeText={setSubject} placeholder="Subject" style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
-      <TextInput value={message} onChangeText={setMessage} placeholder="What happened? What do you need help with?" style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" />
-      <ImagePickerField images={images} onChange={setImages} disabled={submitting} label="Screenshots" hint="Attach screenshots or images that explain the issue." />
-      <Button title={submitting ? 'Submitting...' : 'Submit ticket'} disabled={submitting} onPress={() => { void createTicket(); }} />
+    <AppHeader title={t('support.title')} onBack={() => navigation.goBack()} />
+    <View style={styles.header}><SemanticBadge label={t('support.title')} tone="instruction" /><AppText style={styles.title}>{t('support.feedbackTitle')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('support.feedbackBody')}</AppText></View>
+    <InfoNotice tone="info" title={t('support.purposeTitle')} body={t('support.purposeBody')} />
+    {error ? <InfoNotice tone="warning" title={t('support.messageTitle')} body={error} /> : null}
+    <AppCard><AppText style={styles.sectionTitle}>{t('support.createTicketShort')}</AppText>
+      <AppText style={styles.label}>{t('support.category')}</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={t(`support.categories.${item}`)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+      <AppText style={styles.label}>{t('support.priority')}</AppText><View style={styles.wrap}>{priorities.map((item) => <TouchableOpacity key={item} onPress={() => setPriority(item)}><SemanticBadge label={t(`support.priorities.${item}`)} tone={priority === item ? priorityTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+      <TextInput value={subject} onChangeText={setSubject} placeholder={t('support.subjectPlaceholderShort')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+      <TextInput value={message} onChangeText={setMessage} placeholder={t('support.messagePlaceholderNative')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" />
+      <ImagePickerField images={images} onChange={setImages} disabled={submitting} label={t('support.screenshots')} hint={t('support.screenshotsHint')} />
+      <Button title={submitting ? t('common.states.submitting') : t('support.submitTicket')} disabled={submitting} onPress={() => { void createTicket(); }} />
     </AppCard>
-    <AppCard><AppText style={styles.sectionTitle}>My tickets</AppText>{tickets.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No support tickets yet.</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={[styles.ticketCard, { borderTopColor: theme.color.border }]}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={labelize(ticket.category)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={ticket.priority} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{new Date(ticket.updatedAt).toLocaleString()}</AppText></TouchableOpacity>)}</AppCard>
+    <AppCard><AppText style={styles.sectionTitle}>{t('support.myTickets')}</AppText>{tickets.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('support.noTicketsNative')}</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={[styles.ticketCard, { borderTopColor: theme.color.border }]}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={t(`support.categories.${ticket.category}`)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={t(`support.priorities.${ticket.priority}`)} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{formatLocalizedDateTime(ticket.updatedAt, language)}</AppText></TouchableOpacity>)}</AppCard>
   </ScrollView></AppScreen>;
 }
 

@@ -10,6 +10,7 @@ import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSuppor
 import { mediaSrc, normalizeMediaUpload } from '../../../features/inventory/inventoryPresentation';
 import { assetUrl } from '../../../features/account/accountPresentation';
 import { useWebAuth } from '../../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../../providers/WebI18nProvider';
 
 
 const avatarSizePx = 512;
@@ -20,7 +21,7 @@ function canvasBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
   });
 }
 
-async function resizeAvatarForUpload(file: File) {
+async function resizeAvatarForUpload(file: File, prepareErrorMessage: string) {
   const bitmap = await createImageBitmap(file);
   const sourceSize = Math.min(bitmap.width, bitmap.height);
   const sourceX = Math.max(0, Math.floor((bitmap.width - sourceSize) / 2));
@@ -31,7 +32,7 @@ async function resizeAvatarForUpload(file: File) {
   const context = canvas.getContext('2d');
   if (!context) {
     bitmap.close();
-    throw new Error('Could not prepare this profile image. Try a different image.');
+    throw new Error(prepareErrorMessage);
   }
 
   context.drawImage(bitmap, sourceX, sourceY, sourceSize, sourceSize, 0, 0, avatarSizePx, avatarSizePx);
@@ -39,7 +40,7 @@ async function resizeAvatarForUpload(file: File) {
 
   const webpBlob = await canvasBlob(canvas, 'image/webp', 0.9);
   const blob = webpBlob ?? await canvasBlob(canvas, 'image/jpeg', 0.92);
-  if (!blob) throw new Error('Could not prepare this profile image. Try a different image.');
+  if (!blob) throw new Error(prepareErrorMessage);
 
   const baseName = file.name.replace(/\.[^.]+$/, '') || 'profile-photo';
   const extension = blob.type === 'image/webp' ? 'webp' : 'jpg';
@@ -48,6 +49,7 @@ async function resizeAvatarForUpload(file: File) {
 
 export default function AccountProfilePage() {
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const profile = auth.user?.profile;
   const [displayName, setDisplayName] = useState('');
   const [handle, setHandle] = useState('');
@@ -95,19 +97,19 @@ export default function AccountProfilePage() {
     setError(null);
     setMessage(null);
     try {
-      const preparedFile = await resizeAvatarForUpload(file);
+      const preparedFile = await resizeAvatarForUpload(file, t('profile.edit.errors.prepareImage'));
       replaceAvatarPreview(preparedFile);
       const formData = new FormData();
       formData.append('image', preparedFile);
       const response = await api.media.uploadImage(formData);
       const media = normalizeMediaUpload(response);
-      if (!media) throw new Error('Upload completed but no image was returned.');
+      if (!media) throw new Error(t('profile.edit.errors.uploadReturnedNoImage'));
       const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id, avatarUrl: media.url });
       setAvatar(media);
       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
-      setMessage('Profile photo uploaded for review. We resized it to a square preview.');
+      setMessage(t('profile.edit.uploaded'));
     } catch (caughtError) {
-      setError(caughtError instanceof Error && caughtError.message.startsWith('Could not prepare') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+      setError(caughtError instanceof Error && caughtError.message === t('profile.edit.errors.prepareImage') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
     } finally {
       setUploading(false);
     }
@@ -122,7 +124,7 @@ export default function AccountProfilePage() {
       setAvatar(null);
       clearAvatarPreview();
       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
-      setMessage('Profile photo removed.');
+      setMessage(t('profile.edit.removed'));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
@@ -135,7 +137,7 @@ export default function AccountProfilePage() {
     setError(null);
     setMessage(null);
     try {
-      if (!displayName.trim()) throw new Error('Display name is required.');
+      if (!displayName.trim()) throw new Error(t('validation.displayNameRequired'));
       const nextProfile = await api.profile.updateMe({
         displayName: displayName.trim(),
         handle: handle.trim() || undefined,
@@ -144,9 +146,9 @@ export default function AccountProfilePage() {
         preferredCurrency,
       });
       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
-      setMessage('Profile updated.');
+      setMessage(t('profile.edit.updated'));
     } catch (caughtError) {
-      setError(caughtError instanceof Error && caughtError.message === 'Display name is required.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+      setError(caughtError instanceof Error && caughtError.message === t('validation.displayNameRequired') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
     } finally {
       setSaving(false);
     }
@@ -158,20 +160,20 @@ export default function AccountProfilePage() {
   return (
     <MobilePage>
       <PageIntro
-        eyebrow="Profile"
-        title="Your public identity"
-        body="Update your display profile, profile photo, and local display preferences for web."
+        eyebrow={t('profile.edit.eyebrow')}
+        title={t('profile.edit.title')}
+        body={t('profile.edit.body')}
       />
 
       {!auth.hydrated ? (
-        <section className="mobile-card mobile-card--soft"><p>Loading your session...</p></section>
+        <section className="mobile-card mobile-card--soft"><p>{t('profile.edit.loadingSession')}</p></section>
       ) : null}
 
       {auth.hydrated && !auth.isAuthenticated ? (
         <section className="mobile-card mobile-card--soft">
-          <h3>Login required</h3>
-          <p>Sign in before editing your profile or local display preferences.</p>
-          <Link href="/auth" className="button primary full">Login or register</Link>
+          <h3>{t('profile.edit.loginRequiredTitle')}</h3>
+          <p>{t('profile.edit.loginRequiredBody')}</p>
+          <Link href="/auth" className="button primary full">{t('common.actions.loginOrRegister')}</Link>
         </section>
       ) : null}
 
@@ -182,18 +184,18 @@ export default function AccountProfilePage() {
               {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{avatarInitial}</span>}
             </div>
             <div>
-              <h3>Profile photo</h3>
-              <p>Upload a JPEG, PNG, or WEBP image. We center-crop and resize it to a 512×512 square before upload, then send it through the same media review flow as Need/Offer images.</p>
+              <h3>{t('profile.edit.photoTitle')}</h3>
+              <p>{t('profile.edit.photoBody')}</p>
               <div className="mobile-actions">
                 <label className="image-upload-button">
-                  {uploading ? 'Uploading...' : 'Upload photo'}
+                  {uploading ? t('common.states.uploading') : t('profile.edit.uploadPhoto')}
                   <input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={(event) => {
                     const file = event.target.files?.[0];
                     event.currentTarget.value = '';
                     if (file) void uploadAvatar(file);
                   }} />
                 </label>
-                {avatarUrl ? <button type="button" className="secondary" disabled={saving} onClick={() => { void removeAvatar(); }}>Remove</button> : null}
+                {avatarUrl ? <button type="button" className="secondary" disabled={saving} onClick={() => { void removeAvatar(); }}>{t('common.actions.remove')}</button> : null}
               </div>
               {avatar?.status ? <span className="semantic-badge instruction">{avatar.status.replace(/_/g, ' ')}</span> : null}
             </div>
@@ -201,25 +203,25 @@ export default function AccountProfilePage() {
 
           <div className="form-stack">
             <label className="field-label">
-              Display name
-              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" />
+              {t('profile.edit.fields.displayName')}
+              <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t('profile.edit.placeholders.displayName')} />
             </label>
             <label className="field-label">
-              Handle
-              <input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder="username" autoCapitalize="none" />
+              {t('profile.edit.fields.handle')}
+              <input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder={t('profile.edit.placeholders.handle')} autoCapitalize="none" />
             </label>
             <label className="field-label">
-              Bio
-              <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder="What do you like to trade?" rows={4} maxLength={280} />
+              {t('profile.edit.fields.bio')}
+              <textarea value={bio} onChange={(event) => setBio(event.target.value)} placeholder={t('profile.edit.placeholders.bio')} rows={4} maxLength={280} />
             </label>
 
             <div className="preference-panel">
               <div>
-                <h3>Local display</h3>
-                <p>Country and display currency help localize trade display. No full address is collected in this beta.</p>
+                <h3>{t('profile.edit.localDisplayTitle')}</h3>
+                <p>{t('profile.edit.localDisplayBody')}</p>
               </div>
               <label className="field-label">
-                Country
+                {t('profile.edit.fields.country')}
                 <select
                   value={countryCode}
                   onChange={(event) => {
@@ -234,7 +236,7 @@ export default function AccountProfilePage() {
                 </select>
               </label>
               <label className="field-label">
-                Display currency
+                {t('profile.edit.fields.displayCurrency')}
                 <select
                   value={preferredCurrency}
                   onChange={(event) => {
@@ -251,7 +253,7 @@ export default function AccountProfilePage() {
 
           {message ? <p className="notice-box success">{message}</p> : null}
           {error ? <p className="notice-box danger">{error}</p> : null}
-          <button type="button" onClick={() => { void saveProfile(); }} disabled={saving || uploading}>{saving ? 'Saving...' : 'Save profile'}</button>
+          <button type="button" onClick={() => { void saveProfile(); }} disabled={saving || uploading}>{saving ? t('common.states.saving') : t('common.actions.save')}</button>
         </section>
       ) : null}
     </MobilePage>

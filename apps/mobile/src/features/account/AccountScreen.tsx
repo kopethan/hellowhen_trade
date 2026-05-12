@@ -15,6 +15,7 @@ import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
@@ -22,21 +23,21 @@ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | n
 type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
 
 type AccountAction = {
-  title: string;
-  description: string;
-  badge: string;
+  titleKey: string;
+  descriptionKey: string;
+  badgeKey: string;
   tone: SemanticColorName;
   route: AccountRoute;
   icon: MobileIconName;
 };
 
 const accountActions: AccountAction[] = [
-  { title: 'Profile', description: 'Display name, handle, and public bio.', badge: 'Profile', tone: 'info', route: 'AccountProfile', icon: 'profile' },
-  ...(betaFeatures.businessAccountsVisible ? [{ title: 'Business / brand', description: 'Future business, agency, brand, and enterprise profiles.', badge: 'Brand', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName }] : []),
-  ...(betaFeatures.walletVisible ? [{ title: 'Wallet', description: 'Spendable money, holds, earnings, and activity.', badge: 'Wallet', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
-  ...(betaFeatures.payoutsVisible ? [{ title: 'Payouts', description: 'Earnings, Stripe demo setup, and payout history.', badge: 'Payout', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
-  { title: 'Settings', description: 'Notifications, appearance, and privacy.', badge: 'Settings', tone: 'instruction', route: 'Settings', icon: 'settings' },
-  { title: 'Support', description: 'Get help with trades, images, or safety.', badge: 'Help', tone: 'success', route: 'SupportCenter', icon: 'help' },
+  { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile' },
+  ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName }] : []),
+  ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
+  ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
+  { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings' },
+  { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help' },
 ];
 
 function formatLedgerType(type: string) {
@@ -73,6 +74,7 @@ function getAvatarUri(user: AuthUser | null) {
 export function AccountScreen() {
   const theme = useThemeTokens();
   const auth = useAuth();
+  const { t } = useTranslation();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
@@ -97,7 +99,7 @@ export function AccountScreen() {
   useFocusEffect(useCallback(() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); }, [loadWallet]));
 
   const displayName = getDisplayName(auth.user);
-  const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : 'Add a handle';
+  const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandle');
   const avatarUri = getAvatarUri(auth.user);
   const currency = wallet?.currency ?? 'eur';
   const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
@@ -113,7 +115,7 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
-  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label="Beta" tone="instruction" /></View><AppText style={styles.title}>Account</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Profile, settings, and support live here.</AppText></View>;
+  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label="Beta" tone="instruction" /></View><AppText style={styles.title}>{t('account.title')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText></View>;
 
   return (
     <AppFixedHeaderScreen header={header}>
@@ -130,62 +132,62 @@ export function AccountScreen() {
             <View style={styles.profileCopy}>
               <AppText style={styles.profileName}>{displayName}</AppText>
               <AppText style={[styles.profileMeta, { color: theme.semantic.proposal.bg }]}>{handle}</AppText>
-              <AppText style={[styles.profileEmail, { color: theme.color.muted }]}>{auth.user?.email ?? 'Signed in'}</AppText>
+              <AppText style={[styles.profileEmail, { color: theme.color.muted }]}>{auth.user?.email ?? t('common.states.signedIn')}</AppText>
             </View>
           </View>
           <Pressable accessibilityRole="button" onPress={() => navigate('AccountProfile')} style={({ pressed }) => [styles.fullWidthButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-            <AppText style={[styles.fullWidthButtonText, { color: theme.color.background }]}>Edit Profile</AppText>
+            <AppText style={[styles.fullWidthButtonText, { color: theme.color.background }]}>{t('account.editProfile')}</AppText>
           </Pressable>
         </AppCard>
 
         {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Wallet</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Spendable wallet money plus earnings from completed trades.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.wallet.title')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.wallet.body')}</AppText>
             </View>
-            <MoneyPill amountCents={total} currency={currency} label="total" />
+            <MoneyPill amountCents={total} currency={currency} label={t('account.total')} />
           </View>
 
           {wallet ? (
             <View style={styles.walletGrid}>
-              <WalletMetric label="Available" value={wallet.availableBalanceCents} currency={currency} tone="credits" />
-              <WalletMetric label="Held" value={wallet.heldBalanceCents} currency={currency} tone="time" />
-              <WalletMetric label="Earnings" value={wallet.pendingPayoutCents} currency={currency} tone="success" />
+              <WalletMetric label={t('account.wallet.available')} value={wallet.availableBalanceCents} currency={currency} tone="credits" />
+              <WalletMetric label={t('account.wallet.held')} value={wallet.heldBalanceCents} currency={currency} tone="time" />
+              <WalletMetric label={t('account.wallet.earnings')} value={wallet.pendingPayoutCents} currency={currency} tone="success" />
             </View>
           ) : null}
 
           <View style={styles.inlineActions}>
             <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.semantic.proposal.bg }, pressed && styles.pressed]}>
-              <AppText style={styles.inlinePrimaryText}>Open Wallet</AppText>
+              <AppText style={styles.inlinePrimaryText}>{t('common.actions.openWallet')}</AppText>
             </Pressable>
             <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>Add Money</AppText>
+              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>{t('common.actions.add')}</AppText>
             </Pressable>
             <Pressable accessibilityRole="button" onPress={() => navigate('Payouts')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>Payouts</AppText>
+              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>{t('common.actions.payout')}</AppText>
             </Pressable>
           </View>
 
-          {walletError ? <InfoNotice tone="warning" title="Wallet unavailable" body={walletError} /> : null}
+          {walletError ? <InfoNotice tone="warning" title={t('account.walletUnavailable')} body={walletError} /> : null}
         </AppCard> : null}
 
         {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? <AppCard>
           <View style={styles.sectionHeaderRow}>
-            <AppText style={styles.sectionTitle}>Recent activity</AppText>
+            <AppText style={styles.sectionTitle}>{t('account.wallet.recentActivity')}</AppText>
             <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
-              <AppText style={[styles.textButtonText, { color: theme.color.text }]}>View all</AppText>
+              <AppText style={[styles.textButtonText, { color: theme.color.text }]}>{t('common.actions.viewAll')}</AppText>
             </Pressable>
           </View>
-          {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No wallet activity yet.</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
+          {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.noWalletActivity')}</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
         </AppCard> : null}
 
         <View style={styles.menuList}>
-          {accountActions.map((action) => <AccountActionRow key={action.title} action={action} onPress={() => navigate(action.route)} />)}
+          {accountActions.map((action) => <AccountActionRow key={action.route} action={action} onPress={() => navigate(action.route)} />)}
         </View>
 
         <Pressable accessibilityRole="button" onPress={() => { void auth.logout(); }} style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
-          <AppText style={styles.logoutButtonText}>Logout</AppText>
+          <AppText style={styles.logoutButtonText}>{t('common.actions.logout')}</AppText>
         </Pressable>
       </ScrollView>
     </AppFixedHeaderScreen>
@@ -195,6 +197,7 @@ export function AccountScreen() {
 function AccountActionRow({ action, onPress }: { action: AccountAction; onPress: () => void }) {
   const theme = useThemeTokens();
   const tone = theme.semantic[action.tone];
+  const { t } = useTranslation();
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.actionContent}>
@@ -203,10 +206,10 @@ function AccountActionRow({ action, onPress }: { action: AccountAction; onPress:
         </View>
         <View style={styles.actionTextWrap}>
           <View style={styles.actionTitleRow}>
-            <AppText style={styles.actionTitle}>{action.title}</AppText>
-            <SemanticBadge label={action.badge} tone={action.tone} size="sm" />
+            <AppText style={styles.actionTitle}>{t(action.titleKey)}</AppText>
+            <SemanticBadge label={t(action.badgeKey)} tone={action.tone} size="sm" />
           </View>
-          <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{action.description}</AppText>
+          <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{t(action.descriptionKey)}</AppText>
         </View>
       </View>
       <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />

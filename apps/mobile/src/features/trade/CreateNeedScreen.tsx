@@ -13,10 +13,12 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
 import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
 
 export function CreateNeedScreen({ navigation }: Props) {
+  const { t } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [itemType, setItemType] = useState<InventoryItemType>('service');
@@ -29,18 +31,18 @@ export function CreateNeedScreen({ navigation }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const meta = useMemo(() => [itemTypeLabel(itemType), category.trim(), timing.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [category, itemType, locationLabel, mode, timing]);
+  const meta = useMemo(() => [itemTypeLabel(itemType, t), category.trim(), timing.trim(), modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · '), [category, itemType, locationLabel, mode, t, timing]);
 
   async function handleCreate() {
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
 
     if (cleanTitle.length < 3) {
-      setError('Add a clear need title.');
+      setError(t('validation.needTitleTooShort'));
       return;
     }
     if (cleanDescription.length < 10) {
-      setError('Describe the need with at least one useful detail.');
+      setError(t('validation.needDescriptionTooShort'));
       return;
     }
 
@@ -72,53 +74,53 @@ export function CreateNeedScreen({ navigation }: Props) {
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <AppHeader title="Save Need" onBack={() => navigation.goBack()} />
+        <AppHeader title={t('inventory.form.saveNeedTitle')} onBack={() => navigation.goBack()} />
         <View style={styles.header}>
-          <SemanticBadge label="Need" tone="need" />
-          <AppText style={styles.title}>Save Need</AppText>
-          <AppText style={styles.subtitle}>Create a reusable service, goods, or other request with its own images. You will choose it later when publishing a trade.</AppText>
+          <SemanticBadge label={t('inventory.labels.need')} tone="need" />
+          <AppText style={styles.title}>{t('inventory.form.saveNeedTitle')}</AppText>
+          <AppText style={styles.subtitle}>{t('inventory.form.saveNeedBody')}</AppText>
         </View>
 
-        {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
+        {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>What do you need?</AppText>
-          <InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder="Landing page design" disabled={submitting} />
-          <InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder="Describe the result you want, useful details, and what done means." multiline disabled={submitting} />
+          <AppText style={styles.sectionTitle}>{t('inventory.form.needQuestion')}</AppText>
+          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleNeedExample')} disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionNeedMobile')} multiline disabled={submitting} />
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Deck details</AppText>
+          <AppText style={styles.sectionTitle}>{t('inventory.labels.deckDetails')}</AppText>
           <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
-          <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={submitting} />
-          <InventoryTextField label="Timing" value={timing} onChangeText={setTiming} placeholder="This week, weekend, today..." disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={t('inventory.form.categoryNeedPlaceholder')} disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.timing')} value={timing} onChangeText={setTiming} placeholder={t('inventory.form.timingMobilePlaceholder')} disabled={submitting} />
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
-          <InventoryTextField label="Location" hint="Optional" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, Paris, local pickup..." disabled={submitting} />
-          <InventoryTextField label="Tags" hint="Separate with commas" value={tagsInput} onChangeText={setTagsInput} placeholder="brand, figma, urgent" disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationNeedPlaceholder')} disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tagsInput} onChangeText={setTagsInput} placeholder={t('inventory.form.tagsNeedPlaceholder')} disabled={submitting} />
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Need images</AppText>
+          <AppText style={styles.sectionTitle}>{t('inventory.form.needImageSection')}</AppText>
           <ImagePickerField
             images={images}
             onChange={setImages}
             disabled={submitting}
-            label="Reference images"
-            hint="Add images that explain what you need."
+            label={t('inventory.labels.referenceImages')}
+            hint={t('inventory.form.needImageHint')}
           />
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Card preview</AppText>
-          <InventoryPreview eyebrow="I need" title={title.trim()} meta={meta} description={description.trim()} />
+          <AppText style={styles.sectionTitle}>{t('inventory.labels.cardPreview')}</AppText>
+          <InventoryPreview eyebrow={t('inventory.side.need')} title={title.trim()} meta={meta} description={description.trim()} />
         </AppCard>
 
         <View style={styles.actions}>
           <Pressable disabled={submitting} onPress={handleCreate} style={({ pressed }) => [styles.primaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
-            <AppText style={styles.primaryButtonText}>{submitting ? 'Saving...' : 'Save Need'}</AppText>
+            <AppText style={styles.primaryButtonText}>{submitting ? t('common.states.saving') : t('inventory.actions.saveNeed')}</AppText>
           </Pressable>
           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
-            <AppText style={styles.secondaryButtonText}>Cancel</AppText>
+            <AppText style={styles.secondaryButtonText}>{t('common.actions.cancel')}</AppText>
           </Pressable>
         </View>
       </ScrollView>

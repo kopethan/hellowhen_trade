@@ -9,17 +9,20 @@ import { api, resolveWebAssetUrl } from '../../lib/api';
 import { UserAvatar } from './UserAvatar';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
+import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
-function profileName(profile: PublicProfileResponse['user']['profile']) {
-  return profile?.displayName?.trim() || profile?.handle?.trim() || 'Hellowhen member';
+type TFunction = ReturnType<typeof useWebTranslation>['t'];
+
+function profileName(profile: PublicProfileResponse['user']['profile'], t: TFunction) {
+  return profile?.displayName?.trim() || profile?.handle?.trim() || t('profile.hellowhenMember');
 }
 
-
-function countryLabel(countryCode?: string | null) {
+function countryLabel(countryCode?: string | null, language = 'en') {
   const code = countryCode?.trim().toUpperCase();
   if (!code) return null;
   try {
-    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+    return new Intl.DisplayNames([language], { type: 'region' }).of(code) ?? code;
   } catch {
     return code;
   }
@@ -29,10 +32,10 @@ function compactJoin(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
 }
 
-function postTypeLabel(post: PublicProfileTradeSummary) {
-  if (post.postType === 'open_need') return 'Open Need';
-  if (post.postType === 'open_offer') return 'Open Offer';
-  return 'Trade';
+function postTypeLabel(post: PublicProfileTradeSummary, t: TFunction) {
+  if (post.postType === 'open_need') return t('trade.labels.openNeed');
+  if (post.postType === 'open_offer') return t('trade.labels.openOffer');
+  return t('trade.labels.trade');
 }
 
 function postBadgeClass(post: PublicProfileTradeSummary) {
@@ -56,16 +59,17 @@ function postDescription(post: PublicProfileTradeSummary) {
   return post.description;
 }
 
-function postMeta(post: PublicProfileTradeSummary) {
-  const needMeta = post.need ? compactJoin([post.need.category, post.need.timing, post.need.mode, post.need.locationLabel]) : '';
-  const offerMeta = post.offer ? compactJoin([post.offer.category, post.offer.availability, post.offer.mode, post.offer.locationLabel]) : '';
+function postMeta(post: PublicProfileTradeSummary, language: 'en' | 'fr', t: TFunction) {
+  const i18n = { t, language };
+  const needMeta = post.need ? compactJoin([post.need.category, post.need.timing, getModeLabel(post.need.mode, i18n), post.need.locationLabel]) : '';
+  const offerMeta = post.offer ? compactJoin([post.offer.category, post.offer.availability, getModeLabel(post.offer.mode, i18n), post.offer.locationLabel]) : '';
   const mode = post.need?.mode ?? post.offer?.mode ?? null;
   const details = post.postType === 'open_need'
     ? needMeta
     : post.postType === 'open_offer'
       ? offerMeta
-      : compactJoin([mode, post.status]);
-  return details || `Posted ${formatWebShortDate(post.createdAt)}`;
+      : compactJoin([getModeLabel(mode, i18n), getStatusLabel(post.status, i18n)]);
+  return details || t('profile.posts.postedDate', { date: formatWebShortDate(post.createdAt, t('trade.expiry.noDateSet'), language) });
 }
 
 function postImage(post: PublicProfileTradeSummary) {
@@ -96,22 +100,25 @@ function PublicProfilePostImage({ post }: { post: PublicProfileTradeSummary }) {
 }
 
 function PostCard({ post }: { post: PublicProfileTradeSummary }) {
+  const { t, language } = useWebTranslation();
   const amountCents = post.amountCents ?? 0;
   const hasMoney = amountCents > 0;
+  const title = postTitle(post);
+  const typeLabel = postTypeLabel(post, t);
 
   return (
-    <Link href={`/trades/${post.id}`} className="public-profile-post-card" aria-label={`Open ${postTitle(post)}`}>
+    <Link href={`/trades/${post.id}`} className="public-profile-post-card" aria-label={t('trade.actions.open', { type: typeLabel, title })}>
       <PublicProfilePostImage post={post} />
       <div className="public-profile-post-card__body">
         <div className="status-row">
-          <span className={`semantic-badge ${postBadgeClass(post)}`}>{postTypeLabel(post)}</span>
-          <span className="meta">{post.status}</span>
+          <span className={`semantic-badge ${postBadgeClass(post)}`}>{typeLabel}</span>
+          <span className="meta">{getStatusLabel(post.status, { t, language })}</span>
         </div>
-        <h3>{postTitle(post)}</h3>
+        <h3>{title}</h3>
         <p>{truncateText(postDescription(post), 120)}</p>
         <div className="public-profile-post-card__meta">
-          <span>{postMeta(post)}</span>
-          <strong>{hasMoney ? formatWebMoney(amountCents, post.currency) : 'Service-for-service'}</strong>
+          <span>{postMeta(post, language, t)}</span>
+          <strong>{hasMoney ? formatWebMoney(amountCents, post.currency, language) : t('trade.labels.serviceForService')}</strong>
         </div>
       </div>
     </Link>
@@ -119,11 +126,12 @@ function PostCard({ post }: { post: PublicProfileTradeSummary }) {
 }
 
 function PublicProfileSection({ title, body, posts }: { title: string; body: string; posts: PublicProfileTradeSummary[] }) {
+  const { t } = useWebTranslation();
   return (
     <section className="public-profile-section">
       <div className="trade-section-heading">
         <div>
-          <p className="eyebrow">Public posts</p>
+          <p className="eyebrow">{t('profile.posts.eyebrow')}</p>
           <h2>{title}</h2>
           <p>{body}</p>
         </div>
@@ -135,8 +143,8 @@ function PublicProfileSection({ title, body, posts }: { title: string; body: str
         </div>
       ) : (
         <div className="public-profile-empty-state">
-          <strong>Nothing public here yet</strong>
-          <span>Public active posts from this member will appear here.</span>
+          <strong>{t('profile.posts.emptyTitle')}</strong>
+          <span>{t('profile.posts.emptyBody')}</span>
         </div>
       )}
     </section>
@@ -144,14 +152,15 @@ function PublicProfileSection({ title, body, posts }: { title: string; body: str
 }
 
 function ProfileSkeleton() {
+  const { t } = useWebTranslation();
   return (
     <article className="public-profile-page">
       <section className="public-profile-hero public-profile-hero--loading">
-        <UserAvatar displayName="Hellowhen member" size="lg" decorative />
+        <UserAvatar displayName={t('profile.hellowhenMember')} size="lg" decorative />
         <div>
-          <span className="semantic-badge instruction">Loading</span>
-          <h2>Loading profile...</h2>
-          <p>Fetching public marketplace information.</p>
+          <span className="semantic-badge instruction">{t('profile.loading.badge')}</span>
+          <h2>{t('profile.loading.title')}</h2>
+          <p>{t('profile.loading.body')}</p>
         </div>
       </section>
     </article>
@@ -159,6 +168,7 @@ function ProfileSkeleton() {
 }
 
 export function PublicUserProfileClient({ userId }: { userId: string }) {
+  const { t, language } = useWebTranslation();
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -171,11 +181,11 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
       setProfile(response);
     } catch (cause) {
       setProfile(null);
-      setError(getFriendlyApiErrorMessage(cause, 'This public profile could not be loaded yet.'));
+      setError(getFriendlyApiErrorMessage(cause, t('common.messages.profileUnavailable')));
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [t, userId]);
 
   useEffect(() => {
     let mounted = true;
@@ -189,7 +199,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
       } catch (cause) {
         if (!mounted) return;
         setProfile(null);
-        setError(getFriendlyApiErrorMessage(cause, 'This public profile could not be loaded yet.'));
+        setError(getFriendlyApiErrorMessage(cause, t('common.messages.profileUnavailable')));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -197,18 +207,18 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
 
     void loadMountedProfile();
     return () => { mounted = false; };
-  }, [userId]);
+  }, [t, userId]);
 
-  const displayName = profileName(profile?.user.profile);
-  const location = countryLabel(profile?.user.profile?.countryCode);
-  const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince) : 'Unknown';
+  const displayName = profileName(profile?.user.profile, t);
+  const location = countryLabel(profile?.user.profile?.countryCode, language);
+  const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince, t('common.states.unknown'), language) : t('common.states.unknown');
   const handle = profile?.user.profile?.handle?.trim();
   const stats = useMemo(() => profile ? [
-    { label: 'Completed', value: profile.stats.completedTradesCount },
-    { label: 'Active trades', value: profile.stats.activeTradesCount },
-    { label: 'Open needs', value: profile.stats.openNeedsCount },
-    { label: 'Open offers', value: profile.stats.openOffersCount },
-  ] : [], [profile]);
+    { label: t('profile.stats.completed'), value: profile.stats.completedTradesCount },
+    { label: t('profile.stats.activeTrades'), value: profile.stats.activeTradesCount },
+    { label: t('profile.stats.openNeeds'), value: profile.stats.openNeedsCount },
+    { label: t('profile.stats.openOffers'), value: profile.stats.openOffersCount },
+  ] : [], [profile, t]);
 
   if (loading && !profile) return <ProfileSkeleton />;
 
@@ -216,18 +226,18 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
     return (
       <article className="public-profile-page">
         <section className="public-profile-hero">
-          <UserAvatar displayName="Unknown member" size="lg" decorative />
+          <UserAvatar displayName={t('profile.unknownMember')} size="lg" decorative />
           <div>
-            <span className="semantic-badge danger">Not available</span>
-            <h2>Profile unavailable</h2>
-            <p>{error ?? 'This public profile could not be loaded.'}</p>
+            <span className="semantic-badge danger">{t('profile.unavailableBadge')}</span>
+            <h2>{t('profile.unavailableTitle')}</h2>
+            <p>{error ?? t('common.messages.profileUnavailable')}</p>
           </div>
         </section>
         <div className="public-profile-error-actions">
           <button type="button" className="button primary" onClick={() => void loadProfile()} disabled={loading}>
-            {loading ? 'Retrying...' : 'Try again'}
+            {loading ? t('common.actions.retrying') : t('common.actions.tryAgain')}
           </button>
-          <Link href="/trades" className="button secondary">Back to trades</Link>
+          <Link href="/trades" className="button secondary">{t('trade.actions.backToTrades')}</Link>
         </div>
       </article>
     );
@@ -244,18 +254,18 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
           decorative
         />
         <div className="public-profile-hero__body">
-          <span className="semantic-badge trade">Public profile</span>
+          <span className="semantic-badge trade">{t('profile.publicBadge')}</span>
           <h2>{displayName}</h2>
           <div className="public-profile-meta-row">
             {handle ? <span>@{handle}</span> : null}
-            <span>Member since {memberSince}</span>
+            <span>{t('profile.memberSince', { date: memberSince })}</span>
             {location ? <span>{location}</span> : null}
           </div>
-          {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">This member has not added a public bio yet.</p>}
+          {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">{t('profile.noBio')}</p>}
         </div>
       </section>
 
-      <section className="public-profile-stats" aria-label="Public marketplace stats">
+      <section className="public-profile-stats" aria-label={t('profile.statsLabel')}>
         {stats.map((item) => (
           <div key={item.label}>
             <strong>{item.value}</strong>
@@ -265,18 +275,18 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
       </section>
 
       <PublicProfileSection
-        title="Active trades"
-        body="Public Need + Offer exchanges this member currently has open."
+        title={t('profile.posts.activeTradesTitle')}
+        body={t('profile.posts.activeTradesBody')}
         posts={profile.sections.activeTrades}
       />
       <PublicProfileSection
-        title="Open needs"
-        body="Public needs waiting for other members to propose offers."
+        title={t('profile.posts.openNeedsTitle')}
+        body={t('profile.posts.openNeedsBody')}
         posts={profile.sections.openNeeds}
       />
       <PublicProfileSection
-        title="Open offers"
-        body="Public offers waiting for other members to propose needs."
+        title={t('profile.posts.openOffersTitle')}
+        body={t('profile.posts.openOffersBody')}
         posts={profile.sections.openOffers}
       />
     </article>

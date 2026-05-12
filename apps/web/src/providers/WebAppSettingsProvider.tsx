@@ -1,6 +1,7 @@
 'use client';
 
 import type { AppSettings } from '@hellowhen/contracts';
+import { normalizeLanguagePreference } from '@hellowhen/i18n';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 
@@ -11,7 +12,7 @@ type SettingsResponse = { settings?: Partial<AppSettings> | null };
 
 const defaultSettings: AppSettings = {
   appearance: 'system',
-  language: 'en',
+  language: 'system',
   notificationsEnabled: true,
 };
 
@@ -32,7 +33,7 @@ const SettingsContext = createContext<SettingsContextValue>({
 function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppSettings {
   return {
     appearance: value?.appearance === 'light' || value?.appearance === 'dark' || value?.appearance === 'system' ? value.appearance : defaultSettings.appearance,
-    language: value?.language || defaultSettings.language,
+    language: normalizeLanguagePreference(value?.language),
     notificationsEnabled: typeof value?.notificationsEnabled === 'boolean' ? value.notificationsEnabled : defaultSettings.notificationsEnabled,
   };
 }

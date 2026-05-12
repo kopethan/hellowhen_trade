@@ -35,6 +35,7 @@ import { betaFeatures } from '../lib/betaFeatures';
 import { AppCard } from '../components/AppCard';
 import { AppScreen } from '../components/AppScreen';
 import { AppText } from '../components/AppText';
+import { useTranslation } from '../providers/MobileI18nProvider';
 
 export type RootStackParamList = {
   TradeTabs: undefined;
@@ -64,23 +65,26 @@ type MainTabParamList = { Trades: undefined; Needs: undefined; Offers: undefined
 const Tabs = createBottomTabNavigator<MainTabParamList>();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function AuthRequiredNotice({ title = 'Login required', body = 'Sign in to continue with your saved needs, offers, proposals, wallet, and account settings.' }: { title?: string; body?: string }) {
+function AuthRequiredNotice({ title, body }: { title?: string; body?: string }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const displayTitle = title ?? 'Login required';
+  const displayBody = body ?? 'Sign in to continue with your saved needs, offers, proposals, wallet, and account settings.';
 
   return (
     <AppScreen>
       <View style={styles.authRequiredShell}>
         <AppCard style={styles.authRequiredCard}>
           <MobileIcon name="profile" size={30} color={theme.color.text} />
-          <AppText style={styles.authRequiredTitle}>{title}</AppText>
-          <AppText style={[styles.authRequiredBody, { color: theme.color.muted }]}>{body}</AppText>
+          <AppText style={styles.authRequiredTitle}>{displayTitle}</AppText>
+          <AppText style={[styles.authRequiredBody, { color: theme.color.muted }]}>{displayBody}</AppText>
           <Pressable
             accessibilityRole="button"
             onPress={() => navigation.navigate('Login')}
             style={({ pressed }) => [styles.authRequiredButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}
           >
-            <AppText style={[styles.authRequiredButtonText, { color: theme.color.background }]}>Login or register</AppText>
+            <AppText style={[styles.authRequiredButtonText, { color: theme.color.background }]}>{t('common.actions.loginOrRegister')}</AppText>
           </Pressable>
         </AppCard>
       </View>
@@ -128,6 +132,7 @@ function TradeTabs() {
   const insets = useSafeAreaInsets();
   const theme = useThemeTokens();
   const bottomInset = Math.max(insets.bottom, 0);
+  const { t } = useTranslation();
 
   return (
     <Tabs.Navigator
@@ -145,10 +150,10 @@ function TradeTabs() {
         tabBarInactiveTintColor: theme.color.muted,
       })}
     >
-      <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} />
-      <Tabs.Screen name="Needs" component={ProtectedMyNeedsScreen} />
-      <Tabs.Screen name="Offers" component={ProtectedMyOffersScreen} />
-      <Tabs.Screen name="Account" component={ProtectedAccountScreen} />
+      <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trades') }} />
+      <Tabs.Screen name="Needs" component={ProtectedMyNeedsScreen} options={{ tabBarLabel: t('navigation.tabs.needs') }} />
+      <Tabs.Screen name="Offers" component={ProtectedMyOffersScreen} options={{ tabBarLabel: t('navigation.tabs.offers') }} />
+      <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account') }} />
     </Tabs.Navigator>
   );
 }

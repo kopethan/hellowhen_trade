@@ -5,9 +5,11 @@ import { usePathname } from 'next/navigation';
 import { isUtilityRoute } from '../lib/webRoutes';
 import { WebBottomTabs } from './WebBottomTabs';
 import { WebTopHeader } from './WebTopHeader';
+import { useWebTranslation } from '../providers/WebI18nProvider';
 
 export function WebMobileShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '/';
+  const { t } = useWebTranslation();
   const utility = isUtilityRoute(pathname);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -38,14 +40,14 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
 
   return (
     <main className="web-app-viewport">
-      <section className="web-app-shell" aria-label="Hellowhen Trade web app">
+      <section className="web-app-shell" aria-label={t('common.messages.webAppLabel')}>
         <WebTopHeader />
         <div ref={scrollAreaRef} className="web-scroll-area">{children}</div>
         <button
           type="button"
           className={showScrollTop ? 'web-scroll-top-button is-visible' : 'web-scroll-top-button'}
           onClick={scrollToTop}
-          aria-label="Back to top"
+          aria-label={t('common.actions.backToTop')}
         >
           ↑
         </button>

@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
-import { MobilePage, PageIntro } from '../../../components/MobilePage';
+import { MobilePage } from '../../../components/MobilePage';
+import { TranslatedPageIntro } from '../../../components/TranslatedPageIntro';
 import { betaFeatures } from '../../../lib/betaFeatures';
 import { PayoutsClient } from '../../../features/account/PayoutsClient';
 
@@ -8,10 +9,10 @@ export default function PayoutsPage() {
 
   return (
     <MobilePage>
-      <PageIntro
-        eyebrow="Account"
-        title="Payouts"
-        body="Manage payout settings when this roadmap feature is enabled."
+      <TranslatedPageIntro
+        eyebrowKey="account.title"
+        titleKey="account.payouts.title"
+        bodyKey="account.payoutsPageBody"
       />
       <PayoutsClient />
     </MobilePage>

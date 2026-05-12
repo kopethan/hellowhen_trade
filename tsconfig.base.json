@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
@@ -12,12 +15,27 @@
     "noUncheckedIndexedAccess": true,
     "baseUrl": ".",
     "paths": {
-      "@hellowhen/contracts": ["packages/contracts/src"],
-      "@hellowhen/api-client": ["packages/api-client/src"],
-      "@hellowhen/shared": ["packages/shared/src"],
-      "@hellowhen/theme": ["packages/theme/src"],
-      "@hellowhen/trade-domain": ["packages/trade-domain/src"],
-      "@hellowhen/ui": ["packages/ui/src"]
+      "@hellowhen/contracts": [
+        "packages/contracts/src"
+      ],
+      "@hellowhen/api-client": [
+        "packages/api-client/src"
+      ],
+      "@hellowhen/shared": [
+        "packages/shared/src"
+      ],
+      "@hellowhen/theme": [
+        "packages/theme/src"
+      ],
+      "@hellowhen/trade-domain": [
+        "packages/trade-domain/src"
+      ],
+      "@hellowhen/ui": [
+        "packages/ui/src"
+      ],
+      "@hellowhen/i18n": [
+        "packages/i18n/src"
+      ]
     }
   }
 }

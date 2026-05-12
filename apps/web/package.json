@@ -16,7 +16,8 @@
     "@hellowhen/theme": "file:../../packages/theme",
     "next": "^16.1.6",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "@hellowhen/i18n": "file:../../packages/i18n"
   },
   "devDependencies": {
     "@types/node": "latest",

@@ -15,6 +15,7 @@ import { MediaStrip } from './components/MediaStrip';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import type { NeedItem } from './types';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type ApiResponse = { needs: NeedItem[] };
 type TemplatesResponse = { templates: InventoryTemplateDto[] };
@@ -23,6 +24,7 @@ type SourceTab = 'mine' | 'starter';
 
 export function MyNeedsScreen() {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
   const [items, setItems] = useState<NeedItem[]>([]);
@@ -47,7 +49,7 @@ export function MyNeedsScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadTemplates = useCallback(async () => {
     setTemplateLoading(true);
@@ -57,16 +59,16 @@ export function MyNeedsScreen() {
       setTemplates(Array.isArray(result.templates) ? result.templates : []);
     } catch (caughtError) {
       setTemplates([]);
-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Starter needs could not be loaded.'));
+      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.starterNeedsCouldNotLoad')));
     } finally {
       setTemplateLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); }, [loadItems, loadTemplates]));
 
   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
-  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Need" tone="need" /><AppText style={styles.title}>Needs</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Save reusable requests or start from the Hellowhen Library.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>Create</AppText></View></Pressable></View>;
+  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.need')} tone="need" /><AppText style={styles.title}>{t('inventory.labels.needs')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
 
   const sortedItems = useMemo(() => items, [items]);
 
@@ -77,13 +79,13 @@ export function MyNeedsScreen() {
     try {
       setCloningTemplateId(template.id);
       const result = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneResponse;
-      if (!result.need) throw new Error('Starter Need was saved, but the response could not be read.');
+      if (!result.need) throw new Error(t('inventory.errors.starterSavedUnreadableNeed'));
       setItems((current) => [result.need!, ...current.filter((item) => item.id !== result.need!.id)]);
       setCreatedNeed(result.need);
-      setNotice(`${result.need.title} was saved to My Needs.`);
+      setNotice(t('inventory.messages.starterSavedToMine', { title: result.need.title, collection: t('inventory.labels.myNeeds') }));
       setSourceTab('mine');
     } catch (caughtError) {
-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Could not save this starter Need.'));
+      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterNeed')));
     } finally {
       setCloningTemplateId(null);
     }
@@ -91,18 +93,19 @@ export function MyNeedsScreen() {
 
   return <AppFixedHeaderScreen header={header}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); }} />}>
     <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedNeed(null); }} />
-    {notice ? <InfoNotice tone="success" title="Starter saved" body={notice} /> : null}
-    {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>Open saved Need</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
-    {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel="Use this Need" onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
-      {error ? <InfoNotice tone="danger" title="Could not load needs" body={error} /> : null}
-      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title="Create your first need" body="Add details and reference images, or switch to Starter Needs for ideas." tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
+    {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+    {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
+    {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+      {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
+      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstNeed')} body={t('inventory.empty.needNativeBody')} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
     </>}
   </ScrollView></AppFixedHeaderScreen>;
 }
 
 function SourceTabs({ value, onChange }: { value: SourceTab; onChange: (value: SourceTab) => void }) {
   const theme = useThemeTokens();
-  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label="My Needs" active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label="Starter Needs" active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
+  const { t } = useTranslation();
+  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label={t('inventory.labels.myNeeds')} active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label={t('inventory.labels.starterNeeds')} active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
 }
 
 function SourceTabButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {

@@ -20,11 +20,17 @@ const themeScript = `
     var theme = appearance === 'dark' || appearance === 'light'
       ? appearance
       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    var language = settings && settings.language ? settings.language : 'system';
+    var browserLanguage = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+    var browserBase = String(browserLanguage).toLowerCase().split('-')[0];
+    var resolvedLanguage = language === 'fr' || (language === 'system' && browserBase === 'fr') ? 'fr' : 'en';
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.appearance = appearance;
+    document.documentElement.lang = resolvedLanguage;
   } catch (error) {
     document.documentElement.dataset.theme = 'light';
     document.documentElement.dataset.appearance = 'system';
+    document.documentElement.lang = 'en';
   }
 })();
 `;

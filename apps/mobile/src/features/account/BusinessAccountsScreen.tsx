@@ -11,6 +11,7 @@ import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessAccounts'>;
@@ -18,6 +19,7 @@ type BusinessProfile = { id: string; displayName: string; type: string; status: 
 
 export function BusinessAccountsScreen({ navigation }: Props) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [profiles, setProfiles] = useState<BusinessProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,12 +42,12 @@ export function BusinessAccountsScreen({ navigation }: Props) {
   useFocusEffect(useCallback(() => { void loadProfiles(); }, [loadProfiles]));
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Business / brand" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('account.business.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProfiles(); }} />}>
         {!betaFeatures.businessAccountsVisible ? (
-          <InfoNotice tone="info" title="Business accounts hidden" body="Business and brand profiles are controlled by the current beta feature flags." />
+          <InfoNotice tone="info" title={t('account.business.hiddenTitle')} body={t('account.business.hiddenBody')} />
         ) : error ? (
-          <InfoNotice tone="danger" title="Could not load profiles" body={error} />
+          <InfoNotice tone="danger" title={t('account.business.loadErrorTitle')} body={error} />
         ) : profiles.length ? (
           profiles.map((profile) => (
             <AppCard key={profile.id}>
@@ -59,7 +61,7 @@ export function BusinessAccountsScreen({ navigation }: Props) {
             </AppCard>
           ))
         ) : (
-          <InfoNotice tone="info" title="No business profiles yet" body="Business and brand account creation is available through the API during this phase." />
+          <InfoNotice tone="info" title={t('account.business.emptyTitle')} body={t('account.business.emptyBody')} />
         )}
       </ScrollView>
     </AppFixedHeaderScreen>

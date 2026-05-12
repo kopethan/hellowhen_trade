@@ -433,7 +433,7 @@ model UserSettings {
   userId               String   @unique
   appearance            String   @default("system")
   accent                String   @default("teal")
-  language              String   @default("en")
+  language              String   @default("system")
   notificationsEnabled  Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt

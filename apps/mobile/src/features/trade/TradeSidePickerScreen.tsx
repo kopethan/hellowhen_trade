@@ -14,6 +14,7 @@ import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import type { NeedItem, OfferItem } from './types';
@@ -26,15 +27,17 @@ type TemplatesResponse = { templates: InventoryTemplateDto[] };
 type CloneResponse = { need?: NeedItem; offer?: OfferItem };
 type SourceMode = 'mine' | 'starter' | null;
 
-function optionalModeLabel(mode?: TradeExchangeMode | null) { return mode ? modeLabel(mode) : undefined; }
-function needMeta(need: NeedItem) { return [itemTypeLabel(need.itemType ?? 'service'), need.category, need.timing, optionalModeLabel(need.mode), need.locationLabel].filter(Boolean).join(' · ') || 'Need details'; }
-function offerMeta(offer: OfferItem) { return [itemTypeLabel(offer.itemType ?? 'service'), offer.category, offer.availability, optionalModeLabel(offer.mode), offer.locationLabel].filter(Boolean).join(' · ') || 'Offer details'; }
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunction) { return mode ? modeLabel(mode, t) : undefined; }
+function needMeta(need: NeedItem, t: TFunction) { return [itemTypeLabel(need.itemType ?? 'service', t), need.category, need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') || t('trade.labels.needDetails'); }
+function offerMeta(offer: OfferItem, t: TFunction) { return [itemTypeLabel(offer.itemType ?? 'service', t), offer.category, offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') || t('trade.labels.offerDetails'); }
 function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
 function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
 function itemSearchText(item: NeedItem | OfferItem) { return [item.title, item.description, item.category, 'timing' in item ? item.timing : undefined, 'availability' in item ? item.availability : undefined, item.locationLabel, ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase(); }
 
 export function TradeSidePickerScreen({ route, navigation }: Props) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const side = route.params.side;
   const existing = route.params.selection;
   const [sourceMode, setSourceMode] = useState<SourceMode>(null);
@@ -75,7 +78,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
       setTemplates(Array.isArray(result.templates) ? result.templates : []);
     } catch (caughtError) {
       setTemplates([]);
-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Starter library could not be loaded.'));
+      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('trade.sidePicker.starterLibraryCouldNotLoad')));
     } finally {
       setTemplateLoading(false);
     }
@@ -85,10 +88,11 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
 
   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
   const usableOffers = useMemo(() => offers.filter(isOfferAvailable), [offers]);
-  const lowerLabel = side === 'need' ? 'need' : 'offer';
-  const label = side === 'need' ? 'Need' : 'Offer';
-  const pluralLabel = side === 'need' ? 'Needs' : 'Offers';
-  const title = sourceMode === 'mine' ? `Choose one of your ${pluralLabel}` : sourceMode === 'starter' ? `Choose a starter ${label}` : `Choose ${lowerLabel} source`;
+  const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
+  const lowerLabel = label.toLowerCase();
+  const pluralLabel = side === 'need' ? t('inventory.labels.needs') : t('inventory.labels.offers');
+  const pluralLowerLabel = pluralLabel.toLowerCase();
+  const title = sourceMode === 'mine' ? t('trade.sidePicker.chooseMineTitle', { items: pluralLowerLabel }) : sourceMode === 'starter' ? t('trade.sidePicker.chooseStarterTitle', { item: lowerLabel }) : t('trade.sidePicker.chooseSourceTitle', { item: lowerLabel });
   const activeLoading = sourceMode === 'starter' ? templateLoading : loading;
 
   const filteredNeeds = useMemo(() => {
@@ -112,14 +116,14 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
       setCloningTemplateId(template.id);
       const response = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneResponse;
       if (side === 'need') {
-        if (!response.need) throw new Error('Starter Need was saved, but the response could not be read.');
+        if (!response.need) throw new Error(t('inventory.errors.starterSavedUnreadableNeed'));
         choose({ side: 'need', kind: 'need', id: response.need.id });
         return;
       }
-      if (!response.offer) throw new Error('Starter Offer was saved, but the response could not be read.');
+      if (!response.offer) throw new Error(t('inventory.errors.starterSavedUnreadableOffer'));
       choose({ side: 'offer', kind: 'offer', id: response.offer.id });
     } catch (caughtError) {
-      setTemplateError(getFriendlyApiErrorMessage(caughtError, `Could not save this starter ${label}.`));
+      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('trade.sidePicker.couldNotSaveStarter', { item: label })));
       setCloningTemplateId(null);
     }
   }
@@ -131,19 +135,19 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
           <SourceChoice side={side} theme={theme} onMine={() => { setSourceMode('mine'); setQuery(''); }} onStarter={() => { setSourceMode('starter'); setQuery(''); }} />
         ) : sourceMode === 'starter' ? (
           <View style={styles.modeContent}>
-            <InfoNotice tone="instruction" title="Starter Library" body={`Pick a starter ${lowerLabel}. We save a private copy to your account, then return you to Create Trade.`} />
-            <StarterInventoryLibrary kind={side} templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={`Use this ${label}`} onUseTemplate={(template) => { void cloneTemplate(template); }} />
+            <InfoNotice tone="instruction" title={t('inventory.labels.starterLibrary')} body={t('trade.sidePicker.chooseStarterBody', { item: lowerLabel })} />
+            <StarterInventoryLibrary kind={side} templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('trade.sidePicker.useThis', { item: label })} onUseTemplate={(template) => { void cloneTemplate(template); }} />
           </View>
         ) : (
           <View style={styles.modeContent}>
-            {error ? <InfoNotice tone="warning" title="Could not load resources" body={error} /> : null}
-            <View style={[styles.searchBox, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}><MobileIcon name="search" size={18} color={theme.color.muted} /><TextInput value={query} onChangeText={setQuery} placeholder={`Search your ${pluralLabel.toLowerCase()}`} placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" style={[styles.searchInput, { color: theme.color.text }]} /></View>
+            {error ? <InfoNotice tone="warning" title={t('inventory.errors.itemCouldNotLoad')} body={error} /> : null}
+            <View style={[styles.searchBox, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}><MobileIcon name="search" size={18} color={theme.color.muted} /><TextInput value={query} onChangeText={setQuery} placeholder={t('trade.sidePicker.searchSaved', { items: pluralLowerLabel })} placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" style={[styles.searchInput, { color: theme.color.text }]} /></View>
             <AppCard>
-              <View style={styles.sectionHeader}><SemanticBadge label={label} tone={side === 'need' ? 'need' : 'offer'} /><AppText style={styles.sectionTitle}>My {pluralLabel}</AppText></View>
+              <View style={styles.sectionHeader}><SemanticBadge label={label} tone={side === 'need' ? 'need' : 'offer'} /><AppText style={styles.sectionTitle}>{t('trade.sidePicker.myItems', { items: pluralLowerLabel })}</AppText></View>
               {side === 'need' ? (
-                filteredNeeds.length === 0 ? <EmptyInventory side={side} theme={theme} onCreate={() => navigation.navigate('CreateNeed')} /> : filteredNeeds.map((need) => <InventoryRow key={need.id} title={need.title} description={need.description} meta={needMeta(need)} status={need.status} selected={existing?.kind === 'need' && existing.id === need.id} tone="need" theme={theme} onPress={() => choose({ side: 'need', kind: 'need', id: need.id })} />)
+                filteredNeeds.length === 0 ? <EmptyInventory side={side} theme={theme} onCreate={() => navigation.navigate('CreateNeed')} /> : filteredNeeds.map((need) => <InventoryRow key={need.id} title={need.title} description={need.description} meta={needMeta(need, t)} status={need.status} selected={existing?.kind === 'need' && existing.id === need.id} tone="need" theme={theme} onPress={() => choose({ side: 'need', kind: 'need', id: need.id })} />)
               ) : (
-                filteredOffers.length === 0 ? <EmptyInventory side={side} theme={theme} onCreate={() => navigation.navigate('CreateOffer')} /> : filteredOffers.map((offer) => <InventoryRow key={offer.id} title={offer.title} description={offer.description} meta={offerMeta(offer)} status={offer.status} selected={existing?.kind === 'offer' && existing.id === offer.id} tone="offer" theme={theme} onPress={() => choose({ side: 'offer', kind: 'offer', id: offer.id })} />)
+                filteredOffers.length === 0 ? <EmptyInventory side={side} theme={theme} onCreate={() => navigation.navigate('CreateOffer')} /> : filteredOffers.map((offer) => <InventoryRow key={offer.id} title={offer.title} description={offer.description} meta={offerMeta(offer, t)} status={offer.status} selected={existing?.kind === 'offer' && existing.id === offer.id} tone="offer" theme={theme} onPress={() => choose({ side: 'offer', kind: 'offer', id: offer.id })} />)
               )}
             </AppCard>
           </View>
@@ -154,14 +158,18 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
 }
 
 function SourceChoice({ side, theme, onMine, onStarter }: { side: TradeCreateSide; theme: ThemeTokens; onMine: () => void; onStarter: () => void }) {
-  const label = side === 'need' ? 'Need' : 'Offer';
-  const pluralLabel = side === 'need' ? 'Needs' : 'Offers';
+  const { t } = useTranslation();
+  const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
+  const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const tone = side === 'need' ? 'need' : 'offer';
-  return <View style={styles.modeContent}><InfoNotice tone="instruction" title="Choose a source" body={`Start from your private ${pluralLabel}, or use a starter ${label} from the Hellowhen Library.`} /><Pressable accessibilityRole="button" onPress={onMine} style={({ pressed }) => [styles.sourceChoiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={[styles.sourceIcon, { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border }]}><MobileIcon name={side} size={24} color={theme.semantic[tone].text} /></View><View style={styles.sourceCopy}><AppText style={styles.sourceTitle}>Use one of mine</AppText><AppText style={[styles.sourceBody, { color: theme.color.muted }]}>Choose from your saved private {pluralLabel.toLowerCase()}.</AppText></View><MobileIcon name="chevron-right" size={20} color={theme.color.muted} /></Pressable><Pressable accessibilityRole="button" onPress={onStarter} style={({ pressed }) => [styles.sourceChoiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={[styles.sourceIcon, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}><MobileIcon name="search" size={24} color={theme.semantic.instruction.text} /></View><View style={styles.sourceCopy}><AppText style={styles.sourceTitle}>Use a starter</AppText><AppText style={[styles.sourceBody, { color: theme.color.muted }]}>Save a reusable starter {label.toLowerCase()} to your account first.</AppText></View><MobileIcon name="chevron-right" size={20} color={theme.color.muted} /></Pressable></View>;
+  return <View style={styles.modeContent}><InfoNotice tone="instruction" title={t('trade.sidePicker.chooseSourceTitle', { item: label.toLowerCase() })} body={t('trade.sidePicker.chooseSourceBody', { items: pluralLabel, item: label.toLowerCase() })} /><Pressable accessibilityRole="button" onPress={onMine} style={({ pressed }) => [styles.sourceChoiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={[styles.sourceIcon, { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border }]}><MobileIcon name={side} size={24} color={theme.semantic[tone].text} /></View><View style={styles.sourceCopy}><AppText style={styles.sourceTitle}>{t('trade.sidePicker.useMine')}</AppText><AppText style={[styles.sourceBody, { color: theme.color.muted }]}>{t('trade.sidePicker.useMineBody', { items: pluralLabel })}</AppText></View><MobileIcon name="chevron-right" size={20} color={theme.color.muted} /></Pressable><Pressable accessibilityRole="button" onPress={onStarter} style={({ pressed }) => [styles.sourceChoiceCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={[styles.sourceIcon, { backgroundColor: theme.semantic.instruction.softBg, borderColor: theme.semantic.instruction.border }]}><MobileIcon name="search" size={24} color={theme.semantic.instruction.text} /></View><View style={styles.sourceCopy}><AppText style={styles.sourceTitle}>{t('trade.sidePicker.useStarter')}</AppText><AppText style={[styles.sourceBody, { color: theme.color.muted }]}>{t('trade.sidePicker.useStarterBody')}</AppText></View><MobileIcon name="chevron-right" size={20} color={theme.color.muted} /></Pressable></View>;
 }
 
 function EmptyInventory({ side, theme, onCreate }: { side: TradeCreateSide; theme: ThemeTokens; onCreate: () => void }) {
-  return <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>No saved {side === 'need' ? 'needs' : 'offers'} yet</AppText><AppText style={[styles.body, { color: theme.color.muted }]}>Create one now, or go back and choose a starter from the Hellowhen Library.</AppText><Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Create {side === 'need' ? 'Need' : 'Offer'}</AppText></Pressable></View>;
+  const { t } = useTranslation();
+  const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
+  const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+  return <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>{t('trade.sidePicker.noSavedYet', { items: pluralLabel })}</AppText><AppText style={[styles.body, { color: theme.color.muted }]}>{t('trade.sidePicker.noSavedBody', { item: label.toLowerCase() })}</AppText><Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>{t('common.actions.create')} {label}</AppText></Pressable></View>;
 }
 
 function InventoryRow({ title, description, meta, status, selected, tone, theme, onPress }: { title: string; description: string; meta: string; status: string; selected: boolean; tone: 'need' | 'offer'; theme: ThemeTokens; onPress: () => void }) {

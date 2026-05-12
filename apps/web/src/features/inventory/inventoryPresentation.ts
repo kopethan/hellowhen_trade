@@ -1,9 +1,20 @@
 import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDate } from '../../lib/webFormat';
 
 export type InventoryKind = 'need' | 'offer';
 export type InventoryItem = NeedDto | OfferDto;
+
+export type InventoryI18n = {
+  t?: (key: string, values?: TranslationValues) => string;
+  language?: SupportedLanguage;
+};
+
+function tr(i18n: InventoryI18n | undefined, key: string, fallback: string, values?: TranslationValues) {
+  const value = i18n?.t?.(key, values);
+  return value && value !== key ? value : fallback;
+}
 
 export type InventoryFormValues = {
   title: string;
@@ -39,27 +50,50 @@ export function isNeed(item: InventoryItem): item is NeedDto {
   return 'timing' in item;
 }
 
-export function kindLabel(kind: InventoryKind) {
-  return kind === 'need' ? 'Need' : 'Offer';
+export function kindLabel(kind: InventoryKind, i18n?: InventoryI18n) {
+  return kind === 'need' ? tr(i18n, 'inventory.labels.need', 'Need') : tr(i18n, 'inventory.labels.offer', 'Offer');
 }
 
-export function sideLabel(kind: InventoryKind) {
-  return kind === 'need' ? 'I need' : 'I offer';
+export function kindPluralLabel(kind: InventoryKind, i18n?: InventoryI18n) {
+  return kind === 'need' ? tr(i18n, 'inventory.labels.needs', 'Needs') : tr(i18n, 'inventory.labels.offers', 'Offers');
 }
 
-export function itemTypeLabel(itemType?: InventoryItemType | null) {
-  if (itemType === 'goods') return 'Goods';
-  if (itemType === 'other') return 'Other';
-  return 'Service';
+export function sideLabel(kind: InventoryKind, i18n?: InventoryI18n) {
+  return kind === 'need' ? tr(i18n, 'inventory.side.need', 'I need') : tr(i18n, 'inventory.side.offer', 'I offer');
+}
+
+export function itemTypeLabel(itemType?: InventoryItemType | null, i18n?: InventoryI18n) {
+  if (itemType === 'goods') return tr(i18n, 'inventory.itemTypes.goods', 'Goods');
+  if (itemType === 'other') return tr(i18n, 'inventory.itemTypes.other', 'Other');
+  return tr(i18n, 'inventory.itemTypes.service', 'Service');
+}
+
+export function itemTypePluralLabel(itemType?: InventoryItemType | 'all' | null, i18n?: InventoryI18n) {
+  if (itemType === 'all') return tr(i18n, 'inventory.itemTypes.all', 'All');
+  if (itemType === 'goods') return tr(i18n, 'inventory.itemTypes.goods', 'Goods');
+  if (itemType === 'other') return tr(i18n, 'inventory.itemTypes.other', 'Other');
+  return tr(i18n, 'inventory.itemTypes.services', 'Services');
+}
+
+export function modeLabel(mode?: string | null, i18n?: InventoryI18n) {
+  if (mode === 'remote') return tr(i18n, 'inventory.modes.remote', 'Remote');
+  if (mode === 'local') return tr(i18n, 'inventory.modes.local', 'Local');
+  if (mode === 'hybrid') return tr(i18n, 'inventory.modes.hybrid', 'Hybrid');
+  return null;
+}
+
+export function inventoryStatusLabel(status?: string | null, i18n?: InventoryI18n) {
+  if (!status) return tr(i18n, 'inventory.labels.notSpecified', 'Not specified');
+  return tr(i18n, `inventory.statuses.${status}`, status.replace(/_/g, ' '));
 }
 
 export function sideClassName(kind: InventoryKind) {
   return kind === 'need' ? 'need' : 'offer';
 }
 
-export function getInventoryMetadata(item: InventoryItem) {
+export function getInventoryMetadata(item: InventoryItem, i18n?: InventoryI18n) {
   const timing = isNeed(item) ? item.timing : item.availability;
-  return [itemTypeLabel(item.itemType), item.category, timing, item.mode, item.locationLabel]
+  return [itemTypeLabel(item.itemType, i18n), item.category, timing, modeLabel(item.mode, i18n), item.locationLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }
@@ -102,8 +136,8 @@ export function toIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-export function formatInventoryDate(value?: string | null) {
-  return formatWebDate(value, 'No expiry');
+export function formatInventoryDate(value?: string | null, i18n?: InventoryI18n) {
+  return formatWebDate(value, tr(i18n, 'trade.expiry.noExpiry', 'No expiry'), i18n?.language);
 }
 
 export function mediaSrc(media: MediaAssetDto) {

@@ -1,0 +1,2611 @@
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateNeedScreen.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateNeedScreen.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateNeedScreen.tsx	2026-05-12 09:45:02.573379111 +0000
+@@ -13,10 +13,12 @@
+ import { ImagePickerField } from './components/ImagePickerField';
+ import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
+ 
+ export function CreateNeedScreen({ navigation }: Props) {
++  const { t } = useTranslation();
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
+   const [itemType, setItemType] = useState<InventoryItemType>('service');
+@@ -29,18 +31,18 @@
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+ 
+-  const meta = useMemo(() => [itemTypeLabel(itemType), category.trim(), timing.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [category, itemType, locationLabel, mode, timing]);
++  const meta = useMemo(() => [itemTypeLabel(itemType, t), category.trim(), timing.trim(), modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · '), [category, itemType, locationLabel, mode, t, timing]);
+ 
+   async function handleCreate() {
+     const cleanTitle = title.trim();
+     const cleanDescription = description.trim();
+ 
+     if (cleanTitle.length < 3) {
+-      setError('Add a clear need title.');
++      setError(t('validation.needTitleTooShort'));
+       return;
+     }
+     if (cleanDescription.length < 10) {
+-      setError('Describe the need with at least one useful detail.');
++      setError(t('validation.needDescriptionTooShort'));
+       return;
+     }
+ 
+@@ -72,53 +74,53 @@
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+-        <AppHeader title="Save Need" onBack={() => navigation.goBack()} />
++        <AppHeader title={t('inventory.form.saveNeedTitle')} onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+-          <SemanticBadge label="Need" tone="need" />
+-          <AppText style={styles.title}>Save Need</AppText>
+-          <AppText style={styles.subtitle}>Create a reusable service, goods, or other request with its own images. You will choose it later when publishing a trade.</AppText>
++          <SemanticBadge label={t('inventory.labels.need')} tone="need" />
++          <AppText style={styles.title}>{t('inventory.form.saveNeedTitle')}</AppText>
++          <AppText style={styles.subtitle}>{t('inventory.form.saveNeedBody')}</AppText>
+         </View>
+ 
+-        {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
++        {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>What do you need?</AppText>
+-          <InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder="Landing page design" disabled={submitting} />
+-          <InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder="Describe the result you want, useful details, and what done means." multiline disabled={submitting} />
++          <AppText style={styles.sectionTitle}>{t('inventory.form.needQuestion')}</AppText>
++          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleNeedExample')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionNeedMobile')} multiline disabled={submitting} />
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Deck details</AppText>
++          <AppText style={styles.sectionTitle}>{t('inventory.labels.deckDetails')}</AppText>
+           <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
+-          <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={submitting} />
+-          <InventoryTextField label="Timing" value={timing} onChangeText={setTiming} placeholder="This week, weekend, today..." disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={t('inventory.form.categoryNeedPlaceholder')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.timing')} value={timing} onChangeText={setTiming} placeholder={t('inventory.form.timingMobilePlaceholder')} disabled={submitting} />
+           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+-          <InventoryTextField label="Location" hint="Optional" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, Paris, local pickup..." disabled={submitting} />
+-          <InventoryTextField label="Tags" hint="Separate with commas" value={tagsInput} onChangeText={setTagsInput} placeholder="brand, figma, urgent" disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationNeedPlaceholder')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tagsInput} onChangeText={setTagsInput} placeholder={t('inventory.form.tagsNeedPlaceholder')} disabled={submitting} />
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Need images</AppText>
++          <AppText style={styles.sectionTitle}>{t('inventory.form.needImageSection')}</AppText>
+           <ImagePickerField
+             images={images}
+             onChange={setImages}
+             disabled={submitting}
+-            label="Reference images"
+-            hint="Add images that explain what you need."
++            label={t('inventory.labels.referenceImages')}
++            hint={t('inventory.form.needImageHint')}
+           />
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Card preview</AppText>
+-          <InventoryPreview eyebrow="I need" title={title.trim()} meta={meta} description={description.trim()} />
++          <AppText style={styles.sectionTitle}>{t('inventory.labels.cardPreview')}</AppText>
++          <InventoryPreview eyebrow={t('inventory.side.need')} title={title.trim()} meta={meta} description={description.trim()} />
+         </AppCard>
+ 
+         <View style={styles.actions}>
+           <Pressable disabled={submitting} onPress={handleCreate} style={({ pressed }) => [styles.primaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.primaryButtonText}>{submitting ? 'Saving...' : 'Save Need'}</AppText>
++            <AppText style={styles.primaryButtonText}>{submitting ? t('common.states.saving') : t('inventory.actions.saveNeed')}</AppText>
+           </Pressable>
+           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.secondaryButtonText}>Cancel</AppText>
++            <AppText style={styles.secondaryButtonText}>{t('common.actions.cancel')}</AppText>
+           </Pressable>
+         </View>
+       </ScrollView>
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateOfferScreen.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateOfferScreen.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/CreateOfferScreen.tsx	2026-05-12 09:45:02.574013566 +0000
+@@ -13,10 +13,12 @@
+ import { ImagePickerField } from './components/ImagePickerField';
+ import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
+ 
+ export function CreateOfferScreen({ navigation }: Props) {
++  const { t } = useTranslation();
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
+   const [itemType, setItemType] = useState<InventoryItemType>('service');
+@@ -30,18 +32,18 @@
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+ 
+-  const meta = useMemo(() => [itemTypeLabel(itemType), category.trim(), availability.trim(), modeLabel(mode), locationLabel.trim()].filter(Boolean).join(' · '), [availability, category, itemType, locationLabel, mode]);
++  const meta = useMemo(() => [itemTypeLabel(itemType, t), category.trim(), availability.trim(), modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · '), [availability, category, itemType, locationLabel, mode, t]);
+ 
+   async function handleCreate() {
+     const cleanTitle = title.trim();
+     const cleanDescription = description.trim();
+ 
+     if (cleanTitle.length < 3) {
+-      setError('Add a clear offer title.');
++      setError(t('validation.offerTitleTooShort'));
+       return;
+     }
+     if (cleanDescription.length < 10) {
+-      setError('Describe the offer with at least one useful detail.');
++      setError(t('validation.offerDescriptionTooShort'));
+       return;
+     }
+ 
+@@ -74,54 +76,54 @@
+   return (
+     <AppScreen>
+       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+-        <AppHeader title="Save Offer" onBack={() => navigation.goBack()} />
++        <AppHeader title={t('inventory.form.saveOfferTitle')} onBack={() => navigation.goBack()} />
+         <View style={styles.header}>
+-          <SemanticBadge label="Offer" tone="offer" />
+-          <AppText style={styles.title}>Save Offer</AppText>
+-          <AppText style={styles.subtitle}>Create a reusable service, goods item, or other offer with its own images. You will pair it with a need when publishing a trade.</AppText>
++          <SemanticBadge label={t('inventory.labels.offer')} tone="offer" />
++          <AppText style={styles.title}>{t('inventory.form.saveOfferTitle')}</AppText>
++          <AppText style={styles.subtitle}>{t('inventory.form.saveOfferBody')}</AppText>
+         </View>
+ 
+-        {error ? <InfoNotice tone="danger" title="Could not save" body={error} /> : null}
++        {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>What can you offer?</AppText>
+-          <InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder="Product photography" disabled={submitting} />
+-          <InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder="Describe what you deliver, how it works, and any limits." multiline disabled={submitting} />
++          <AppText style={styles.sectionTitle}>{t('inventory.form.offerQuestion')}</AppText>
++          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleOfferExample')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} multiline disabled={submitting} />
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Deck details</AppText>
++          <AppText style={styles.sectionTitle}>{t('inventory.labels.deckDetails')}</AppText>
+           <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
+-          <InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Photography, copywriting, coaching..." disabled={submitting} />
+-          <InventoryTextField label="Availability" value={availability} onChangeText={setAvailability} placeholder="Weekend, this week, evenings..." disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={t('inventory.form.categoryOfferPlaceholder')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.availability')} value={availability} onChangeText={setAvailability} placeholder={t('inventory.form.availabilityMobilePlaceholder')} disabled={submitting} />
+           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+-          <InventoryTextField label="Location" hint="Optional" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, local studio, pickup only..." disabled={submitting} />
+-          <InventoryTextField label="Includes" hint="Separate with commas" value={includesInput} onChangeText={setIncludesInput} placeholder="10 edited shots, 1 revision, delivery folder" disabled={submitting} />
+-          <InventoryTextField label="Tags" hint="Separate with commas" value={tagsInput} onChangeText={setTagsInput} placeholder="camera, edits, ecommerce" disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationOfferPlaceholder')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.includes')} hint={t('inventory.form.separateWithCommas')} value={includesInput} onChangeText={setIncludesInput} placeholder={t('inventory.form.includesMobilePlaceholder')} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tagsInput} onChangeText={setTagsInput} placeholder={t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} />
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Offer images</AppText>
++          <AppText style={styles.sectionTitle}>{t('inventory.form.offerImageSection')}</AppText>
+           <ImagePickerField
+             images={images}
+             onChange={setImages}
+             disabled={submitting}
+-            label="Sample images"
+-            hint="Add examples that help people trust the offer."
++            label={t('inventory.labels.sampleImages')}
++            hint={t('inventory.form.offerImageHint')}
+           />
+         </AppCard>
+ 
+         <AppCard>
+-          <AppText style={styles.sectionTitle}>Card preview</AppText>
+-          <InventoryPreview eyebrow="I offer" title={title.trim()} meta={meta} description={description.trim()} />
++          <AppText style={styles.sectionTitle}>{t('inventory.labels.cardPreview')}</AppText>
++          <InventoryPreview eyebrow={t('inventory.side.offer')} title={title.trim()} meta={meta} description={description.trim()} />
+         </AppCard>
+ 
+         <View style={styles.actions}>
+           <Pressable disabled={submitting} onPress={handleCreate} style={({ pressed }) => [styles.primaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.primaryButtonText}>{submitting ? 'Saving...' : 'Save Offer'}</AppText>
++            <AppText style={styles.primaryButtonText}>{submitting ? t('common.states.saving') : t('inventory.actions.saveOffer')}</AppText>
+           </Pressable>
+           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
+-            <AppText style={styles.secondaryButtonText}>Cancel</AppText>
++            <AppText style={styles.secondaryButtonText}>{t('common.actions.cancel')}</AppText>
+           </Pressable>
+         </View>
+       </ScrollView>
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx	2026-05-12 09:46:12.318099647 +0000
+@@ -1,4 +1,4 @@
+-import React, { useCallback, useEffect, useState } from 'react';
++import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+@@ -9,9 +9,25 @@
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { ImagePickerField } from './components/ImagePickerField';
+ import { InventoryTypePicker, itemTypeLabel } from './components/InventoryFormFields';
+-import { DangerButton, ExistingMediaManager, getOptionalString, getStringArray, InventoryModePicker, InventoryTextField, joinCsv, modeLabel, normalizeMode, optionalText, parseCsv, PrimaryButton, SecondaryButton, type InventoryMode } from './components/InventoryDetailFields';
++import {
++  DangerButton,
++  ExistingMediaManager,
++  getOptionalString,
++  getStringArray,
++  InventoryModePicker,
++  InventoryTextField,
++  joinCsv,
++  modeLabel,
++  normalizeMode,
++  optionalText,
++  parseCsv,
++  PrimaryButton,
++  SecondaryButton,
++  type InventoryMode,
++} from './components/InventoryDetailFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ import type { InventoryItemType } from '@hellowhen/contracts';
+ import type { NeedItem, OfferItem } from './types';
+@@ -20,7 +36,18 @@
+ type InventoryItem = (NeedItem | OfferItem) & Record<string, unknown>;
+ type InventoryResponse = { need?: NeedItem; offer?: OfferItem; archived?: boolean };
+ 
+-export function InventoryDetailScreen({ kind, itemId, fallbackTitle, navigation }: { kind: InventoryKind; itemId: string; fallbackTitle?: string; navigation: NativeStackNavigationProp<RootStackParamList> }) {
++export function InventoryDetailScreen({
++  kind,
++  itemId,
++  fallbackTitle,
++  navigation,
++}: {
++  kind: InventoryKind;
++  itemId: string;
++  fallbackTitle?: string;
++  navigation: NativeStackNavigationProp<RootStackParamList>;
++}) {
++  const { t, language } = useTranslation();
+   const [item, setItem] = useState<InventoryItem | null>(null);
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
+@@ -38,11 +65,15 @@
+   const [error, setError] = useState<string | null>(null);
+ 
+   const isNeed = kind === 'need';
+-  const label = isNeed ? 'Need' : 'Offer';
++  const label = isNeed ? t('inventory.labels.need') : t('inventory.labels.offer');
++  const labelLower = isNeed ? t('inventory.labels.need').toLowerCase() : t('inventory.labels.offer').toLowerCase();
++  const labelsLower = isNeed ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+   const tone = isNeed ? 'need' : 'offer';
+-  const titlePlaceholder = isNeed ? 'Landing page design' : 'Product photography';
+-  const timingLabel = isNeed ? 'Timing' : 'Availability';
+-  const timingPlaceholder = isNeed ? 'This week, today, weekend...' : 'Weekend, evenings, this week...';
++  const titlePlaceholder = isNeed ? t('inventory.form.titleNeedExample') : t('inventory.form.titleOfferExample');
++  const timingLabel = isNeed ? t('inventory.labels.timing') : t('inventory.labels.availability');
++  const timingPlaceholder = isNeed ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder');
++  const locationPlaceholder = isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder');
++  const tagsPlaceholder = isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder');
+ 
+   const hydrateForm = useCallback((nextItem: InventoryItem) => {
+     setItem(nextItem);
+@@ -64,20 +95,26 @@
+     try {
+       const result = isNeed ? await api.needs.get(itemId) as InventoryResponse : await api.offers.get(itemId) as InventoryResponse;
+       const nextItem = (isNeed ? result.need : result.offer) as InventoryItem | undefined;
+-      if (!nextItem) throw new Error(`${label} was not returned by the API.`);
++      if (!nextItem) throw new Error(t('inventory.errors.apiMissingItem', { item: label }));
+       hydrateForm(nextItem);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+     } finally {
+       setLoading(false);
+     }
+-  }, [hydrateForm, isNeed, itemId, label]);
++  }, [hydrateForm, isNeed, itemId, label, t]);
+ 
+   useEffect(() => { void loadItem(); }, [loadItem]);
+ 
+   async function saveItem(nextStatus?: string) {
+-    if (title.trim().length < 3) { setError(`Add a clear ${label.toLowerCase()} title.`); return; }
+-    if (description.trim().length < 10) { setError(`Describe the ${label.toLowerCase()} with at least one useful detail.`); return; }
++    if (title.trim().length < 3) {
++      setError(isNeed ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'));
++      return;
++    }
++    if (description.trim().length < 10) {
++      setError(isNeed ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort'));
++      return;
++    }
+ 
+     setSaving(true);
+     setError(null);
+@@ -120,9 +157,9 @@
+   }
+ 
+   function confirmDelete() {
+-    Alert.alert(`Delete ${label.toLowerCase()}?`, `Unused ${label.toLowerCase()}s are deleted. ${label}s already used in trades are closed so trade history stays intact.`, [
+-      { text: 'Cancel', style: 'cancel' },
+-      { text: 'Delete', style: 'destructive', onPress: () => { void deleteItem(); } },
++    Alert.alert(t('inventory.delete.deleteTitle', { item: labelLower }), t('inventory.delete.deleteNativeBody', { item: label, items: labelsLower }), [
++      { text: t('common.actions.cancel'), style: 'cancel' },
++      { text: t('inventory.actions.delete'), style: 'destructive', onPress: () => { void deleteItem(); } },
+     ]);
+   }
+ 
+@@ -135,7 +172,7 @@
+         const archived = (isNeed ? result.need : result.offer) as InventoryItem | undefined;
+         if (archived) hydrateForm(archived);
+         setEditing(false);
+-        setError(`This ${label.toLowerCase()} is used by a trade, so it was closed instead of permanently deleted.`);
++        setError(t('inventory.errors.archivedInstead', { item: labelLower }));
+       } else {
+         navigation.goBack();
+       }
+@@ -146,21 +183,101 @@
+     }
+   }
+ 
+-  const meta = [itemTypeLabel(itemType), category, timingOrAvailability, modeLabel(mode), locationLabel].filter(Boolean).join(' · ');
++  const updatedAt = typeof item?.updatedAt === 'string' || item?.updatedAt instanceof Date
++    ? new Date(item.updatedAt).toLocaleDateString(language)
++    : '';
++
++  const meta = useMemo(
++    () => [itemTypeLabel(itemType, t), category, timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
++    [category, itemType, locationLabel, mode, t, timingOrAvailability],
++  );
+ 
+   return (
+     <AppScreen>
+-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItem(); }} />}>
+-        <AppHeader title={editing ? `Edit ${label}` : label} onBack={() => navigation.goBack()} />
++      <ScrollView
++        contentContainerStyle={styles.content}
++        showsVerticalScrollIndicator={false}
++        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItem(); }} />}
++      >
++        <AppHeader title={editing ? (isNeed ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')) : label} onBack={() => navigation.goBack()} />
+         <View style={styles.headerRow}>
+-          <View style={styles.headerCopy}><SemanticBadge label={label} tone={tone} /><AppText style={styles.title}>{item?.title ?? fallbackTitle ?? label}</AppText></View>
++          <View style={styles.headerCopy}>
++            <SemanticBadge label={label} tone={tone} />
++            <AppText style={styles.title}>{item?.title ?? fallbackTitle ?? label}</AppText>
++          </View>
+         </View>
++
+         {error ? <InfoNotice tone="warning" body={error} /> : null}
+-        {!item && !loading ? <InfoNotice tone="danger" title={`${label} unavailable`} body={`This ${label.toLowerCase()} could not be loaded.`} /> : null}
+-        {item ? <><AppCard><View style={styles.statusRow}><StatusBadge status={item.status} size="sm" /><AppText style={styles.updatedText}>Updated {new Date(item.updatedAt).toLocaleDateString()}</AppText></View>{editing ? <View style={styles.form}><InventoryTextField label="Title" value={title} onChangeText={setTitle} placeholder={titlePlaceholder} disabled={saving} /><InventoryTextField label="Description" value={description} onChangeText={setDescription} placeholder={`Describe this ${label.toLowerCase()}.`} multiline disabled={saving} /><InventoryTypePicker value={itemType} onChange={setItemType} disabled={saving} /><InventoryTextField label="Category" value={category} onChangeText={setCategory} placeholder="Design, writing, photography..." disabled={saving} /><InventoryTextField label={timingLabel} value={timingOrAvailability} onChangeText={setTimingOrAvailability} placeholder={timingPlaceholder} disabled={saving} /><InventoryModePicker value={mode} onChange={setMode} disabled={saving} /><InventoryTextField label="Location" value={locationLabel} onChangeText={setLocationLabel} placeholder="Remote, Paris, local pickup..." disabled={saving} />{!isNeed ? <InventoryTextField label="Includes" value={includesInput} onChangeText={setIncludesInput} placeholder="10 edited shots, 1 revision" disabled={saving} /> : null}<InventoryTextField label="Tags" value={tagsInput} onChangeText={setTagsInput} placeholder="brand, figma, urgent" disabled={saving} /></View> : <View style={styles.readOnly}><AppText style={styles.readTitle}>{item.title}</AppText><AppText style={styles.readDescription}>{item.description}</AppText>{meta ? <AppText style={styles.metaText}>{meta}</AppText> : null}</View>}</AppCard><AppCard><AppText style={styles.sectionTitle}>Images</AppText><ExistingMediaManager media={item.media} disabled={saving} onRemove={removeImage} />{editing ? <ImagePickerField images={newImages} onChange={setNewImages} disabled={saving} /> : null}</AppCard><View style={styles.actions}>{editing ? <PrimaryButton label={saving ? 'Saving...' : 'Save Changes'} disabled={saving} onPress={() => { void saveItem(); }} /> : <PrimaryButton label={`Edit ${label}`} disabled={saving} onPress={() => setEditing(true)} />}{editing ? <SecondaryButton label="Cancel" disabled={saving} onPress={() => { hydrateForm(item); setEditing(false); }} /> : null}{item.status !== 'active' ? <SecondaryButton label="Mark Active" disabled={saving} onPress={() => { void saveItem('active'); }} /> : <SecondaryButton label={`Close ${label}`} disabled={saving} onPress={() => { void saveItem('closed'); }} />}<DangerButton label={`Delete ${label}`} disabled={saving} onPress={confirmDelete} /></View></> : null}
++        {!item && !loading ? <InfoNotice tone="danger" title={t('inventory.errors.unavailable', { item: label })} body={t('inventory.errors.notFoundTitle', { item: labelLower })} /> : null}
++
++        {item ? (
++          <>
++            <AppCard>
++              <View style={styles.statusRow}>
++                <StatusBadge status={item.status} size="sm" />
++                <AppText style={styles.updatedText}>{updatedAt ? `${t('inventory.labels.updated')} ${updatedAt}` : t('inventory.labels.updated')}</AppText>
++              </View>
++
++              {editing ? (
++                <View style={styles.form}>
++                  <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} disabled={saving} />
++                  <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} multiline disabled={saving} />
++                  <InventoryTypePicker value={itemType} onChange={setItemType} disabled={saving} />
++                  <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={isNeed ? t('inventory.form.categoryNeedPlaceholder') : t('inventory.form.categoryOfferPlaceholder')} disabled={saving} />
++                  <InventoryTextField label={timingLabel} value={timingOrAvailability} onChangeText={setTimingOrAvailability} placeholder={timingPlaceholder} disabled={saving} />
++                  <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
++                  <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />
++                  {!isNeed ? <InventoryTextField label={t('inventory.labels.includes')} value={includesInput} onChangeText={setIncludesInput} placeholder={t('inventory.form.includesMobilePlaceholder')} disabled={saving} /> : null}
++                  <InventoryTextField label={t('inventory.labels.tags')} value={tagsInput} onChangeText={setTagsInput} placeholder={tagsPlaceholder} disabled={saving} />
++                </View>
++              ) : (
++                <View style={styles.readOnly}>
++                  <AppText style={styles.readTitle}>{item.title}</AppText>
++                  <AppText style={styles.readDescription}>{item.description}</AppText>
++                  {meta ? <AppText style={styles.metaText}>{meta}</AppText> : null}
++                </View>
++              )}
++            </AppCard>
++
++            <AppCard>
++              <AppText style={styles.sectionTitle}>{t('inventory.labels.images')}</AppText>
++              <ExistingMediaManager media={item.media} disabled={saving} onRemove={removeImage} />
++              {editing ? <ImagePickerField images={newImages} onChange={setNewImages} disabled={saving} /> : null}
++            </AppCard>
++
++            <View style={styles.actions}>
++              {editing ? (
++                <PrimaryButton label={saving ? t('common.states.saving') : t('inventory.actions.saveChanges')} disabled={saving} onPress={() => { void saveItem(); }} />
++              ) : (
++                <PrimaryButton label={isNeed ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')} disabled={saving} onPress={() => setEditing(true)} />
++              )}
++              {editing ? <SecondaryButton label={t('common.actions.cancel')} disabled={saving} onPress={() => { hydrateForm(item); setEditing(false); }} /> : null}
++              {item.status !== 'active' ? (
++                <SecondaryButton label={t('inventory.actions.markActive')} disabled={saving} onPress={() => { void saveItem('active'); }} />
++              ) : (
++                <SecondaryButton label={isNeed ? t('inventory.actions.closeNeed') : t('inventory.actions.closeOffer')} disabled={saving} onPress={() => { void saveItem('closed'); }} />
++              )}
++              <DangerButton label={isNeed ? t('inventory.actions.deleteNeed') : t('inventory.actions.deleteOffer')} disabled={saving} onPress={confirmDelete} />
++            </View>
++          </>
++        ) : null}
+       </ScrollView>
+     </AppScreen>
+   );
+ }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 32, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 }, statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, updatedText: { color: '#64748B', fontSize: 12, fontWeight: '800' }, form: { gap: 14 }, readOnly: { gap: 9 }, readTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.4 }, readDescription: { color: '#475569', lineHeight: 21, fontWeight: '600' }, metaText: { color: '#64748B', fontWeight: '800' }, sectionTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' }, actions: { gap: 10 } });
++const styles = StyleSheet.create({
++  content: { paddingBottom: 32, gap: 14 },
++  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
++  headerCopy: { flex: 1, gap: 8 },
++  title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 },
++  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  updatedText: { color: '#64748B', fontSize: 12, fontWeight: '800' },
++  form: { gap: 14 },
++  readOnly: { gap: 9 },
++  readTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.4 },
++  readDescription: { color: '#475569', lineHeight: 21, fontWeight: '600' },
++  metaText: { color: '#64748B', fontWeight: '800' },
++  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
++  actions: { gap: 10 },
++});
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyNeedsScreen.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyNeedsScreen.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyNeedsScreen.tsx	2026-05-12 09:42:28.523646956 +0000
+@@ -15,6 +15,7 @@
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+ import type { NeedItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ 
+ type ApiResponse = { needs: NeedItem[] };
+ type TemplatesResponse = { templates: InventoryTemplateDto[] };
+@@ -23,6 +24,7 @@
+ 
+ export function MyNeedsScreen() {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+   const [items, setItems] = useState<NeedItem[]>([]);
+@@ -47,7 +49,7 @@
+     } finally {
+       setLoading(false);
+     }
+-  }, []);
++  }, [t]);
+ 
+   const loadTemplates = useCallback(async () => {
+     setTemplateLoading(true);
+@@ -57,16 +59,16 @@
+       setTemplates(Array.isArray(result.templates) ? result.templates : []);
+     } catch (caughtError) {
+       setTemplates([]);
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Starter needs could not be loaded.'));
++      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.starterNeedsCouldNotLoad')));
+     } finally {
+       setTemplateLoading(false);
+     }
+-  }, []);
++  }, [t]);
+ 
+   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); }, [loadItems, loadTemplates]));
+ 
+   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+-  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Need" tone="need" /><AppText style={styles.title}>Needs</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Save reusable requests or start from the Hellowhen Library.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>Create</AppText></View></Pressable></View>;
++  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.need')} tone="need" /><AppText style={styles.title}>{t('inventory.labels.needs')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
+ 
+   const sortedItems = useMemo(() => items, [items]);
+ 
+@@ -77,13 +79,13 @@
+     try {
+       setCloningTemplateId(template.id);
+       const result = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneResponse;
+-      if (!result.need) throw new Error('Starter Need was saved, but the response could not be read.');
++      if (!result.need) throw new Error(t('inventory.errors.starterSavedUnreadableNeed'));
+       setItems((current) => [result.need!, ...current.filter((item) => item.id !== result.need!.id)]);
+       setCreatedNeed(result.need);
+-      setNotice(`${result.need.title} was saved to My Needs.`);
++      setNotice(t('inventory.messages.starterSavedToMine', { title: result.need.title, collection: t('inventory.labels.myNeeds') }));
+       setSourceTab('mine');
+     } catch (caughtError) {
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Could not save this starter Need.'));
++      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterNeed')));
+     } finally {
+       setCloningTemplateId(null);
+     }
+@@ -91,18 +93,19 @@
+ 
+   return <AppFixedHeaderScreen header={header}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); }} />}>
+     <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedNeed(null); }} />
+-    {notice ? <InfoNotice tone="success" title="Starter saved" body={notice} /> : null}
+-    {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>Open saved Need</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
+-    {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel="Use this Need" onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+-      {error ? <InfoNotice tone="danger" title="Could not load needs" body={error} /> : null}
+-      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title="Create your first need" body="Add details and reference images, or switch to Starter Needs for ideas." tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
++    {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
++    {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
++    {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
++      {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
++      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstNeed')} body={t('inventory.empty.needNativeBody')} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
+     </>}
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+ 
+ function SourceTabs({ value, onChange }: { value: SourceTab; onChange: (value: SourceTab) => void }) {
+   const theme = useThemeTokens();
+-  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label="My Needs" active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label="Starter Needs" active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
++  const { t } = useTranslation();
++  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label={t('inventory.labels.myNeeds')} active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label={t('inventory.labels.starterNeeds')} active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
+ }
+ 
+ function SourceTabButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyOffersScreen.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyOffersScreen.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyOffersScreen.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/MyOffersScreen.tsx	2026-05-12 09:42:28.524190891 +0000
+@@ -15,6 +15,7 @@
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
+ import type { OfferItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
+ 
+ type ApiResponse = { offers: OfferItem[] };
+ type TemplatesResponse = { templates: InventoryTemplateDto[] };
+@@ -23,6 +24,7 @@
+ 
+ export function MyOffersScreen() {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+   const [items, setItems] = useState<OfferItem[]>([]);
+@@ -47,7 +49,7 @@
+     } finally {
+       setLoading(false);
+     }
+-  }, []);
++  }, [t]);
+ 
+   const loadTemplates = useCallback(async () => {
+     setTemplateLoading(true);
+@@ -57,16 +59,16 @@
+       setTemplates(Array.isArray(result.templates) ? result.templates : []);
+     } catch (caughtError) {
+       setTemplates([]);
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Starter offers could not be loaded.'));
++      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.starterOffersCouldNotLoad')));
+     } finally {
+       setTemplateLoading(false);
+     }
+-  }, []);
++  }, [t]);
+ 
+   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); }, [loadItems, loadTemplates]));
+ 
+   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
+-  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label="Offer" tone="offer" /><AppText style={styles.title}>Offers</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>Save reusable services or start from the Hellowhen Library.</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.offer.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>Create</AppText></View></Pressable></View>;
++  const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.offer')} tone="offer" /><AppText style={styles.title}>{t('inventory.labels.offers')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.offerNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateOffer')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.offer.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
+ 
+   const sortedItems = useMemo(() => items, [items]);
+ 
+@@ -77,13 +79,13 @@
+     try {
+       setCloningTemplateId(template.id);
+       const result = await api.inventoryTemplates.clone(template.id, { status: 'active' }) as CloneResponse;
+-      if (!result.offer) throw new Error('Starter Offer was saved, but the response could not be read.');
++      if (!result.offer) throw new Error(t('inventory.errors.starterSavedUnreadableOffer'));
+       setItems((current) => [result.offer!, ...current.filter((item) => item.id !== result.offer!.id)]);
+       setCreatedOffer(result.offer);
+-      setNotice(`${result.offer.title} was saved to My Offers.`);
++      setNotice(t('inventory.messages.starterSavedToMine', { title: result.offer.title, collection: t('inventory.labels.myOffers') }));
+       setSourceTab('mine');
+     } catch (caughtError) {
+-      setTemplateError(getFriendlyApiErrorMessage(caughtError, 'Could not save this starter Offer.'));
++      setTemplateError(getFriendlyApiErrorMessage(caughtError, t('inventory.errors.couldNotSaveStarterOffer')));
+     } finally {
+       setCloningTemplateId(null);
+     }
+@@ -91,18 +93,19 @@
+ 
+   return <AppFixedHeaderScreen header={header}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); }} />}>
+     <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedOffer(null); }} />
+-    {notice ? <InfoNotice tone="success" title="Starter saved" body={notice} /> : null}
+-    {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>Open saved Offer</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
+-    {sourceTab === 'starter' ? <StarterInventoryLibrary kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel="Use this Offer" onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+-      {error ? <InfoNotice tone="danger" title="Could not load offers" body={error} /> : null}
+-      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title="Create your first offer" body="Add services, availability, and sample images, or switch to Starter Offers for ideas." tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
++    {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
++    {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
++    {sourceTab === 'starter' ? <StarterInventoryLibrary kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisOffer')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
++      {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadOffer')} body={error} /> : null}
++      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstOffer')} body={t('inventory.empty.offerNativeBody')} tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
+     </>}
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+ 
+ function SourceTabs({ value, onChange }: { value: SourceTab; onChange: (value: SourceTab) => void }) {
+   const theme = useThemeTokens();
+-  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label="My Offers" active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label="Starter Offers" active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
++  const { t } = useTranslation();
++  return <View style={[styles.sourceTabs, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SourceTabButton label={t('inventory.labels.myOffers')} active={value === 'mine'} onPress={() => onChange('mine')} /><SourceTabButton label={t('inventory.labels.starterOffers')} active={value === 'starter'} onPress={() => onChange('starter')} /></View>;
+ }
+ 
+ function SourceTabButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/ImagePickerField.tsx	2026-05-12 09:41:13.150186381 +0000
+@@ -3,22 +3,81 @@
+ import * as ImagePicker from 'expo-image-picker';
+ import { AppText } from '../../../components/AppText';
+ import { InfoNotice } from '../../../components/SemanticUI';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import type { SelectedLocalImage } from '../mediaUpload';
+ 
+-export function ImagePickerField({ images, onChange, disabled, maxImages = 5, label = 'Images', hint, reviewBody = 'Images appear on your saved Need or Offer after upload. Use support to report image/content issues.' }: { images: SelectedLocalImage[]; onChange: (images: SelectedLocalImage[]) => void; disabled?: boolean; maxImages?: number; label?: string; hint?: string; reviewBody?: string }) {
++export function ImagePickerField({
++  images,
++  onChange,
++  disabled,
++  maxImages = 5,
++  label,
++  hint,
++  reviewBody,
++}: {
++  images: SelectedLocalImage[];
++  onChange: (images: SelectedLocalImage[]) => void;
++  disabled?: boolean;
++  maxImages?: number;
++  label?: string;
++  hint?: string;
++  reviewBody?: string;
++}) {
++  const { t } = useTranslation();
+   const [error, setError] = useState<string | null>(null);
++  const resolvedLabel = label ?? t('inventory.labels.images');
++  const resolvedReviewBody = reviewBody ?? t('inventory.form.imagePickerDefaultBody');
++
+   async function pickImages() {
+     setError(null);
+     const remaining = maxImages - images.length;
+-    if (remaining <= 0) { setError(`You can attach up to ${maxImages} images.`); return; }
++    if (remaining <= 0) {
++      setError(t('inventory.messages.addImagesLimit', { count: maxImages }));
++      return;
++    }
+     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+-    if (!permission.granted) { setError('Allow photo library access to attach images.'); return; }
++    if (!permission.granted) {
++      setError(t('inventory.messages.photoLibraryPermission'));
++      return;
++    }
+     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: remaining, quality: 0.82 });
+     if (result.canceled) return;
+     const selected = result.assets.slice(0, remaining).map((asset, index) => ({ uri: asset.uri, name: asset.fileName ?? `hellowhen-image-${Date.now()}-${index}.jpg`, type: asset.mimeType ?? 'image/jpeg' }));
+     onChange([...images, ...selected]);
+   }
+-  function removeImage(uri: string) { onChange(images.filter((image) => image.uri !== uri)); }
+-  return <View style={styles.wrap}><View style={styles.row}><View style={styles.copy}><AppText style={styles.label}>{label}</AppText><AppText style={styles.hint}>{hint ?? `Add up to ${maxImages} JPEG, PNG, or WEBP images.`}</AppText></View><Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.buttonText}>Add</AppText></Pressable></View>{reviewBody ? <InfoNotice tone="info" title="Images" body={reviewBody} /> : null}{error ? <InfoNotice tone="danger" title="Images" body={error} /> : null}{images.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>{images.map((image) => <View key={image.uri} style={styles.preview}><Image source={{ uri: image.uri }} style={styles.image} /><Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}><AppText style={styles.removeText}>Remove</AppText></Pressable></View>)}</ScrollView> : <View style={styles.empty}><AppText style={styles.emptyText}>No images selected yet.</AppText></View>}</View>;
++
++  function removeImage(uri: string) {
++    onChange(images.filter((image) => image.uri !== uri));
++  }
++
++  return (
++    <View style={styles.wrap}>
++      <View style={styles.row}>
++        <View style={styles.copy}>
++          <AppText style={styles.label}>{resolvedLabel}</AppText>
++          <AppText style={styles.hint}>{hint ?? t('inventory.form.imagePickerHint', { count: maxImages })}</AppText>
++        </View>
++        <Pressable disabled={disabled} onPress={pickImages} style={({ pressed }) => [styles.button, disabled && styles.disabled, pressed && styles.pressed]}>
++          <AppText style={styles.buttonText}>{t('common.actions.add')}</AppText>
++        </Pressable>
++      </View>
++      {resolvedReviewBody ? <InfoNotice tone="info" title={t('inventory.labels.images')} body={resolvedReviewBody} /> : null}
++      {error ? <InfoNotice tone="danger" title={t('inventory.labels.images')} body={error} /> : null}
++      {images.length > 0 ? (
++        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>
++          {images.map((image) => (
++            <View key={image.uri} style={styles.preview}>
++              <Image source={{ uri: image.uri }} style={styles.image} />
++              <Pressable onPress={() => removeImage(image.uri)} disabled={disabled} style={styles.remove}>
++                <AppText style={styles.removeText}>{t('common.actions.remove')}</AppText>
++              </Pressable>
++            </View>
++          ))}
++        </ScrollView>
++      ) : (
++        <View style={styles.empty}><AppText style={styles.emptyText}>{t('inventory.labels.noImagesSelected')}</AppText></View>
++      )}
++    </View>
++  );
+ }
+ const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 118, gap: 7 }, image: { width: 118, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx	2026-05-12 09:43:00.191469280 +0000
+@@ -4,6 +4,7 @@
+ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { StatusBadge } from '../../../components/SemanticUI';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { resolveMediaUrl } from '../mediaUrls';
+ 
+ export type InventoryMode = 'remote' | 'local' | 'hybrid';
+@@ -23,10 +24,10 @@
+   return value === 'local' || value === 'hybrid' ? value : 'remote';
+ }
+ 
+-export function modeLabel(mode: InventoryMode) {
+-  if (mode === 'remote') return 'Remote';
+-  if (mode === 'local') return 'Local';
+-  return 'Hybrid';
++export function modeLabel(mode: InventoryMode, t?: (key: string) => string) {
++  if (mode === 'remote') return t?.('inventory.modes.remote') ?? 'Remote';
++  if (mode === 'local') return t?.('inventory.modes.local') ?? 'Local';
++  return t?.('inventory.modes.hybrid') ?? 'Hybrid';
+ }
+ 
+ export function parseCsv(value: string, maxItems = 8) {
+@@ -53,14 +54,16 @@
+ 
+ export function InventoryModePicker({ value, onChange, disabled }: { value: InventoryMode; onChange: (value: InventoryMode) => void; disabled?: boolean }) {
+   const theme = useThemeTokens();
+-  return <View style={styles.field}><AppText style={styles.label}>Mode</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode)}</AppText></Pressable>; })}</View></View>;
++  const { t } = useTranslation();
++  return <View style={styles.field}><AppText style={styles.label}>{t('inventory.labels.mode')}</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode, t)}</AppText></Pressable>; })}</View></View>;
+ }
+ 
+ export function ExistingMediaManager({ media, disabled, onRemove }: { media?: MediaAssetDto[]; disabled?: boolean; onRemove: (mediaId: string) => void }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const visible = (media ?? []).filter((item) => item.status !== 'removed');
+-  if (visible.length === 0) return <View style={[styles.emptyMedia, { borderColor: theme.color.border }]}><AppText style={[styles.emptyMediaText, { color: theme.color.muted }]}>No saved images yet.</AppText></View>;
+-  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item) => <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>Remove</AppText></Pressable></View>)}</ScrollView>;
++  if (visible.length === 0) return <View style={[styles.emptyMedia, { borderColor: theme.color.border }]}><AppText style={[styles.emptyMediaText, { color: theme.color.muted }]}>{t('inventory.labels.noImages')}</AppText></View>;
++  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item) => <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>{t('common.actions.remove')}</AppText></Pressable></View>)}</ScrollView>;
+ }
+ 
+ 
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryFormFields.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryFormFields.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/InventoryFormFields.tsx	2026-05-12 09:40:07.929888485 +0000
+@@ -3,10 +3,13 @@
+ import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
+ 
+ export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
+ export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
+ 
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
+ export function optionalText(value: string) {
+   const trimmed = value.trim();
+   return trimmed.length > 0 ? trimmed : undefined;
+@@ -28,16 +31,23 @@
+   return items;
+ }
+ 
+-export function itemTypeLabel(itemType: InventoryItemType) {
+-  if (itemType === 'goods') return 'Goods';
+-  if (itemType === 'other') return 'Other';
+-  return 'Service';
+-}
+-
+-export function modeLabel(mode: TradeExchangeMode) {
+-  if (mode === 'remote') return 'Remote';
+-  if (mode === 'local') return 'Local';
+-  return 'Hybrid';
++export function itemTypeLabel(itemType: InventoryItemType, t?: TFunction) {
++  if (itemType === 'goods') return t?.('inventory.itemTypes.goods') ?? 'Goods';
++  if (itemType === 'other') return t?.('inventory.itemTypes.other') ?? 'Other';
++  return t?.('inventory.itemTypes.service') ?? 'Service';
++}
++
++export function itemTypePluralLabel(itemType: InventoryItemType | 'all', t?: TFunction) {
++  if (itemType === 'all') return t?.('inventory.itemTypes.all') ?? 'All';
++  if (itemType === 'goods') return t?.('inventory.itemTypes.goods') ?? 'Goods';
++  if (itemType === 'other') return t?.('inventory.itemTypes.other') ?? 'Other';
++  return t?.('inventory.itemTypes.services') ?? 'Services';
++}
++
++export function modeLabel(mode: TradeExchangeMode, t?: TFunction) {
++  if (mode === 'remote') return t?.('inventory.modes.remote') ?? 'Remote';
++  if (mode === 'local') return t?.('inventory.modes.local') ?? 'Local';
++  return t?.('inventory.modes.hybrid') ?? 'Hybrid';
+ }
+ 
+ export function InventoryTextField({
+@@ -78,12 +88,12 @@
+   );
+ }
+ 
+-
+ export function InventoryTypePicker({ value, onChange, disabled }: { value: InventoryItemType; onChange: (itemType: InventoryItemType) => void; disabled?: boolean }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={styles.field}>
+-      <AppText style={styles.label}>Type</AppText>
++      <AppText style={styles.label}>{t('inventory.labels.type')}</AppText>
+       <View style={styles.modeRow}>
+         {inventoryItemTypes.map((itemType) => {
+           const selected = value === itemType;
+@@ -94,7 +104,7 @@
+               onPress={() => onChange(itemType)}
+               style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+             >
+-              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{itemTypeLabel(itemType)}</AppText>
++              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{itemTypeLabel(itemType, t)}</AppText>
+             </Pressable>
+           );
+         })}
+@@ -105,9 +115,10 @@
+ 
+ export function ModePicker({ value, onChange, disabled }: { value: TradeExchangeMode; onChange: (mode: TradeExchangeMode) => void; disabled?: boolean }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+     <View style={styles.field}>
+-      <AppText style={styles.label}>Mode</AppText>
++      <AppText style={styles.label}>{t('inventory.labels.mode')}</AppText>
+       <View style={styles.modeRow}>
+         {exchangeModes.map((mode) => {
+           const selected = value === mode;
+@@ -118,7 +129,7 @@
+               onPress={() => onChange(mode)}
+               style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+             >
+-              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode)}</AppText>
++              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode, t)}</AppText>
+             </Pressable>
+           );
+         })}
+@@ -139,12 +150,13 @@
+   description: string;
+ }) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   return (
+-    <View style={[styles.preview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++    <View style={[styles.preview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}> 
+       <AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>{eyebrow}</AppText>
+-      <AppText style={styles.previewTitle}>{title || 'Title appears here'}</AppText>
+-      <AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{meta || 'Category · Timing · Mode · Location'}</AppText>
+-      <AppText style={[styles.previewDescription, { color: theme.color.muted }]} numberOfLines={3}>{description || 'A short summary will appear here while you write.'}</AppText>
++      <AppText style={styles.previewTitle}>{title || t('inventory.form.previewTitleFallback')}</AppText>
++      <AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{meta || t('inventory.form.previewMetaFallback')}</AppText>
++      <AppText style={[styles.previewDescription, { color: theme.color.muted }]} numberOfLines={3}>{description || t('inventory.form.previewDescriptionFallback')}</AppText>
+     </View>
+   );
+ }
+@@ -159,10 +171,8 @@
+   label: {
+     fontSize: 14,
+     fontWeight: '900',
+-
+   },
+   hint: {
+-
+     fontSize: 12,
+     lineHeight: 17,
+     fontWeight: '700',
+@@ -170,11 +180,8 @@
+   input: {
+     borderRadius: 16,
+     borderWidth: 1,
+-
+-
+     paddingHorizontal: 13,
+     paddingVertical: 12,
+-
+     fontSize: 16,
+     fontWeight: '600',
+   },
+@@ -190,17 +197,11 @@
+   modeButton: {
+     borderRadius: 999,
+     borderWidth: 1,
+-
+-
+     paddingHorizontal: 13,
+     paddingVertical: 9,
+   },
+-  modeButtonSelected: {
+-
+-
+-  },
++  modeButtonSelected: {},
+   modeButtonText: {
+-
+     fontWeight: '900',
+   },
+   modeButtonTextSelected: {
+@@ -209,31 +210,25 @@
+   preview: {
+     borderRadius: 22,
+     borderWidth: 1,
+-
+-
+     padding: 16,
+     gap: 7,
+   },
+   previewEyebrow: {
+-
+     fontSize: 11,
+     fontWeight: '900',
+     letterSpacing: 0.8,
+     textTransform: 'uppercase',
+   },
+   previewTitle: {
+-
+     fontSize: 22,
+     fontWeight: '900',
+     letterSpacing: -0.4,
+   },
+   previewMeta: {
+-
+     fontSize: 13,
+     fontWeight: '800',
+   },
+   previewDescription: {
+-
+     lineHeight: 20,
+     fontWeight: '600',
+   },
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx	2026-05-12 09:45:02.574435646 +0000
+@@ -7,11 +7,14 @@
+ import { MobileIcon } from '../../../components/MobileIcon';
+ import { InfoNotice, SemanticBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+-import { itemTypeLabel, modeLabel } from './InventoryFormFields';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
++import { itemTypeLabel, itemTypePluralLabel, modeLabel } from './InventoryFormFields';
+ 
+ type TemplateKind = 'need' | 'offer';
+ type ItemTypeFilter = 'all' | InventoryItemType;
+ 
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
+ type StarterInventoryLibraryProps = {
+   kind: TemplateKind;
+   templates: InventoryTemplateDto[];
+@@ -24,36 +27,31 @@
+   onUseTemplate: (template: InventoryTemplateDto) => void;
+ };
+ 
+-const itemTypeFilters: Array<{ value: ItemTypeFilter; label: string }> = [
+-  { value: 'all', label: 'All' },
+-  { value: 'service', label: 'Services' },
+-  { value: 'goods', label: 'Goods' },
+-  { value: 'other', label: 'Other' },
+-];
++const itemTypeFilters: ItemTypeFilter[] = ['all', 'service', 'goods', 'other'];
+ 
+-function optionalModeLabel(mode?: TradeExchangeMode | null) {
+-  return mode ? modeLabel(mode) : undefined;
++function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunction) {
++  return mode ? modeLabel(mode, t) : undefined;
+ }
+ 
+-function templateMeta(template: InventoryTemplateDto) {
++function templateMeta(template: InventoryTemplateDto, t: TFunction) {
+   return [
+-    itemTypeLabel(template.itemType ?? 'service'),
++    itemTypeLabel(template.itemType ?? 'service', t),
+     template.category,
+     template.kind === 'need' ? template.timing : template.availability,
+-    optionalModeLabel(template.mode),
++    optionalModeLabel(template.mode, t),
+     template.locationLabel,
+   ].filter(Boolean).join(' · ');
+ }
+ 
+-function sourceLabel(template: InventoryTemplateDto) {
+-  if (template.businessProfile?.displayName) return `From ${template.businessProfile.displayName}`;
+-  if (template.sourceType === 'brand') return 'Brand Library';
+-  if (template.sourceType === 'business') return 'Company Library';
+-  if (template.sourceType === 'partner') return 'Partner Library';
+-  return 'Hellowhen Library';
++function sourceLabel(template: InventoryTemplateDto, t: TFunction) {
++  if (template.businessProfile?.displayName) return t('inventory.sourceLabels.fromBusiness', { name: template.businessProfile.displayName });
++  if (template.sourceType === 'brand') return t('inventory.sourceLabels.brandLibrary');
++  if (template.sourceType === 'business') return t('inventory.sourceLabels.companyLibrary');
++  if (template.sourceType === 'partner') return t('inventory.sourceLabels.partnerLibrary');
++  return t('inventory.sourceLabels.hellowhenLibrary');
+ }
+ 
+-function templateSearchText(template: InventoryTemplateDto) {
++function templateSearchText(template: InventoryTemplateDto, t: TFunction) {
+   return [
+     template.title,
+     template.description,
+@@ -63,21 +61,19 @@
+     template.locationLabel,
+     ...(template.tags ?? []),
+     ...(template.includes ?? []),
+-    sourceLabel(template),
++    sourceLabel(template, t),
+   ].filter(Boolean).join(' ').toLowerCase();
+ }
+ 
+-function sectionLabel(itemType: InventoryItemType) {
+-  if (itemType === 'goods') return 'Goods';
+-  if (itemType === 'other') return 'Other';
+-  return 'Services';
++function sectionLabel(itemType: InventoryItemType, t: TFunction) {
++  return itemTypePluralLabel(itemType, t);
+ }
+ 
+-function groupedTemplates(templates: InventoryTemplateDto[]) {
++function groupedTemplates(templates: InventoryTemplateDto[], t: TFunction) {
+   const order: InventoryItemType[] = ['service', 'goods', 'other'];
+   return order.map((itemType) => ({
+     key: itemType,
+-    label: sectionLabel(itemType),
++    label: sectionLabel(itemType, t),
+     templates: templates.filter((template) => (template.itemType ?? 'service') === itemType),
+   })).filter((section) => section.templates.length > 0);
+ }
+@@ -94,19 +90,20 @@
+   onUseTemplate,
+ }: StarterInventoryLibraryProps) {
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const [query, setQuery] = useState('');
+   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
+-  const plural = kind === 'need' ? 'needs' : 'offers';
+-  const defaultActionLabel = kind === 'need' ? 'Use this Need' : 'Use this Offer';
++  const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
++  const defaultActionLabel = kind === 'need' ? t('inventory.actions.useThisNeed') : t('inventory.actions.useThisOffer');
+   const filteredTemplates = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+     return templates.filter((template) => {
+       const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
+-      const matchesSearch = !needle || templateSearchText(template).includes(needle);
++      const matchesSearch = !needle || templateSearchText(template, t).includes(needle);
+       return matchesType && matchesSearch;
+     });
+-  }, [itemTypeFilter, query, templates]);
+-  const sections = useMemo(() => groupedTemplates(filteredTemplates), [filteredTemplates]);
++  }, [itemTypeFilter, query, t, templates]);
++  const sections = useMemo(() => groupedTemplates(filteredTemplates, t), [filteredTemplates, t]);
+ 
+   return (
+     <View style={styles.wrapper}>
+@@ -115,7 +112,7 @@
+         <TextInput
+           value={query}
+           onChangeText={setQuery}
+-          placeholder={`Search starter ${plural}`}
++          placeholder={`${t('common.actions.search')} ${t('inventory.labels.starterLibrary').toLowerCase()}`}
+           placeholderTextColor={theme.color.muted}
+           autoCapitalize="none"
+           autoCorrect={false}
+@@ -126,12 +123,12 @@
+ 
+       <View style={styles.filterRow}>
+         {itemTypeFilters.map((filter) => {
+-          const selected = itemTypeFilter === filter.value;
++          const selected = itemTypeFilter === filter;
+           return (
+             <Pressable
+-              key={filter.value}
++              key={filter}
+               accessibilityRole="button"
+-              onPress={() => setItemTypeFilter(filter.value)}
++              onPress={() => setItemTypeFilter(filter)}
+               style={({ pressed }) => [
+                 styles.filterChip,
+                 { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+@@ -139,20 +136,20 @@
+                 pressed && styles.pressed,
+               ]}
+             >
+-              <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{filter.label}</AppText>
++              <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{itemTypePluralLabel(filter, t)}</AppText>
+             </Pressable>
+           );
+         })}
+       </View>
+ 
+-      {error ? <InfoNotice tone="danger" title="Starter library error" body={error} /> : null}
+-      {loading ? <InfoNotice tone="instruction" title="Loading starter library" body={`Checking reusable starter ${plural}.`} /> : null}
++      {error ? <InfoNotice tone="danger" title={t('inventory.errors.starterLibraryError')} body={error} /> : null}
++      {loading ? <InfoNotice tone="instruction" title={t('inventory.messages.loadingStarterLibrary')} body={t('inventory.messages.checkingReusableStarters', { items: plural })} /> : null}
+ 
+       {!loading && sections.length === 0 ? (
+         <AppCard style={styles.emptyCard}>
+-          <SemanticBadge label="Starter library" tone="instruction" />
+-          <AppText style={styles.emptyTitle}>{emptyTitle ?? `No starter ${plural} found`}</AppText>
+-          <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody ?? 'Try another search or filter.'}</AppText>
++          <SemanticBadge label={t('inventory.labels.starterLibrary')} tone="instruction" />
++          <AppText style={styles.emptyTitle}>{emptyTitle ?? t('inventory.empty.noStarterFound', { items: plural })}</AppText>
++          <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody ?? t('inventory.empty.tryAnotherSearch')}</AppText>
+         </AppCard>
+       ) : null}
+ 
+@@ -182,19 +179,20 @@
+ 
+ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disabled, onPress }: { template: InventoryTemplateDto; theme: ThemeTokens; kind: TemplateKind; actionLabel: string; cloning: boolean; disabled: boolean; onPress: () => void }) {
+   const tone = kind === 'need' ? 'need' : 'offer';
+-  const meta = templateMeta(template);
++  const { t } = useTranslation();
++  const meta = templateMeta(template, t);
+   return (
+     <AppCard style={styles.templateCard}>
+       <View style={styles.templateHeader}>
+         <View style={styles.templateTitleWrap}>
+-          <SemanticBadge label={sourceLabel(template)} tone="instruction" size="sm" />
++          <SemanticBadge label={sourceLabel(template, t)} tone="instruction" size="sm" />
+           <AppText style={styles.templateTitle}>{template.title}</AppText>
+         </View>
+-        <SemanticBadge label={itemTypeLabel(template.itemType ?? 'service')} tone={tone} size="sm" />
++        <SemanticBadge label={itemTypeLabel(template.itemType ?? 'service', t)} tone={tone} size="sm" />
+       </View>
+       {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{meta}</AppText> : null}
+       <AppText style={[styles.templateDescription, { color: theme.color.muted }]}>{template.description}</AppText>
+-      {template.includes?.length ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>Includes: {template.includes.join(', ')}</AppText> : null}
++      {template.includes?.length ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{t('inventory.labels.includes')}: {template.includes.join(', ')}</AppText> : null}
+       {template.tags?.length ? <View style={styles.tagRow}>{template.tags.slice(0, 4).map((tag) => <SemanticBadge key={tag} label={tag} tone="muted" size="sm" />)}</View> : null}
+       <Pressable
+         accessibilityRole="button"
+@@ -207,7 +205,7 @@
+           pressed && styles.pressed,
+         ]}
+       >
+-        <AppText style={[styles.useButtonText, { color: theme.color.background }]}>{cloning ? 'Saving...' : actionLabel}</AppText>
++        <AppText style={[styles.useButtonText, { color: theme.color.background }]}>{cloning ? t('common.states.saving') : actionLabel}</AppText>
+       </Pressable>
+     </AppCard>
+   );
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryDetailClient.tsx phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryDetailClient.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryDetailClient.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryDetailClient.tsx	2026-05-12 09:39:45.097177759 +0000
+@@ -3,9 +3,10 @@
+ import Link from 'next/link';
+ import { useEffect, useState } from 'react';
+ import { api } from '../../lib/api';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+-import { formatInventoryDate, getInventoryMetadata, itemTypeLabel, getInventoryTags, kindLabel, mediaSrc, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
++import { formatInventoryDate, getInventoryMetadata, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+ 
+ type InventoryDetailClientProps = {
+   kind: InventoryKind;
+@@ -14,6 +15,7 @@
+ 
+ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientProps) {
+   const demoDataEnabled = isWebDemoDataEnabled();
++  const { t, language } = useWebTranslation();
+   const [item, setItem] = useState<InventoryItem | null>(() => demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((entry) => entry.id === itemId) ?? null : null);
+   const [loading, setLoading] = useState(true);
+   const [usingFallback, setUsingFallback] = useState(false);
+@@ -44,14 +46,16 @@
+   }, [demoDataEnabled, itemId, kind]);
+ 
+   const baseHref = kind === 'need' ? '/needs' : '/offers';
+-  const noun = kindLabel(kind);
++  const i18n = { t, language };
++  const noun = kindLabel(kind, i18n);
++  const pluralNoun = kindPluralLabel(kind, i18n);
+ 
+   if (!item && loading) {
+     return (
+       <article className="trade-detail-page">
+         <section className="trade-hero-section">
+-          <span className="semantic-badge instruction">Loading</span>
+-          <h2>Loading {noun.toLowerCase()}...</h2>
++          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
++          <h2>{t('inventory.messages.loadingItems', { items: noun.toLowerCase() })}</h2>
+         </section>
+       </article>
+     );
+@@ -61,37 +65,37 @@
+     return (
+       <article className="trade-detail-page">
+         <section className="trade-hero-section">
+-          <span className="semantic-badge danger">Not found</span>
+-          <h2>This {noun.toLowerCase()} could not be loaded.</h2>
+-          <p>Check that the API is running, or open an item from your {kind === 'need' ? 'Needs' : 'Offers'} tab.</p>
+-          <Link href={baseHref} className="button">Back to {kind === 'need' ? 'Needs' : 'Offers'}</Link>
++          <span className="semantic-badge danger">{t('trade.labels.notFound')}</span>
++          <h2>{t('inventory.errors.notFoundTitle', { item: noun.toLowerCase() })}</h2>
++          <p>{t('inventory.errors.notFoundBody', { collection: pluralNoun })}</p>
++          <Link href={baseHref} className="button">{t('common.actions.back')} {pluralNoun}</Link>
+         </section>
+       </article>
+     );
+   }
+ 
+-  const metadata = getInventoryMetadata(item);
++  const metadata = getInventoryMetadata(item, i18n);
+   const tags = getInventoryTags(item);
+   const timingLabel = kind === 'need' && 'timing' in item
+-    ? item.timing ?? 'Not specified'
++    ? item.timing ?? t('inventory.labels.notSpecified')
+     : kind === 'offer' && 'availability' in item
+-      ? item.availability ?? 'Not specified'
+-      : 'Not specified';
++      ? item.availability ?? t('inventory.labels.notSpecified')
++      : t('inventory.labels.notSpecified');
+ 
+   return (
+     <article className="trade-detail-page">
+       <section className="trade-hero-section">
+         <div className="status-row">
+-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind)}</span>
+-          <span className="semantic-badge instruction">{item.status}</span>
+-          {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
++          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
++          <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
++          {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
+         </div>
+         <h2>{item.title}</h2>
+         <p>{item.description}</p>
+         {metadata ? <p className="meta">{metadata}</p> : null}
+         <div className="inventory-detail-actions">
+-          <Link href={`${baseHref}/${item.id}/edit`} className="button">Edit {noun}</Link>
+-          <Link href={kind === 'need' ? `/trades/create?needId=${item.id}` : `/trades/create?offerId=${item.id}`} className="button secondary">Use in trade</Link>
++          <Link href={`${baseHref}/${item.id}/edit`} className="button">{kind === 'need' ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')}</Link>
++          <Link href={kind === 'need' ? `/trades/create?needId=${item.id}` : `/trades/create?offerId=${item.id}`} className="button secondary">{t('inventory.actions.useInTrade')}</Link>
+         </div>
+       </section>
+ 
+@@ -99,15 +103,15 @@
+         <section className="trade-social-section">
+           <div className="trade-section-heading">
+             <div>
+-              <p className="eyebrow">Images</p>
+-              <h2>{noun} references</h2>
++              <p className="eyebrow">{t('inventory.labels.images')}</p>
++              <h2>{kind === 'need' ? t('inventory.labels.needReferences') : t('inventory.labels.offerReferences')}</h2>
+             </div>
+           </div>
+           <div className="inventory-media-grid inventory-media-grid--detail">
+             {item.media.map((media) => (
+               <figure key={media.id}>
+                 <img src={mediaSrc(media)} alt={media.filename ?? item.title} />
+-                <figcaption><span className="semantic-badge instruction">{media.status}</span></figcaption>
++                <figcaption><span className="semantic-badge instruction">{inventoryStatusLabel(media.status, i18n)}</span></figcaption>
+               </figure>
+             ))}
+           </div>
+@@ -115,8 +119,8 @@
+       ) : (
+         <section className="trade-social-section">
+           <div className="proposal-empty-state">
+-            <strong>No images yet</strong>
+-            <span>Add images in edit mode so trade decks can show richer Need/Offer cards.</span>
++            <strong>{t('inventory.labels.noImages')}</strong>
++            <span>{t('inventory.empty.noImagesYetBody')}</span>
+           </div>
+         </section>
+       )}
+@@ -124,18 +128,18 @@
+       <section className="trade-social-section trade-social-section--compact">
+         <div className="trade-section-heading">
+           <div>
+-            <p className="eyebrow">Details</p>
+-            <h2>{noun} information</h2>
++            <p className="eyebrow">{t('inventory.labels.details')}</p>
++            <h2>{noun} {t('inventory.labels.information').toLowerCase()}</h2>
+           </div>
+         </div>
+         <dl className="trade-detail-list">
+-          <div><dt>Status</dt><dd>{item.status}</dd></div>
+-          <div><dt>Type</dt><dd>{itemTypeLabel(item.itemType)}</dd></div>
+-          <div><dt>Category</dt><dd>{item.category ?? 'Not specified'}</dd></div>
+-          <div><dt>{kind === 'need' ? 'Timing' : 'Availability'}</dt><dd>{timingLabel}</dd></div>
+-          <div><dt>Mode</dt><dd>{item.mode ?? 'Not specified'}</dd></div>
+-          <div><dt>Location</dt><dd>{item.locationLabel ?? 'Not specified'}</dd></div>
+-          <div><dt>Expires</dt><dd>{formatInventoryDate(item.expiresAt)}</dd></div>
++          <div><dt>{t('inventory.labels.status')}</dt><dd>{inventoryStatusLabel(item.status, i18n)}</dd></div>
++          <div><dt>{t('inventory.labels.type')}</dt><dd>{itemTypeLabel(item.itemType, i18n)}</dd></div>
++          <div><dt>{t('inventory.labels.category')}</dt><dd>{item.category ?? t('inventory.labels.notSpecified')}</dd></div>
++          <div><dt>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</dt><dd>{timingLabel}</dd></div>
++          <div><dt>{t('inventory.labels.mode')}</dt><dd>{modeLabel(item.mode, i18n) ?? t('inventory.labels.notSpecified')}</dd></div>
++          <div><dt>{t('inventory.labels.location')}</dt><dd>{item.locationLabel ?? t('inventory.labels.notSpecified')}</dd></div>
++          <div><dt>{t('inventory.labels.expires')}</dt><dd>{formatInventoryDate(item.expiresAt, i18n)}</dd></div>
+         </dl>
+         {tags.length ? (
+           <div className="tag-row">
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryFormClient.tsx phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryFormClient.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryFormClient.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryFormClient.tsx	2026-05-12 09:45:02.572636693 +0000
+@@ -11,9 +11,12 @@
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import {
+   emptyInventoryFormValues,
+   inventoryToFormValues,
++  inventoryStatusLabel,
++  itemTypeLabel,
+   kindLabel,
+   mediaSrc,
+   normalizeInventoryItem,
+@@ -21,6 +24,7 @@
+   parseCsvList,
+   parseLineList,
+   sideClassName,
++  modeLabel,
+   sideLabel,
+   toIsoDate,
+   type InventoryFormValues,
+@@ -107,6 +111,7 @@
+ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreateRedirect }: InventoryFormClientProps) {
+   const auth = useWebAuth();
+   const router = useRouter();
++  const { t, language } = useWebTranslation();
+   const [values, setValues] = useState<InventoryFormValues>(emptyInventoryFormValues);
+   const [media, setMedia] = useState<MediaAssetDto[]>([]);
+   const [loading, setLoading] = useState(mode === 'edit');
+@@ -120,7 +125,8 @@
+ 
+   const baseHref = kind === 'need' ? '/needs' : '/offers';
+   const formCancelHref = cancelHref ?? baseHref;
+-  const noun = kindLabel(kind);
++  const i18n = useMemo(() => ({ t, language }), [language, t]);
++  const noun = kindLabel(kind, i18n);
+   const lowerNoun = noun.toLowerCase();
+   const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
+ 
+@@ -145,14 +151,14 @@
+         const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null : null;
+         setValues(inventoryToFormValues(fallback));
+         setMedia(fallback?.media ?? []);
+-        setMessage(demoDataEnabled && fallback ? 'Using demo data because this item could not be loaded from the API.' : 'This item could not be loaded from the API.');
++        setMessage(demoDataEnabled && fallback ? t('inventory.messages.usingDemoData') : t('inventory.messages.itemCouldNotLoad'));
+       } finally {
+         if (mounted) setLoading(false);
+       }
+     }
+     void loadItem();
+     return () => { mounted = false; };
+-  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, itemId, kind, mode]);
++  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, itemId, kind, mode, t]);
+ 
+   useEffect(() => {
+     if (mode !== 'edit' || !itemId || !auth.hydrated || !auth.isAuthenticated) return;
+@@ -191,7 +197,7 @@
+         if (uploaded) nextMedia.push(uploaded);
+       }
+       setMedia(nextMedia.slice(0, 5));
+-      setMessage('Image uploaded. It will appear on this saved item after you save.');
++      setMessage(t('inventory.messages.imageUploaded'));
+     } catch (cause) {
+       setError(getFriendlyApiErrorMessage(cause));
+     } finally {
+@@ -207,7 +213,7 @@
+   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     if (isEditProtected) {
+-      setError(`Close or delete the active trade before editing this ${lowerNoun}.`);
++      setError(t('inventory.errors.editProtected', { item: lowerNoun }));
+       return;
+     }
+     setSaving(true);
+@@ -276,8 +282,8 @@
+     return (
+       <section className="mobile-page">
+         <section className="mobile-card mobile-card--soft">
+-          <span className="semantic-badge instruction">Loading</span>
+-          <h3>{!auth.hydrated ? 'Checking your session...' : `Loading ${lowerNoun}...`}</h3>
++          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
++          <h3>{!auth.hydrated ? t('inventory.labels.checkingSession') : t('inventory.messages.loadingItems', { items: lowerNoun })}</h3>
+         </section>
+       </section>
+     );
+@@ -287,105 +293,105 @@
+     <section className="mobile-page">
+       {!auth.isAuthenticated && auth.hydrated ? (
+         <section className="mobile-card mobile-card--soft">
+-          <span className="semantic-badge instruction">Signed out</span>
+-          <h3>Sign in to save real {kind === 'need' ? 'needs' : 'offers'}</h3>
+-          <p>This form is wired to the API and needs a session before it can save.</p>
+-          <Link href="/auth" className="button">Sign in</Link>
++          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
++          <h3>{t('inventory.signedOut.formTitle', { items: kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase() })}</h3>
++          <p>{t('inventory.signedOut.formBody')}</p>
++          <Link href="/auth" className="button">{t('auth.actions.signIn')}</Link>
+         </section>
+       ) : null}
+ 
+       <form className="inventory-form" onSubmit={handleSubmit}>
+         {isEditProtected ? (
+           <section className="notice-box warning inventory-delete-warning">
+-            <strong>This {lowerNoun} is locked by an active trade.</strong>
+-            <span>Close or delete that trade before editing or deleting this {lowerNoun}.</span>
+-            {deleteImpact?.activeTrades?.[0] ? <Link href={`/trades/${deleteImpact.activeTrades[0].id}`} className="button secondary">View trade</Link> : null}
++            <strong>{t('inventory.delete.lockedTitle', { item: lowerNoun })}</strong>
++            <span>{t('inventory.delete.lockedBody', { item: lowerNoun })}</span>
++            {deleteImpact?.activeTrades?.[0] ? <Link href={`/trades/${deleteImpact.activeTrades[0].id}`} className="button secondary">{t('inventory.delete.viewTrade')}</Link> : null}
+           </section>
+         ) : null}
+ 
+         <fieldset className="inventory-form__editable" disabled={isEditProtected}>
+         <section className="mobile-card inventory-form__hero">
+-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind)}</span>
++          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
+           <label className="field-label">
+-            Title
+-            <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? 'What do you need?' : 'What can you offer?'} required minLength={3} maxLength={120} />
++            {t('inventory.labels.title')}
++            <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={3} maxLength={120} />
+           </label>
+           <label className="field-label">
+-            Description
+-            <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? 'Describe the help you want.' : 'Describe what you can provide.'} required minLength={10} maxLength={2000} rows={5} />
++            {t('inventory.labels.description')}
++            <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.descriptionNeedPlaceholder') : t('inventory.form.descriptionOfferPlaceholder')} required minLength={10} maxLength={2000} rows={5} />
+           </label>
+         </section>
+ 
+         <section className="mobile-card mobile-card--soft inventory-form__grid">
+           <label className="field-label">
+-            Status
++            {t('inventory.labels.status')}
+             <select value={values.status} onChange={(event) => updateField('status', event.target.value)}>
+-              {selectedStatusOptions(kind).map((status) => <option key={status} value={status}>{status}</option>)}
++              {selectedStatusOptions(kind).map((status) => <option key={status} value={status}>{inventoryStatusLabel(status, i18n)}</option>)}
+             </select>
+           </label>
+           <label className="field-label">
+-            Type
++            {t('inventory.labels.type')}
+             <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryItemType)}>
+-              <option value="service">Service</option>
+-              <option value="goods">Goods</option>
+-              <option value="other">Other</option>
++              <option value="service">{itemTypeLabel('service', i18n)}</option>
++              <option value="goods">{itemTypeLabel('goods', i18n)}</option>
++              <option value="other">{itemTypeLabel('other', i18n)}</option>
+             </select>
+           </label>
+           <label className="field-label">
+-            Category
+-            <input value={values.category} onChange={(event) => updateField('category', event.target.value)} placeholder="Design, tutoring, repair..." maxLength={80} />
++            {t('inventory.labels.category')}
++            <input value={values.category} onChange={(event) => updateField('category', event.target.value)} placeholder={t('inventory.form.categoryPlaceholder')} maxLength={80} />
+           </label>
+           <label className="field-label">
+-            {kind === 'need' ? 'Timing' : 'Availability'}
+-            <input value={kind === 'need' ? values.timing : values.availability} onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)} placeholder={kind === 'need' ? 'This week, today, flexible...' : 'Weekends, evenings, remote...'} maxLength={80} />
++            {kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}
++            <input value={kind === 'need' ? values.timing : values.availability} onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.timingPlaceholder') : t('inventory.form.availabilityPlaceholder')} maxLength={80} />
+           </label>
+           <label className="field-label">
+-            Mode
++            {t('inventory.labels.mode')}
+             <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)}>
+-              <option value="">Not specified</option>
+-              <option value="remote">Remote</option>
+-              <option value="local">Local</option>
+-              <option value="hybrid">Hybrid</option>
++              <option value="">{t('inventory.labels.notSpecified')}</option>
++              <option value="remote">{modeLabel('remote', i18n)}</option>
++              <option value="local">{modeLabel('local', i18n)}</option>
++              <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
+             </select>
+           </label>
+           <label className="field-label">
+-            Location label
+-            <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder="Remote, Paris, local area..." maxLength={120} />
++            {t('inventory.labels.locationLabel')}
++            <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={t('inventory.form.locationPlaceholder')} maxLength={120} />
+           </label>
+           <label className="field-label">
+-            Expires
++            {t('inventory.labels.expires')}
+             <input value={values.expiresAt} onChange={(event) => updateField('expiresAt', event.target.value)} type="date" />
+           </label>
+           <label className="field-label inventory-form__wide">
+-            Tags
+-            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder="design, launch, remote" />
++            {t('inventory.labels.tags')}
++            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} />
+           </label>
+           {kind === 'offer' ? (
+             <label className="field-label inventory-form__wide">
+-              Includes
+-              <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder="One revision\n10 edited photos\n30-minute call" rows={4} />
++              {t('inventory.labels.includes')}
++              <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesPlaceholder')} rows={4} />
+             </label>
+           ) : null}
+         </section>
+ 
+         <section className="mobile-card inventory-media-panel">
+           <div>
+-            <p className="eyebrow">Images</p>
+-            <h3>{media.length ? `${media.length}/5 selected` : `Add ${lowerNoun} images`}</h3>
+-            <p>Images appear on this saved Need or Offer after upload. Support can remove reported images if needed.</p>
++            <p className="eyebrow">{t('inventory.labels.images')}</p>
++            <h3>{media.length ? t('inventory.form.selectedCount', { count: media.length }) : kind === 'need' ? t('inventory.form.addNeedImages') : t('inventory.form.addOfferImages')}</h3>
++            <p>{t('inventory.form.imagePanelBody')}</p>
+           </div>
+           <label className="image-upload-button">
+             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={isEditProtected || uploading || media.length >= 5} />
+-            {uploading ? 'Uploading...' : media.length >= 5 ? 'Image limit reached' : 'Upload images'}
++            {uploading ? t('media.states.uploading') : media.length >= 5 ? t('inventory.actions.imageLimitReached') : t('inventory.actions.uploadImages')}
+           </label>
+           {media.length ? (
+             <div className="inventory-media-grid">
+               {media.map((item) => (
+                 <figure key={item.id}>
+-                  <img src={mediaSrc(item)} alt={item.filename ?? `${noun} image`} />
++                  <img src={mediaSrc(item)} alt={item.filename ?? `${noun} ${t('inventory.labels.images').toLowerCase()}`} />
+                   <figcaption>
+-                    <span className="semantic-badge instruction">{item.status}</span>
+-                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>Remove</button>
++                    <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
++                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>{t('common.actions.remove')}</button>
+                   </figcaption>
+                 </figure>
+               ))}
+@@ -399,22 +405,22 @@
+         {error ? <p className="form-message form-message--error">{error}</p> : null}
+ 
+         <div className="sticky-form-actions">
+-          {mode === 'edit' ? <button type="button" className={deleteImpact?.blocked ? 'secondary warning-button' : 'secondary danger-button'} onClick={openDeleteDialog} disabled={saving}>{deleteImpact?.blocked ? 'Used in trade' : 'Delete'}</button> : <Link href={formCancelHref} className="button secondary">Cancel</Link>}
+-          <button type="submit" disabled={saving || uploading || isEditProtected}>{saving ? 'Saving...' : mode === 'edit' ? `Save ${noun}` : `Create ${noun}`}</button>
++          {mode === 'edit' ? <button type="button" className={deleteImpact?.blocked ? 'secondary warning-button' : 'secondary danger-button'} onClick={openDeleteDialog} disabled={saving}>{deleteImpact?.blocked ? t('inventory.labels.usedInTrade') : t('inventory.actions.delete')}</button> : <Link href={formCancelHref} className="button secondary">{t('common.actions.cancel')}</Link>}
++          <button type="submit" disabled={saving || uploading || isEditProtected}>{saving ? t('common.states.saving') : mode === 'edit' ? `${t('common.actions.save')} ${noun}` : `${t('common.actions.create')} ${noun}`}</button>
+         </div>
+       </form>
+ 
+       <ConfirmDialog
+         open={deleteDialogOpen}
+-        eyebrow={deleteImpact?.blocked ? 'Protected' : 'Delete'}
+-        title={deleteImpact?.blocked ? `Can't delete this ${lowerNoun}` : `Delete ${lowerNoun}?`}
++        eyebrow={deleteImpact?.blocked ? t('inventory.labels.protected') : t('inventory.actions.delete')}
++        title={deleteImpact?.blocked ? t('inventory.delete.blockedTitle', { item: lowerNoun }) : t('inventory.delete.deleteTitle', { item: lowerNoun })}
+         body={deleteImpact?.blocked
+-          ? `This ${lowerNoun} is used by an active trade. Close or delete that trade before editing or deleting this ${lowerNoun}.`
++          ? t('inventory.delete.blockedBody', { item: lowerNoun })
+           : deleteImpact?.linkedTradeCount
+-            ? `This ${lowerNoun} is linked to past trades. It will be removed from your inventory, and past trades will stay closed without deleting them.`
+-            : `This ${lowerNoun} is not used in an active trade. Deleting it cannot be undone.`}
++            ? t('inventory.delete.linkedBody', { item: lowerNoun })
++            : t('inventory.delete.normalBody', { item: lowerNoun })}
+         variant={deleteImpact?.blocked ? 'warning' : 'danger'}
+-        confirmLabel={deleteImpact?.blocked ? 'OK' : 'Delete'}
++        confirmLabel={deleteImpact?.blocked ? t('inventory.actions.ok') : t('inventory.actions.delete')}
+         showCancel={!deleteImpact?.blocked}
+         loading={saving}
+         onCancel={() => setDeleteDialogOpen(false)}
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryListClient.tsx phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryListClient.tsx
+--- phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryListClient.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/InventoryListClient.tsx	2026-05-12 09:45:15.876645176 +0000
+@@ -10,7 +10,8 @@
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+-import { formatInventoryDate, getInventoryMetadata, getInventoryTags, itemTypeLabel, kindLabel, mediaSrc, normalizeInventoryList, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++import { formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, itemTypeLabel, itemTypePluralLabel, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+ 
+ type InventoryListClientProps = {
+   kind: InventoryKind;
+@@ -25,36 +26,31 @@
+   items: InventoryTemplateDto[];
+ };
+ 
+-const ITEM_TYPE_FILTERS: Array<{ value: ItemTypeFilter; label: string }> = [
+-  { value: 'all', label: 'All' },
+-  { value: 'service', label: 'Services' },
+-  { value: 'goods', label: 'Goods' },
+-  { value: 'other', label: 'Other' },
+-];
++const ITEM_TYPE_FILTERS: ItemTypeFilter[] = ['all', 'service', 'goods', 'other'];
+ 
+ const ITEM_TYPE_ORDER: InventoryItemType[] = ['service', 'goods', 'other'];
+ 
+-function InventoryCard({ item, kind }: { item: InventoryItem; kind: InventoryKind }) {
+-  const metadata = getInventoryMetadata(item);
++function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: InventoryKind; i18n: InventoryI18n }) {
++  const metadata = getInventoryMetadata(item, i18n);
+   const tags = getInventoryTags(item);
+   const image = item.media?.[0];
+ 
+   return (
+-    <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card" aria-label={`Open ${item.title}`}>
++    <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card" aria-label={`${i18n.t?.('common.actions.open') ?? 'Open'} ${item.title}`}>
+       <div className="inventory-card__media" aria-hidden="true">
+         {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={38} decorative />}
+       </div>
+       <div className="inventory-card__body">
+         <div className="status-row">
+-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind)}</span>
+-          <span className="semantic-badge instruction">{item.status}</span>
++          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
++          <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
+         </div>
+         <h3>{item.title}</h3>
+         <p>{item.description}</p>
+         {metadata ? <p className="meta">{metadata}</p> : null}
+         <div className="inventory-card__footer">
+-          <span>{formatInventoryDate(item.expiresAt)}</span>
+-          <strong>{item.media?.length ?? 0} image{(item.media?.length ?? 0) === 1 ? '' : 's'}</strong>
++          <span>{formatInventoryDate(item.expiresAt, i18n)}</span>
++          <strong>{i18n.t?.('media.labels.image') ?? 'image'} × {item.media?.length ?? 0}</strong>
+         </div>
+         {tags.length ? (
+           <div className="tag-row inventory-card__tags">
+@@ -75,9 +71,9 @@
+   return [];
+ }
+ 
+-function templateMetadata(template: InventoryTemplateDto) {
++function templateMetadata(template: InventoryTemplateDto, i18n: InventoryI18n) {
+   const timing = template.kind === 'need' ? template.timing : template.availability;
+-  return [itemTypeLabel(template.itemType), template.category, timing, template.mode, template.locationLabel]
++  return [itemTypeLabel(template.itemType, i18n), template.category, timing, modeLabel(template.mode, i18n), template.locationLabel]
+     .filter((value): value is string => Boolean(value && value.trim()))
+     .join(' · ');
+ }
+@@ -86,23 +82,25 @@
+   return template.kind === 'offer' ? [...(template.includes ?? []), ...(template.tags ?? [])] : template.tags ?? [];
+ }
+ 
+-function templateSearchText(template: InventoryTemplateDto) {
+-  return [template.title, template.description, template.category, templateMetadata(template), ...templateTags(template)]
++function templateSearchText(template: InventoryTemplateDto, i18n: InventoryI18n) {
++  return [template.title, template.description, template.category, templateMetadata(template, i18n), ...templateTags(template)]
+     .filter(Boolean)
+     .join(' ')
+     .toLowerCase();
+ }
+ 
+-function templateSourceLabel(template: InventoryTemplateDto) {
+-  if (template.sourceType === 'business' || template.sourceType === 'brand') return template.businessProfile?.displayName ?? 'Brand library';
+-  if (template.sourceType === 'partner') return template.businessProfile?.displayName ?? 'Partner library';
+-  return 'Hellowhen starter';
++function templateSourceLabel(template: InventoryTemplateDto, i18n: InventoryI18n) {
++  if (template.businessProfile?.displayName) return template.businessProfile.displayName;
++  if (template.sourceType === 'brand') return i18n.t?.('inventory.sourceLabels.brandLibrary') ?? 'Brand library';
++  if (template.sourceType === 'business') return i18n.t?.('inventory.sourceLabels.companyLibrary') ?? 'Company library';
++  if (template.sourceType === 'partner') return i18n.t?.('inventory.sourceLabels.partnerLibrary') ?? 'Partner library';
++  return i18n.t?.('inventory.sourceLabels.hellowhenStarter') ?? 'Hellowhen starter';
+ }
+ 
+-function groupTemplates(templates: InventoryTemplateDto[]): TemplateSection[] {
++function groupTemplates(templates: InventoryTemplateDto[], i18n: InventoryI18n): TemplateSection[] {
+   return ITEM_TYPE_ORDER.map((itemType) => ({
+     key: itemType,
+-    label: itemType === 'service' ? 'Services' : itemTypeLabel(itemType),
++    label: itemTypePluralLabel(itemType, i18n),
+     items: templates.filter((template) => (template.itemType ?? 'service') === itemType),
+   })).filter((section) => section.items.length > 0);
+ }
+@@ -122,16 +120,18 @@
+   disabled,
+   cloning,
+   onUse,
++  i18n,
+ }: {
+   template: InventoryTemplateDto;
+   kind: InventoryKind;
+   disabled: boolean;
+   cloning: boolean;
+   onUse: (template: InventoryTemplateDto) => void;
++  i18n: InventoryI18n;
+ }) {
+-  const metadata = templateMetadata(template);
++  const metadata = templateMetadata(template, i18n);
+   const tags = templateTags(template);
+-  const label = kindLabel(kind);
++  const label = kindLabel(kind, i18n);
+ 
+   return (
+     <article className="inventory-template-card">
+@@ -140,8 +140,8 @@
+       </div>
+       <div className="inventory-template-card__body">
+         <div className="status-row">
+-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind)}</span>
+-          <span className="semantic-badge instruction">{templateSourceLabel(template)}</span>
++          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
++          <span className="semantic-badge instruction">{templateSourceLabel(template, i18n)}</span>
+         </div>
+         <h3>{template.title}</h3>
+         <p>{template.description}</p>
+@@ -152,7 +152,7 @@
+           </div>
+         ) : null}
+         <button type="button" className="button secondary inventory-template-card__button" disabled={disabled || cloning} onClick={() => onUse(template)}>
+-          {cloning ? 'Saving...' : `Use this ${label}`}
++          {cloning ? (i18n.t?.('common.states.saving') ?? 'Saving...') : kind === 'need' ? (i18n.t?.('inventory.actions.useThisNeed') ?? `Use this ${label}`) : (i18n.t?.('inventory.actions.useThisOffer') ?? `Use this ${label}`)}
+         </button>
+       </div>
+     </article>
+@@ -161,6 +161,7 @@
+ 
+ export function InventoryListClient({ kind }: InventoryListClientProps) {
+   const auth = useWebAuth();
++  const { t, language } = useWebTranslation();
+   const [items, setItems] = useState<InventoryItem[]>([]);
+   const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
+   const [query, setQuery] = useState('');
+@@ -175,6 +176,7 @@
+   const [createdHref, setCreatedHref] = useState('');
+   const [cloningTemplateId, setCloningTemplateId] = useState('');
+   const demoDataEnabled = isWebDemoDataEnabled();
++  const i18n = useMemo(() => ({ t, language }), [language, t]);
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -218,31 +220,31 @@
+       } catch (loadError) {
+         if (!mounted) return;
+         setTemplates([]);
+-        setTemplateError(getFriendlyApiErrorMessage(loadError, 'Starter library could not be loaded.'));
++        setTemplateError(getFriendlyApiErrorMessage(loadError, t('inventory.errors.starterLibraryCouldNotLoad')));
+       } finally {
+         if (mounted) setTemplateLoading(false);
+       }
+     }
+     void loadTemplates();
+     return () => { mounted = false; };
+-  }, [kind]);
++  }, [kind, t]);
+ 
+   const filteredItems = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+     if (!needle) return items;
+-    return items.filter((item) => [item.title, item.description, item.category, getInventoryMetadata(item), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle));
+-  }, [items, query]);
++    return items.filter((item) => [item.title, item.description, item.category, getInventoryMetadata(item, i18n), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle));
++  }, [i18n, items, query]);
+ 
+   const filteredTemplates = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+     return templates.filter((template) => {
+       const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
+-      const matchesSearch = !needle || templateSearchText(template).includes(needle);
++      const matchesSearch = !needle || templateSearchText(template, i18n).includes(needle);
+       return matchesType && matchesSearch;
+     });
+-  }, [itemTypeFilter, query, templates]);
++  }, [i18n, itemTypeFilter, query, templates]);
+ 
+-  const templateSections = useMemo(() => groupTemplates(filteredTemplates), [filteredTemplates]);
++  const templateSections = useMemo(() => groupTemplates(filteredTemplates, i18n), [filteredTemplates, i18n]);
+ 
+   async function handleUseTemplate(template: InventoryTemplateDto) {
+     setNotice('');
+@@ -250,7 +252,7 @@
+     setCreatedHref('');
+ 
+     if (!auth.isAuthenticated) {
+-      setActionError(`Sign in first, then you can save starter ${kind === 'need' ? 'needs' : 'offers'} to your account.`);
++      setActionError(t('inventory.signedOut.starterBody', { items: kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase() }));
+       return;
+     }
+ 
+@@ -258,22 +260,22 @@
+       setCloningTemplateId(template.id);
+       const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
+       const created = createdItemFromCloneResponse(response, kind);
+-      if (!created) throw new Error(`Starter ${kind === 'need' ? 'Need' : 'Offer'} was saved, but the response could not be read.`);
++      if (!created) throw new Error(kind === 'need' ? t('inventory.errors.starterSavedUnreadableNeed') : t('inventory.errors.starterSavedUnreadableOffer'));
+       setItems((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+       setSourceTab('mine');
+       setQuery('');
+-      setNotice(`${created.title} was saved to My ${kind === 'need' ? 'Needs' : 'Offers'}.`);
++      setNotice(t('inventory.messages.starterSavedToMine', { title: created.title, collection: kind === 'need' ? t('inventory.labels.myNeeds') : t('inventory.labels.myOffers') }));
+       setCreatedHref(`/${kind === 'need' ? 'needs' : 'offers'}/${created.id}`);
+       setUsingFallback(false);
+     } catch (cloneError) {
+-      setActionError(getFriendlyApiErrorMessage(cloneError, `Could not save this starter ${kind === 'need' ? 'Need' : 'Offer'}.`));
++      setActionError(getFriendlyApiErrorMessage(cloneError, kind === 'need' ? t('inventory.errors.couldNotSaveStarterNeed') : t('inventory.errors.couldNotSaveStarterOffer')));
+     } finally {
+       setCloningTemplateId('');
+     }
+   }
+ 
+-  const plural = kind === 'need' ? 'needs' : 'offers';
+-  const singular = kindLabel(kind).toLowerCase();
++  const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
++  const singular = kindLabel(kind, i18n).toLowerCase();
+   const newHref = kind === 'need' ? '/needs/new' : '/offers/new';
+   const isStarterTab = sourceTab === 'starter';
+   const activeLoading = isStarterTab ? templateLoading : loading;
+@@ -281,51 +283,51 @@
+ 
+   return (
+     <section className="mobile-page">
+-      <div className="inventory-source-tabs" role="tablist" aria-label={`${kindLabel(kind)} source`}>
++      <div className="inventory-source-tabs" role="tablist" aria-label={`${kindPluralLabel(kind, i18n)} source`}>
+         <button type="button" role="tab" aria-selected={!isStarterTab} className={!isStarterTab ? 'is-active' : ''} onClick={() => { setSourceTab('mine'); setQuery(''); }}>
+-          My {kindLabel(kind)}s
++          {kind === 'need' ? t('inventory.labels.myNeeds') : t('inventory.labels.myOffers')}
+         </button>
+         <button type="button" role="tab" aria-selected={isStarterTab} className={isStarterTab ? 'is-active' : ''} onClick={() => { setSourceTab('starter'); setQuery(''); }}>
+-          Starter {kindLabel(kind)}s
++          {kind === 'need' ? t('inventory.labels.starterNeeds') : t('inventory.labels.starterOffers')}
+         </button>
+       </div>
+ 
+       <div className="inventory-controls">
+         <label className="trade-search-field">
+-          <span className="sr-only">Search {plural}</span>
++          <span className="sr-only">{t('common.actions.search')}</span>
+           <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
+-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isStarterTab ? `Search starter ${plural}` : `Search your ${plural}`} type="search" />
++          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isStarterTab ? `${t('common.actions.search')} ${t('inventory.labels.starterLibrary').toLowerCase()}` : `${t('common.actions.search')} ${plural}`} type="search" />
+         </label>
+-        <Link href={newHref} className="trade-create-pill" aria-label={`Create ${singular}`}>
++        <Link href={newHref} className="trade-create-pill" aria-label={`${t('common.actions.create')} ${singular}`}>
+           <WebIcon name="add" size={21} decorative />
+         </Link>
+       </div>
+ 
+       {isStarterTab ? (
+-        <div className="inventory-type-filters" aria-label="Starter item type filters">
++        <div className="inventory-type-filters" aria-label={t('inventory.labels.type')}>
+           {ITEM_TYPE_FILTERS.map((filter) => (
+-            <button key={filter.value} type="button" className={itemTypeFilter === filter.value ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter.value)}>
+-              {filter.label}
++            <button key={filter} type="button" className={itemTypeFilter === filter ? 'is-active' : ''} onClick={() => setItemTypeFilter(filter)}>
++              {itemTypePluralLabel(filter, i18n)}
+             </button>
+           ))}
+         </div>
+       ) : null}
+ 
+       <section className="feed-status-row" aria-live="polite">
+-        <p>{activeLoading ? `Loading ${plural}...` : `${visibleCount} ${isStarterTab ? `starter ${plural}` : plural}`}</p>
+-        {!auth.hydrated || activeLoading ? <span className="semantic-badge instruction">Checking session</span> : isStarterTab ? <span className="semantic-badge success">Starter library</span> : usingFallback ? <span className="semantic-badge instruction">Demo inventory</span> : auth.isAuthenticated ? <span className="semantic-badge success">Live inventory</span> : <span className="semantic-badge instruction">Account needed</span>}
++        <p>{activeLoading ? t('inventory.messages.loadingItems', { items: plural }) : isStarterTab ? t('inventory.messages.visibleStarterItems', { count: visibleCount, items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
++        {!auth.hydrated || activeLoading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : isStarterTab ? <span className="semantic-badge success">{t('inventory.labels.starterLibrary')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.demoInventory')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
+       </section>
+ 
+-      {notice ? <p className="notice-box success inventory-library-notice">{notice} {createdHref ? <Link href={createdHref}>Open it</Link> : null}</p> : null}
++      {notice ? <p className="notice-box success inventory-library-notice">{notice} {createdHref ? <Link href={createdHref}>{t('inventory.messages.openIt')}</Link> : null}</p> : null}
+       {actionError ? <p className="notice-box danger inventory-library-notice">{actionError}</p> : null}
+       {isStarterTab && templateError ? <p className="notice-box danger inventory-library-notice">{templateError}</p> : null}
+ 
+       {!auth.isAuthenticated && auth.hydrated ? (
+         <section className="mobile-card mobile-card--soft">
+-          <span className="semantic-badge instruction">Signed out</span>
+-          <h3>{isStarterTab ? `Sign in to save starter ${plural}` : `Sign in to manage your real ${plural}`}</h3>
+-          <p>{isStarterTab ? `You can browse starter ${plural}, but saving one to your account needs login.` : demoDataEnabled ? `The demo cards below show the layout. Your saved ${plural} appear here after login.` : `Your saved ${plural} appear here after login.`}</p>
+-          <Link href={`/auth?next=${encodeURIComponent(`/${plural}`)}`} className="button">Sign in</Link>
++          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
++          <h3>{isStarterTab ? t('inventory.signedOut.starterTitle', { items: plural }) : t('inventory.signedOut.mineTitle', { items: plural })}</h3>
++          <p>{isStarterTab ? t('inventory.signedOut.starterBody', { items: plural }) : demoDataEnabled ? t('inventory.signedOut.mineDemoBody', { items: plural }) : t('inventory.signedOut.mineBody', { items: plural })}</p>
++          <Link href={`/auth?next=${encodeURIComponent(`/${kind === 'need' ? 'needs' : 'offers'}`)}`} className="button">{t('auth.actions.signIn')}</Link>
+         </section>
+       ) : null}
+ 
+@@ -349,6 +351,7 @@
+                       disabled={!auth.isAuthenticated}
+                       cloning={cloningTemplateId === template.id}
+                       onUse={handleUseTemplate}
++                      i18n={i18n}
+                     />
+                   ))}
+                 </div>
+@@ -357,26 +360,26 @@
+           </div>
+         ) : (
+           <InventoryEmptyState
+-            title={query.trim() ? 'No starter matches found' : `No starter ${plural} yet`}
+-            body={query.trim() ? 'Try a different search or item type filter.' : `Starter ${plural} will appear here after the backend seed has been run.`}
++            title={query.trim() ? t('inventory.empty.noStarterMatches') : t('inventory.empty.noStarterKind', { items: plural })}
++            body={query.trim() ? t('inventory.empty.searchOrFilterBody') : t('inventory.empty.starterSeedBody', { items: plural })}
+             href={newHref}
+-            actionLabel={`Create ${kindLabel(kind)} manually`}
++            actionLabel={kind === 'need' ? t('inventory.actions.createNeedManual') : t('inventory.actions.createOfferManual')}
+           />
+         )
+       ) : loading ? (
+         <InventoryListSkeleton />
+       ) : filteredItems.length ? (
+         <div className="inventory-list">
+-          {filteredItems.map((item) => <InventoryCard key={item.id} item={item} kind={kind} />)}
++          {filteredItems.map((item) => <InventoryCard key={item.id} item={item} kind={kind} i18n={i18n} />)}
+         </div>
+       ) : (
+         <InventoryEmptyState
+-          title={`Create your first ${singular}`}
++          title={kind === 'need' ? t('inventory.empty.createFirstNeed') : t('inventory.empty.createFirstOffer')}
+           body={kind === 'need'
+-            ? 'Use Needs for requests like design help, video editing, tutoring, repairs, and other things you want.'
+-            : 'Use Offers for services, skills, small jobs, and anything you can provide.'}
++            ? t('inventory.empty.needBody')
++            : t('inventory.empty.offerBody')}
+           href={newHref}
+-          actionLabel={`Create ${kindLabel(kind)}`}
++          actionLabel={kind === 'need' ? t('inventory.actions.createNeed') : t('inventory.actions.createOffer')}
+         />
+       )}
+     </section>
+diff -ruN phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/inventoryPresentation.ts phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/inventoryPresentation.ts
+--- phase23_2_work/hellowhen_trade-dev/apps/web/src/features/inventory/inventoryPresentation.ts	2026-05-12 08:26:08.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/apps/web/src/features/inventory/inventoryPresentation.ts	2026-05-12 09:36:22.036310750 +0000
+@@ -1,10 +1,21 @@
+ import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
++import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+ import { resolveWebAssetUrl } from '../../lib/api';
+ import { formatWebDate } from '../../lib/webFormat';
+ 
+ export type InventoryKind = 'need' | 'offer';
+ export type InventoryItem = NeedDto | OfferDto;
+ 
++export type InventoryI18n = {
++  t?: (key: string, values?: TranslationValues) => string;
++  language?: SupportedLanguage;
++};
++
++function tr(i18n: InventoryI18n | undefined, key: string, fallback: string, values?: TranslationValues) {
++  const value = i18n?.t?.(key, values);
++  return value && value !== key ? value : fallback;
++}
++
+ export type InventoryFormValues = {
+   title: string;
+   description: string;
+@@ -39,27 +50,50 @@
+   return 'timing' in item;
+ }
+ 
+-export function kindLabel(kind: InventoryKind) {
+-  return kind === 'need' ? 'Need' : 'Offer';
++export function kindLabel(kind: InventoryKind, i18n?: InventoryI18n) {
++  return kind === 'need' ? tr(i18n, 'inventory.labels.need', 'Need') : tr(i18n, 'inventory.labels.offer', 'Offer');
++}
++
++export function kindPluralLabel(kind: InventoryKind, i18n?: InventoryI18n) {
++  return kind === 'need' ? tr(i18n, 'inventory.labels.needs', 'Needs') : tr(i18n, 'inventory.labels.offers', 'Offers');
++}
++
++export function sideLabel(kind: InventoryKind, i18n?: InventoryI18n) {
++  return kind === 'need' ? tr(i18n, 'inventory.side.need', 'I need') : tr(i18n, 'inventory.side.offer', 'I offer');
++}
++
++export function itemTypeLabel(itemType?: InventoryItemType | null, i18n?: InventoryI18n) {
++  if (itemType === 'goods') return tr(i18n, 'inventory.itemTypes.goods', 'Goods');
++  if (itemType === 'other') return tr(i18n, 'inventory.itemTypes.other', 'Other');
++  return tr(i18n, 'inventory.itemTypes.service', 'Service');
++}
++
++export function itemTypePluralLabel(itemType?: InventoryItemType | 'all' | null, i18n?: InventoryI18n) {
++  if (itemType === 'all') return tr(i18n, 'inventory.itemTypes.all', 'All');
++  if (itemType === 'goods') return tr(i18n, 'inventory.itemTypes.goods', 'Goods');
++  if (itemType === 'other') return tr(i18n, 'inventory.itemTypes.other', 'Other');
++  return tr(i18n, 'inventory.itemTypes.services', 'Services');
+ }
+ 
+-export function sideLabel(kind: InventoryKind) {
+-  return kind === 'need' ? 'I need' : 'I offer';
++export function modeLabel(mode?: string | null, i18n?: InventoryI18n) {
++  if (mode === 'remote') return tr(i18n, 'inventory.modes.remote', 'Remote');
++  if (mode === 'local') return tr(i18n, 'inventory.modes.local', 'Local');
++  if (mode === 'hybrid') return tr(i18n, 'inventory.modes.hybrid', 'Hybrid');
++  return null;
+ }
+ 
+-export function itemTypeLabel(itemType?: InventoryItemType | null) {
+-  if (itemType === 'goods') return 'Goods';
+-  if (itemType === 'other') return 'Other';
+-  return 'Service';
++export function inventoryStatusLabel(status?: string | null, i18n?: InventoryI18n) {
++  if (!status) return tr(i18n, 'inventory.labels.notSpecified', 'Not specified');
++  return tr(i18n, `inventory.statuses.${status}`, status.replace(/_/g, ' '));
+ }
+ 
+ export function sideClassName(kind: InventoryKind) {
+   return kind === 'need' ? 'need' : 'offer';
+ }
+ 
+-export function getInventoryMetadata(item: InventoryItem) {
++export function getInventoryMetadata(item: InventoryItem, i18n?: InventoryI18n) {
+   const timing = isNeed(item) ? item.timing : item.availability;
+-  return [itemTypeLabel(item.itemType), item.category, timing, item.mode, item.locationLabel]
++  return [itemTypeLabel(item.itemType, i18n), item.category, timing, modeLabel(item.mode, i18n), item.locationLabel]
+     .filter((value): value is string => Boolean(value && value.trim()))
+     .join(' · ');
+ }
+@@ -102,8 +136,8 @@
+   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+ }
+ 
+-export function formatInventoryDate(value?: string | null) {
+-  return formatWebDate(value, 'No expiry');
++export function formatInventoryDate(value?: string | null, i18n?: InventoryI18n) {
++  return formatWebDate(value, tr(i18n, 'trade.expiry.noExpiry', 'No expiry'), i18n?.language);
+ }
+ 
+ export function mediaSrc(media: MediaAssetDto) {
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts	2026-05-12 09:12:19.225926724 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts	2026-05-12 09:37:58.661980091 +0000
+@@ -1,3 +1,6 @@
+ export const auth = {
+   checkingAccess: 'Checking your account access...',
++  actions: {
++    signIn: 'Sign in',
++  },
+ } as const;
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts	2026-05-12 09:09:15.151134451 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts	2026-05-12 09:45:02.571163989 +0000
+@@ -16,6 +16,7 @@
+     payout: 'Payouts',
+     remove: 'Remove',
+     retrying: 'Retrying...',
++    search: 'Search',
+     save: 'Save',
+     tryAgain: 'Try again',
+     verifyEmail: 'Verify email',
+@@ -23,6 +24,7 @@
+   },
+   states: {
+     loading: 'Loading',
++    saving: 'Saving...',
+     saved: 'Saved',
+     signedIn: 'Signed in',
+     signedOut: 'Signed out',
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/inventory.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/inventory.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/inventory.ts	2026-05-12 08:38:20.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/inventory.ts	2026-05-12 09:45:27.685575804 +0000
+@@ -4,9 +4,225 @@
+     offer: 'Offer',
+     needs: 'Needs',
+     offers: 'Offers',
++    myNeeds: 'My Needs',
++    myOffers: 'My Offers',
++    starterNeeds: 'Starter Needs',
++    starterOffers: 'Starter Offers',
++    title: 'Title',
++    description: 'Description',
++    status: 'Status',
++    type: 'Type',
++    category: 'Category',
++    timing: 'Timing',
++    availability: 'Availability',
++    mode: 'Mode',
++    location: 'Location',
++    locationLabel: 'Location label',
++    expires: 'Expires',
++    tags: 'Tags',
++    includes: 'Includes',
++    images: 'Images',
++    details: 'Details',
++    information: 'Information',
++    cardPreview: 'Card preview',
++    deckDetails: 'Deck details',
++    selected: 'Selected',
++    references: 'References',
++    needReferences: 'Need references',
++    offerReferences: 'Offer references',
++    referenceImages: 'Reference images',
++    sampleImages: 'Sample images',
++    noImages: 'No images yet',
++    noImagesSelected: 'No images selected yet.',
++    optional: 'Optional',
++    notSpecified: 'Not specified',
++    savedNeed: 'Saved Need',
++    savedOffer: 'Saved Offer',
++    starterLibrary: 'Starter library',
++    liveInventory: 'Live inventory',
++    demoInventory: 'Demo inventory',
++    accountNeeded: 'Account needed',
++    checkingSession: 'Checking session',
++    protected: 'Protected',
++    updated: 'Updated',
++    usedInTrade: 'Used in trade',
++  },
++  side: {
++    need: 'I need',
++    offer: 'I offer',
++  },
++  itemTypes: {
++    all: 'All',
++    service: 'Service',
++    services: 'Services',
++    goods: 'Goods',
++    other: 'Other',
++  },
++  modes: {
++    remote: 'Remote',
++    local: 'Local',
++    hybrid: 'Hybrid',
++  },
++  statuses: {
++    draft: 'Draft',
++    active: 'Active',
++    fulfilled: 'Fulfilled',
++    accepted: 'Accepted',
++    closed: 'Closed',
++    expired: 'Expired',
++  },
++  sourceLabels: {
++    hellowhenStarter: 'Hellowhen starter',
++    hellowhenLibrary: 'Hellowhen Library',
++    brandLibrary: 'Brand library',
++    companyLibrary: 'Company library',
++    partnerLibrary: 'Partner library',
++    fromBusiness: 'From {{name}}',
++  },
++  actions: {
++    createNeed: 'Create Need',
++    createOffer: 'Create Offer',
++    createNeedManual: 'Create Need manually',
++    createOfferManual: 'Create Offer manually',
++    saveNeed: 'Save Need',
++    saveOffer: 'Save Offer',
++    saveChanges: 'Save Changes',
++    editNeed: 'Edit Need',
++    editOffer: 'Edit Offer',
++    useInTrade: 'Use in trade',
++    markActive: 'Mark Active',
++    closeNeed: 'Close Need',
++    closeOffer: 'Close Offer',
++    deleteNeed: 'Delete Need',
++    deleteOffer: 'Delete Offer',
++    useThisNeed: 'Use this Need',
++    useThisOffer: 'Use this Offer',
++    openSavedNeed: 'Open saved Need',
++    openSavedOffer: 'Open saved Offer',
++    uploadImages: 'Upload images',
++    imageLimitReached: 'Image limit reached',
++    delete: 'Delete',
++    cancel: 'Cancel',
++    ok: 'OK',
++  },
++  form: {
++    saveNeedTitle: 'Save Need',
++    saveOfferTitle: 'Save Offer',
++    saveNeedBody: 'Create a reusable service, goods, or other request with its own images. You will choose it later when publishing a trade.',
++    saveOfferBody: 'Create a reusable service, goods item, or other offer with its own images. You will pair it with a need when publishing a trade.',
++    needQuestion: 'What do you need?',
++    offerQuestion: 'What can you offer?',
++    titleNeedPlaceholder: 'What do you need?',
++    titleOfferPlaceholder: 'What can you offer?',
++    titleNeedExample: 'Landing page design',
++    titleOfferExample: 'Product photography',
++    descriptionNeedPlaceholder: 'Describe the help you want.',
++    descriptionOfferPlaceholder: 'Describe what you can provide.',
++    descriptionNeedMobile: 'Describe the result you want, useful details, and what done means.',
++    descriptionOfferMobile: 'Describe what you deliver, how it works, and any limits.',
++    categoryPlaceholder: 'Design, tutoring, repair...',
++    categoryNeedPlaceholder: 'Design, writing, photography...',
++    categoryOfferPlaceholder: 'Photography, copywriting, coaching...',
++    timingPlaceholder: 'This week, today, flexible...',
++    timingMobilePlaceholder: 'This week, weekend, today...',
++    availabilityPlaceholder: 'Weekends, evenings, remote...',
++    availabilityMobilePlaceholder: 'Weekend, this week, evenings...',
++    locationPlaceholder: 'Remote, Paris, local area...',
++    locationNeedPlaceholder: 'Remote, Paris, local pickup...',
++    locationOfferPlaceholder: 'Remote, local studio, pickup only...',
++    tagsPlaceholder: 'design, launch, remote',
++    tagsNeedPlaceholder: 'brand, figma, urgent',
++    tagsOfferPlaceholder: 'camera, edits, ecommerce',
++    includesPlaceholder: 'One revision\n10 edited photos\n30-minute call',
++    includesMobilePlaceholder: '10 edited shots, 1 revision, delivery folder',
++    separateWithCommas: 'Separate with commas',
++    addNeedImages: 'Add need images',
++    addOfferImages: 'Add offer images',
++    needImageSection: 'Need images',
++    offerImageSection: 'Offer images',
++    needImageHint: 'Add images that explain what you need.',
++    offerImageHint: 'Add examples that help people trust the offer.',
++    imagePanelBody: 'Images appear on this saved Need or Offer after upload. Support can remove reported images if needed.',
++    imagePickerDefaultBody: 'Images appear on your saved Need or Offer after upload. Use support to report image/content issues.',
++    imagePickerHint: 'Add up to {{count}} JPEG, PNG, or WEBP images.',
++    selectedCount: '{{count}}/5 selected',
++    previewTitleFallback: 'Title appears here',
++    previewMetaFallback: 'Category · Timing · Mode · Location',
++    previewDescriptionFallback: 'A short summary will appear here while you write.',
++    describeThis: 'Describe this {{item}}.',
+   },
+   empty: {
+     createFirstNeed: 'Create your first need',
+     createFirstOffer: 'Create your first offer',
++    needBody: 'Use Needs for requests like design help, video editing, tutoring, repairs, and other things you want.',
++    offerBody: 'Use Offers for services, skills, small jobs, and anything you can provide.',
++    needNativeBody: 'Add details and reference images, or switch to Starter Needs for ideas.',
++    offerNativeBody: 'Add services, availability, and sample images, or switch to Starter Offers for ideas.',
++    noStarterMatches: 'No starter matches found',
++    noStarterKind: 'No starter {{items}} yet',
++    noStarterFound: 'No starter {{items}} found',
++    starterSeedBody: 'Starter {{items}} will appear here after the backend seed has been run.',
++    searchOrFilterBody: 'Try a different search or item type filter.',
++    tryAnotherSearch: 'Try another search or filter.',
++    noImagesYetBody: 'Add images in edit mode so trade decks can show richer Need/Offer cards.',
++  },
++  messages: {
++    usingDemoData: 'Using demo data because this item could not be loaded from the API.',
++    itemCouldNotLoad: 'This item could not be loaded from the API.',
++    imageUploaded: 'Image uploaded. It will appear on this saved item after you save.',
++    starterSaved: 'Starter saved',
++    starterSavedToMine: '{{title}} was saved to {{collection}}.',
++    openIt: 'Open it',
++    loadingItems: 'Loading {{items}}...',
++    visibleItems: '{{count}} {{items}}',
++    visibleStarterItems: '{{count}} starter {{items}}',
++    loadingStarterLibrary: 'Loading starter library',
++    checkingReusableStarters: 'Checking reusable starter {{items}}.',
++    addImagesLimit: 'You can attach up to {{count}} images.',
++    photoLibraryPermission: 'Allow photo library access to attach images.',
++  },
++  signedOut: {
++    title: 'Sign in to save real {{items}}',
++    formTitle: 'Sign in to save real {{items}}',
++    formBody: 'This form is wired to the API and needs a session before it can save.',
++    starterTitle: 'Sign in to save starter {{items}}',
++    mineTitle: 'Sign in to manage your real {{items}}',
++    starterBody: 'You can browse starter {{items}}, but saving one to your account needs login.',
++    mineDemoBody: 'The demo cards below show the layout. Your saved {{items}} appear here after login.',
++    mineBody: 'Your saved {{items}} appear here after login.',
++  },
++  errors: {
++    couldNotSave: 'Could not save',
++    couldNotLoadNeed: 'Could not load needs',
++    couldNotLoadOffer: 'Could not load offers',
++    starterLibraryCouldNotLoad: 'Starter library could not be loaded.',
++    starterNeedsCouldNotLoad: 'Starter needs could not be loaded.',
++    starterOffersCouldNotLoad: 'Starter offers could not be loaded.',
++    starterSavedUnreadableNeed: 'Starter Need was saved, but the response could not be read.',
++    starterSavedUnreadableOffer: 'Starter Offer was saved, but the response could not be read.',
++    couldNotSaveStarterNeed: 'Could not save this starter Need.',
++    couldNotSaveStarterOffer: 'Could not save this starter Offer.',
++    editProtected: 'Close or delete the active trade before editing this {{item}}.',
++    notFoundTitle: 'This {{item}} could not be loaded.',
++    notFoundBody: 'Check that the API is running, or open an item from your {{collection}} tab.',
++    unavailable: '{{item}} unavailable',
++    apiMissingItem: '{{item}} was not returned by the API.',
++    archivedInstead: 'This {{item}} is used by a trade, so it was closed instead of permanently deleted.',
++    titleNeedTooShort: 'Add a clear need title.',
++    titleOfferTooShort: 'Add a clear offer title.',
++    descriptionNeedTooShort: 'Describe the need with at least one useful detail.',
++    descriptionOfferTooShort: 'Describe the offer with at least one useful detail.',
++    starterLibraryError: 'Starter library error',
++  },
++  delete: {
++    lockedTitle: 'This {{item}} is locked by an active trade.',
++    lockedBody: 'Close or delete that trade before editing or deleting this {{item}}.',
++    viewTrade: 'View trade',
++    blockedTitle: "Can't delete this {{item}}",
++    deleteTitle: 'Delete {{item}}?',
++    deleteNativeBody: 'Unused {{items}} are deleted. {{item}}s already used in trades are closed so trade history stays intact.',
++    blockedBody: 'This {{item}} is used by an active trade. Close or delete that trade before editing or deleting this {{item}}.',
++    linkedBody: 'This {{item}} is linked to past trades. It will be removed from your inventory, and past trades will stay closed without deleting them.',
++    normalBody: 'This {{item}} is not used in an active trade. Deleting it cannot be undone.',
+   },
+ } as const;
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/media.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/media.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/media.ts	2026-05-12 09:08:36.660379077 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/media.ts	2026-05-12 09:38:00.433934637 +0000
+@@ -2,6 +2,9 @@
+   labels: {
+     image: 'image',
+   },
++  states: {
++    uploading: 'Uploading...',
++  },
+   empty: {
+     noImagesYet: 'No images yet',
+     sideImagesAppearHere: 'Images attached to this side will appear here.',
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/validation.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/validation.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/en/validation.ts	2026-05-12 08:38:20.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/en/validation.ts	2026-05-12 09:35:53.518243700 +0000
+@@ -1,4 +1,10 @@
+ export const validation = {
+   required: 'This field is required.',
+   displayNameRequired: 'Display name is required.',
++  titleRequired: 'Title is required.',
++  descriptionRequired: 'Description is required.',
++  needTitleTooShort: 'Add a clear need title.',
++  offerTitleTooShort: 'Add a clear offer title.',
++  needDescriptionTooShort: 'Describe the need with at least one useful detail.',
++  offerDescriptionTooShort: 'Describe the offer with at least one useful detail.',
+ } as const;
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts	2026-05-12 09:12:19.227040649 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts	2026-05-12 09:37:58.675377172 +0000
+@@ -1,3 +1,6 @@
+ export const auth = {
+   checkingAccess: 'Vérification de l’accès à votre compte...',
++  actions: {
++    signIn: 'Se connecter',
++  },
+ } as const;
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts	2026-05-12 09:09:15.151775711 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts	2026-05-12 09:45:02.571768742 +0000
+@@ -16,6 +16,7 @@
+     payout: 'Versements',
+     remove: 'Supprimer',
+     retrying: 'Nouvel essai...',
++    search: 'Rechercher',
+     save: 'Enregistrer',
+     tryAgain: 'Réessayer',
+     verifyEmail: 'Vérifier l’e-mail',
+@@ -23,6 +24,7 @@
+   },
+   states: {
+     loading: 'Chargement',
++    saving: 'Enregistrement...',
+     saved: 'Enregistré',
+     signedIn: 'Connecté',
+     signedOut: 'Déconnecté',
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts	2026-05-12 08:39:04.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts	2026-05-12 09:45:27.686468399 +0000
+@@ -4,9 +4,225 @@
+     offer: 'Offre',
+     needs: 'Besoins',
+     offers: 'Offres',
++    myNeeds: 'Mes besoins',
++    myOffers: 'Mes offres',
++    starterNeeds: 'Besoins de départ',
++    starterOffers: 'Offres de départ',
++    title: 'Titre',
++    description: 'Description',
++    status: 'Statut',
++    type: 'Type',
++    category: 'Catégorie',
++    timing: 'Délai',
++    availability: 'Disponibilité',
++    mode: 'Mode',
++    location: 'Lieu',
++    locationLabel: 'Libellé du lieu',
++    expires: 'Expiration',
++    tags: 'Tags',
++    includes: 'Inclus',
++    images: 'Images',
++    details: 'Détails',
++    information: 'Informations',
++    cardPreview: 'Aperçu de la carte',
++    deckDetails: 'Détails de la carte',
++    selected: 'Sélectionné',
++    references: 'Références',
++    needReferences: 'Références du besoin',
++    offerReferences: 'Références de l’offre',
++    referenceImages: 'Images de référence',
++    sampleImages: 'Images d’exemple',
++    noImages: 'Aucune image pour le moment',
++    noImagesSelected: 'Aucune image sélectionnée pour le moment.',
++    optional: 'Facultatif',
++    notSpecified: 'Non précisé',
++    savedNeed: 'Besoin enregistré',
++    savedOffer: 'Offre enregistrée',
++    starterLibrary: 'Bibliothèque de départ',
++    liveInventory: 'Inventaire actif',
++    demoInventory: 'Inventaire démo',
++    accountNeeded: 'Compte requis',
++    checkingSession: 'Vérification de la session',
++    protected: 'Protégé',
++    updated: 'Mis à jour',
++    usedInTrade: 'Utilisé dans un échange',
++  },
++  side: {
++    need: 'J’ai besoin',
++    offer: 'Je propose',
++  },
++  itemTypes: {
++    all: 'Tout',
++    service: 'Service',
++    services: 'Services',
++    goods: 'Biens',
++    other: 'Autre',
++  },
++  modes: {
++    remote: 'À distance',
++    local: 'Local',
++    hybrid: 'Hybride',
++  },
++  statuses: {
++    draft: 'Brouillon',
++    active: 'Actif',
++    fulfilled: 'Terminé',
++    accepted: 'Accepté',
++    closed: 'Fermé',
++    expired: 'Expiré',
++  },
++  sourceLabels: {
++    hellowhenStarter: 'Départ Hellowhen',
++    hellowhenLibrary: 'Bibliothèque Hellowhen',
++    brandLibrary: 'Bibliothèque marque',
++    companyLibrary: 'Bibliothèque entreprise',
++    partnerLibrary: 'Bibliothèque partenaire',
++    fromBusiness: 'Depuis {{name}}',
++  },
++  actions: {
++    createNeed: 'Créer un besoin',
++    createOffer: 'Créer une offre',
++    createNeedManual: 'Créer un besoin manuellement',
++    createOfferManual: 'Créer une offre manuellement',
++    saveNeed: 'Enregistrer le besoin',
++    saveOffer: 'Enregistrer l’offre',
++    saveChanges: 'Enregistrer les modifications',
++    editNeed: 'Modifier le besoin',
++    editOffer: 'Modifier l’offre',
++    useInTrade: 'Utiliser dans un échange',
++    markActive: 'Marquer actif',
++    closeNeed: 'Fermer le besoin',
++    closeOffer: 'Fermer l’offre',
++    deleteNeed: 'Supprimer le besoin',
++    deleteOffer: 'Supprimer l’offre',
++    useThisNeed: 'Utiliser ce besoin',
++    useThisOffer: 'Utiliser cette offre',
++    openSavedNeed: 'Ouvrir le besoin enregistré',
++    openSavedOffer: 'Ouvrir l’offre enregistrée',
++    uploadImages: 'Importer des images',
++    imageLimitReached: 'Limite d’images atteinte',
++    delete: 'Supprimer',
++    cancel: 'Annuler',
++    ok: 'OK',
++  },
++  form: {
++    saveNeedTitle: 'Enregistrer un besoin',
++    saveOfferTitle: 'Enregistrer une offre',
++    saveNeedBody: 'Créez une demande réutilisable pour un service, un bien ou autre, avec ses propres images. Vous la choisirez plus tard lors de la publication d’un échange.',
++    saveOfferBody: 'Créez une offre réutilisable pour un service, un bien ou autre, avec ses propres images. Vous l’associerez à un besoin lors de la publication d’un échange.',
++    needQuestion: 'De quoi avez-vous besoin ?',
++    offerQuestion: 'Que pouvez-vous proposer ?',
++    titleNeedPlaceholder: 'De quoi avez-vous besoin ?',
++    titleOfferPlaceholder: 'Que pouvez-vous proposer ?',
++    titleNeedExample: 'Design de landing page',
++    titleOfferExample: 'Photographie produit',
++    descriptionNeedPlaceholder: 'Décrivez l’aide que vous recherchez.',
++    descriptionOfferPlaceholder: 'Décrivez ce que vous pouvez fournir.',
++    descriptionNeedMobile: 'Décrivez le résultat attendu, les détails utiles et ce qui veut dire “terminé”.',
++    descriptionOfferMobile: 'Décrivez ce que vous livrez, comment cela fonctionne et les limites éventuelles.',
++    categoryPlaceholder: 'Design, cours, réparation...',
++    categoryNeedPlaceholder: 'Design, rédaction, photographie...',
++    categoryOfferPlaceholder: 'Photographie, rédaction, coaching...',
++    timingPlaceholder: 'Cette semaine, aujourd’hui, flexible...',
++    timingMobilePlaceholder: 'Cette semaine, week-end, aujourd’hui...',
++    availabilityPlaceholder: 'Week-ends, soirées, à distance...',
++    availabilityMobilePlaceholder: 'Week-end, cette semaine, soirées...',
++    locationPlaceholder: 'À distance, Paris, zone locale...',
++    locationNeedPlaceholder: 'À distance, Paris, retrait local...',
++    locationOfferPlaceholder: 'À distance, studio local, retrait seulement...',
++    tagsPlaceholder: 'design, lancement, à distance',
++    tagsNeedPlaceholder: 'marque, figma, urgent',
++    tagsOfferPlaceholder: 'photo, retouches, ecommerce',
++    includesPlaceholder: 'Une révision\n10 photos retouchées\nAppel de 30 minutes',
++    includesMobilePlaceholder: '10 photos retouchées, 1 révision, dossier de livraison',
++    separateWithCommas: 'Séparer par des virgules',
++    addNeedImages: 'Ajouter des images du besoin',
++    addOfferImages: 'Ajouter des images de l’offre',
++    needImageSection: 'Images du besoin',
++    offerImageSection: 'Images de l’offre',
++    needImageHint: 'Ajoutez des images qui expliquent votre besoin.',
++    offerImageHint: 'Ajoutez des exemples qui renforcent la confiance dans l’offre.',
++    imagePanelBody: 'Les images apparaissent sur ce besoin ou cette offre enregistrée après import. Le support peut retirer les images signalées si nécessaire.',
++    imagePickerDefaultBody: 'Les images apparaissent sur votre besoin ou votre offre enregistrée après import. Utilisez le support pour signaler un problème d’image ou de contenu.',
++    imagePickerHint: 'Ajoutez jusqu’à {{count}} images JPEG, PNG ou WEBP.',
++    selectedCount: '{{count}}/5 sélectionnées',
++    previewTitleFallback: 'Le titre apparaîtra ici',
++    previewMetaFallback: 'Catégorie · Délai · Mode · Lieu',
++    previewDescriptionFallback: 'Un court résumé apparaîtra ici pendant la saisie.',
++    describeThis: 'Décrivez cet élément {{item}}.',
+   },
+   empty: {
+     createFirstNeed: 'Créer votre premier besoin',
+     createFirstOffer: 'Créer votre première offre',
++    needBody: 'Utilisez les besoins pour les demandes comme l’aide en design, le montage vidéo, les cours, les réparations et ce que vous recherchez.',
++    offerBody: 'Utilisez les offres pour les services, compétences, petits travaux et tout ce que vous pouvez fournir.',
++    needNativeBody: 'Ajoutez des détails et des images de référence, ou passez aux besoins de départ pour trouver des idées.',
++    offerNativeBody: 'Ajoutez des services, disponibilités et images d’exemple, ou passez aux offres de départ pour trouver des idées.',
++    noStarterMatches: 'Aucun modèle correspondant trouvé',
++    noStarterKind: 'Aucun élément de départ pour {{items}} pour le moment',
++    noStarterFound: 'Aucun élément de départ {{items}} trouvé',
++    starterSeedBody: 'Les éléments de départ {{items}} apparaîtront ici après l’exécution du seed backend.',
++    searchOrFilterBody: 'Essayez une autre recherche ou un autre filtre de type.',
++    tryAnotherSearch: 'Essayez une autre recherche ou un autre filtre.',
++    noImagesYetBody: 'Ajoutez des images en mode modification afin que les cartes d’échange soient plus riches.',
++  },
++  messages: {
++    usingDemoData: 'Données de démonstration utilisées, car cet élément n’a pas pu être chargé depuis l’API.',
++    itemCouldNotLoad: 'Cet élément n’a pas pu être chargé depuis l’API.',
++    imageUploaded: 'Image importée. Elle apparaîtra sur cet élément enregistré après l’enregistrement.',
++    starterSaved: 'Modèle enregistré',
++    starterSavedToMine: '{{title}} a été enregistré dans {{collection}}.',
++    openIt: 'L’ouvrir',
++    loadingItems: 'Chargement des {{items}}...',
++    visibleItems: '{{count}} {{items}}',
++    visibleStarterItems: '{{count}} éléments de départ {{items}}',
++    loadingStarterLibrary: 'Chargement de la bibliothèque de départ',
++    checkingReusableStarters: 'Vérification des éléments de départ réutilisables {{items}}.',
++    addImagesLimit: 'Vous pouvez joindre jusqu’à {{count}} images.',
++    photoLibraryPermission: 'Autorisez l’accès à la photothèque pour joindre des images.',
++  },
++  signedOut: {
++    title: 'Connectez-vous pour enregistrer de vrais {{items}}',
++    formTitle: 'Connectez-vous pour enregistrer de vrais {{items}}',
++    formBody: 'Ce formulaire est relié à l’API et nécessite une session avant l’enregistrement.',
++    starterTitle: 'Connectez-vous pour enregistrer les éléments de départ {{items}}',
++    mineTitle: 'Connectez-vous pour gérer vos vrais {{items}}',
++    starterBody: 'Vous pouvez parcourir les éléments de départ {{items}}, mais l’enregistrement dans votre compte nécessite une connexion.',
++    mineDemoBody: 'Les cartes de démonstration ci-dessous montrent la mise en page. Vos {{items}} enregistrés apparaîtront ici après connexion.',
++    mineBody: 'Vos {{items}} enregistrés apparaîtront ici après connexion.',
++  },
++  errors: {
++    couldNotSave: 'Enregistrement impossible',
++    couldNotLoadNeed: 'Chargement des besoins impossible',
++    couldNotLoadOffer: 'Chargement des offres impossible',
++    starterLibraryCouldNotLoad: 'La bibliothèque de départ n’a pas pu être chargée.',
++    starterNeedsCouldNotLoad: 'Les besoins de départ n’ont pas pu être chargés.',
++    starterOffersCouldNotLoad: 'Les offres de départ n’ont pas pu être chargées.',
++    starterSavedUnreadableNeed: 'Le besoin de départ a été enregistré, mais la réponse n’a pas pu être lue.',
++    starterSavedUnreadableOffer: 'L’offre de départ a été enregistrée, mais la réponse n’a pas pu être lue.',
++    couldNotSaveStarterNeed: 'Impossible d’enregistrer ce besoin de départ.',
++    couldNotSaveStarterOffer: 'Impossible d’enregistrer cette offre de départ.',
++    editProtected: 'Fermez ou supprimez l’échange actif avant de modifier cet élément {{item}}.',
++    notFoundTitle: 'Cet élément {{item}} n’a pas pu être chargé.',
++    notFoundBody: 'Vérifiez que l’API fonctionne, ou ouvrez un élément depuis votre onglet {{collection}}.',
++    unavailable: '{{item}} indisponible',
++    apiMissingItem: '{{item}} n’a pas été renvoyé par l’API.',
++    archivedInstead: 'Cet élément {{item}} est utilisé par un échange, il a donc été fermé au lieu d’être supprimé définitivement.',
++    titleNeedTooShort: 'Ajoutez un titre clair pour le besoin.',
++    titleOfferTooShort: 'Ajoutez un titre clair pour l’offre.',
++    descriptionNeedTooShort: 'Décrivez le besoin avec au moins un détail utile.',
++    descriptionOfferTooShort: 'Décrivez l’offre avec au moins un détail utile.',
++    starterLibraryError: 'Erreur de bibliothèque de départ',
++  },
++  delete: {
++    lockedTitle: 'Cet élément {{item}} est verrouillé par un échange actif.',
++    lockedBody: 'Fermez ou supprimez cet échange avant de modifier ou supprimer cet élément {{item}}.',
++    viewTrade: 'Voir l’échange',
++    blockedTitle: 'Impossible de supprimer cet élément {{item}}',
++    deleteTitle: 'Supprimer cet élément {{item}} ?',
++    deleteNativeBody: 'Les éléments {{items}} inutilisés sont supprimés. Les éléments {{item}} déjà utilisés dans des échanges sont fermés afin de conserver l’historique.',
++    blockedBody: 'Cet élément {{item}} est utilisé par un échange actif. Fermez ou supprimez cet échange avant de modifier ou supprimer cet élément {{item}}.',
++    linkedBody: 'Cet élément {{item}} est lié à d’anciens échanges. Il sera retiré de votre inventaire, et les anciens échanges resteront fermés sans être supprimés.',
++    normalBody: 'Cet élément {{item}} n’est pas utilisé dans un échange actif. Sa suppression est définitive.',
+   },
+ } as const;
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts	2026-05-12 09:08:36.675522021 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts	2026-05-12 09:38:00.434511829 +0000
+@@ -2,6 +2,9 @@
+   labels: {
+     image: 'image',
+   },
++  states: {
++    uploading: 'Importation...',
++  },
+   empty: {
+     noImagesYet: 'Aucune image pour le moment',
+     sideImagesAppearHere: 'Les images attachées à ce côté apparaîtront ici.',
+diff -ruN phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/validation.ts phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/validation.ts
+--- phase23_2_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/validation.ts	2026-05-12 08:39:04.000000000 +0000
++++ phase23_3_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/validation.ts	2026-05-12 09:35:53.532619397 +0000
+@@ -1,4 +1,10 @@
+ export const validation = {
+   required: 'Ce champ est obligatoire.',
+   displayNameRequired: 'Le nom affiché est obligatoire.',
++  titleRequired: 'Le titre est obligatoire.',
++  descriptionRequired: 'La description est obligatoire.',
++  needTitleTooShort: 'Ajoutez un titre clair pour le besoin.',
++  offerTitleTooShort: 'Ajoutez un titre clair pour l’offre.',
++  needDescriptionTooShort: 'Décrivez le besoin avec au moins un détail utile.',
++  offerDescriptionTooShort: 'Décrivez l’offre avec au moins un détail utile.',
+ } as const;

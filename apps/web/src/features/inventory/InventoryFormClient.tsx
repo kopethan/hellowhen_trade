@@ -11,9 +11,12 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import {
   emptyInventoryFormValues,
   inventoryToFormValues,
+  inventoryStatusLabel,
+  itemTypeLabel,
   kindLabel,
   mediaSrc,
   normalizeInventoryItem,
@@ -21,6 +24,7 @@ import {
   parseCsvList,
   parseLineList,
   sideClassName,
+  modeLabel,
   sideLabel,
   toIsoDate,
   type InventoryFormValues,
@@ -107,6 +111,7 @@ function buildCreateRedirectHref(redirect: InventoryCreateRedirect, savedId: str
 export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreateRedirect }: InventoryFormClientProps) {
   const auth = useWebAuth();
   const router = useRouter();
+  const { t, language } = useWebTranslation();
   const [values, setValues] = useState<InventoryFormValues>(emptyInventoryFormValues);
   const [media, setMedia] = useState<MediaAssetDto[]>([]);
   const [loading, setLoading] = useState(mode === 'edit');
@@ -120,7 +125,8 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
 
   const baseHref = kind === 'need' ? '/needs' : '/offers';
   const formCancelHref = cancelHref ?? baseHref;
-  const noun = kindLabel(kind);
+  const i18n = useMemo(() => ({ t, language }), [language, t]);
+  const noun = kindLabel(kind, i18n);
   const lowerNoun = noun.toLowerCase();
   const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
 
@@ -145,14 +151,14 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null : null;
         setValues(inventoryToFormValues(fallback));
         setMedia(fallback?.media ?? []);
-        setMessage(demoDataEnabled && fallback ? 'Using demo data because this item could not be loaded from the API.' : 'This item could not be loaded from the API.');
+        setMessage(demoDataEnabled && fallback ? t('inventory.messages.usingDemoData') : t('inventory.messages.itemCouldNotLoad'));
       } finally {
         if (mounted) setLoading(false);
       }
     }
     void loadItem();
     return () => { mounted = false; };
-  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, itemId, kind, mode]);
+  }, [auth.hydrated, auth.isAuthenticated, demoDataEnabled, itemId, kind, mode, t]);
 
   useEffect(() => {
     if (mode !== 'edit' || !itemId || !auth.hydrated || !auth.isAuthenticated) return;
@@ -191,7 +197,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         if (uploaded) nextMedia.push(uploaded);
       }
       setMedia(nextMedia.slice(0, 5));
-      setMessage('Image uploaded. It will appear on this saved item after you save.');
+      setMessage(t('inventory.messages.imageUploaded'));
     } catch (cause) {
       setError(getFriendlyApiErrorMessage(cause));
     } finally {
@@ -207,7 +213,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isEditProtected) {
-      setError(`Close or delete the active trade before editing this ${lowerNoun}.`);
+      setError(t('inventory.errors.editProtected', { item: lowerNoun }));
       return;
     }
     setSaving(true);
@@ -276,8 +282,8 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
     return (
       <section className="mobile-page">
         <section className="mobile-card mobile-card--soft">
-          <span className="semantic-badge instruction">Loading</span>
-          <h3>{!auth.hydrated ? 'Checking your session...' : `Loading ${lowerNoun}...`}</h3>
+          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
+          <h3>{!auth.hydrated ? t('inventory.labels.checkingSession') : t('inventory.messages.loadingItems', { items: lowerNoun })}</h3>
         </section>
       </section>
     );
@@ -287,105 +293,105 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
     <section className="mobile-page">
       {!auth.isAuthenticated && auth.hydrated ? (
         <section className="mobile-card mobile-card--soft">
-          <span className="semantic-badge instruction">Signed out</span>
-          <h3>Sign in to save real {kind === 'need' ? 'needs' : 'offers'}</h3>
-          <p>This form is wired to the API and needs a session before it can save.</p>
-          <Link href="/auth" className="button">Sign in</Link>
+          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+          <h3>{t('inventory.signedOut.formTitle', { items: kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase() })}</h3>
+          <p>{t('inventory.signedOut.formBody')}</p>
+          <Link href="/auth" className="button">{t('auth.actions.signIn')}</Link>
         </section>
       ) : null}
 
       <form className="inventory-form" onSubmit={handleSubmit}>
         {isEditProtected ? (
           <section className="notice-box warning inventory-delete-warning">
-            <strong>This {lowerNoun} is locked by an active trade.</strong>
-            <span>Close or delete that trade before editing or deleting this {lowerNoun}.</span>
-            {deleteImpact?.activeTrades?.[0] ? <Link href={`/trades/${deleteImpact.activeTrades[0].id}`} className="button secondary">View trade</Link> : null}
+            <strong>{t('inventory.delete.lockedTitle', { item: lowerNoun })}</strong>
+            <span>{t('inventory.delete.lockedBody', { item: lowerNoun })}</span>
+            {deleteImpact?.activeTrades?.[0] ? <Link href={`/trades/${deleteImpact.activeTrades[0].id}`} className="button secondary">{t('inventory.delete.viewTrade')}</Link> : null}
           </section>
         ) : null}
 
         <fieldset className="inventory-form__editable" disabled={isEditProtected}>
         <section className="mobile-card inventory-form__hero">
-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind)}</span>
+          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
           <label className="field-label">
-            Title
-            <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? 'What do you need?' : 'What can you offer?'} required minLength={3} maxLength={120} />
+            {t('inventory.labels.title')}
+            <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={3} maxLength={120} />
           </label>
           <label className="field-label">
-            Description
-            <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? 'Describe the help you want.' : 'Describe what you can provide.'} required minLength={10} maxLength={2000} rows={5} />
+            {t('inventory.labels.description')}
+            <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.descriptionNeedPlaceholder') : t('inventory.form.descriptionOfferPlaceholder')} required minLength={10} maxLength={2000} rows={5} />
           </label>
         </section>
 
         <section className="mobile-card mobile-card--soft inventory-form__grid">
           <label className="field-label">
-            Status
+            {t('inventory.labels.status')}
             <select value={values.status} onChange={(event) => updateField('status', event.target.value)}>
-              {selectedStatusOptions(kind).map((status) => <option key={status} value={status}>{status}</option>)}
+              {selectedStatusOptions(kind).map((status) => <option key={status} value={status}>{inventoryStatusLabel(status, i18n)}</option>)}
             </select>
           </label>
           <label className="field-label">
-            Type
+            {t('inventory.labels.type')}
             <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryItemType)}>
-              <option value="service">Service</option>
-              <option value="goods">Goods</option>
-              <option value="other">Other</option>
+              <option value="service">{itemTypeLabel('service', i18n)}</option>
+              <option value="goods">{itemTypeLabel('goods', i18n)}</option>
+              <option value="other">{itemTypeLabel('other', i18n)}</option>
             </select>
           </label>
           <label className="field-label">
-            Category
-            <input value={values.category} onChange={(event) => updateField('category', event.target.value)} placeholder="Design, tutoring, repair..." maxLength={80} />
+            {t('inventory.labels.category')}
+            <input value={values.category} onChange={(event) => updateField('category', event.target.value)} placeholder={t('inventory.form.categoryPlaceholder')} maxLength={80} />
           </label>
           <label className="field-label">
-            {kind === 'need' ? 'Timing' : 'Availability'}
-            <input value={kind === 'need' ? values.timing : values.availability} onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)} placeholder={kind === 'need' ? 'This week, today, flexible...' : 'Weekends, evenings, remote...'} maxLength={80} />
+            {kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}
+            <input value={kind === 'need' ? values.timing : values.availability} onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.timingPlaceholder') : t('inventory.form.availabilityPlaceholder')} maxLength={80} />
           </label>
           <label className="field-label">
-            Mode
+            {t('inventory.labels.mode')}
             <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)}>
-              <option value="">Not specified</option>
-              <option value="remote">Remote</option>
-              <option value="local">Local</option>
-              <option value="hybrid">Hybrid</option>
+              <option value="">{t('inventory.labels.notSpecified')}</option>
+              <option value="remote">{modeLabel('remote', i18n)}</option>
+              <option value="local">{modeLabel('local', i18n)}</option>
+              <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
             </select>
           </label>
           <label className="field-label">
-            Location label
-            <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder="Remote, Paris, local area..." maxLength={120} />
+            {t('inventory.labels.locationLabel')}
+            <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={t('inventory.form.locationPlaceholder')} maxLength={120} />
           </label>
           <label className="field-label">
-            Expires
+            {t('inventory.labels.expires')}
             <input value={values.expiresAt} onChange={(event) => updateField('expiresAt', event.target.value)} type="date" />
           </label>
           <label className="field-label inventory-form__wide">
-            Tags
-            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder="design, launch, remote" />
+            {t('inventory.labels.tags')}
+            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} />
           </label>
           {kind === 'offer' ? (
             <label className="field-label inventory-form__wide">
-              Includes
-              <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder="One revision\n10 edited photos\n30-minute call" rows={4} />
+              {t('inventory.labels.includes')}
+              <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesPlaceholder')} rows={4} />
             </label>
           ) : null}
         </section>
 
         <section className="mobile-card inventory-media-panel">
           <div>
-            <p className="eyebrow">Images</p>
-            <h3>{media.length ? `${media.length}/5 selected` : `Add ${lowerNoun} images`}</h3>
-            <p>Images appear on this saved Need or Offer after upload. Support can remove reported images if needed.</p>
+            <p className="eyebrow">{t('inventory.labels.images')}</p>
+            <h3>{media.length ? t('inventory.form.selectedCount', { count: media.length }) : kind === 'need' ? t('inventory.form.addNeedImages') : t('inventory.form.addOfferImages')}</h3>
+            <p>{t('inventory.form.imagePanelBody')}</p>
           </div>
           <label className="image-upload-button">
             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={isEditProtected || uploading || media.length >= 5} />
-            {uploading ? 'Uploading...' : media.length >= 5 ? 'Image limit reached' : 'Upload images'}
+            {uploading ? t('media.states.uploading') : media.length >= 5 ? t('inventory.actions.imageLimitReached') : t('inventory.actions.uploadImages')}
           </label>
           {media.length ? (
             <div className="inventory-media-grid">
               {media.map((item) => (
                 <figure key={item.id}>
-                  <img src={mediaSrc(item)} alt={item.filename ?? `${noun} image`} />
+                  <img src={mediaSrc(item)} alt={item.filename ?? `${noun} ${t('inventory.labels.images').toLowerCase()}`} />
                   <figcaption>
-                    <span className="semantic-badge instruction">{item.status}</span>
-                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>Remove</button>
+                    <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
+                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>{t('common.actions.remove')}</button>
                   </figcaption>
                 </figure>
               ))}
@@ -399,22 +405,22 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         {error ? <p className="form-message form-message--error">{error}</p> : null}
 
         <div className="sticky-form-actions">
-          {mode === 'edit' ? <button type="button" className={deleteImpact?.blocked ? 'secondary warning-button' : 'secondary danger-button'} onClick={openDeleteDialog} disabled={saving}>{deleteImpact?.blocked ? 'Used in trade' : 'Delete'}</button> : <Link href={formCancelHref} className="button secondary">Cancel</Link>}
-          <button type="submit" disabled={saving || uploading || isEditProtected}>{saving ? 'Saving...' : mode === 'edit' ? `Save ${noun}` : `Create ${noun}`}</button>
+          {mode === 'edit' ? <button type="button" className={deleteImpact?.blocked ? 'secondary warning-button' : 'secondary danger-button'} onClick={openDeleteDialog} disabled={saving}>{deleteImpact?.blocked ? t('inventory.labels.usedInTrade') : t('inventory.actions.delete')}</button> : <Link href={formCancelHref} className="button secondary">{t('common.actions.cancel')}</Link>}
+          <button type="submit" disabled={saving || uploading || isEditProtected}>{saving ? t('common.states.saving') : mode === 'edit' ? `${t('common.actions.save')} ${noun}` : `${t('common.actions.create')} ${noun}`}</button>
         </div>
       </form>
 
       <ConfirmDialog
         open={deleteDialogOpen}
-        eyebrow={deleteImpact?.blocked ? 'Protected' : 'Delete'}
-        title={deleteImpact?.blocked ? `Can't delete this ${lowerNoun}` : `Delete ${lowerNoun}?`}
+        eyebrow={deleteImpact?.blocked ? t('inventory.labels.protected') : t('inventory.actions.delete')}
+        title={deleteImpact?.blocked ? t('inventory.delete.blockedTitle', { item: lowerNoun }) : t('inventory.delete.deleteTitle', { item: lowerNoun })}
         body={deleteImpact?.blocked
-          ? `This ${lowerNoun} is used by an active trade. Close or delete that trade before editing or deleting this ${lowerNoun}.`
+          ? t('inventory.delete.blockedBody', { item: lowerNoun })
           : deleteImpact?.linkedTradeCount
-            ? `This ${lowerNoun} is linked to past trades. It will be removed from your inventory, and past trades will stay closed without deleting them.`
-            : `This ${lowerNoun} is not used in an active trade. Deleting it cannot be undone.`}
+            ? t('inventory.delete.linkedBody', { item: lowerNoun })
+            : t('inventory.delete.normalBody', { item: lowerNoun })}
         variant={deleteImpact?.blocked ? 'warning' : 'danger'}
-        confirmLabel={deleteImpact?.blocked ? 'OK' : 'Delete'}
+        confirmLabel={deleteImpact?.blocked ? t('inventory.actions.ok') : t('inventory.actions.delete')}
         showCancel={!deleteImpact?.blocked}
         loading={saving}
         onCancel={() => setDeleteDialogOpen(false)}

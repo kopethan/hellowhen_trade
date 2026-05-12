@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { AppSettingsProvider } from './providers/AppSettingsProvider';
 import { AuthProvider } from './providers/AuthProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
+import { MobileI18nProvider } from './providers/MobileI18nProvider';
 import { RootNavigator } from './navigation/RootNavigator';
 
 export default function App() {
@@ -12,14 +13,16 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppSettingsProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <NavigationContainer>
-                <StatusBar style="auto" />
-                <RootNavigator />
-              </NavigationContainer>
-            </AuthProvider>
-          </ThemeProvider>
+          <MobileI18nProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <NavigationContainer>
+                  <StatusBar style="auto" />
+                  <RootNavigator />
+                </NavigationContainer>
+              </AuthProvider>
+            </ThemeProvider>
+          </MobileI18nProvider>
         </AppSettingsProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

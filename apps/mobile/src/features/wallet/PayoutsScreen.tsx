@@ -3,7 +3,8 @@ import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, 
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MoneySafetyStatusDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
-import { formatMoney } from '@hellowhen/shared';
+import { formatLocalizedMoney, formatLocalizedShortDate } from '@hellowhen/i18n';
+import type { SupportedLanguage } from '@hellowhen/i18n';
 import type { ThemeTokens } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
@@ -16,6 +17,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Payouts'>;
 type PayoutsResponse = { wallet: WalletDto; payouts: PayoutRequestDto[]; summary: PayoutSummaryDto };
@@ -54,13 +56,6 @@ function getPayoutNetCents(payout: PayoutRequestDto, fallbackRateBps = defaultPa
   return Math.max(0, getPayoutGrossCents(payout) - getPayoutFeeCents(payout, fallbackRateBps));
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '';
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
 function parseMoneyToCents(value: string) {
   const normalized = value.replace(',', '.').replace(/[^0-9.]/g, '');
   if (!normalized) return 0;
@@ -68,9 +63,14 @@ function parseMoneyToCents(value: string) {
   return (Number.parseInt(whole || '0', 10) * 100) + Number.parseInt(fraction.padEnd(2, '0').slice(0, 2) || '0', 10);
 }
 
+function money(value: number, currency: string, language: SupportedLanguage) {
+  return formatLocalizedMoney(value, currency, language);
+}
+
 export function PayoutsScreen({ navigation }: Props) {
   const theme = useThemeTokens();
   const auth = useAuth();
+  const { t, language } = useTranslation();
   const [wallet, setWallet] = useState<WalletDto | null>(null);
   const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
   const [payouts, setPayouts] = useState<PayoutRequestDto[]>([]);
@@ -81,6 +81,9 @@ export function PayoutsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<'connect' | 'payout' | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'warning' | 'danger'; title: string; body: string } | null>(null);
+
+  const freshRequiredMessage = t('account.payouts.freshRequired');
+  const isFreshAuthError = useCallback((error: unknown) => error instanceof Error && (error.message === freshRequiredMessage || error.message === 'Confirm your password or authenticator code first.'), [freshRequiredMessage]);
 
   const load = useCallback(async () => {
     if (!betaFeatures.payoutsVisible) { setWallet(null); setSummary(null); setPayouts([]); setMoneySafety(null); return; }
@@ -93,18 +96,18 @@ export function PayoutsScreen({ navigation }: Props) {
       setPayouts(result.payouts ?? []);
       setMoneySafety(result.summary?.moneySafety ?? null);
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Payouts unavailable', body: caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError) });
+      setNotice({ tone: 'danger', title: t('account.payouts.title'), body: isFreshAuthError(caughtError) ? freshRequiredMessage : getFriendlyApiErrorMessage(caughtError) });
       setWallet(null); setSummary(null); setPayouts([]);
     } finally { setLoading(false); }
-  }, []);
+  }, [freshRequiredMessage, isFreshAuthError, t]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   if (!betaFeatures.payoutsVisible) {
     return (
-      <AppFixedHeaderScreen header={<AppHeader title="Payouts" onBack={() => navigation.goBack()} />}>
+      <AppFixedHeaderScreen header={<AppHeader title={t('account.payouts.title')} onBack={() => navigation.goBack()} />}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <InfoNotice tone="info" title="Payouts hidden for beta" body="Payouts and Stripe Connect flows are disabled for the first international beta while Hellowhen focuses on service and goods trades." />
+          <InfoNotice tone="info" title={t('account.payouts.title')} body={t('account.payouts.signedOutBody')} />
         </ScrollView>
       </AppFixedHeaderScreen>
     );
@@ -115,15 +118,16 @@ export function PayoutsScreen({ navigation }: Props) {
   const pending = summary?.pendingPayoutRequestsCents ?? 0;
   const paid = summary?.paidOutNetCents ?? summary?.paidOutCents ?? 0;
   const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+  const rate = formatPayoutFeeRate(platformFeeRateBps);
   const selectedAmount = parseMoneyToCents(amountText);
   const selectedFee = calculatePayoutFeeCents(selectedAmount, platformFeeRateBps);
   const selectedNet = Math.max(0, selectedAmount - selectedFee);
   const availableFee = summary?.estimatedPlatformFeeCents ?? calculatePayoutFeeCents(available, platformFeeRateBps);
   const availableNet = summary?.estimatedNetPayoutCents ?? Math.max(0, available - availableFee);
-  const payoutConnected = summary?.payoutAccount.status === 'connected';
+  const payoutConnected = summary?.payoutAccount?.status === 'connected';
   const stripeConnectConfigured = Boolean(summary?.stripeConnectConfigured);
-  const usingStripeConnect = summary?.payoutAccount.provider === 'stripe_connect_test';
-  const stripeConnectAccount = summary?.payoutAccount.provider === 'stripe_connect_test' ? summary.payoutAccount : null;
+  const usingStripeConnect = summary?.payoutAccount?.provider === 'stripe_connect_test';
+  const stripeConnectAccount = summary?.payoutAccount?.provider === 'stripe_connect_test' ? summary.payoutAccount : null;
   const limits = summary?.limits as WalletLimitsDto | undefined;
   const minimumPayoutCents = limits?.minimumPayoutCents ?? 1000;
   const weeklyRemainingCents = limits ? Math.max(0, limits.weeklyPayoutCapCents - limits.weeklyRequestedPayoutGrossCents) : null;
@@ -136,14 +140,14 @@ export function PayoutsScreen({ navigation }: Props) {
     try {
       const result = await api.wallet.acknowledgeMoneySafety({ accepted: true }) as { moneySafety: MoneySafetyStatusDto };
       setMoneySafety(result.moneySafety ?? null);
-      setNotice({ tone: 'success', title: 'Policies accepted', body: 'Money safety policies were accepted for this launch version.' });
+      setNotice({ tone: 'success', title: t('account.addMoney.safetyAccepted'), body: t('account.addMoney.policyAcknowledged') });
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Could not accept policies', body: getFriendlyApiErrorMessage(caughtError) });
+      setNotice({ tone: 'danger', title: t('account.addMoney.safetyReview'), body: getFriendlyApiErrorMessage(caughtError) });
     } finally { setActionLoading(null); }
   }
 
   async function confirmFreshAuth() {
-    if (!freshPassword.trim() && !freshCode.trim()) throw new Error('Confirm your password or authenticator code first.');
+    if (!freshPassword.trim() && !freshCode.trim()) throw new Error(freshRequiredMessage);
     await auth.reauthenticate({ password: freshPassword.trim() || undefined, code: freshCode.trim() || undefined });
   }
 
@@ -153,18 +157,18 @@ export function PayoutsScreen({ navigation }: Props) {
       await confirmFreshAuth();
       if (summary?.stripeConnectConfigured) {
         const result = await api.wallet.createStripeConnectAccountLink() as { url?: string };
-        if (!result.url) throw new Error('Stripe did not return an onboarding link.');
+        if (!result.url) throw new Error(t('account.payouts.stripeMissingLink'));
         setFreshPassword(''); setFreshCode('');
-        setNotice({ tone: 'success', title: 'Opening Stripe Connect', body: 'Complete the Stripe test onboarding in your browser, then return and pull to refresh.' });
+        setNotice({ tone: 'success', title: t('account.payouts.setupStripe'), body: t('account.payouts.stripeBody') });
         await Linking.openURL(result.url);
       } else {
         const result = await api.wallet.connectDemoPayoutAccount() as PayoutsResponse;
         setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []); setMoneySafety(result.summary?.moneySafety ?? null);
         setFreshPassword(''); setFreshCode('');
-        setNotice({ tone: 'success', title: 'Stripe demo connected', body: 'Your demo payout account is ready. No real bank account was linked.' });
+        setNotice({ tone: 'success', title: t('account.payouts.demoConnected'), body: t('account.payouts.demoConnectedMessage') });
       }
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Could not connect payout account', body: caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError) });
+      setNotice({ tone: 'danger', title: t('account.payouts.setup'), body: isFreshAuthError(caughtError) ? freshRequiredMessage : getFriendlyApiErrorMessage(caughtError) });
     } finally { setActionLoading(null); }
   }
 
@@ -173,9 +177,9 @@ export function PayoutsScreen({ navigation }: Props) {
     try {
       const result = await api.wallet.syncStripeConnect() as PayoutsResponse;
       setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []); setMoneySafety(result.summary?.moneySafety ?? null);
-      setNotice({ tone: 'success', title: 'Stripe status synced', body: 'Payout verification status was refreshed from Stripe test mode.' });
+      setNotice({ tone: 'success', title: t('account.payouts.syncStatus'), body: t('account.payouts.stripeSynced') });
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Could not sync Stripe status', body: getFriendlyApiErrorMessage(caughtError) });
+      setNotice({ tone: 'danger', title: t('account.payouts.syncStatus'), body: getFriendlyApiErrorMessage(caughtError) });
     } finally { setActionLoading(null); }
   }
 
@@ -186,19 +190,20 @@ export function PayoutsScreen({ navigation }: Props) {
       await confirmFreshAuth();
       const result = await api.wallet.requestDemoPayout({ amountCents: selectedAmount, currency }) as PayoutsResponse;
       setWallet(result.wallet); setSummary(result.summary); setPayouts(result.payouts ?? []); setMoneySafety(result.summary?.moneySafety ?? null); setAmountText(''); setFreshPassword(''); setFreshCode('');
-      setNotice({ tone: 'success', title: summary?.payoutAccount.provider === 'stripe_connect_test' ? 'Stripe Connect test payout requested' : 'Demo payout paid', body: `${formatMoney(selectedNet, currency)} was simulated after the ${formatMoney(selectedFee, currency)} platform fee.` });
+      const kind = summary?.payoutAccount?.provider === 'stripe_connect_test' ? t('account.payouts.stripePayoutKind') : t('account.payouts.demoPayoutKind');
+      setNotice({ tone: 'success', title: kind, body: t('account.payouts.payoutRequested', { kind, net: money(selectedNet, currency, language), fee: money(selectedFee, currency, language) }) });
     } catch (caughtError) {
-      setNotice({ tone: 'danger', title: 'Could not request payout', body: caughtError instanceof Error && caughtError.message === 'Confirm your password or authenticator code first.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError, 'Check your payout balance and try again.') });
+      setNotice({ tone: 'danger', title: t('account.payouts.requestDemoPayout'), body: isFreshAuthError(caughtError) ? freshRequiredMessage : getFriendlyApiErrorMessage(caughtError, t('common.actions.tryAgain')) });
     } finally { setActionLoading(null); }
   }
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Payouts" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('account.payouts.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
         <View style={styles.headerCopy}>
-          <SemanticBadge label={stripeConnectConfigured ? "Stripe Connect test" : "Stripe demo"} tone="success" />
-          <AppText style={styles.title}>Payouts</AppText>
-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>See what you earned, the {formatPayoutFeeRate(platformFeeRateBps)} platform fee, and test payout setup before live money launch.</AppText>
+          <SemanticBadge label={stripeConnectConfigured ? 'Stripe Connect test' : 'Stripe demo'} tone="success" />
+          <AppText style={styles.title}>{t('account.payouts.title')}</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.payouts.availableEarningsBody', { rate })}</AppText>
         </View>
 
         {notice ? <InfoNotice tone={notice.tone} title={notice.title} body={notice.body} /> : null}
@@ -207,79 +212,79 @@ export function PayoutsScreen({ navigation }: Props) {
           <AppCard>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
-                <AppText style={styles.sectionTitle}>Money launch safety</AppText>
+                <AppText style={styles.sectionTitle}>{t('account.payouts.safetyTitle')}</AppText>
                 <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafety.message}</AppText>
               </View>
-              <SemanticBadge label={moneySafety.policyAcknowledged ? 'accepted' : 'review'} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
+              <SemanticBadge label={moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
             </View>
-            <AppText style={[styles.validationText, { color: theme.color.muted }]}>Production money: {moneySafety.realMoneyEnabled ? 'on' : 'off'} · Stripe transfers: {moneySafety.stripeTransfersEnabled ? 'on' : 'off'} · Manual review: {moneySafety.requiresManualPayoutReview ? 'on' : 'off'}.</AppText>
+            <AppText style={[styles.validationText, { color: theme.color.muted }]}>{t('account.payouts.productionMoney')}: {moneySafety.realMoneyEnabled ? t('common.states.yes') : t('common.states.no')} · {t('account.payouts.stripeTransfers')}: {moneySafety.stripeTransfersEnabled ? t('common.states.yes') : t('common.states.no')} · {t('account.payouts.manualReview')}: {moneySafety.requiresManualPayoutReview ? t('common.states.yes') : t('common.states.no')}.</AppText>
             {!moneySafety.policyAcknowledged ? (
               <Pressable accessibilityRole="button" disabled={actionLoading !== null} onPress={() => { void acknowledgeSafety(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border }, pressed && styles.pressed]}>
-                <AppText style={styles.secondaryButtonText}>Accept wallet, payout, refund, and dispute policies</AppText>
+                <AppText style={styles.secondaryButtonText}>{t('account.addMoney.acceptPolicies')}</AppText>
               </Pressable>
-            ) : <AppText style={[styles.validationText, { color: theme.color.muted }]}>Policy version {moneySafety.policyVersion} accepted.</AppText>}
+            ) : <AppText style={[styles.validationText, { color: theme.color.muted }]}>{t('account.addMoney.policyAccepted', { version: moneySafety.policyVersion })}</AppText>}
           </AppCard>
         ) : null}
 
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Earnings</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Completed money trades become available here for demo payouts.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.wallet.earnings')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.payouts.availableEarningsBody', { rate })}</AppText>
             </View>
             <SemanticBadge label={currency.toUpperCase()} tone="credits" />
           </View>
           <View style={styles.metricGrid}>
-            <Metric theme={theme} label="Available" value={available} currency={currency} tone="success" />
-            <Metric theme={theme} label="Platform fee" value={availableFee} currency={currency} tone="danger" />
-            <Metric theme={theme} label="Estimated payout" value={availableNet} currency={currency} tone="success" />
-            <Metric theme={theme} label="Pending payouts" value={pending} currency={currency} tone="time" />
-            <Metric theme={theme} label="Paid out" value={paid} currency={currency} tone="info" />
+            <Metric theme={theme} label={t('account.wallet.available')} value={available} currency={currency} tone="success" />
+            <Metric theme={theme} label={t('account.wallet.platformFee')} value={availableFee} currency={currency} tone="danger" />
+            <Metric theme={theme} label={t('account.wallet.estimatedPayout')} value={availableNet} currency={currency} tone="success" />
+            <Metric theme={theme} label={t('account.wallet.payoutRequests')} value={pending} currency={currency} tone="time" />
+            <Metric theme={theme} label={t('account.payouts.paidOut')} value={paid} currency={currency} tone="info" />
           </View>
         </AppCard>
 
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Fresh verification</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Confirm your password or authenticator code before payout setup or payout requests. The safety window is short.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.payouts.freshVerification')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.payouts.freshBody')}</AppText>
             </View>
-            <SemanticBadge label="10 min" tone="time" />
+            <SemanticBadge label={t('account.payouts.freshWindow')} tone="time" />
           </View>
-          <TextInput value={freshPassword} onChangeText={setFreshPassword} secureTextEntry placeholder="Password" placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
-          <TextInput value={freshCode} onChangeText={setFreshCode} keyboardType="number-pad" placeholder="Authenticator or recovery code" placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+          <TextInput value={freshPassword} onChangeText={setFreshPassword} secureTextEntry placeholder={t('account.payouts.password')} placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+          <TextInput value={freshCode} onChangeText={setFreshCode} keyboardType="number-pad" placeholder={t('account.payouts.authenticatorCode')} placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
         </AppCard>
 
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Stripe payout setup</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{payoutConnected ? (usingStripeConnect ? 'Stripe Connect test account is ready.' : 'Demo payout account connected.') : (stripeConnectConfigured ? 'Complete Stripe Connect test onboarding before requesting payouts.' : 'Connect a simulated payout account before requesting payouts.')}</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.payouts.setup')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{payoutConnected ? (usingStripeConnect ? t('account.payouts.stripeReady') : t('account.payouts.demoConnected')) : (stripeConnectConfigured ? t('account.payouts.stripeBody') : t('account.payouts.demoBody'))}</AppText>
             </View>
             <StatusBadge status={payoutConnected ? 'completed' : 'pending'} size="sm" />
           </View>
-          {stripeConnectAccount ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>Payouts {stripeConnectAccount.payoutsEnabled ? 'enabled' : 'not enabled'} · Charges {stripeConnectAccount.chargesEnabled ? 'enabled' : 'not enabled'}</AppText> : null}
-          {stripeConnectAccount?.currentlyDue?.length ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Due now: {stripeConnectAccount.currentlyDue.join(', ')}</AppText> : null}
+          {stripeConnectAccount ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>{t('account.payouts.payouts')} {stripeConnectAccount.payoutsEnabled ? t('account.payouts.enabled') : t('account.payouts.notEnabled')} · {t('account.payouts.charges')} {stripeConnectAccount.chargesEnabled ? t('account.payouts.enabled') : t('account.payouts.notEnabled')}</AppText> : null}
+          {stripeConnectAccount?.currentlyDue?.length ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.payouts.dueNow', { items: stripeConnectAccount.currentlyDue.join(', ') })}</AppText> : null}
           <Pressable accessibilityRole="button" disabled={actionLoading === 'connect' || safetyBlocked} onPress={() => { void connectDemoAccount(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: payoutConnected ? theme.color.subtleSurface : theme.semantic.proposal.bg }, actionLoading === 'connect' && styles.disabled, pressed && styles.pressed]}>
-            <AppText style={[styles.primaryButtonText, payoutConnected && { color: theme.color.muted }]}>{stripeConnectConfigured ? (payoutConnected ? 'Open onboarding again' : actionLoading === 'connect' ? 'Opening...' : 'Set up Stripe Connect test') : (payoutConnected ? 'Demo account connected' : actionLoading === 'connect' ? 'Connecting...' : 'Set up Stripe demo payout')}</AppText>
+            <AppText style={[styles.primaryButtonText, payoutConnected && { color: theme.color.muted }]}>{stripeConnectConfigured ? (payoutConnected ? t('account.payouts.openOnboardingAgain') : actionLoading === 'connect' ? t('common.states.working') : t('account.payouts.startStripeTest')) : (payoutConnected ? t('account.payouts.alreadyConnected') : actionLoading === 'connect' ? t('common.states.working') : t('account.payouts.connectDemo'))}</AppText>
           </Pressable>
-          {usingStripeConnect ? <Pressable accessibilityRole="button" disabled={actionLoading === 'connect'} onPress={() => { void syncStripeConnect(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>Sync Stripe status</AppText></Pressable> : null}
+          {usingStripeConnect ? <Pressable accessibilityRole="button" disabled={actionLoading === 'connect'} onPress={() => { void syncStripeConnect(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>{t('account.payouts.syncStatus')}</AppText></Pressable> : null}
         </AppCard>
 
         {limits ? (
           <AppCard>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
-                <AppText style={styles.sectionTitle}>Launch limits</AppText>
-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>Current tier: {limits.effectiveTrustTier.replace(/_/g, ' ')}. Limits stay low during launch and can increase after verification.</AppText>
+                <AppText style={styles.sectionTitle}>{t('account.payouts.launchLimits')}</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.payouts.launchLimitsBody')}</AppText>
               </View>
-              <SemanticBadge label="Safety" tone="time" />
+              <SemanticBadge label={t('account.wallet.safety')} tone="time" />
             </View>
             <View style={styles.metricGrid}>
-              <Metric theme={theme} label="Minimum payout" value={limits.minimumPayoutCents} currency={currency} tone="info" />
-              <Metric theme={theme} label="Weekly cap" value={limits.weeklyPayoutCapCents} currency={currency} tone="time" />
-              <Metric theme={theme} label="Weekly remaining" value={Math.max(0, limits.weeklyPayoutCapCents - limits.weeklyRequestedPayoutGrossCents)} currency={currency} tone="success" />
-              <Metric theme={theme} label="Money trade cap" value={limits.perTradeMoneyCapCents} currency={currency} tone="info" />
+              <Metric theme={theme} label={t('account.payouts.minimumPayout')} value={limits.minimumPayoutCents} currency={currency} tone="info" />
+              <Metric theme={theme} label={t('account.payouts.weeklyPayoutCap')} value={limits.weeklyPayoutCapCents} currency={currency} tone="time" />
+              <Metric theme={theme} label={t('account.payouts.weeklyRemaining')} value={Math.max(0, limits.weeklyPayoutCapCents - limits.weeklyRequestedPayoutGrossCents)} currency={currency} tone="success" />
+              <Metric theme={theme} label={t('account.wallet.perMoneyTrade')} value={limits.perTradeMoneyCapCents} currency={currency} tone="info" />
             </View>
           </AppCard>
         ) : null}
@@ -287,35 +292,35 @@ export function PayoutsScreen({ navigation }: Props) {
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Payout fee</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Hellowhen keeps a transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. You receive the estimated payout amount.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.payouts.payoutFee')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.payouts.feeBody')}</AppText>
             </View>
-            <SemanticBadge label={`${formatPayoutFeeRate(platformFeeRateBps)} fee`} tone="credits" />
+            <SemanticBadge label={t('account.payouts.feeBadge', { rate })} tone="credits" />
           </View>
           <PayoutBreakdown grossAmountCents={available} currency={currency} platformFeeRateBps={platformFeeRateBps} />
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>{stripeConnectConfigured ? 'Request test payout' : 'Request demo payout'}</AppText>
-          <AppText style={[styles.cardText, { color: theme.color.muted }]}>You can request up to {formatMoney(available, currency)} in payout-eligible earnings. This simulation marks the payout as paid instantly.</AppText>
-          <View style={styles.presetRow}>{presetAmounts.map((amount) => <Pressable key={amount} accessibilityRole="button" onPress={() => setAmountText((amount / 100).toFixed(2))} style={({ pressed }) => [styles.presetButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.presetText}>{formatMoney(amount, currency)}</AppText></Pressable>)}</View>
-          <TextInput value={amountText} onChangeText={setAmountText} keyboardType="decimal-pad" placeholder="Amount" placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+          <AppText style={styles.sectionTitle}>{stripeConnectConfigured ? t('account.payouts.requestTestPayout') : t('account.payouts.requestDemoPayout')}</AppText>
+          <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.payouts.withdrawLabel')}: {money(available, currency, language)}</AppText>
+          <View style={styles.presetRow}>{presetAmounts.map((amount) => <Pressable key={amount} accessibilityRole="button" onPress={() => setAmountText((amount / 100).toFixed(2))} style={({ pressed }) => [styles.presetButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.presetText}>{money(amount, currency, language)}</AppText></Pressable>)}</View>
+          <TextInput value={amountText} onChangeText={setAmountText} keyboardType="decimal-pad" placeholder={t('account.addMoney.amount')} placeholderTextColor={theme.color.muted} style={[styles.amountInput, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
           <PayoutBreakdown grossAmountCents={selectedAmount} currency={currency} platformFeeRateBps={platformFeeRateBps} />
-          <AppText style={[styles.validationText, { color: theme.color.muted }]}>By requesting payout, you agree that Hellowhen keeps a {formatPayoutFeeRate(platformFeeRateBps)} platform fee from payout-eligible earnings. Estimated payout: {formatMoney(selectedNet, currency)}.</AppText>
-          {selectedAmount > available ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Amount is above your available payout balance.</AppText> : null}
-          {!payoutConnected ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>{stripeConnectConfigured ? 'Complete Stripe Connect test onboarding first.' : 'Connect the Stripe demo payout account first.'}</AppText> : null}
-          {limits && !limits.payoutsEnabled ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Payouts are disabled for your current trust tier.</AppText> : null}
-          {limits && selectedAmount > 0 && selectedAmount < minimumPayoutCents ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Minimum payout is {formatMoney(minimumPayoutCents, currency)}.</AppText> : null}
-          {safetyBlocked ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>Accept the current money safety policies before requesting payout.</AppText> : null}
-          {weeklyRemainingCents !== null && selectedAmount > weeklyRemainingCents ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>This amount is above your remaining weekly payout limit.</AppText> : null}
+          <AppText style={[styles.validationText, { color: theme.color.muted }]}>{t('account.payouts.payoutAgreement', { rate, amount: money(selectedNet, currency, language) })}</AppText>
+          {selectedAmount > available ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.payouts.aboveAvailable')}</AppText> : null}
+          {!payoutConnected ? <AppText style={[styles.validationText, { color: theme.color.muted }]}>{stripeConnectConfigured ? t('account.payouts.connectFirstStripe') : t('account.payouts.connectFirstDemo')}</AppText> : null}
+          {limits && !limits.payoutsEnabled ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.payouts.disabledForTier')}</AppText> : null}
+          {limits && selectedAmount > 0 && selectedAmount < minimumPayoutCents ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.payouts.minimumIs', { amount: money(minimumPayoutCents, currency, language) })}</AppText> : null}
+          {safetyBlocked ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.payouts.safetyBlocked')}</AppText> : null}
+          {weeklyRemainingCents !== null && selectedAmount > weeklyRemainingCents ? <AppText style={[styles.validationText, { color: theme.semantic.danger.text }]}>{t('account.payouts.aboveWeekly')}</AppText> : null}
           <Pressable accessibilityRole="button" disabled={!canRequest || actionLoading === 'payout'} onPress={() => { void requestDemoPayout(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.success.bg }, (!canRequest || actionLoading === 'payout') && styles.disabled, pressed && canRequest && styles.pressed]}>
-            <AppText style={styles.primaryButtonText}>{actionLoading === 'payout' ? 'Sending...' : (stripeConnectConfigured ? 'Request test payout' : 'Request demo payout')}</AppText>
+            <AppText style={styles.primaryButtonText}>{actionLoading === 'payout' ? t('account.payouts.requesting') : (stripeConnectConfigured ? t('account.payouts.requestTestPayout') : t('account.payouts.requestDemoPayout'))}</AppText>
           </Pressable>
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Payout history</AppText>
-          {payouts.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>No payout history yet.</AppText> : payouts.map((payout) => <PayoutRow key={payout.id} payout={payout} theme={theme} />)}
+          <AppText style={styles.sectionTitle}>{t('account.payouts.history')}</AppText>
+          {payouts.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.payouts.noPayouts')}</AppText> : payouts.map((payout) => <PayoutRow key={payout.id} payout={payout} theme={theme} />)}
         </AppCard>
       </ScrollView>
     </AppFixedHeaderScreen>
@@ -323,18 +328,21 @@ export function PayoutsScreen({ navigation }: Props) {
 }
 
 function Metric({ theme, label, value, currency, tone }: { theme: ThemeTokens; label: string; value: number; currency: string; tone: 'success' | 'time' | 'info' | 'danger' }) {
-  return <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>;
+  const { language } = useTranslation();
+  return <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{money(value, currency, language)}</AppText></View>;
 }
 
 function PayoutBreakdown({ grossAmountCents, currency, platformFeeRateBps }: { grossAmountCents: number; currency: string; platformFeeRateBps: number }) {
   const theme = useThemeTokens();
+  const { t, language } = useTranslation();
+  const rate = formatPayoutFeeRate(platformFeeRateBps);
   const feeCents = calculatePayoutFeeCents(grossAmountCents, platformFeeRateBps);
   const netCents = Math.max(0, grossAmountCents - feeCents);
   return (
     <View style={[styles.breakdownBox, { borderColor: theme.color.border, backgroundColor: theme.color.subtleSurface }]}>
-      <BreakdownRow label="Payout-eligible earnings" value={formatMoney(grossAmountCents, currency)} />
-      <BreakdownRow label={`Platform fee, ${formatPayoutFeeRate(platformFeeRateBps)}`} value={`-${formatMoney(feeCents, currency)}`} danger />
-      <BreakdownRow label="Estimated payout" value={formatMoney(netCents, currency)} total />
+      <BreakdownRow label={t('account.payouts.gross')} value={money(grossAmountCents, currency, language)} />
+      <BreakdownRow label={t('account.payouts.platformFeeWithRate', { rate })} value={`-${money(feeCents, currency, language)}`} danger />
+      <BreakdownRow label={t('account.payouts.estimatedPayout')} value={money(netCents, currency, language)} total />
     </View>
   );
 }
@@ -345,10 +353,11 @@ function BreakdownRow({ label, value, danger, total }: { label: string; value: s
 }
 
 function PayoutRow({ payout, theme }: { payout: PayoutRequestDto; theme: ThemeTokens }) {
+  const { t, language } = useTranslation();
   const grossCents = getPayoutGrossCents(payout);
   const feeCents = getPayoutFeeCents(payout);
   const netCents = getPayoutNetCents(payout);
-  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} size="sm" /><AppText style={styles.payoutTitle}>{formatMoney(netCents, payout.currency)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>Gross {formatMoney(grossCents, payout.currency)} · fee {formatMoney(feeCents, payout.currency)}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatDate(payout.paidAt ?? payout.requestedAt)}</AppText></View>;
+  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} size="sm" /><AppText style={styles.payoutTitle}>{money(netCents, payout.currency, language)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{t('account.payouts.grossFee', { gross: money(grossCents, payout.currency, language), fee: money(feeCents, payout.currency, language) })}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatLocalizedShortDate(payout.paidAt ?? payout.requestedAt, language, '')}</AppText></View>;
 }
 
 const styles = StyleSheet.create({

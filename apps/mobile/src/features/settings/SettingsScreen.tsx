@@ -3,6 +3,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Switch, View } from 
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { AppSettings } from '@hellowhen/contracts';
+import type { LanguagePreference } from '@hellowhen/i18n';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
@@ -14,20 +15,30 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type SettingsResponse = { settings: AppSettings };
 type AppearanceValue = AppSettings['appearance'];
 
-const appearanceOptions: Array<{ label: string; value: AppearanceValue }> = [
-  { label: 'System', value: 'system' },
-  { label: 'Light', value: 'light' },
-  { label: 'Dark', value: 'dark' },
+type ChoiceOption<T extends string> = { labelKey: string; value: T };
+
+const appearanceOptions: Array<ChoiceOption<AppearanceValue>> = [
+  { labelKey: 'settings.appearance.options.system.title', value: 'system' },
+  { labelKey: 'settings.appearance.options.light.title', value: 'light' },
+  { labelKey: 'settings.appearance.options.dark.title', value: 'dark' },
+];
+
+const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
+  { labelKey: 'settings.language.options.system.title', value: 'system' },
+  { labelKey: 'settings.language.options.en.title', value: 'en' },
+  { labelKey: 'settings.language.options.fr.title', value: 'fr' },
 ];
 
 export function SettingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const auth = useAuth();
   const { settings, setSettings } = useAppSettings();
+  const { t } = useTranslation();
   const theme = useThemeTokens();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -49,7 +60,6 @@ export function SettingsScreen() {
   }, [setSettings]);
 
   useFocusEffect(useCallback(() => { void loadSettings(); }, [loadSettings]));
-
 
   async function requestEmailVerification() {
     setSaving(true);
@@ -101,34 +111,50 @@ export function SettingsScreen() {
   return (
     <AppScreen>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadSettings(); }} />}>
-        <AppHeader title="Settings" onBack={() => navigation.goBack()} />
+        <AppHeader title={t('navigation.routes.settings')} onBack={() => navigation.goBack()} />
         <View style={styles.header}>
-          <SemanticBadge label="Settings" tone="instruction" />
-          <AppText style={styles.title}>Settings</AppText>
-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Manage notifications, appearance, and privacy preferences.</AppText>
+          <SemanticBadge label={t('settings.eyebrow')} tone="instruction" />
+          <AppText style={styles.title}>{t('navigation.routes.settings')}</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('settings.body')}</AppText>
         </View>
 
-        {error ? <InfoNotice tone="danger" title="Settings unavailable" body={error} /> : null}
-        {saved ? <InfoNotice tone="success" title="Saved" body="Your settings have been updated." /> : null}
+        {error ? <InfoNotice tone="danger" title={t('settings.unavailableTitle')} body={error} /> : null}
+        {saved ? <InfoNotice tone="success" title={t('common.states.saved')} body={t('common.messages.settingsUpdated')} /> : null}
+
+        <AppCard>
+          <AppText style={styles.sectionTitle}>{t('settings.language.title')}</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.language.body')}</AppText>
+          <View style={styles.optionRow}>
+            {languageOptions.map((option) => (
+              <ChoiceButton
+                key={option.value}
+                label={t(option.labelKey)}
+                selected={settings.language === option.value}
+                disabled={saving}
+                onPress={() => { void updateSettings({ language: option.value }); }}
+              />
+            ))}
+          </View>
+        </AppCard>
 
         <AppCard>
           <View style={styles.switchRow}>
             <View style={styles.switchCopy}>
-              <AppText style={styles.sectionTitle}>Notifications</AppText>
-              <AppText style={[styles.body, { color: theme.color.muted }]}>Trade updates, proposal messages, image/content reports, and support activity.</AppText>
+              <AppText style={styles.sectionTitle}>{t('settings.notifications.title')}</AppText>
+              <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.notifications.bodyNative')}</AppText>
             </View>
             <Switch value={settings.notificationsEnabled} disabled={saving} onValueChange={(value) => { void updateSettings({ notificationsEnabled: value }); }} />
           </View>
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Appearance</AppText>
-          <AppText style={[styles.body, { color: theme.color.muted }]}>Use your system theme, or choose light or dark mode for this device.</AppText>
+          <AppText style={styles.sectionTitle}>{t('settings.appearance.titleNative')}</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.appearance.bodyNative')}</AppText>
           <View style={styles.optionRow}>
             {appearanceOptions.map((option) => (
               <ChoiceButton
                 key={option.value}
-                label={option.label}
+                label={t(option.labelKey)}
                 selected={settings.appearance === option.value}
                 disabled={saving}
                 onPress={() => { void updateSettings({ appearance: option.value }); }}
@@ -138,27 +164,27 @@ export function SettingsScreen() {
         </AppCard>
 
         <AppCard>
-          <SemanticBadge label="Security" tone="time" size="sm" />
-          <AppText style={styles.sectionTitle}>Account protection</AppText>
-          <AppText style={[styles.body, { color: theme.color.muted }]}>Email verification and two-step verification help protect your account, trades, and support messages. Authenticator app setup is available on web first.</AppText>
+          <SemanticBadge label={t('settings.security.badge')} tone="time" size="sm" />
+          <AppText style={styles.sectionTitle}>{t('settings.security.title')}</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.security.bodyNative')}</AppText>
           <View style={styles.securityRows}>
-            <AppText style={styles.securityLine}>Email: {auth.user?.emailVerifiedAt ? 'verified' : 'not verified'}</AppText>
-            <AppText style={styles.securityLine}>Authenticator: {auth.user?.twoFactorEnabled ? 'enabled' : 'off'}</AppText>
+            <AppText style={styles.securityLine}>{t('settings.security.email')}: {auth.user?.emailVerifiedAt ? t('settings.security.verified').toLowerCase() : t('settings.security.notVerified').toLowerCase()}</AppText>
+            <AppText style={styles.securityLine}>{t('settings.security.authenticator')}: {auth.user?.twoFactorEnabled ? t('settings.security.enabled').toLowerCase() : t('settings.security.off').toLowerCase()}</AppText>
           </View>
           <View style={styles.optionRow}>
             <Pressable accessibilityRole="button" disabled={saving || Boolean(auth.user?.emailVerifiedAt)} onPress={() => { void requestEmailVerification(); }} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (saving || Boolean(auth.user?.emailVerifiedAt)) && styles.disabled, pressed && styles.pressed]}>
-              <AppText style={styles.choiceButtonText}>Verify email</AppText>
+              <AppText style={styles.choiceButtonText}>{t('common.actions.verifyEmail')}</AppText>
             </Pressable>
             <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void logoutAllDevices(); }} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, saving && styles.disabled, pressed && styles.pressed]}>
-              <AppText style={styles.choiceButtonText}>Logout all devices</AppText>
+              <AppText style={styles.choiceButtonText}>{t('common.actions.logoutAllDevices')}</AppText>
             </Pressable>
           </View>
         </AppCard>
 
         <AppCard>
-          <SemanticBadge label="Privacy" tone="info" size="sm" />
-          <AppText style={styles.sectionTitle}>Profile visibility</AppText>
-          <AppText style={[styles.body, { color: theme.color.muted }]}>Only your public profile, active trades, and active need/offer images appear in public trade decks.</AppText>
+          <SemanticBadge label={t('settings.privacy.badge')} tone="info" size="sm" />
+          <AppText style={styles.sectionTitle}>{t('settings.privacy.title')}</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.privacy.body')}</AppText>
         </AppCard>
       </ScrollView>
     </AppScreen>

@@ -5,18 +5,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { getFriendlyApiErrorMessage } from '../lib/webErrors';
 import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSupportedCurrency, type SupportedCurrency } from '../lib/webMoneyPreferences';
 import { useWebAuth } from '../providers/WebAuthProvider';
+import { useWebTranslation } from '../providers/WebI18nProvider';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 
-function authSubtitle(mode: AuthMode) {
-  if (mode === 'register') return 'Create your account and set local display preferences for the beta.';
-  if (mode === 'forgot') return 'Request a reset link for your Hellowhen account.';
-  return 'Sign in to create needs, offers, trades, and proposals.';
+function subtitleKey(mode: AuthMode) {
+  if (mode === 'register') return 'auth.subtitles.register';
+  if (mode === 'forgot') return 'auth.subtitles.forgot';
+  return 'auth.subtitles.login';
 }
 
 export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }) {
   const router = useRouter();
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const [mode, setMode] = useState<AuthMode>('login');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,11 +33,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
   const [error, setError] = useState<string | null>(null);
 
   const primaryLabel = useMemo(() => {
-    if (submitting) return 'Working...';
-    if (mode === 'register') return 'Create account';
-    if (mode === 'forgot') return 'Send reset link';
-    return 'Login';
-  }, [mode, submitting]);
+    if (submitting) return t('common.states.working');
+    if (mode === 'register') return t('auth.actions.createAccount');
+    if (mode === 'forgot') return t('auth.actions.sendResetLink');
+    return t('auth.actions.login');
+  }, [mode, submitting, t]);
 
   useEffect(() => {
     if (!auth.hydrated || !auth.isAuthenticated) return;
@@ -50,13 +52,13 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
   }
 
   function validateLocalForm() {
-    if (!email.trim()) return 'Enter your email.';
-    if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
-    if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
-    if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
-    if (mode === 'register' && !countryCode) return 'Choose your country.';
-    if (mode === 'register' && !preferredCurrency) return 'Choose your display currency.';
-    if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
+    if (!email.trim()) return t('auth.errors.emailRequired');
+    if (mode !== 'forgot' && password.length < 8) return t('auth.errors.passwordMin');
+    if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
+    if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
+    if (mode === 'register' && !countryCode) return t('auth.errors.countryRequired');
+    if (mode === 'register' && !preferredCurrency) return t('auth.errors.currencyRequired');
+    if (mode === 'register' && !acceptedTerms) return t('auth.errors.termsRequired');
     return null;
   }
 
@@ -101,36 +103,36 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
   return (
     <section className="mobile-card auth-panel">
       <div className="auth-brand-block">
-        <span className="semantic-badge trade">Trade</span>
+        <span className="semantic-badge trade">{t('auth.brandBadge')}</span>
         <h1>Hellowhen</h1>
-        <p>{authSubtitle(mode)}</p>
+        <p>{t(subtitleKey(mode))}</p>
       </div>
 
       <div className="auth-toggle-row" role="tablist" aria-label="Auth mode">
-        <button className={mode === 'login' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('login')}>Login</button>
-        <button className={mode === 'register' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('register')}>Register</button>
-        <button className={mode === 'forgot' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('forgot')}>Reset</button>
+        <button className={mode === 'login' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('login')}>{t('auth.modes.login')}</button>
+        <button className={mode === 'register' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('register')}>{t('auth.modes.register')}</button>
+        <button className={mode === 'forgot' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('forgot')}>{t('auth.modes.reset')}</button>
       </div>
 
       <div className="form-stack">
         {mode === 'register' ? (
           <label className="field-label">
-            Full name
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Mina Chen" autoComplete="name" />
+            {t('auth.fields.fullName')}
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={t('auth.placeholders.fullName')} autoComplete="name" />
           </label>
         ) : null}
 
         <label className="field-label">
-          Email
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" type="email" />
+          {t('auth.fields.email')}
+          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t('auth.placeholders.email')} autoComplete="email" type="email" />
         </label>
 
         {mode !== 'forgot' ? (
           <label className="field-label">
-            Password
+            {t('auth.fields.password')}
             <div className="password-field">
-              <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} type={showPassword ? 'text' : 'password'} />
-              <button type="button" className="inline-button" onClick={() => setShowPassword((value) => !value)}>{showPassword ? 'Hide' : 'Show'}</button>
+              <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t('auth.placeholders.passwordMin')} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} type={showPassword ? 'text' : 'password'} />
+              <button type="button" className="inline-button" onClick={() => setShowPassword((value) => !value)}>{showPassword ? t('common.actions.hide') : t('common.actions.show')}</button>
             </div>
           </label>
         ) : null}
@@ -138,17 +140,17 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
         {mode === 'register' ? (
           <>
             <label className="field-label">
-              Confirm password
-              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat password" autoComplete="new-password" type={showPassword ? 'text' : 'password'} />
+              {t('auth.fields.confirmPassword')}
+              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder={t('auth.placeholders.repeatPassword')} autoComplete="new-password" type={showPassword ? 'text' : 'password'} />
             </label>
 
             <div className="preference-panel">
               <div>
-                <h3>Local display</h3>
-                <p>Used to localize trade display. Full address details are not collected in this beta.</p>
+                <h3>{t('auth.localDisplay.title')}</h3>
+                <p>{t('auth.localDisplay.body')}</p>
               </div>
               <label className="field-label">
-                Country
+                {t('auth.fields.country')}
                 <select
                   value={countryCode}
                   onChange={(event) => {
@@ -158,12 +160,12 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
                   }}
                 >
                   {countryOptions.map((country) => (
-                    <option key={country.code} value={country.code}>{country.label} · default {country.currency.toUpperCase()}</option>
+                    <option key={country.code} value={country.code}>{country.label} · {t('auth.localDisplay.countryDefaultCurrency', { currency: country.currency.toUpperCase() })}</option>
                   ))}
                 </select>
               </label>
               <label className="field-label">
-                Display currency
+                {t('auth.fields.displayCurrency')}
                 <select
                   value={preferredCurrency}
                   onChange={(event) => {
@@ -179,19 +181,19 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
             <label className="checkbox-row">
               <input checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} type="checkbox" />
-              <span>I agree to the Terms and Privacy Policy.</span>
+              <span>{t('auth.terms')}</span>
             </label>
           </>
         ) : null}
       </div>
 
-      {mode === 'forgot' ? <p className="notice-box info">Enter your account email and we will send a reset link if the account exists.</p> : null}
+      {mode === 'forgot' ? <p className="notice-box info">{t('auth.forgotNotice')}</p> : null}
       {message ? <p className="notice-box success">{message}</p> : null}
       {error ? <p className="notice-box danger">{error}</p> : null}
 
       <div className="auth-actions">
         <button type="button" onClick={() => { void submit(); }} disabled={submitting}>{primaryLabel}</button>
-        <button type="button" className="secondary" disabled title="Google sign-in is not wired for web yet">Continue with Google</button>
+        <button type="button" className="secondary" disabled title="Google sign-in is not wired for web yet">{t('auth.actions.continueWithGoogle')}</button>
       </div>
     </section>
   );

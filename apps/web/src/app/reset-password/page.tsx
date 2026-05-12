@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 export default function ResetPasswordPage() {
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const [token, setToken] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -24,15 +26,15 @@ export default function ResetPasswordPage() {
     setMessage(null);
     setError(null);
     try {
-      if (!token) throw new Error('Missing reset token. Request a new link from the login screen.');
-      if (password.length < 8) throw new Error('Password must be at least 8 characters.');
-      if (password !== confirmPassword) throw new Error('Passwords do not match.');
+      if (!token) throw new Error(t('auth.reset.missingTokenError'));
+      if (password.length < 8) throw new Error(t('auth.errors.passwordMin'));
+      if (password !== confirmPassword) throw new Error(t('auth.errors.passwordsMismatch'));
       const result = await auth.resetPassword(token, password, confirmPassword);
-      setMessage(result.message ?? 'Password reset. You can now log in.');
+      setMessage(result.message ?? t('auth.reset.success'));
       setPassword('');
       setConfirmPassword('');
     } catch (caughtError) {
-      setError(caughtError instanceof Error && caughtError.message.startsWith('Missing reset token') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+      setError(caughtError instanceof Error && caughtError.message === t('auth.reset.missingTokenError') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
     } finally {
       setLoading(false);
     }
@@ -40,24 +42,24 @@ export default function ResetPasswordPage() {
 
   return (
     <section className="card auth-card reset-card">
-      <span className="semantic-badge instruction">Password reset</span>
-      <h1>Reset your Hellowhen password</h1>
-      <p className="notice-box info">Choose a new password for your Hellowhen account. Reset links are one-time use and expire automatically.</p>
-      {!token ? <p className="notice-box danger">Missing reset token. Open the link from your email or request a new reset link.</p> : null}
+      <span className="semantic-badge instruction">{t('auth.reset.badge')}</span>
+      <h1>{t('auth.reset.title')}</h1>
+      <p className="notice-box info">{t('auth.reset.body')}</p>
+      {!token ? <p className="notice-box danger">{t('auth.reset.missingToken')}</p> : null}
       <div className="form-stack">
         <label className="field-label">
-          New password
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="At least 8 characters" type="password" autoComplete="new-password" />
+          {t('auth.fields.newPassword')}
+          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder={t('auth.placeholders.passwordMin')} type="password" autoComplete="new-password" />
         </label>
         <label className="field-label">
-          Confirm new password
-          <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Repeat password" type="password" autoComplete="new-password" />
+          {t('auth.fields.confirmNewPassword')}
+          <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder={t('auth.placeholders.repeatPassword')} type="password" autoComplete="new-password" />
         </label>
-        <button onClick={() => { void submit(); }} disabled={loading || !token} type="button">{loading ? 'Resetting...' : 'Reset password'}</button>
+        <button onClick={() => { void submit(); }} disabled={loading || !token} type="button">{loading ? t('auth.actions.resetting') : t('auth.actions.resetPassword')}</button>
       </div>
       {message ? <p className="notice-box success">{message}</p> : null}
       {error ? <p className="notice-box danger">{error}</p> : null}
-      <Link href="/auth" className="button full">Back to login</Link>
+      <Link href="/auth" className="button full">{t('auth.actions.backToLogin')}</Link>
     </section>
   );
 }

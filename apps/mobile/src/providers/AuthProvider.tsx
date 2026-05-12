@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { AuthUser, ForgotPasswordResponse } from '@hellowhen/contracts';
 import { api } from '../lib/api';
+import { useAppSettings } from './AppSettingsProvider';
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../lib/tokenStore';
 
 type AuthProfilePatch = Partial<NonNullable<AuthUser['profile']>>;
@@ -39,12 +40,14 @@ async function persistReturnedTokens(result: { accessToken?: string; refreshToke
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { refreshSettings } = useAppSettings();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   async function applyAuthResult(result: AuthMeResponse) {
     await persistReturnedTokens(result);
     setUser(result.user);
+    await refreshSettings().catch(() => undefined);
   }
 
   async function refreshSession() {

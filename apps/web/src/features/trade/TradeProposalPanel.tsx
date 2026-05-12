@@ -6,9 +6,10 @@ import type { NeedDto, OfferDto, ProposalMessageDto, TradeDto, TradeProposalDto 
 import { useEffect, useMemo, useState } from 'react';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
-import { getTradePostType, getTradeProposalCopy } from './tradePresentation';
+import { getStatusLabel, getTradePostType, getTradeProposalCopy, type TradeI18n } from './tradePresentation';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
 type ProposalMessageResponse = { message?: ProposalMessageDto; proposal?: TradeProposalDto };
@@ -95,16 +96,16 @@ function upsertProposal(list: TradeProposalDto[], proposal: TradeProposalDto) {
   return list.map((item) => item.id === proposal.id ? { ...item, ...proposal, messages: proposal.messages ?? item.messages } : item);
 }
 
-function proposalApplicantStatus(proposal: TradeProposalDto) {
+function proposalApplicantStatus(proposal: TradeProposalDto, i18n?: TradeI18n) {
   const sideItem = proposalSideItem(proposal);
-  if (sideItem?.kind === 'offer') return 'Offer proposal';
-  if (sideItem?.kind === 'need') return 'Need proposal';
-  return 'Trade request';
+  if (sideItem?.kind === 'offer') return i18n?.t?.('trade.proposals.offerProposal') ?? 'Offer proposal';
+  if (sideItem?.kind === 'need') return i18n?.t?.('trade.proposals.needProposal') ?? 'Need proposal';
+  return i18n?.t?.('trade.proposals.tradeRequest') ?? 'Trade request';
 }
 
-function messageSenderStatus(message: ProposalMessageDto, currentUserId?: string | null) {
-  if (message.senderId === currentUserId) return 'You';
-  return 'Private message';
+function messageSenderStatus(message: ProposalMessageDto, currentUserId?: string | null, i18n?: TradeI18n) {
+  if (message.senderId === currentUserId) return i18n?.t?.('trade.labels.you') ?? 'You';
+  return i18n?.t?.('trade.labels.privateMessage') ?? 'Private message';
 }
 
 function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
@@ -125,9 +126,9 @@ function firstMediaUrl(item: NeedDto | OfferDto) {
   return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
 }
 
-function sideMeta(item: NeedDto | OfferDto) {
+function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
   const sideTiming = (item as NeedDto).timing ?? (item as OfferDto).availability;
-  return [item.category, item.mode, sideTiming].filter(Boolean).join(' · ') || item.itemType || 'Saved item';
+  return [item.category, item.mode, sideTiming].filter(Boolean).join(' · ') || item.itemType || i18n?.t?.('trade.labels.savedItem') || 'Saved item';
 }
 
 
@@ -137,7 +138,7 @@ function proposalSideItem(proposal: TradeProposalDto): { kind: 'need'; item: Nee
   return null;
 }
 
-function ProposalSidePreview({ kind, item, label, compact = false }: { kind: 'need' | 'offer'; item: NeedDto | OfferDto; label?: string; compact?: boolean }) {
+function ProposalSidePreview({ kind, item, label, compact = false, i18n }: { kind: 'need' | 'offer'; item: NeedDto | OfferDto; label?: string; compact?: boolean; i18n?: TradeI18n }) {
   const mediaUrl = firstMediaUrl(item);
   const iconName: WebIconName = kind === 'offer' ? 'offer' : 'need';
   return (
@@ -146,10 +147,10 @@ function ProposalSidePreview({ kind, item, label, compact = false }: { kind: 'ne
         {mediaUrl ? <img src={mediaUrl} alt="" /> : <WebIcon name={iconName} size={22} decorative />}
       </div>
       <div className="proposal-side-preview__body">
-        <span className="proposal-side-preview__label">{label ?? (kind === 'offer' ? 'Proposed Offer' : 'Proposed Need')}</span>
+        <span className="proposal-side-preview__label">{label ?? (kind === 'offer' ? i18n?.t?.('trade.labels.proposedOffer') ?? 'Proposed Offer' : i18n?.t?.('trade.labels.proposedNeed') ?? 'Proposed Need')}</span>
         <strong>{item.title}</strong>
         <p>{item.description}</p>
-        <em>{sideMeta(item)}</em>
+        <em>{sideMeta(item, i18n)}</em>
       </div>
     </div>
   );
@@ -157,8 +158,10 @@ function ProposalSidePreview({ kind, item, label, compact = false }: { kind: 'ne
 
 export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
   const auth = useWebAuth();
+  const { t, language } = useWebTranslation();
+  const i18n = { t, language };
   const isOwner = auth.user?.id === trade.ownerId;
-  const proposalCopy = getTradeProposalCopy(trade);
+  const proposalCopy = getTradeProposalCopy(trade, i18n);
   const requiredProposalSide = proposalSideRequirement(trade);
   const [proposals, setProposals] = useState<TradeProposalDto[]>([]);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
@@ -196,7 +199,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
         setProposals(nextProposals);
         setSelectedProposalId((current) => current && nextProposals.some((proposal) => proposal.id === current) ? current : nextProposals.find((proposal) => proposal.status === 'accepted')?.id ?? nextProposals[0]?.id ?? null);
       } catch {
-        if (mounted) setNotice('Proposal access is private. Sign in as the creator or applicant to see live proposal threads.');
+        if (mounted) setNotice(t('trade.proposals.proposalAccessPrivate'));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -226,7 +229,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
           setProposedNeedId((current) => current && needs.some((need) => need.id === current) ? current : needs.find((need) => !['fulfilled', 'closed', 'expired'].includes(need.status))?.id ?? '');
         }
       } catch {
-        if (mounted) setNotice(requiredProposalSide === 'offer' ? 'Could not load your saved Offers yet.' : 'Could not load your saved Needs yet.');
+        if (mounted) setNotice(requiredProposalSide === 'offer' ? t('trade.errors.couldNotLoadOffers') : t('trade.errors.couldNotLoadNeeds'));
       } finally {
         if (mounted) setSideLoading(false);
       }
@@ -273,7 +276,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       setProposals((current) => upsertProposal(current, proposal));
       setSelectedProposalId(proposal.id);
       setProposalMessage('');
-      setNotice('Proposal sent. The creator can review it from this trade detail page.');
+      setNotice(t('trade.proposals.proposalSent'));
     } catch (error) {
       const existingProposal = proposalFromError(error);
       if (existingProposal) {
@@ -281,7 +284,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
         setSelectedProposalId(existingProposal.id);
         setProposalMessage('');
       }
-      setNotice(existingProposal ? 'You already have a proposal on this trade, so the existing private thread is open below.' : 'Could not send the proposal yet. Check that you are signed in and the API is running.');
+      setNotice(existingProposal ? t('trade.proposals.proposalAlreadyOpen') : t('trade.errors.couldNotSendProposal'));
     } finally {
       setLoading(false);
     }
@@ -301,11 +304,11 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       });
       if (nextTrade) onTradeChange?.(nextTrade);
       setSelectedProposalId(proposalId);
-      setNotice(status === 'accepted' ? 'Proposal accepted. The trade is now in progress and the accepted private conversation stays here.' : 'Proposal declined.');
+      setNotice(status === 'accepted' ? t('trade.proposals.proposalAccepted') : t('trade.proposals.proposalDeclined'));
       const refreshed = normalizeProposals(await api.trades.proposals(trade.id));
       if (refreshed.length) setProposals(refreshed);
     } catch {
-      setNotice('Could not update the proposal status yet.');
+      setNotice(t('trade.errors.couldNotUpdateProposal'));
     } finally {
       setLoading(false);
     }
@@ -329,7 +332,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       }
       setReply('');
     } catch {
-      setNotice('Could not send this message yet.');
+      setNotice(t('trade.errors.couldNotSendMessage'));
     } finally {
       setLoading(false);
     }
@@ -338,8 +341,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
   if (!auth.hydrated) {
     return (
       <section className="trade-social-section">
-        <h2><WebIcon name="proposal" size={21} decorative /> Proposals</h2>
-        <p>Checking your account access...</p>
+        <h2><WebIcon name="proposal" size={21} decorative /> {t('trade.proposals.title')}</h2>
+        <p>{t('auth.checkingAccess')}</p>
       </section>
     );
   }
@@ -349,7 +352,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       <section className="trade-social-section">
         <h2><WebIcon name="proposal" size={21} decorative /> {proposalCopy.signedOutTitle}</h2>
         <p>{proposalCopy.helper}</p>
-        <Link href={`/auth?next=${encodeURIComponent(`/trades/${trade.id}`)}`} className="button primary full">Sign in to send a proposal</Link>
+        <Link href={`/auth?next=${encodeURIComponent(`/trades/${trade.id}`)}`} className="button primary full">{t('trade.proposals.signInToSend')}</Link>
       </section>
     );
   }
@@ -358,10 +361,10 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
     <section className="trade-social-section">
       <div className="trade-section-heading">
         <div>
-          <p className="eyebrow">Private thread</p>
-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? 'Proposals' : ownProposal ? 'Your proposal' : proposalCopy.actionTitle}</h2>
+          <p className="eyebrow">{t('trade.labels.privateThread')}</p>
+          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
         </div>
-        {loading ? <span className="semantic-badge instruction">Updating</span> : null}
+        {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
       </div>
 
       {notice ? <p className="notice-box info">{notice}</p> : null}
@@ -372,18 +375,18 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
             <p className="proposal-side-callout">
               <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
               {requiredProposalSide === 'offer'
-                ? 'Choose one of your active Offers first. This is what you are proposing for the creator’s Open Need.'
-                : 'Choose one of your active Needs first. This is what you are proposing for the creator’s Open Offer.'}
+                ? t('trade.proposals.chooseOfferFirst')
+                : t('trade.proposals.chooseNeedFirst')}
             </p>
           ) : null}
           {requiredProposalSide === 'offer' ? (
             <div className="proposal-side-picker">
               <div className="trade-section-heading compact">
                 <div>
-                  <p className="eyebrow">Your Offer</p>
-                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> Choose existing Offer to propose</h3>
+                  <p className="eyebrow">{t('trade.labels.yourOffer')}</p>
+                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> {t('trade.proposals.chooseOfferToPropose')}</h3>
                 </div>
-                {sideLoading ? <span className="semantic-badge instruction">Loading</span> : null}
+                {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
               </div>
               {activeProposalOffers.length ? (
                 <div className="trade-side-option-list proposal-side-option-list">
@@ -393,8 +396,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
                       <button key={offer.id} type="button" className={offer.id === proposedOfferId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedOfferId(offer.id)}>
                         <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'O'}</span>
                         <span className="trade-side-option__body">
-                          <span className="trade-side-option__top"><strong>{offer.title}</strong><em>Offer</em></span>
-                          <span>{sideMeta(offer)}</span>
+                          <span className="trade-side-option__top"><strong>{offer.title}</strong><em>{t('inventory.labels.offer')}</em></span>
+                          <span>{sideMeta(offer, i18n)}</span>
                         </span>
                       </button>
                     );
@@ -403,9 +406,9 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
               ) : (
                 <div className="proposal-empty-state proposal-empty-state--compact">
                   <WebIcon name="offer" size={28} decorative />
-                  <strong>No active Offers yet</strong>
-                  <span>Create or save an Offer first, then come back to propose it for this Open Need.</span>
-                  <Link href="/offers" className="button secondary full">Go to Offers</Link>
+                  <strong>{t('trade.proposals.noActiveOffers')}</strong>
+                  <span>{t('trade.proposals.createOfferFirst')}</span>
+                  <Link href="/offers" className="button secondary full">{t('trade.proposals.goToOffers')}</Link>
                 </div>
               )}
             </div>
@@ -415,10 +418,10 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
             <div className="proposal-side-picker">
               <div className="trade-section-heading compact">
                 <div>
-                  <p className="eyebrow">Your Need</p>
-                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> Choose existing Need to propose</h3>
+                  <p className="eyebrow">{t('trade.labels.yourNeed')}</p>
+                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> {t('trade.proposals.chooseNeedToPropose')}</h3>
                 </div>
-                {sideLoading ? <span className="semantic-badge instruction">Loading</span> : null}
+                {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
               </div>
               {activeProposalNeeds.length ? (
                 <div className="trade-side-option-list proposal-side-option-list">
@@ -428,8 +431,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
                       <button key={need.id} type="button" className={need.id === proposedNeedId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedNeedId(need.id)}>
                         <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'N'}</span>
                         <span className="trade-side-option__body">
-                          <span className="trade-side-option__top"><strong>{need.title}</strong><em>Need</em></span>
-                          <span>{sideMeta(need)}</span>
+                          <span className="trade-side-option__top"><strong>{need.title}</strong><em>{t('inventory.labels.need')}</em></span>
+                          <span>{sideMeta(need, i18n)}</span>
                         </span>
                       </button>
                     );
@@ -438,24 +441,24 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
               ) : (
                 <div className="proposal-empty-state proposal-empty-state--compact">
                   <WebIcon name="need" size={28} decorative />
-                  <strong>No active Needs yet</strong>
-                  <span>Create or save a Need first, then come back to propose it for this Open Offer.</span>
-                  <Link href="/needs" className="button secondary full">Go to Needs</Link>
+                  <strong>{t('trade.proposals.noActiveNeeds')}</strong>
+                  <span>{t('trade.proposals.createNeedFirst')}</span>
+                  <Link href="/needs" className="button secondary full">{t('trade.proposals.goToNeeds')}</Link>
                 </div>
               )}
             </div>
           ) : null}
 
           {requiredProposalSide === 'offer' && selectedOffer ? (
-            <ProposalSidePreview kind="offer" item={selectedOffer} label="Selected Offer" />
+            <ProposalSidePreview kind="offer" item={selectedOffer} label={t('trade.labels.selectedOffer')} i18n={i18n} />
           ) : null}
 
           {requiredProposalSide === 'need' && selectedNeed ? (
-            <ProposalSidePreview kind="need" item={selectedNeed} label="Selected Need" />
+            <ProposalSidePreview kind="need" item={selectedNeed} label={t('trade.labels.selectedNeed')} i18n={i18n} />
           ) : null}
 
           <label className="field-label proposal-message-field">
-            Message
+            {t('trade.labels.message')}
             <textarea value={proposalMessage} onChange={(event) => setProposalMessage(event.target.value)} placeholder={proposalCopy.placeholder} rows={4} />
           </label>
           <button type="submit" disabled={loading || sideLoading || proposalMessage.trim().length < 3 || !hasRequiredSide}>{proposalCopy.actionButton}</button>
@@ -475,20 +478,20 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
                     userId={proposal.applicantId}
                     variant="compact"
                     avatarSize="sm"
-                    statusText={proposalApplicantStatus(proposal)}
+                    statusText={proposalApplicantStatus(proposal, i18n)}
                     showHandle={false}
-                    ariaLabel="Open applicant public profile"
+                    ariaLabel={t('profile.actions.openApplicantProfile')}
                   />
-                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
+                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}</span>
                 </div>
                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
-                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
+                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact i18n={i18n} /> : null}
                   <span className="proposal-card__message">{proposal.message}</span>
                 </button>
                 {isOwner && proposal.status === 'pending' ? (
                   <div className="proposal-card__actions">
-                    <button type="button" className="success" onClick={() => void updateProposalStatus(proposal.id, 'accepted')}>Accept</button>
-                    <button type="button" className="secondary" onClick={() => void updateProposalStatus(proposal.id, 'declined')}>Decline</button>
+                    <button type="button" className="success" onClick={() => void updateProposalStatus(proposal.id, 'accepted')}>{t('trade.proposals.accept')}</button>
+                    <button type="button" className="secondary" onClick={() => void updateProposalStatus(proposal.id, 'declined')}>{t('trade.proposals.decline')}</button>
                   </div>
                 ) : null}
               </article>
@@ -498,7 +501,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       ) : isOwner && !notice ? (
         <div className="proposal-empty-state">
           <WebIcon name="proposal" size={30} decorative />
-          <strong>No proposals yet</strong>
+          <strong>{t('trade.proposals.noProposals')}</strong>
           <span>{proposalCopy.ownerEmpty}</span>
         </div>
       ) : null}
@@ -507,8 +510,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
         <div className="conversation-panel">
           <div className="trade-section-heading">
             <div>
-              <p className="eyebrow">Conversation</p>
-              <h3 className="icon-heading"><WebIcon name={proposalStatusIcon(selectedProposal.status)} size={18} decorative /> {selectedProposal.status === 'accepted' ? 'Accepted trade conversation' : 'Proposal conversation'}</h3>
+              <p className="eyebrow">{t('trade.labels.conversation')}</p>
+              <h3 className="icon-heading"><WebIcon name={proposalStatusIcon(selectedProposal.status)} size={18} decorative /> {selectedProposal.status === 'accepted' ? t('trade.proposals.acceptedTradeConversation') : t('trade.proposals.proposalConversation')}</h3>
             </div>
           </div>
           <div className="message-list">
@@ -521,11 +524,11 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
                     userId={selectedProposal.applicantId}
                     variant="compact"
                     avatarSize="sm"
-                    statusText="Proposal message"
+                    statusText={t('trade.labels.proposalMessage')}
                     showHandle={false}
                     className="message-bubble__identity"
                   />
-                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
+                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact i18n={i18n} /> : null}
                   <p>{selectedProposal.message}</p>
                 </article>
               );
@@ -537,7 +540,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
                   userId={message.senderId}
                   variant="compact"
                   avatarSize="sm"
-                  statusText={messageSenderStatus(message, auth.user?.id)}
+                  statusText={messageSenderStatus(message, auth.user?.id, i18n)}
                   showHandle={false}
                   className="message-bubble__identity"
                 />
@@ -547,12 +550,12 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
           </div>
           {canReplyToSelectedProposal ? (
             <form className="conversation-reply" onSubmit={sendReply}>
-              <label className="sr-only" htmlFor="proposal-reply">Reply</label>
-              <textarea id="proposal-reply" value={reply} onChange={(event) => setReply(event.target.value)} placeholder="Reply privately..." rows={3} />
-              <button type="submit" disabled={loading || !reply.trim()}>Send</button>
+              <label className="sr-only" htmlFor="proposal-reply">{t('trade.proposals.reply')}</label>
+              <textarea id="proposal-reply" value={reply} onChange={(event) => setReply(event.target.value)} placeholder={t('trade.proposals.replyPrivately')} rows={3} />
+              <button type="submit" disabled={loading || !reply.trim()}>{t('trade.proposals.send')}</button>
             </form>
           ) : (
-            <p className="meta">This proposal conversation is closed.</p>
+            <p className="meta">{t('trade.proposals.closedConversation')}</p>
           )}
         </div>
       ) : null}

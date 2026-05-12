@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { MobilePage, PageIntro } from '../../../components/MobilePage';
+import { MobilePage } from '../../../components/MobilePage';
+import { TranslatedPageIntro, TranslatedPageIntroLinkAction } from '../../../components/TranslatedPageIntro';
 import { betaFeatures } from '../../../lib/betaFeatures';
 import { WalletClient } from '../../../features/account/WalletClient';
 
@@ -9,11 +9,11 @@ export default function AccountWalletPage() {
 
   return (
     <MobilePage>
-      <PageIntro
-        eyebrow="Optional"
-        title="Wallet"
-        body="Manage optional exchange balances when this roadmap feature is enabled."
-        action={<Link href="/account/wallet/add" className="button primary">Add</Link>}
+      <TranslatedPageIntro
+        eyebrowKey="account.wallet.optionalWallet"
+        titleKey="account.wallet.title"
+        bodyKey="account.walletPageBody"
+        action={<TranslatedPageIntroLinkAction href="/account/wallet/add" labelKey="common.actions.add" />}
       />
       <WalletClient />
     </MobilePage>

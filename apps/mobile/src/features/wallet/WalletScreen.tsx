@@ -3,7 +3,8 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
-import { formatMoney } from '@hellowhen/shared';
+import { formatLocalizedMoney, formatLocalizedShortDate } from '@hellowhen/i18n';
+import type { SupportedLanguage } from '@hellowhen/i18n';
 import type { SemanticColorName, ThemeTokens } from '@hellowhen/theme';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
@@ -15,15 +16,16 @@ import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Wallet'>;
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
 type PayoutsResponse = { wallet: WalletDto; payouts: PayoutRequestDto[]; summary: PayoutSummaryDto };
 
 function formatLedgerType(type: string) { if (type === 'test_credit_grant') return 'demo top-up'; if (type === 'credit_purchase') return 'wallet top-up'; if (type === 'payout_requested') return 'payout'; return type.replaceAll('_', ' '); }
-function entryAmount(entry: LedgerEntryDto) { return entry.amountCents ? `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur')}` : formatMoney(0, entry.currency ?? 'eur'); }
+function formatMoney(cents: number, currency: string, language: SupportedLanguage) { return formatLocalizedMoney(cents, currency, language); }
+function entryAmount(entry: LedgerEntryDto, language: SupportedLanguage) { return entry.amountCents ? `${entry.amountCents > 0 ? '+' : ''}${formatMoney(entry.amountCents, entry.currency ?? 'eur', language)}` : formatMoney(0, entry.currency ?? 'eur', language); }
 function ledgerTone(type: string, amountCents: number): SemanticColorName { if (type.includes('hold')) return 'time'; if (type.includes('refund')) return 'warning'; if (type.includes('payout')) return amountCents < 0 ? 'danger' : 'info'; if (type.includes('release') || type.includes('earned')) return 'success'; if (amountCents < 0) return 'danger'; return 'credits'; }
-function formatDate(value: string) { const date = new Date(value); return Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''; }
 const defaultPayoutPlatformFeeRateBps = 1000;
 function normalizePayoutFeeRateBps(value?: number | null) { if (typeof value !== 'number' || !Number.isFinite(value)) return defaultPayoutPlatformFeeRateBps; return Math.min(Math.max(Math.trunc(value), 0), 5000); }
 function calculatePayoutFeeCents(grossAmountCents: number, platformFeeRateBps = defaultPayoutPlatformFeeRateBps) { const gross = Math.max(0, Math.trunc(grossAmountCents || 0)); const rate = normalizePayoutFeeRateBps(platformFeeRateBps); if (gross <= 0 || rate <= 0) return 0; return Math.min(gross, Math.round((gross * rate) / 10000)); }
@@ -31,6 +33,7 @@ function formatPayoutFeeRate(platformFeeRateBps = defaultPayoutPlatformFeeRateBp
 
 export function WalletScreen({ navigation }: Props) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [wallet, setWallet] = useState<(WalletDto & { entries?: LedgerEntryDto[] }) | null>(null);
   const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,9 +55,9 @@ export function WalletScreen({ navigation }: Props) {
 
   if (!betaFeatures.walletVisible) {
     return (
-      <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
+      <AppFixedHeaderScreen header={<AppHeader title={t('account.wallet.title')} onBack={() => navigation.goBack()} />}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <InfoNotice tone="info" title="Wallet hidden for beta" body="Hellowhen is launching with service and goods exchanges first. Wallet money, cash trades, and payouts are disabled until the payment provider path is selected." />
+          <InfoNotice tone="info" title={t('account.addMoney.hiddenTitle')} body={t('account.addMoney.hiddenBody')} />
         </ScrollView>
       </AppFixedHeaderScreen>
     );
@@ -74,49 +77,49 @@ export function WalletScreen({ navigation }: Props) {
   const providerBalances = summary?.providerWalletBalances ?? [];
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Wallet" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('account.wallet.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadWallet(); }} />}>
         <View style={styles.header}>
-          <SemanticBadge label="Wallet" tone="credits" />
-          <AppText style={styles.title}>Wallet</AppText>
-          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Manage spendable wallet money, trade holds, earnings, and simulated payouts.</AppText>
+          <SemanticBadge label={t('account.wallet.title')} tone="credits" />
+          <AppText style={styles.title}>{t('account.wallet.title')}</AppText>
+          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.wallet.body')}</AppText>
         </View>
 
-        {error ? <InfoNotice tone="danger" title="Wallet unavailable" body={error} /> : null}
+        {error ? <InfoNotice tone="danger" title={t('account.walletUnavailable')} body={error} /> : null}
 
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Wallet money</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Money you can offer in trades and money currently held in active trades.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.walletMoney')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.wallet.availableBody')}</AppText>
             </View>
-            <MoneyPill amountCents={available} currency={currency} label="available" />
+            <MoneyPill amountCents={available} currency={currency} label={t('account.wallet.available')} />
           </View>
           <View style={styles.grid}>
-            <Metric label="Available to offer" value={available} currency={currency} tone="credits" />
-            <Metric label="Held in trades" value={held} currency={currency} tone="time" />
+            <Metric label={t('account.wallet.available')} value={available} currency={currency} tone="credits" />
+            <Metric label={t('account.wallet.held')} value={held} currency={currency} tone="time" />
           </View>
           <View style={styles.inlineActions}>
-            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BuyCredits')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.semantic.credits.bg }, pressed && styles.pressed]}><AppText style={styles.inlinePrimaryText}>Add demo money</AppText></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('BuyCredits')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.semantic.credits.bg }, pressed && styles.pressed]}><AppText style={styles.inlinePrimaryText}>{t('account.addMoney.addDemoMoney')}</AppText></Pressable>
           </View>
         </AppCard>
 
         <AppCard>
           <View style={styles.sectionHeaderRow}>
             <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>Earnings</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>Money earned from completed trades. Payout requests show the transparent {formatPayoutFeeRate(platformFeeRateBps)} platform fee before confirmation.</AppText>
+              <AppText style={styles.sectionTitle}>{t('account.wallet.earnings')}</AppText>
+              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.wallet.earningsBody', { rate: formatPayoutFeeRate(platformFeeRateBps) })}</AppText>
             </View>
-            <MoneyPill amountCents={availableForPayout} currency={currency} label="payout" />
+            <MoneyPill amountCents={availableForPayout} currency={currency} label={t('account.payouts.title')} />
           </View>
           <View style={styles.grid}>
-            <Metric label="Available earnings" value={availableForPayout} currency={currency} tone="success" />
-            <Metric label="Platform fee" value={estimatedPlatformFee} currency={currency} tone="danger" />
-            <Metric label="Estimated payout" value={estimatedNetPayout} currency={currency} tone="success" />
-            <Metric label="Pending payout" value={pendingPayoutRequests} currency={currency} tone="time" />
-            <Metric label="Paid out" value={paidOut} currency={currency} tone="info" />
+            <Metric label={t('account.availableEarnings')} value={availableForPayout} currency={currency} tone="success" />
+            <Metric label={t('account.wallet.platformFee')} value={estimatedPlatformFee} currency={currency} tone="danger" />
+            <Metric label={t('account.wallet.estimatedPayout')} value={estimatedNetPayout} currency={currency} tone="success" />
+            <Metric label={t('account.wallet.payoutRequests')} value={pendingPayoutRequests} currency={currency} tone="time" />
+            <Metric label={t('account.payouts.paidOut')} value={paidOut} currency={currency} tone="info" />
           </View>
-          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Payouts')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Open payouts</AppText></Pressable>
+          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('Payouts')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('account.payouts.title')}</AppText></Pressable>
         </AppCard>
 
 
@@ -124,10 +127,10 @@ export function WalletScreen({ navigation }: Props) {
           <AppCard>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
-                <AppText style={styles.sectionTitle}>Provider balance snapshot</AppText>
-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>Airwallex sandbox balances are read-only reconciliation snapshots. Hellowhen's ledger remains the product source of truth.</AppText>
+                <AppText style={styles.sectionTitle}>{t('account.wallet.providerSnapshot')}</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.wallet.providerSnapshotBody')}</AppText>
               </View>
-              <SemanticBadge label="Read-only" tone="info" />
+              <SemanticBadge label={t('account.wallet.readOnly')} tone="info" />
             </View>
             <View style={styles.grid}>
               {providerBalances.map((balance) => (
@@ -141,32 +144,32 @@ export function WalletScreen({ navigation }: Props) {
           <AppCard>
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
-                <AppText style={styles.sectionTitle}>Launch limits</AppText>
-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>Tier: {limits.effectiveTrustTier.replace(/_/g, ' ')}. Limits keep early money flows small.</AppText>
+                <AppText style={styles.sectionTitle}>{t('account.wallet.launchLimits')}</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.wallet.launchLimitsBody')}</AppText>
               </View>
-              <SemanticBadge label="Safety" tone="time" />
+              <SemanticBadge label={t('account.wallet.safety')} tone="time" />
             </View>
             <View style={styles.grid}>
-              <Metric label="Wallet cap" value={limits.walletBalanceCapCents} currency={currency} tone="credits" />
-              <Metric label="Per money trade" value={limits.perTradeMoneyCapCents} currency={currency} tone="info" />
-              <Metric label="Weekly payout" value={limits.weeklyPayoutCapCents} currency={currency} tone="time" />
-              <Metric label="Minimum payout" value={limits.minimumPayoutCents} currency={currency} tone="info" />
+              <Metric label={t('account.wallet.walletCap')} value={limits.walletBalanceCapCents} currency={currency} tone="credits" />
+              <Metric label={t('account.wallet.perMoneyTrade')} value={limits.perTradeMoneyCapCents} currency={currency} tone="info" />
+              <Metric label={t('account.payouts.weeklyPayoutCap')} value={limits.weeklyPayoutCapCents} currency={currency} tone="time" />
+              <Metric label={t('account.payouts.minimumPayout')} value={limits.minimumPayoutCents} currency={currency} tone="info" />
             </View>
           </AppCard>
         ) : null}
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>How it works</AppText>
+          <AppText style={styles.sectionTitle}>{t('account.wallet.moneyRules')}</AppText>
           <View style={styles.steps}>
-            <Step theme={theme} number="1" text="Add demo money, then offer it under I offer when creating a trade." />
-            <Step theme={theme} number="2" text="When a proposal is accepted, the payer’s money is held until completion." />
-            <Step theme={theme} number="3" text={`Completed trade money becomes payout-eligible earnings. Hellowhen keeps a ${formatPayoutFeeRate(platformFeeRateBps)} platform fee when you request payout.`} />
+            <Step theme={theme} number="1" text={t('account.wallet.availableBody')} />
+            <Step theme={theme} number="2" text={t('account.wallet.heldBody')} />
+            <Step theme={theme} number="3" text={t('account.wallet.moneyRulesBody', { rate: formatPayoutFeeRate(platformFeeRateBps) })} />
           </View>
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>Activity</AppText>
-          {recentEntries.length === 0 ? <View style={[styles.emptyBox, { borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>No activity yet</AppText><AppText style={[styles.emptyText, { color: theme.color.muted }]}>Wallet activity appears after demo top-ups, trade holds, refunds, earnings, or payouts.</AppText></View> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
+          <AppText style={styles.sectionTitle}>{t('account.wallet.walletActivity')}</AppText>
+          {recentEntries.length === 0 ? <View style={[styles.emptyBox, { borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>{t('account.wallet.noActivityTitle')}</AppText><AppText style={[styles.emptyText, { color: theme.color.muted }]}>{t('account.wallet.noActivityBody')}</AppText></View> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
         </AppCard>
       </ScrollView>
     </AppFixedHeaderScreen>
@@ -175,14 +178,19 @@ export function WalletScreen({ navigation }: Props) {
 
 function Metric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) {
   const theme = useThemeTokens();
-  return <View style={[styles.metric, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText></View>;
+  const { language } = useTranslation();
+  return <View style={[styles.metric, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><AppText style={styles.metricValue}>{formatMoney(value, currency, language)}</AppText></View>;
 }
 
 function Step({ theme, number, text }: { theme: ThemeTokens; number: string; text: string }) { return <View style={styles.stepRow}><View style={[styles.stepNumber, { backgroundColor: theme.semantic.proposal.softBg }]}><AppText style={[styles.stepNumberText, { color: theme.semantic.proposal.text }]}>{number}</AppText></View><AppText style={[styles.stepText, { color: theme.color.muted }]}>{text}</AppText></View>; }
 
 function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
   const theme = useThemeTokens();
-  return <View style={[styles.ledgerRow, { borderTopColor: theme.color.border }]}><View style={styles.ledgerCopy}><View style={styles.ledgerTitleRow}><SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" /><AppText style={[styles.ledgerDate, { color: theme.color.muted }]}>{formatDate(entry.createdAt)}</AppText></View><AppText style={[styles.ledgerDescription, { color: theme.color.muted }]}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText></View>;
+  const { t, language } = useTranslation();
+  const translationKey = `account.ledger.${entry.type}`;
+  const translatedType = t(translationKey);
+  const typeLabel = translatedType === translationKey ? formatLedgerType(entry.type) : translatedType;
+  return <View style={[styles.ledgerRow, { borderTopColor: theme.color.border }]}><View style={styles.ledgerCopy}><View style={styles.ledgerTitleRow}><SemanticBadge label={typeLabel} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" /><AppText style={[styles.ledgerDate, { color: theme.color.muted }]}>{formatLocalizedShortDate(entry.createdAt, language, '')}</AppText></View><AppText style={[styles.ledgerDescription, { color: theme.color.muted }]}>{entry.description ?? entry.balanceType}</AppText></View><AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry, language)}</AppText></View>;
 }
 
 const styles = StyleSheet.create({

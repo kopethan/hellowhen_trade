@@ -3,9 +3,12 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
+import { useTranslation } from '../../../providers/MobileI18nProvider';
 
 export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
 export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
+
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
 export function optionalText(value: string) {
   const trimmed = value.trim();
@@ -28,16 +31,23 @@ export function parseInventoryList(value: string, maxItems = 8) {
   return items;
 }
 
-export function itemTypeLabel(itemType: InventoryItemType) {
-  if (itemType === 'goods') return 'Goods';
-  if (itemType === 'other') return 'Other';
-  return 'Service';
+export function itemTypeLabel(itemType: InventoryItemType, t?: TFunction) {
+  if (itemType === 'goods') return t?.('inventory.itemTypes.goods') ?? 'Goods';
+  if (itemType === 'other') return t?.('inventory.itemTypes.other') ?? 'Other';
+  return t?.('inventory.itemTypes.service') ?? 'Service';
 }
 
-export function modeLabel(mode: TradeExchangeMode) {
-  if (mode === 'remote') return 'Remote';
-  if (mode === 'local') return 'Local';
-  return 'Hybrid';
+export function itemTypePluralLabel(itemType: InventoryItemType | 'all', t?: TFunction) {
+  if (itemType === 'all') return t?.('inventory.itemTypes.all') ?? 'All';
+  if (itemType === 'goods') return t?.('inventory.itemTypes.goods') ?? 'Goods';
+  if (itemType === 'other') return t?.('inventory.itemTypes.other') ?? 'Other';
+  return t?.('inventory.itemTypes.services') ?? 'Services';
+}
+
+export function modeLabel(mode: TradeExchangeMode, t?: TFunction) {
+  if (mode === 'remote') return t?.('inventory.modes.remote') ?? 'Remote';
+  if (mode === 'local') return t?.('inventory.modes.local') ?? 'Local';
+  return t?.('inventory.modes.hybrid') ?? 'Hybrid';
 }
 
 export function InventoryTextField({
@@ -78,12 +88,12 @@ export function InventoryTextField({
   );
 }
 
-
 export function InventoryTypePicker({ value, onChange, disabled }: { value: InventoryItemType; onChange: (itemType: InventoryItemType) => void; disabled?: boolean }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.field}>
-      <AppText style={styles.label}>Type</AppText>
+      <AppText style={styles.label}>{t('inventory.labels.type')}</AppText>
       <View style={styles.modeRow}>
         {inventoryItemTypes.map((itemType) => {
           const selected = value === itemType;
@@ -94,7 +104,7 @@ export function InventoryTypePicker({ value, onChange, disabled }: { value: Inve
               onPress={() => onChange(itemType)}
               style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
             >
-              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{itemTypeLabel(itemType)}</AppText>
+              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{itemTypeLabel(itemType, t)}</AppText>
             </Pressable>
           );
         })}
@@ -105,9 +115,10 @@ export function InventoryTypePicker({ value, onChange, disabled }: { value: Inve
 
 export function ModePicker({ value, onChange, disabled }: { value: TradeExchangeMode; onChange: (mode: TradeExchangeMode) => void; disabled?: boolean }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.field}>
-      <AppText style={styles.label}>Mode</AppText>
+      <AppText style={styles.label}>{t('inventory.labels.mode')}</AppText>
       <View style={styles.modeRow}>
         {exchangeModes.map((mode) => {
           const selected = value === mode;
@@ -118,7 +129,7 @@ export function ModePicker({ value, onChange, disabled }: { value: TradeExchange
               onPress={() => onChange(mode)}
               style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
             >
-              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode)}</AppText>
+              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode, t)}</AppText>
             </Pressable>
           );
         })}
@@ -139,12 +150,13 @@ export function InventoryPreview({
   description: string;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={[styles.preview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
       <AppText style={[styles.previewEyebrow, { color: theme.color.muted }]}>{eyebrow}</AppText>
-      <AppText style={styles.previewTitle}>{title || 'Title appears here'}</AppText>
-      <AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{meta || 'Category · Timing · Mode · Location'}</AppText>
-      <AppText style={[styles.previewDescription, { color: theme.color.muted }]} numberOfLines={3}>{description || 'A short summary will appear here while you write.'}</AppText>
+      <AppText style={styles.previewTitle}>{title || t('inventory.form.previewTitleFallback')}</AppText>
+      <AppText style={[styles.previewMeta, { color: theme.color.muted }]}>{meta || t('inventory.form.previewMetaFallback')}</AppText>
+      <AppText style={[styles.previewDescription, { color: theme.color.muted }]} numberOfLines={3}>{description || t('inventory.form.previewDescriptionFallback')}</AppText>
     </View>
   );
 }
@@ -159,10 +171,8 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '900',
-
   },
   hint: {
-
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
@@ -170,11 +180,8 @@ const styles = StyleSheet.create({
   input: {
     borderRadius: 16,
     borderWidth: 1,
-
-
     paddingHorizontal: 13,
     paddingVertical: 12,
-
     fontSize: 16,
     fontWeight: '600',
   },
@@ -190,17 +197,11 @@ const styles = StyleSheet.create({
   modeButton: {
     borderRadius: 999,
     borderWidth: 1,
-
-
     paddingHorizontal: 13,
     paddingVertical: 9,
   },
-  modeButtonSelected: {
-
-
-  },
+  modeButtonSelected: {},
   modeButtonText: {
-
     fontWeight: '900',
   },
   modeButtonTextSelected: {
@@ -209,31 +210,25 @@ const styles = StyleSheet.create({
   preview: {
     borderRadius: 22,
     borderWidth: 1,
-
-
     padding: 16,
     gap: 7,
   },
   previewEyebrow: {
-
     fontSize: 11,
     fontWeight: '900',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   previewTitle: {
-
     fontSize: 22,
     fontWeight: '900',
     letterSpacing: -0.4,
   },
   previewMeta: {
-
     fontSize: 13,
     fontWeight: '800',
   },
   previewDescription: {
-
     lineHeight: 20,
     fontWeight: '600',
   },

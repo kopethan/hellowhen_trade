@@ -1,16 +1,21 @@
+'use client';
+
 import Link from 'next/link';
 import type { TradeDto } from '@hellowhen/contracts';
 import { truncateText } from '@hellowhen/shared';
 import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
 import { UserIdentityLink } from '../users/UserIdentityLink';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 export function TradeDeck({ trade }: { trade: TradeDto }) {
-  const need = getNeedSide(trade);
-  const offer = getOfferSide(trade);
-  const images = getDeckImages(trade);
-  const exchange = getExchangeLabel(trade);
+  const i18n = useWebTranslation();
+  const { t } = i18n;
+  const need = getNeedSide(trade, i18n);
+  const offer = getOfferSide(trade, i18n);
+  const images = getDeckImages(trade, i18n);
+  const exchange = getExchangeLabel(trade, i18n);
   const postType = getTradePostType(trade);
-  const proposalCopy = getTradeProposalCopy(trade);
+  const proposalCopy = getTradeProposalCopy(trade, i18n);
 
   return (
     <section className="trade-deck" aria-label={trade.title}>
@@ -24,22 +29,22 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
               variant="compact"
               avatarSize="xs"
               showHandle={false}
-              ariaLabel="Open owner public profile"
+              ariaLabel={t('profile.actions.openApplicantProfile')}
             />
           </div>
-          <Link href={`/trades/${trade.id}`} className="trade-deck-card__open-link" aria-label={`Open ${trade.title}`}>
+          <Link href={`/trades/${trade.id}`} className="trade-deck-card__open-link" aria-label={`${t('common.actions.open')} ${trade.title}`}>
             <div className="trade-deck-card__body">
               {postType === 'need_offer' ? (
                 <>
-                  <p className="eyebrow">I need</p>
+                  <p className="eyebrow">{t('trade.labels.iNeed')}</p>
                   <h2>{need.title}</h2>
-                  <p className="eyebrow">I offer</p>
+                  <p className="eyebrow">{t('trade.labels.iOffer')}</p>
                   <h2>{offer.title}</h2>
                 </>
               ) : (
                 <>
                   <p className="eyebrow">{exchange}</p>
-                  <h2>{getTradeHeadline(trade)}</h2>
+                  <h2>{getTradeHeadline(trade, i18n)}</h2>
                   <p className="meta">{proposalCopy.inviteTitle}</p>
                 </>
               )}
@@ -47,15 +52,15 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
             </div>
             <div className="trade-deck-card__footer">
               <span className="semantic-badge money">{exchange}</span>
-              <strong>Open</strong>
+              <strong>{t('common.actions.open')}</strong>
             </div>
           </Link>
         </article>
 
         {images.map((image) => (
-          <Link key={image.id} href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--image" aria-label={`Open ${trade.title}`}>
+          <Link key={image.id} href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--image" aria-label={`${t('common.actions.open')} ${trade.title}`}>
             <img src={image.url} alt={image.alt} loading="lazy" />
-            <span className={image.badge === 'Need reference' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</span>
+            <span className={image.kind === 'need' ? 'semantic-badge need' : 'semantic-badge offer'}>{image.badge}</span>
           </Link>
         ))}
       </div>

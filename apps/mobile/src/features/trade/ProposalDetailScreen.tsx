@@ -12,24 +12,28 @@ import { AppText } from '../../components/AppText';
 import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import type { ProposalMessageItem, TradeProposalItem } from './types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
 type ProposalResponse = { proposal: TradeProposalItem; trade?: unknown };
 type MessagesResponse = { messages: ProposalMessageItem[] };
-function modeLabel(mode?: string | null) { if (mode === 'remote') return 'Remote'; if (mode === 'local') return 'Local'; if (mode === 'hybrid') return 'Hybrid'; return null; }
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
 function compactList(values: Array<string | null | undefined>) { return values.map((value) => value?.trim()).filter(Boolean).join(' · '); }
-function proposalSideMeta(proposal: TradeProposalItem) {
-  if (proposal.proposedNeed) return compactList([proposal.proposedNeed.category, proposal.proposedNeed.timing, modeLabel(proposal.proposedNeed.mode), proposal.proposedNeed.locationLabel]) || proposal.proposedNeed.itemType || 'Need details';
-  if (proposal.proposedOffer) return compactList([proposal.proposedOffer.category, proposal.proposedOffer.availability, modeLabel(proposal.proposedOffer.mode), proposal.proposedOffer.locationLabel]) || proposal.proposedOffer.itemType || 'Offer details';
+function proposalSideMeta(proposal: TradeProposalItem, t: TFunction) {
+  if (proposal.proposedNeed) return compactList([proposal.proposedNeed.category, proposal.proposedNeed.timing, modeLabel(proposal.proposedNeed.mode, t), proposal.proposedNeed.locationLabel]) || proposal.proposedNeed.itemType || t('trade.labels.needDetails');
+  if (proposal.proposedOffer) return compactList([proposal.proposedOffer.category, proposal.proposedOffer.availability, modeLabel(proposal.proposedOffer.mode, t), proposal.proposedOffer.locationLabel]) || proposal.proposedOffer.itemType || t('trade.labels.offerDetails');
   return '';
 }
-function proposalSideDescription(proposal: TradeProposalItem) { return (proposal.proposedNeed?.description ?? proposal.proposedOffer?.description ?? '').trim() || 'No description added yet.'; }
+function proposalSideDescription(proposal: TradeProposalItem, t: TFunction) { return (proposal.proposedNeed?.description ?? proposal.proposedOffer?.description ?? '').trim() || t('trade.labels.noDescription'); }
+function formatStatus(status: string, t: TFunction) { const label = t(`trade.statuses.${status}`); return label === `trade.statuses.${status}` ? status.replace(/_/g, ' ') : label; }
 
 export function ProposalDetailScreen({ route, navigation }: Props) {
   const auth = useAuth();
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [proposal, setProposal] = useState<TradeProposalItem | null>(null);
   const [messages, setMessages] = useState<ProposalMessageItem[]>([]);
   const [body, setBody] = useState('');
@@ -45,9 +49,9 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       const result = await api.proposals.get(route.params.proposalId) as ProposalResponse;
       setProposal(result.proposal);
       setMessages(result.proposal.messages ?? []);
-    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not load this proposal.')); }
+    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotLoadProposal'))); }
     finally { setLoading(false); }
-  }, [route.params.proposalId]);
+  }, [route.params.proposalId, t]);
   useEffect(() => { void loadProposal(); }, [loadProposal]);
 
   const isOwner = proposal?.trade?.ownerId === auth.user?.id;
@@ -56,11 +60,11 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const canMessage = proposal ? !['declined', 'withdrawn'].includes(proposal.status) : false;
   const statusHint = useMemo(() => {
     if (!proposal) return '';
-    if (proposal.status === 'pending') return isOwner ? 'Review the proposal, ask questions, then accept or decline.' : 'The owner can ask questions here before accepting.';
-    if (proposal.status === 'accepted') return 'Accepted. The trade moved in progress and wallet money was held when applicable.';
-    if (proposal.status === 'declined') return 'Declined. This proposal conversation is now closed.';
-    return 'Withdrawn. This proposal conversation is now closed.';
-  }, [proposal, isOwner]);
+    if (proposal.status === 'pending') return isOwner ? t('trade.proposals.ownerPendingHint') : t('trade.proposals.applicantPendingHint');
+    if (proposal.status === 'accepted') return t('trade.proposals.acceptedHint');
+    if (proposal.status === 'declined') return t('trade.proposals.declinedHint');
+    return t('trade.proposals.withdrawnHint');
+  }, [proposal, isOwner, t]);
 
   async function sendMessage() {
     const trimmed = body.trim();
@@ -71,7 +75,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       setBody('');
       const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
       setMessages(messageResult.messages ?? []);
-    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not send this message.')); }
+    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotSendMessage'))); }
     finally { setSubmitting(false); }
   }
 
@@ -81,33 +85,33 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       const result = await api.proposals.updateStatus(route.params.proposalId, { status }) as ProposalResponse;
       setProposal(result.proposal);
       setMessages(result.proposal.messages ?? messages);
-      setNotice(status === 'accepted' ? 'Proposal accepted. Wallet money is now held when this trade includes an amount and the trade is in progress.' : status === 'declined' ? 'Proposal declined.' : 'Proposal withdrawn.');
-    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, 'Could not update this proposal.')); }
+      setNotice(status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : status === 'declined' ? t('trade.proposals.proposalDeclined') : t('trade.proposals.proposalWithdrawn'));
+    } catch (caughtError) { setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotUpdateProposal'))); }
     finally { setActionLoading(null); }
   }
 
   return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
-    <AppHeader title="Proposal" onBack={() => navigation.goBack()} />
-    {!proposal ? <AppCard><SemanticBadge label="Proposal" tone="proposal" /><AppText style={styles.title}>Proposal</AppText>{error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>Loading proposal...</AppText>}</AppCard> : <AppCard>
-      <View style={styles.headerRow}><StatusBadge status={proposal.status} /><SemanticBadge label="Proposal thread" tone="proposal" size="sm" /></View>
-      <AppText style={styles.title}>{proposal.trade?.title ?? 'Proposal'}</AppText>
-      {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${proposal.trade.status.replace('_', ' ')} trade`} /> : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Service-for-service trade</AppText>) : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>Private proposal conversation</AppText>}
-      <View style={styles.peopleRow}><MiniPerson label="Owner" user={proposal.trade?.owner} userId={proposal.trade?.ownerId} tone="need" /><MiniPerson label="Applicant" user={proposal.applicant} userId={proposal.applicantId} displayName={isApplicant ? 'You' : undefined} tone="offer" /></View>
-      <ProposalSideSummary proposal={proposal} />
-      <InfoNotice tone="info" title="Next step" body={statusHint} />
-      {error ? <InfoNotice tone="danger" title="Proposal error" body={error} /> : null}
-      {notice ? <InfoNotice tone="success" title="Proposal updated" body={notice} /> : null}
-      <View style={styles.messagesBox}>{messages.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>No messages yet.</AppText> : messages.map((message) => { const mine = message.senderId === auth.user?.id; return <View key={message.id} style={[styles.messageBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.myMessageBubble]}><UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? 'You' : undefined} variant="compact" avatarSize="xs" showHandle={false} /><AppText style={styles.messageBody}>{message.body}</AppText></View>; })}</View>
-      {canMessage ? <View style={styles.composer}><TextInput value={body} onChangeText={setBody} multiline placeholder="Write a message..." placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /><Button title={submitting ? 'Sending...' : 'Send'} disabled={submitting || body.trim().length === 0} onPress={() => { void sendMessage(); }} /></View> : null}
-      {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? 'Accepting...' : 'Accept'} variant="primary" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('accepted'); }} /><ProposalActionButton label={actionLoading === 'declined' ? 'Declining...' : 'Decline'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('declined'); }} /></View> : null}
-      {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? 'Withdrawing...' : 'Withdraw proposal'} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('withdrawn'); }} /> : null}
-      {proposal.trade?.id ? <Button title="Open trade detail" onPress={() => navigation.navigate('TradeDetail', { tradeId: proposal.trade!.id, title: proposal.trade!.title, description: proposal.trade!.description, amountCents: proposal.trade!.amountCents ?? 0, currency: proposal.trade!.currency ?? 'eur', creditAmount: proposal.trade!.creditAmount, status: proposal.trade!.status, expiresAt: proposal.trade!.expiresAt ?? null })} /> : null}
-      {isAcceptedProvider ? <InfoNotice tone="success" title="Accepted provider" body="You are the accepted provider for this trade." /> : null}
+    <AppHeader title={t('trade.proposals.tradeProposal')} onBack={() => navigation.goBack()} />
+    {!proposal ? <AppCard><SemanticBadge label={t('trade.proposals.tradeProposal')} tone="proposal" /><AppText style={styles.title}>{t('trade.proposals.tradeProposal')}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingProposal')}</AppText>}</AppCard> : <AppCard>
+      <View style={styles.headerRow}><StatusBadge status={proposal.status} label={formatStatus(proposal.status, t)} /><SemanticBadge label={t('trade.proposals.proposalConversation')} tone="proposal" size="sm" /></View>
+      <AppText style={styles.title}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
+      {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${formatStatus(proposal.trade.status, t)} ${t('trade.labels.trade').toLowerCase()}`} /> : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('trade.labels.serviceForService')} {t('trade.labels.trade').toLowerCase()}</AppText>) : <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('trade.proposals.privateProposalConversation')}</AppText>}
+      <View style={styles.peopleRow}><MiniPerson label={t('trade.labels.owner')} user={proposal.trade?.owner} userId={proposal.trade?.ownerId} tone="need" /><MiniPerson label={t('trade.labels.applicant')} user={proposal.applicant} userId={proposal.applicantId} displayName={isApplicant ? t('trade.labels.you') : undefined} tone="offer" /></View>
+      <ProposalSideSummary proposal={proposal} t={t} />
+      <InfoNotice tone="info" title={t('trade.labels.nextStep')} body={statusHint} />
+      {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+      {notice ? <InfoNotice tone="success" title={t('trade.proposals.proposalUpdated')} body={notice} /> : null}
+      <View style={styles.messagesBox}>{messages.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noMessages')}</AppText> : messages.map((message) => { const mine = message.senderId === auth.user?.id; return <View key={message.id} style={[styles.messageBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.myMessageBubble]}><UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} /><AppText style={styles.messageBody}>{message.body}</AppText></View>; })}</View>
+      {canMessage ? <View style={styles.composer}><TextInput value={body} onChangeText={setBody} multiline placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /><Button title={submitting ? t('trade.proposals.sending') : t('trade.proposals.send')} disabled={submitting || body.trim().length === 0} onPress={() => { void sendMessage(); }} /></View> : null}
+      {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('accepted'); }} /><ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('declined'); }} /></View> : null}
+      {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={() => { void updateStatus('withdrawn'); }} /> : null}
+      {proposal.trade?.id ? <Button title={t('trade.proposals.openTradeDetail')} onPress={() => navigation.navigate('TradeDetail', { tradeId: proposal.trade!.id, title: proposal.trade!.title, description: proposal.trade!.description, amountCents: proposal.trade!.amountCents ?? 0, currency: proposal.trade!.currency ?? 'eur', creditAmount: proposal.trade!.creditAmount, status: proposal.trade!.status, expiresAt: proposal.trade!.expiresAt ?? null })} /> : null}
+      {isAcceptedProvider ? <InfoNotice tone="success" title={t('trade.proposals.acceptedProvider')} body={t('trade.proposals.acceptedProviderBody')} /> : null}
     </AppCard>}
   </ScrollView></AppScreen>;
 }
 function MiniPerson({ label, user, userId, displayName, tone }: { label: string; user?: TradeProposalItem['applicant']; userId?: string | null; displayName?: string | null; tone: 'need' | 'offer' }) { const theme = useThemeTokens(); return <View style={[styles.personBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><UserIdentityPressable user={user} userId={userId} displayName={displayName} variant="compact" showHandle /></View>; }
-function ProposalSideSummary({ proposal }: { proposal: TradeProposalItem }) {
+function ProposalSideSummary({ proposal, t }: { proposal: TradeProposalItem; t: TFunction }) {
   const theme = useThemeTokens();
   const need = proposal.proposedNeed;
   const offer = proposal.proposedOffer;
@@ -117,12 +121,12 @@ function ProposalSideSummary({ proposal }: { proposal: TradeProposalItem }) {
   return (
     <View style={[styles.proposedSideBox, { backgroundColor: theme.semantic[kind].softBg, borderColor: theme.semantic[kind].border }]}>
       <View style={styles.proposedSideHeader}>
-        <SemanticBadge label={kind === 'need' ? 'Proposed Need' : 'Proposed Offer'} tone={kind} size="sm" />
-        <AppText style={[styles.proposedSideKind, { color: theme.semantic[kind].text }]}>{kind === 'need' ? 'Need proposal' : 'Offer proposal'}</AppText>
+        <SemanticBadge label={kind === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')} tone={kind} size="sm" />
+        <AppText style={[styles.proposedSideKind, { color: theme.semantic[kind].text }]}>{kind === 'need' ? t('trade.proposals.needProposal') : t('trade.proposals.offerProposal')}</AppText>
       </View>
       <AppText style={styles.proposedSideTitle} numberOfLines={2}>{item.title}</AppText>
-      <AppText style={[styles.proposedSideMeta, { color: theme.semantic[kind].text }]} numberOfLines={1}>{proposalSideMeta(proposal)}</AppText>
-      <AppText style={[styles.proposedSideBody, { color: theme.semantic[kind].text }]} numberOfLines={3}>{proposalSideDescription(proposal)}</AppText>
+      <AppText style={[styles.proposedSideMeta, { color: theme.semantic[kind].text }]} numberOfLines={1}>{proposalSideMeta(proposal, t)}</AppText>
+      <AppText style={[styles.proposedSideBody, { color: theme.semantic[kind].text }]} numberOfLines={3}>{proposalSideDescription(proposal, t)}</AppText>
     </View>
   );
 }

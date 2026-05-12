@@ -11,6 +11,7 @@ import { countryOptions, currencyOptions, type SupportedCurrency } from '../../l
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 type AuthMode = 'login' | 'register' | 'forgot';
@@ -22,16 +23,17 @@ const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.
 const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `Default currency ${country.currency.toUpperCase()}` }));
 const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
 
-function authSubtitle(mode: AuthMode) {
-  if (mode === 'register') return 'Create your account and set local display preferences for the beta.';
-  if (mode === 'forgot') return 'Reset your password using your account email.';
-  return 'Sign in to create needs, offers, and trades.';
+function authSubtitleKey(mode: AuthMode) {
+  if (mode === 'register') return 'auth.subtitles.register';
+  if (mode === 'forgot') return 'auth.subtitles.forgotNative';
+  return 'auth.subtitles.login';
 }
 
 export function LoginScreen() {
   const auth = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<AuthMode>('login');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -60,13 +62,13 @@ export function LoginScreen() {
   }
 
   function validateLocalForm() {
-    if (!email.trim()) return 'Enter your email.';
-    if (mode !== 'forgot' && password.length < 8) return 'Password must be at least 8 characters.';
-    if (mode === 'register' && !displayName.trim()) return 'Enter your name.';
-    if (mode === 'register' && password !== confirmPassword) return 'Passwords do not match.';
-    if (mode === 'register' && !countryCode) return 'Choose your country.';
-    if (mode === 'register' && !preferredCurrency) return 'Choose your display currency.';
-    if (mode === 'register' && !acceptedTerms) return 'Please agree to the terms to continue.';
+    if (!email.trim()) return t('auth.errors.emailRequired');
+    if (mode !== 'forgot' && password.length < 8) return t('auth.errors.passwordMin');
+    if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
+    if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
+    if (mode === 'register' && !countryCode) return t('auth.errors.countryRequired');
+    if (mode === 'register' && !preferredCurrency) return t('auth.errors.currencyRequired');
+    if (mode === 'register' && !acceptedTerms) return t('auth.errors.termsRequired');
     return null;
   }
 
@@ -91,7 +93,7 @@ export function LoginScreen() {
   }
 
   async function handleGoogle() {
-    if (!googleConfigured) { setError('Google sign-in is not available in this build.'); return; }
+    if (!googleConfigured) { setError(t('auth.errors.googleUnavailable')); return; }
     setGoogleSubmitting(true);
     setError(null);
     setMessage(null);
@@ -105,10 +107,10 @@ export function LoginScreen() {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
       const result = await GoogleSignin.signIn();
       const idToken = (result as { idToken?: string; data?: { idToken?: string } }).idToken ?? (result as { data?: { idToken?: string } }).data?.idToken;
-      if (!idToken) throw new Error('Google sign-in could not be completed.');
+      if (!idToken) throw new Error(t('auth.errors.googleIncomplete'));
       await auth.loginWithGoogleIdToken(idToken);
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, caughtError instanceof Error ? caughtError.message : 'Google sign-in failed.'));
+      setError(getFriendlyApiErrorMessage(caughtError, caughtError instanceof Error ? caughtError.message : t('auth.errors.googleFailed')));
     } finally {
       setGoogleSubmitting(false);
     }
@@ -119,31 +121,31 @@ export function LoginScreen() {
       <ScrollView contentContainerStyle={styles.shell} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <AppCard style={styles.authCard}>
           <View style={styles.brandBlock}>
-            <SemanticBadge label="Trade" tone="trade" />
+            <SemanticBadge label={t('auth.brandBadge')} tone="trade" />
             <AppText style={styles.logo}>Hellowhen</AppText>
-            <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{authSubtitle(mode)}</AppText>
+            <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t(authSubtitleKey(mode))}</AppText>
           </View>
 
           <View style={[styles.toggleRow, { backgroundColor: theme.color.subtleSurface }]}>
-            <ModeButton label="Login" active={mode === 'login'} onPress={() => switchMode('login')} />
-            <ModeButton label="Register" active={mode === 'register'} onPress={() => switchMode('register')} />
-            <ModeButton label="Reset" active={mode === 'forgot'} onPress={() => switchMode('forgot')} />
+            <ModeButton label={t('auth.modes.login')} active={mode === 'login'} onPress={() => switchMode('login')} />
+            <ModeButton label={t('auth.modes.register')} active={mode === 'register'} onPress={() => switchMode('register')} />
+            <ModeButton label={t('auth.modes.reset')} active={mode === 'forgot'} onPress={() => switchMode('forgot')} />
           </View>
 
           <View style={styles.formStack}>
-            {mode === 'register' ? <AuthInput value={displayName} onChangeText={setDisplayName} placeholder="Full name" /> : null}
-            <AuthInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder="Email" />
-            {mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder="Password" showPassword={showPassword} onToggle={() => setShowPassword((value) => !value)} /> : null}
-            {mode === 'register' ? <AuthInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm password" secureTextEntry={!showPassword} /> : null}
+            {mode === 'register' ? <AuthInput value={displayName} onChangeText={setDisplayName} placeholder={t('auth.fields.fullName')} /> : null}
+            <AuthInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder={t('auth.fields.email')} />
+            {mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder={t('auth.fields.password')} showPassword={showPassword} onToggle={() => setShowPassword((value) => !value)} /> : null}
+            {mode === 'register' ? <AuthInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder={t('auth.fields.confirmPassword')} secureTextEntry={!showPassword} /> : null}
 
             {mode === 'register' ? (
               <View style={[styles.preferenceBlock, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
                 <View style={styles.preferenceHeader}>
-                  <AppText style={styles.preferenceTitle}>Local display</AppText>
-                  <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>Used to localize trade display. You can change this from Profile later.</AppText>
+                  <AppText style={styles.preferenceTitle}>{t('auth.localDisplay.title')}</AppText>
+                  <AppText style={[styles.preferenceBody, { color: theme.color.muted }]}>{t('auth.localDisplay.bodyNative')}</AppText>
                 </View>
                 <AppSelect
-                  label="Country"
+                  label={t('auth.fields.country')}
                   value={countryCode}
                   options={countrySelectOptions}
                   onSelect={(value) => {
@@ -153,7 +155,7 @@ export function LoginScreen() {
                   }}
                 />
                 <AppSelect
-                  label="Display currency"
+                  label={t('auth.fields.displayCurrency')}
                   value={preferredCurrency}
                   options={currencySelectOptions}
                   onSelect={(value) => setPreferredCurrency(value as SupportedCurrency)}
@@ -161,16 +163,16 @@ export function LoginScreen() {
               </View>
             ) : null}
 
-            {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View><AppText style={[styles.termsText, { color: theme.color.muted }]}>I agree to the Terms and Privacy Policy.</AppText></Pressable> : null}
+            {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View><AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText></Pressable> : null}
           </View>
 
-          {mode === 'forgot' ? <InfoNotice tone="info" title="Password reset" body="Enter your account email and we will send a reset link if the account exists." /> : null}
-          {error ? <InfoNotice tone="danger" title="Sign-in error" body={error} /> : null}
-          {message ? <InfoNotice tone="success" title="Done" body={message} /> : null}
+          {mode === 'forgot' ? <InfoNotice tone="info" title={t('auth.reset.badge')} body={t('auth.forgotNotice')} /> : null}
+          {error ? <InfoNotice tone="danger" title={t('auth.errors.signIn')} body={error} /> : null}
+          {message ? <InfoNotice tone="success" title={t('common.states.done')} body={message} /> : null}
 
           <View style={styles.actionStack}>
-            <AuthActionButton label={submitting ? 'Working...' : mode === 'login' ? 'Login' : mode === 'register' ? 'Create account' : 'Send reset link'} disabled={submitting || googleSubmitting} onPress={() => { void handleSubmit(); }} />
-            <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={[styles.googleButtonText, { color: theme.color.text }]}>{googleSubmitting ? 'Opening Google...' : 'Continue with Google'}</AppText></Pressable>
+            <AuthActionButton label={submitting ? t('common.states.working') : mode === 'login' ? t('auth.actions.login') : mode === 'register' ? t('auth.actions.createAccount') : t('auth.actions.sendResetLink')} disabled={submitting || googleSubmitting} onPress={() => { void handleSubmit(); }} />
+            <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={[styles.googleButtonText, { color: theme.color.text }]}>{googleSubmitting ? t('auth.actions.openingGoogle') : t('auth.actions.continueWithGoogle')}</AppText></Pressable>
           </View>
         </AppCard>
       </ScrollView>
@@ -190,11 +192,12 @@ function AuthInput(props: React.ComponentProps<typeof TextInput>) {
 
 function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; onToggle: () => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.passwordRow}>
       <AuthInput value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={!showPassword} style={styles.passwordInput} />
       <Pressable onPress={onToggle} style={({ pressed }) => [styles.showButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
-        <AppText style={[styles.showButtonText, { color: theme.color.text }]}>{showPassword ? 'Hide' : 'Show'}</AppText>
+        <AppText style={[styles.showButtonText, { color: theme.color.text }]}>{showPassword ? t('common.actions.hide') : t('common.actions.show')}</AppText>
       </Pressable>
     </View>
   );

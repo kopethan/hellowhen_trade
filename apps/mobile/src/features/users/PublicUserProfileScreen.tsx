@@ -12,12 +12,14 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserAvatar, getUserDisplayName, resolveNativeAssetUrl } from './UserAvatar';
 import { isPublicUserId } from './UserIdentityPressable';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
 
 type PostKind = 'trade' | 'need' | 'offer';
+type TFunction = ReturnType<typeof useTranslation>['t'];
 
 function displayNameForProfile(profile: PublicProfileResponse['user']['profile']) {
   return getUserDisplayName(profile?.displayName, profile?.handle, '');
@@ -28,17 +30,17 @@ function formatHandle(handle?: string | null) {
   return normalized ? `@${normalized}` : null;
 }
 
-function formatDate(value?: string | null) {
+function formatDate(value?: string | null, language = 'en') {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric' }).format(date);
+  return new Intl.DateTimeFormat(language, { month: 'short', year: 'numeric' }).format(date);
 }
 
-function postKindLabel(kind: PostKind) {
-  if (kind === 'need') return 'Open Need';
-  if (kind === 'offer') return 'Open Offer';
-  return 'Trade';
+function postKindLabel(kind: PostKind, t: TFunction) {
+  if (kind === 'need') return t('trade.labels.openNeed');
+  if (kind === 'offer') return t('trade.labels.openOffer');
+  return t('trade.labels.trade');
 }
 
 function postImageUrl(post: PublicProfileTradeSummary) {
@@ -47,9 +49,9 @@ function postImageUrl(post: PublicProfileTradeSummary) {
   return resolveNativeAssetUrl(active?.url);
 }
 
-function postTitle(post: PublicProfileTradeSummary, kind: PostKind) {
+function postTitle(post: PublicProfileTradeSummary, kind: PostKind, t: TFunction) {
   const title = kind === 'need' ? post.need?.title || post.title : kind === 'offer' ? post.offer?.title || post.title : post.title;
-  return title?.trim() || postKindLabel(kind);
+  return title?.trim() || postKindLabel(kind, t);
 }
 
 function postDescription(post: PublicProfileTradeSummary, kind: PostKind) {
@@ -64,16 +66,16 @@ function postMeta(post: PublicProfileTradeSummary, kind: PostKind) {
   return [post.need?.category, post.offer?.category].filter(Boolean).join(' · ');
 }
 
-function sectionTitle(kind: PostKind) {
-  if (kind === 'need') return 'Open needs';
-  if (kind === 'offer') return 'Open offers';
-  return 'Active trades';
+function sectionTitle(kind: PostKind, t: TFunction) {
+  if (kind === 'need') return t('profile.posts.openNeedsTitle');
+  if (kind === 'offer') return t('profile.posts.openOffersTitle');
+  return t('profile.posts.activeTradesTitle');
 }
 
-function sectionEmptyText(kind: PostKind) {
-  if (kind === 'need') return 'No public open needs yet.';
-  if (kind === 'offer') return 'No public open offers yet.';
-  return 'No public active trades yet.';
+function sectionEmptyText(kind: PostKind, t: TFunction) {
+  if (kind === 'need') return t('profile.posts.emptyNeeds');
+  if (kind === 'offer') return t('profile.posts.emptyOffers');
+  return t('profile.posts.emptyTrades');
 }
 
 function StatTile({ label, value }: { label: string; value: number }) {
@@ -88,10 +90,11 @@ function StatTile({ label, value }: { label: string; value: number }) {
 
 function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kind: PostKind; onOpen: () => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [imageFailed, setImageFailed] = useState(false);
   const imageUrl = postImageUrl(post);
   const hasImage = Boolean(imageUrl) && !imageFailed;
-  const title = postTitle(post, kind);
+  const title = postTitle(post, kind, t);
   const description = postDescription(post, kind);
   const meta = postMeta(post, kind);
 
@@ -102,7 +105,7 @@ function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kin
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Open ${postKindLabel(kind)} ${title}`}
+      accessibilityLabel={t('trade.actions.open', { type: postKindLabel(kind, t), title })}
       onPress={onOpen}
       style={({ pressed }) => [styles.postCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
     >
@@ -115,7 +118,7 @@ function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kin
       )}
       <View style={styles.postBody}>
         <View style={styles.postBadgeRow}>
-          <SemanticBadge label={postKindLabel(kind)} tone={kind} size="sm" />
+          <SemanticBadge label={postKindLabel(kind, t)} tone={kind} size="sm" />
           <StatusBadge status={post.status} size="sm" />
         </View>
         <AppText style={styles.postTitle} numberOfLines={2}>{title}</AppText>
@@ -128,15 +131,16 @@ function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kin
 
 function PublicPostSection({ kind, posts, onOpenPost }: { kind: PostKind; posts: PublicProfileTradeSummary[]; onOpenPost: (post: PublicProfileTradeSummary) => void }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
-        <AppText style={styles.sectionTitle}>{sectionTitle(kind)}</AppText>
+        <AppText style={styles.sectionTitle}>{sectionTitle(kind, t)}</AppText>
         <AppText style={[styles.sectionCount, { color: theme.color.muted }]}>{posts.length}</AppText>
       </View>
       {posts.length === 0 ? (
         <View style={[styles.emptySection, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-          <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{sectionEmptyText(kind)}</AppText>
+          <AppText style={[styles.emptyText, { color: theme.color.muted }]}>{sectionEmptyText(kind, t)}</AppText>
         </View>
       ) : (
         <View style={styles.postStack}>
@@ -149,6 +153,7 @@ function PublicPostSection({ kind, posts, onOpenPost }: { kind: PostKind; posts:
 
 export function PublicUserProfileScreen({ navigation, route }: Props) {
   const theme = useThemeTokens();
+  const { t, language } = useTranslation();
   const { userId, displayName } = route.params;
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -157,7 +162,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
   const loadProfile = useCallback(async () => {
     if (!isPublicUserId(userId)) {
       setProfile(null);
-      setError('This public profile link is no longer available.');
+      setError(t('profile.errors.linkUnavailable'));
       setLoading(false);
       return;
     }
@@ -169,19 +174,19 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
       setProfile(result);
     } catch (caughtError) {
       setProfile(null);
-      setError(getFriendlyApiErrorMessage(caughtError, 'Could not load this public profile.'));
+      setError(getFriendlyApiErrorMessage(caughtError, t('profile.errors.couldNotLoad')));
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }, [t, userId]);
 
   useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
 
-  const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || 'Hellowhen member', [displayName, profile?.user.profile]);
+  const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || t('profile.hellowhenMember'), [displayName, profile?.user.profile, t]);
   const handleLabel = formatHandle(profile?.user.profile?.handle);
-  const memberSince = formatDate(profile?.user.memberSince);
+  const memberSince = formatDate(profile?.user.memberSince, language);
   const activeTrades = profile?.sections.activeTrades ?? [];
   const openNeeds = profile?.sections.openNeeds ?? [];
   const openOffers = profile?.sections.openOffers ?? [];
@@ -200,7 +205,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
   }, [navigation]);
 
   return (
-    <AppFixedHeaderScreen header={<AppHeader title="Profile" onBack={() => navigation.goBack()} />}>
+    <AppFixedHeaderScreen header={<AppHeader title={t('profile.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -210,14 +215,14 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
           <AppCard>
             <View style={styles.errorBox}>
               <MobileIcon name="profile" color={theme.color.text} size={34} />
-              <AppText style={styles.errorTitle}>Profile unavailable</AppText>
+              <AppText style={styles.errorTitle}>{t('profile.unavailableTitle')}</AppText>
               <AppText style={[styles.errorBody, { color: theme.color.muted }]}>{error}</AppText>
               <View style={styles.errorActions}>
                 <Pressable accessibilityRole="button" onPress={() => { void loadProfile(); }} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>Try again</AppText>
+                  <AppText style={[styles.primaryButtonText, { color: theme.color.background }]}>{t('common.actions.tryAgain')}</AppText>
                 </Pressable>
                 <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TradeTabs')} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>Back to trades</AppText>
+                  <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('trade.actions.backToTrades')}</AppText>
                 </Pressable>
               </View>
             </View>
@@ -234,16 +239,16 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                 {profile.user.profile?.bio ? <AppText style={[styles.bio, { color: theme.color.text }]}>{profile.user.profile.bio}</AppText> : null}
                 <View style={styles.metaRow}>
                   {profile.user.profile?.countryCode ? <SemanticBadge label={profile.user.profile.countryCode} tone="muted" size="sm" /> : null}
-                  {memberSince ? <SemanticBadge label={`Member since ${memberSince}`} tone="info" size="sm" /> : null}
+                  {memberSince ? <SemanticBadge label={t('profile.memberSince', { date: memberSince })} tone="info" size="sm" /> : null}
                 </View>
               </View>
             </AppCard>
 
             <View style={styles.statsGrid}>
-              <StatTile label="completed" value={profile.stats.completedTradesCount} />
-              <StatTile label="active trades" value={profile.stats.activeTradesCount} />
-              <StatTile label="open needs" value={profile.stats.openNeedsCount} />
-              <StatTile label="open offers" value={profile.stats.openOffersCount} />
+              <StatTile label={t('profile.stats.completed')} value={profile.stats.completedTradesCount} />
+              <StatTile label={t('profile.stats.activeTrades')} value={profile.stats.activeTradesCount} />
+              <StatTile label={t('profile.stats.openNeeds')} value={profile.stats.openNeedsCount} />
+              <StatTile label={t('profile.stats.openOffers')} value={profile.stats.openOffersCount} />
             </View>
 
             <PublicPostSection kind="trade" posts={activeTrades} onOpenPost={openPost} />
@@ -251,7 +256,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
             <PublicPostSection kind="offer" posts={openOffers} onOpenPost={openPost} />
           </>
         ) : !error ? (
-          <InfoNotice tone="info" title="Loading profile" body="Opening this public marketplace profile..." />
+          <InfoNotice tone="info" title={t('profile.loading.nativeTitle')} body={t('profile.loading.nativeBody')} />
         ) : null}
       </ScrollView>
     </AppFixedHeaderScreen>

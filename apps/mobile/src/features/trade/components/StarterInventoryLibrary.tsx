@@ -7,10 +7,13 @@ import { AppText } from '../../../components/AppText';
 import { MobileIcon } from '../../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../../components/SemanticUI';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
-import { itemTypeLabel, modeLabel } from './InventoryFormFields';
+import { useTranslation } from '../../../providers/MobileI18nProvider';
+import { itemTypeLabel, itemTypePluralLabel, modeLabel } from './InventoryFormFields';
 
 type TemplateKind = 'need' | 'offer';
 type ItemTypeFilter = 'all' | InventoryItemType;
+
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
 type StarterInventoryLibraryProps = {
   kind: TemplateKind;
@@ -24,36 +27,31 @@ type StarterInventoryLibraryProps = {
   onUseTemplate: (template: InventoryTemplateDto) => void;
 };
 
-const itemTypeFilters: Array<{ value: ItemTypeFilter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'service', label: 'Services' },
-  { value: 'goods', label: 'Goods' },
-  { value: 'other', label: 'Other' },
-];
+const itemTypeFilters: ItemTypeFilter[] = ['all', 'service', 'goods', 'other'];
 
-function optionalModeLabel(mode?: TradeExchangeMode | null) {
-  return mode ? modeLabel(mode) : undefined;
+function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunction) {
+  return mode ? modeLabel(mode, t) : undefined;
 }
 
-function templateMeta(template: InventoryTemplateDto) {
+function templateMeta(template: InventoryTemplateDto, t: TFunction) {
   return [
-    itemTypeLabel(template.itemType ?? 'service'),
+    itemTypeLabel(template.itemType ?? 'service', t),
     template.category,
     template.kind === 'need' ? template.timing : template.availability,
-    optionalModeLabel(template.mode),
+    optionalModeLabel(template.mode, t),
     template.locationLabel,
   ].filter(Boolean).join(' · ');
 }
 
-function sourceLabel(template: InventoryTemplateDto) {
-  if (template.businessProfile?.displayName) return `From ${template.businessProfile.displayName}`;
-  if (template.sourceType === 'brand') return 'Brand Library';
-  if (template.sourceType === 'business') return 'Company Library';
-  if (template.sourceType === 'partner') return 'Partner Library';
-  return 'Hellowhen Library';
+function sourceLabel(template: InventoryTemplateDto, t: TFunction) {
+  if (template.businessProfile?.displayName) return t('inventory.sourceLabels.fromBusiness', { name: template.businessProfile.displayName });
+  if (template.sourceType === 'brand') return t('inventory.sourceLabels.brandLibrary');
+  if (template.sourceType === 'business') return t('inventory.sourceLabels.companyLibrary');
+  if (template.sourceType === 'partner') return t('inventory.sourceLabels.partnerLibrary');
+  return t('inventory.sourceLabels.hellowhenLibrary');
 }
 
-function templateSearchText(template: InventoryTemplateDto) {
+function templateSearchText(template: InventoryTemplateDto, t: TFunction) {
   return [
     template.title,
     template.description,
@@ -63,21 +61,19 @@ function templateSearchText(template: InventoryTemplateDto) {
     template.locationLabel,
     ...(template.tags ?? []),
     ...(template.includes ?? []),
-    sourceLabel(template),
+    sourceLabel(template, t),
   ].filter(Boolean).join(' ').toLowerCase();
 }
 
-function sectionLabel(itemType: InventoryItemType) {
-  if (itemType === 'goods') return 'Goods';
-  if (itemType === 'other') return 'Other';
-  return 'Services';
+function sectionLabel(itemType: InventoryItemType, t: TFunction) {
+  return itemTypePluralLabel(itemType, t);
 }
 
-function groupedTemplates(templates: InventoryTemplateDto[]) {
+function groupedTemplates(templates: InventoryTemplateDto[], t: TFunction) {
   const order: InventoryItemType[] = ['service', 'goods', 'other'];
   return order.map((itemType) => ({
     key: itemType,
-    label: sectionLabel(itemType),
+    label: sectionLabel(itemType, t),
     templates: templates.filter((template) => (template.itemType ?? 'service') === itemType),
   })).filter((section) => section.templates.length > 0);
 }
@@ -94,19 +90,20 @@ export function StarterInventoryLibrary({
   onUseTemplate,
 }: StarterInventoryLibraryProps) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
-  const plural = kind === 'need' ? 'needs' : 'offers';
-  const defaultActionLabel = kind === 'need' ? 'Use this Need' : 'Use this Offer';
+  const plural = kind === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+  const defaultActionLabel = kind === 'need' ? t('inventory.actions.useThisNeed') : t('inventory.actions.useThisOffer');
   const filteredTemplates = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return templates.filter((template) => {
       const matchesType = itemTypeFilter === 'all' || (template.itemType ?? 'service') === itemTypeFilter;
-      const matchesSearch = !needle || templateSearchText(template).includes(needle);
+      const matchesSearch = !needle || templateSearchText(template, t).includes(needle);
       return matchesType && matchesSearch;
     });
-  }, [itemTypeFilter, query, templates]);
-  const sections = useMemo(() => groupedTemplates(filteredTemplates), [filteredTemplates]);
+  }, [itemTypeFilter, query, t, templates]);
+  const sections = useMemo(() => groupedTemplates(filteredTemplates, t), [filteredTemplates, t]);
 
   return (
     <View style={styles.wrapper}>
@@ -115,7 +112,7 @@ export function StarterInventoryLibrary({
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder={`Search starter ${plural}`}
+          placeholder={`${t('common.actions.search')} ${t('inventory.labels.starterLibrary').toLowerCase()}`}
           placeholderTextColor={theme.color.muted}
           autoCapitalize="none"
           autoCorrect={false}
@@ -126,12 +123,12 @@ export function StarterInventoryLibrary({
 
       <View style={styles.filterRow}>
         {itemTypeFilters.map((filter) => {
-          const selected = itemTypeFilter === filter.value;
+          const selected = itemTypeFilter === filter;
           return (
             <Pressable
-              key={filter.value}
+              key={filter}
               accessibilityRole="button"
-              onPress={() => setItemTypeFilter(filter.value)}
+              onPress={() => setItemTypeFilter(filter)}
               style={({ pressed }) => [
                 styles.filterChip,
                 { backgroundColor: theme.color.surface, borderColor: theme.color.border },
@@ -139,20 +136,20 @@ export function StarterInventoryLibrary({
                 pressed && styles.pressed,
               ]}
             >
-              <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{filter.label}</AppText>
+              <AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{itemTypePluralLabel(filter, t)}</AppText>
             </Pressable>
           );
         })}
       </View>
 
-      {error ? <InfoNotice tone="danger" title="Starter library error" body={error} /> : null}
-      {loading ? <InfoNotice tone="instruction" title="Loading starter library" body={`Checking reusable starter ${plural}.`} /> : null}
+      {error ? <InfoNotice tone="danger" title={t('inventory.errors.starterLibraryError')} body={error} /> : null}
+      {loading ? <InfoNotice tone="instruction" title={t('inventory.messages.loadingStarterLibrary')} body={t('inventory.messages.checkingReusableStarters', { items: plural })} /> : null}
 
       {!loading && sections.length === 0 ? (
         <AppCard style={styles.emptyCard}>
-          <SemanticBadge label="Starter library" tone="instruction" />
-          <AppText style={styles.emptyTitle}>{emptyTitle ?? `No starter ${plural} found`}</AppText>
-          <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody ?? 'Try another search or filter.'}</AppText>
+          <SemanticBadge label={t('inventory.labels.starterLibrary')} tone="instruction" />
+          <AppText style={styles.emptyTitle}>{emptyTitle ?? t('inventory.empty.noStarterFound', { items: plural })}</AppText>
+          <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody ?? t('inventory.empty.tryAnotherSearch')}</AppText>
         </AppCard>
       ) : null}
 
@@ -182,19 +179,20 @@ export function StarterInventoryLibrary({
 
 function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disabled, onPress }: { template: InventoryTemplateDto; theme: ThemeTokens; kind: TemplateKind; actionLabel: string; cloning: boolean; disabled: boolean; onPress: () => void }) {
   const tone = kind === 'need' ? 'need' : 'offer';
-  const meta = templateMeta(template);
+  const { t } = useTranslation();
+  const meta = templateMeta(template, t);
   return (
     <AppCard style={styles.templateCard}>
       <View style={styles.templateHeader}>
         <View style={styles.templateTitleWrap}>
-          <SemanticBadge label={sourceLabel(template)} tone="instruction" size="sm" />
+          <SemanticBadge label={sourceLabel(template, t)} tone="instruction" size="sm" />
           <AppText style={styles.templateTitle}>{template.title}</AppText>
         </View>
-        <SemanticBadge label={itemTypeLabel(template.itemType ?? 'service')} tone={tone} size="sm" />
+        <SemanticBadge label={itemTypeLabel(template.itemType ?? 'service', t)} tone={tone} size="sm" />
       </View>
       {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{meta}</AppText> : null}
       <AppText style={[styles.templateDescription, { color: theme.color.muted }]}>{template.description}</AppText>
-      {template.includes?.length ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>Includes: {template.includes.join(', ')}</AppText> : null}
+      {template.includes?.length ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{t('inventory.labels.includes')}: {template.includes.join(', ')}</AppText> : null}
       {template.tags?.length ? <View style={styles.tagRow}>{template.tags.slice(0, 4).map((tag) => <SemanticBadge key={tag} label={tag} tone="muted" size="sm" />)}</View> : null}
       <Pressable
         accessibilityRole="button"
@@ -207,7 +205,7 @@ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disa
           pressed && styles.pressed,
         ]}
       >
-        <AppText style={[styles.useButtonText, { color: theme.color.background }]}>{cloning ? 'Saving...' : actionLabel}</AppText>
+        <AppText style={[styles.useButtonText, { color: theme.color.background }]}>{cloning ? t('common.states.saving') : actionLabel}</AppText>
       </Pressable>
     </AppCard>
   );

@@ -33,8 +33,8 @@ export function SemanticBadge({ label, tone = 'muted', size = 'md', style, textS
   );
 }
 
-export function StatusBadge({ status, tone, size = 'md' }: { status: string; tone?: SemanticColorName; size?: BadgeSize }) {
-  return <SemanticBadge label={status} tone={tone ?? toneForStatus(status)} size={size} />;
+export function StatusBadge({ status, label, tone, size = 'md' }: { status: string; label?: string; tone?: SemanticColorName; size?: BadgeSize }) {
+  return <SemanticBadge label={label ?? status} tone={tone ?? toneForStatus(status)} size={size} />;
 }
 
 export function CreditPill({ amount, label = 'credits', tone = 'credits' }: { amount: number; label?: string; tone?: SemanticColorName }) {

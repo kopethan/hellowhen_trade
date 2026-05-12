@@ -7,6 +7,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { currencyOptions, isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyPreferences';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { fallbackCurrency, formatMoney, normalizeLimits, normalizeWallet, parseMoneyInputToCents } from './accountPresentation';
 
 const quickAmounts = ['5', '10', '25', '50'];
@@ -15,6 +16,7 @@ type TopUpResponse = { wallet?: WalletDto; message?: string } | WalletDto;
 
 export function AddMoneyClient() {
   const auth = useWebAuth();
+  const { t, language } = useWebTranslation();
   const defaultCurrency = auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
   const [amount, setAmount] = useState('10');
   const [currency, setCurrency] = useState<SupportedCurrency>(isSupportedCurrency(defaultCurrency) ? defaultCurrency : 'eur');
@@ -50,7 +52,7 @@ export function AddMoneyClient() {
     try {
       const response = await api.wallet.acknowledgeMoneySafety({ accepted: true }) as { moneySafety?: MoneySafetyStatusDto };
       setMoneySafety(response.moneySafety ?? null);
-      setMessage('Money safety policies acknowledged for this launch version.');
+      setMessage(t('account.addMoney.policyAcknowledged'));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
@@ -64,30 +66,30 @@ export function AddMoneyClient() {
     setError('');
     try {
       const amountCents = parseMoneyInputToCents(amount);
-      if (amountCents < 100) throw new Error('Enter at least 1.00.');
+      if (amountCents < 100) throw new Error(t('account.addMoney.minAmount'));
       const response = await api.wallet.demoTopUp({ amountCents, currency });
       setWallet(normalizeWallet(response as TopUpResponse));
       const safetyResponse = await api.wallet.moneySafety() as { moneySafety?: MoneySafetyStatusDto };
       setMoneySafety(safetyResponse.moneySafety ?? moneySafety);
-      setMessage('Demo wallet money added. No real card was charged.');
+      setMessage(t('account.addMoney.added'));
     } catch (caughtError) {
-      setError(caughtError instanceof Error && caughtError.message === 'Enter at least 1.00.' ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
+      setError(caughtError instanceof Error && caughtError.message === t('account.addMoney.minAmount') ? caughtError.message : getFriendlyApiErrorMessage(caughtError));
     } finally {
       setSaving(false);
     }
   }
 
   if (!auth.hydrated) {
-    return <section className="mobile-card mobile-card--soft"><p>Loading your session...</p></section>;
+    return <section className="mobile-card mobile-card--soft"><p>{t('account.addMoney.loading')}</p></section>;
   }
 
   if (!auth.isAuthenticated) {
     return (
       <section className="mobile-card mobile-card--soft">
-        <span className="semantic-badge instruction">Signed out</span>
-        <h3>Sign in to use the demo top-up</h3>
-        <p>Wallet money is private to your account and can later be selected inside Need/Offer trade sides.</p>
-        <Link href="/auth" className="button primary full">Login or register</Link>
+        <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+        <h3>{t('account.addMoney.signedOutTitle')}</h3>
+        <p>{t('account.addMoney.signedOutBody')}</p>
+        <Link href="/auth" className="button primary full">{t('common.actions.loginOrRegister')}</Link>
       </section>
     );
   }
@@ -103,9 +105,9 @@ export function AddMoneyClient() {
     <div className="wallet-page">
       <section className="wallet-hero-card">
         <div>
-          <span className="semantic-badge money">Simulation only</span>
-          <h2>{formatMoney(previewCents, currency)}</h2>
-          <p>This adds demo wallet money for testing the web flow. No real Stripe integration or card charge is used here.</p>
+          <span className="semantic-badge money">{t('account.addMoney.simulationOnly')}</span>
+          <h2>{formatMoney(previewCents, currency, language)}</h2>
+          <p>{t('account.addMoney.simulationBody')}</p>
         </div>
       </section>
 
@@ -113,31 +115,31 @@ export function AddMoneyClient() {
         <section className="mobile-card wallet-form-card">
           <div className="trade-section-heading">
             <div>
-              <p className="eyebrow">Money launch safety</p>
+              <p className="eyebrow">{t('account.addMoney.safetyTitle')}</p>
               <h3>{moneySafety.launchMode.replace(/_/g, ' ')}</h3>
             </div>
-            <span className={`semantic-badge ${moneySafety.policyAcknowledged ? 'success' : 'warning'}`}>{moneySafety.policyAcknowledged ? 'Accepted' : 'Review'}</span>
+            <span className={`semantic-badge ${moneySafety.policyAcknowledged ? 'success' : 'warning'}`}>{moneySafety.policyAcknowledged ? t('account.addMoney.safetyAccepted') : t('account.addMoney.safetyReview')}</span>
           </div>
           <p>{moneySafety.message}</p>
-          {!moneySafety.policyAcknowledged ? <button type="button" className="secondary" onClick={() => { void acknowledgeSafety(); }} disabled={saving}>Accept wallet, payout, refund, and dispute policies</button> : <p className="meta">Policy version {moneySafety.policyVersion} accepted.</p>}
+          {!moneySafety.policyAcknowledged ? <button type="button" className="secondary" onClick={() => { void acknowledgeSafety(); }} disabled={saving}>{t('account.addMoney.acceptPolicies')}</button> : <p className="meta">{t('account.addMoney.policyAccepted', { version: moneySafety.policyVersion })}</p>}
         </section>
       ) : null}
 
       <section className="mobile-card wallet-form-card">
         <div className="form-stack">
           <label className="field-label">
-            Amount
+            {t('account.addMoney.amount')}
             <input value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="10.00" />
           </label>
           <div className="quick-amount-grid">
             {quickAmounts.map((quickAmount) => (
               <button key={quickAmount} type="button" className="secondary" onClick={() => setAmount(quickAmount)}>
-                {formatMoney(Number(quickAmount) * 100, currency)}
+                {formatMoney(Number(quickAmount) * 100, currency, language)}
               </button>
             ))}
           </div>
           <label className="field-label">
-            Currency
+            {t('account.addMoney.currency')}
             <select
               value={currency}
               onChange={(event) => {
@@ -150,11 +152,11 @@ export function AddMoneyClient() {
         </div>
         {message ? <p className="notice-box success">{message}</p> : null}
         {error ? <p className="notice-box danger">{error}</p> : null}
-        {limits ? <p className="notice-box instruction">Launch wallet cap: {formatMoney(walletCapCents, currency)} · remaining: {formatMoney(remainingCapCents, currency)}</p> : null}
-        {blockedBySafety ? <p className="notice-box danger">Accept the current money safety policies before adding demo money.</p> : null}
-        {blockedByLimits ? <p className="notice-box danger">This top-up is above your current launch limit. Verify your account or contact support to request a higher limit.</p> : null}
-        {wallet ? <p className="notice-box money">New wallet balance: {formatMoney(wallet.availableBalanceCents, wallet.currency)}</p> : null}
-        <button type="button" onClick={() => { void submitTopUp(); }} disabled={saving || blockedBySafety || blockedByLimits}>{saving ? 'Adding...' : 'Add demo money'}</button>
+        {limits ? <p className="notice-box instruction">{t('account.addMoney.launchWalletCap', { cap: formatMoney(walletCapCents, currency, language), remaining: formatMoney(remainingCapCents, currency, language) })}</p> : null}
+        {blockedBySafety ? <p className="notice-box danger">{t('account.addMoney.blockedSafety')}</p> : null}
+        {blockedByLimits ? <p className="notice-box danger">{t('account.addMoney.blockedLimit')}</p> : null}
+        {wallet ? <p className="notice-box money">{t('account.addMoney.newBalance', { amount: formatMoney(wallet.availableBalanceCents, wallet.currency, language) })}</p> : null}
+        <button type="button" onClick={() => { void submitTopUp(); }} disabled={saving || blockedBySafety || blockedByLimits}>{saving ? t('account.addMoney.adding') : t('account.addMoney.addDemoMoney')}</button>
       </section>
     </div>
   );

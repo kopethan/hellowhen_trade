@@ -14,7 +14,8 @@ import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
 import { TradeProposalPanel } from './TradeProposalPanel';
 import { UserIdentityLink } from '../users/UserIdentityLink';
-import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
+import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getModeLabel, getNeedSide, getOfferSide, getStatusLabel, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeI18n, type TradeSide } from './tradePresentation';
 
 function normalizeTradeResponse(value: unknown): TradeDto | null {
   if (!value || typeof value !== 'object') return null;
@@ -24,24 +25,24 @@ function normalizeTradeResponse(value: unknown): TradeDto | null {
 }
 
 
-function participantLabel(trade: TradeDto, userId?: string | null) {
-  if (!userId) return 'member';
-  if (trade.ownerId === userId) return 'creator';
-  if (trade.providerId === userId) return 'accepted trader';
-  return 'member';
+function participantLabel(trade: TradeDto, userId?: string | null, i18n?: TradeI18n) {
+  if (!userId) return i18n?.t?.('trade.labels.member') ?? 'member';
+  if (trade.ownerId === userId) return i18n?.t?.('trade.labels.creator') ?? 'creator';
+  if (trade.providerId === userId) return i18n?.t?.('trade.labels.acceptedTrader') ?? 'accepted trader';
+  return i18n?.t?.('trade.labels.member') ?? 'member';
 }
 
-function completionHint(trade: TradeDto, _userId?: string | null) {
-  if (trade.status === 'in_progress') return 'One party should mark delivered, then the other confirms completion.';
-  if (trade.status === 'submitted') return 'Waiting for the other party to confirm completion.';
-  if (trade.status === 'disputed') return 'Support will review this trade and help the members resolve it.';
-  if (trade.status === 'completed') return 'This exchange has been completed.';
-  if (trade.status === 'cancelled') return 'This trade is no longer active.';
-  return 'Accepted trades use delivery confirmation before the exchange is closed.';
+function completionHint(trade: TradeDto, _userId?: string | null, i18n?: TradeI18n) {
+  if (trade.status === 'in_progress') return i18n?.t?.('trade.detail.markDeliveredHint') ?? 'One party should mark delivered, then the other confirms completion.';
+  if (trade.status === 'submitted') return i18n?.t?.('trade.detail.submittedHint') ?? 'Waiting for the other party to confirm completion.';
+  if (trade.status === 'disputed') return i18n?.t?.('trade.detail.disputedHint') ?? 'Support will review this trade and help the members resolve it.';
+  if (trade.status === 'completed') return i18n?.t?.('trade.detail.completedHint') ?? 'This exchange has been completed.';
+  if (trade.status === 'cancelled') return i18n?.t?.('trade.detail.cancelledHint') ?? 'This trade is no longer active.';
+  return i18n?.t?.('trade.detail.acceptedUsesConfirmation') ?? 'Accepted trades use delivery confirmation before the exchange is closed.';
 }
 
 
-function SideSection({ side }: { side: TradeSide }) {
+function SideSection({ side, i18n }: { side: TradeSide; i18n?: TradeI18n }) {
   const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : 'instruction';
 
   return (
@@ -60,13 +61,13 @@ function SideSection({ side }: { side: TradeSide }) {
           {side.tags.slice(0, 8).map((tag) => <span key={tag}>{tag}</span>)}
         </div>
       ) : null}
-      <TradeImageGrid images={side.media} title={side.title} badge={side.kind === 'need' ? 'Need reference' : side.kind === 'offer' ? 'Offer sample' : undefined} />
+      <TradeImageGrid images={side.media} title={side.title} kind={side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : undefined} badge={side.kind === 'need' ? i18n?.t?.('trade.labels.needReference') ?? 'Need reference' : side.kind === 'offer' ? i18n?.t?.('trade.labels.offerSample') ?? 'Offer sample' : undefined} />
     </section>
   );
 }
 
-function OpenResponseSection({ trade }: { trade: TradeDto }) {
-  const copy = getTradeProposalCopy(trade);
+function OpenResponseSection({ trade, i18n }: { trade: TradeDto; i18n?: TradeI18n }) {
+  const copy = getTradeProposalCopy(trade, i18n);
   const postType = getTradePostType(trade);
   const iconName = postType === 'open_need' ? 'offer' : 'need';
   const badgeClass = postType === 'open_need' ? 'offer' : 'need';
@@ -75,13 +76,13 @@ function OpenResponseSection({ trade }: { trade: TradeDto }) {
     <section className="trade-social-section trade-open-response-section">
       <div className="trade-section-heading">
         <div>
-          <p className="eyebrow">What can others propose?</p>
+          <p className="eyebrow">{i18n?.t?.('trade.labels.whatCanOthersPropose') ?? 'What can others propose?'}</p>
           <h2 className="icon-heading"><WebIcon name={iconName} size={21} decorative /> {copy.inviteTitle}</h2>
         </div>
         <span className={`semantic-badge ${badgeClass}`}>{copy.responseNeeded}</span>
       </div>
       <p>{copy.inviteBody}</p>
-      <p className="meta">Use the private proposal area below to respond to this post.</p>
+      <p className="meta">{i18n?.t?.('trade.proposals.usePrivateProposalArea') ?? 'Use the private proposal area below to respond to this post.'}</p>
     </section>
   );
 }
@@ -89,6 +90,8 @@ function OpenResponseSection({ trade }: { trade: TradeDto }) {
 export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; initialTrade?: TradeDto | null }) {
   const auth = useWebAuth();
   const router = useRouter();
+  const { t, language } = useWebTranslation();
+  const i18n = { t, language };
   const demoDataEnabled = isWebDemoDataEnabled();
   const [trade, setTrade] = useState<TradeDto | null>(initialTrade ?? (demoDataEnabled ? mockTrades.find((item) => item.id === tradeId) ?? null : null));
   const [loading, setLoading] = useState(!initialTrade);
@@ -147,8 +150,8 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     return (
       <article className="trade-detail-page">
         <section className="trade-hero-section">
-          <span className="semantic-badge instruction">Loading</span>
-          <h2>Loading trade...</h2>
+          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
+          <h2>{t('trade.detail.loadingTitle')}</h2>
         </section>
       </article>
     );
@@ -158,9 +161,9 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     return (
       <article className="trade-detail-page">
         <section className="trade-hero-section">
-          <span className="semantic-badge danger">Not found</span>
-          <h2>This trade could not be loaded.</h2>
-          <p>Check that the API is running or open a trade from the feed.</p>
+          <span className="semantic-badge danger">{t('trade.labels.notFound')}</span>
+          <h2>{t('trade.detail.couldNotLoad')}</h2>
+          <p>{t('trade.detail.checkApi')}</p>
         </section>
       </article>
     );
@@ -182,10 +185,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       const response = await api.trades.updateStatus(currentTrade.id, { status });
       const nextTrade = normalizeTradeResponse(response);
       if (nextTrade) setTrade(nextTrade);
-      setActionNotice(status === 'submitted' ? 'Delivery marked. The other party can now confirm completion.' : status === 'completed' ? 'Trade confirmed.' : status === 'disputed' ? 'Trade reported for support review.' : 'Trade updated.');
+      setActionNotice(status === 'submitted' ? t('trade.detail.deliveryMarked') : status === 'completed' ? t('trade.detail.tradeConfirmed') : status === 'disputed' ? t('trade.detail.tradeReported') : t('trade.detail.tradeUpdated'));
       await loadLiveTrade();
     } catch {
-      setActionNotice('Could not update the trade yet. Check the current status and try again.');
+      setActionNotice(t('trade.detail.couldNotUpdate'));
     } finally {
       setActionLoading(null);
     }
@@ -201,10 +204,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       await api.support.createTicket({ category: 'trade_issue', priority: 'normal', subject: `Problem with trade: ${currentTrade.title}`.slice(0, 140), message, relatedTradeId: currentTrade.id });
       setReportMessage('');
       setReportOpen(false);
-      setActionNotice('Report sent. Support will review this trade.');
+      setActionNotice(t('trade.detail.reportSent'));
       await loadLiveTrade();
     } catch {
-      setActionNotice('Could not send the report yet. Try again from Account > Support.');
+      setActionNotice(t('trade.detail.couldNotReport'));
     } finally {
       setActionLoading(null);
     }
@@ -219,63 +222,63 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       router.push('/trades');
       router.refresh();
     } catch (cause) {
-      setActionNotice(getFriendlyApiErrorMessage(cause, 'Could not delete this trade yet. Check its status and try again.'));
+      setActionNotice(getFriendlyApiErrorMessage(cause, t('trade.detail.couldNotDelete')));
     } finally {
       setActionLoading(null);
     }
   }
 
-  const needSide = getNeedSide(currentTrade);
-  const offerSide = getOfferSide(currentTrade);
-  const exchange = getExchangeLabel(currentTrade);
-  const headline = getTradeHeadline(currentTrade);
-  const howItWorks = getTradeHowItWorks(currentTrade);
+  const needSide = getNeedSide(currentTrade, i18n);
+  const offerSide = getOfferSide(currentTrade, i18n);
+  const exchange = getExchangeLabel(currentTrade, i18n);
+  const headline = getTradeHeadline(currentTrade, i18n);
+  const howItWorks = getTradeHowItWorks(currentTrade, i18n);
   const postType = getTradePostType(currentTrade);
-  const proposalCopy = getTradeProposalCopy(currentTrade);
+  const proposalCopy = getTradeProposalCopy(currentTrade, i18n);
   const mode = getTradeMode(currentTrade);
 
   return (
     <article className="trade-detail-page">
       <section className="trade-hero-section">
         <div className="status-row">
-          <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {currentTrade.status}</span>
+          <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {getStatusLabel(currentTrade.status, i18n)}</span>
           <span className="semantic-badge trade">{exchange}</span>
-          {usingFallback ? <span className="semantic-badge instruction">Demo detail</span> : null}
+          {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
         </div>
         <h2>{headline}</h2>
         <p>{currentTrade.description}</p>
         <div className="trade-detail-owner-row">
-          <span className="meta">Posted by</span>
+          <span className="meta">{t('trade.labels.postedBy')}</span>
           <UserIdentityLink
             user={currentTrade.owner}
             userId={currentTrade.ownerId}
             variant="chip"
             avatarSize="sm"
-            statusText="Creator"
+            statusText={t('trade.labels.creator')}
             showHandle={false}
           />
-          <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt)}</span>
+          <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt, i18n)}</span>
         </div>
       </section>
 
-      {postType !== 'open_offer' ? <SideSection side={needSide} /> : null}
-      {postType !== 'open_need' ? <SideSection side={offerSide} /> : null}
-      {postType === 'open_need' || postType === 'open_offer' ? <OpenResponseSection trade={currentTrade} /> : null}
+      {postType !== 'open_offer' ? <SideSection side={needSide} i18n={i18n} /> : null}
+      {postType !== 'open_need' ? <SideSection side={offerSide} i18n={i18n} /> : null}
+      {postType === 'open_need' || postType === 'open_offer' ? <OpenResponseSection trade={currentTrade} i18n={i18n} /> : null}
 
       <section className="trade-social-section trade-social-section--compact">
         <div className="trade-section-heading">
           <div>
-            <p className="eyebrow">Trade details</p>
-            <h2 className="icon-heading"><WebIcon name="trade" size={21} decorative /> How this trade works</h2>
+            <p className="eyebrow">{t('trade.labels.tradeDetails')}</p>
+            <h2 className="icon-heading"><WebIcon name="trade" size={21} decorative /> {t('trade.labels.howThisTradeWorks')}</h2>
           </div>
         </div>
         <dl className="trade-detail-list">
-          <div><dt>Status</dt><dd>{currentTrade.status}</dd></div>
-          <div><dt>Exchange</dt><dd>{exchange}</dd></div>
-          <div><dt>Response needed</dt><dd>{proposalCopy.responseNeeded}</dd></div>
-          <div><dt>Mode</dt><dd>{mode ?? 'Not specified'}</dd></div>
-          <div><dt>Created</dt><dd>{formatDateLabel(currentTrade.createdAt)}</dd></div>
-          <div><dt>Expires</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt)}</dd></div>
+          <div><dt>{t('trade.labels.status')}</dt><dd>{getStatusLabel(currentTrade.status, i18n)}</dd></div>
+          <div><dt>{t('trade.labels.exchange')}</dt><dd>{exchange}</dd></div>
+          <div><dt>{t('trade.labels.responseNeeded')}</dt><dd>{proposalCopy.responseNeeded}</dd></div>
+          <div><dt>{t('trade.labels.mode')}</dt><dd>{getModeLabel(mode, i18n) ?? t('trade.labels.unavailable')}</dd></div>
+          <div><dt>{t('trade.labels.created')}</dt><dd>{formatDateLabel(currentTrade.createdAt, i18n)}</dd></div>
+          <div><dt>{t('trade.labels.expires')}</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt, i18n)}</dd></div>
         </dl>
         <p className="trade-how-it-works">{howItWorks}</p>
       </section>
@@ -283,26 +286,26 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       <section className="trade-social-section trade-social-section--compact">
         <div className="trade-section-heading">
           <div>
-            <p className="eyebrow">Confirmation</p>
-            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> Delivery confirmation</h2>
+            <p className="eyebrow">{t('trade.labels.confirmation')}</p>
+            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> {t('trade.labels.deliveryConfirmation')}</h2>
           </div>
-          {actionLoading ? <span className="semantic-badge instruction">Updating</span> : null}
+          {actionLoading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
         </div>
-        <p>{completionHint(currentTrade, actorId)}</p>
-        <p className="meta">You are viewing as {participantLabel(currentTrade, actorId)}.</p>
+        <p>{completionHint(currentTrade, actorId, i18n)}</p>
+        <p className="meta">{t('trade.detail.viewingAs', { role: participantLabel(currentTrade, actorId, i18n) })}</p>
         {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
         <div className="trade-action-row">
-          {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>Mark delivered</button> : null}
-          {canConfirmCompletion ? <button type="button" className="success" onClick={() => setConfirmCompletionOpen(true)} disabled={Boolean(actionLoading)}>Confirm completed</button> : null}
-          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> Report problem</button> : null}
+          {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>{t('trade.detail.markDelivered')}</button> : null}
+          {canConfirmCompletion ? <button type="button" className="success" onClick={() => setConfirmCompletionOpen(true)} disabled={Boolean(actionLoading)}>{t('trade.detail.confirmCompleted')}</button> : null}
+          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> {t('trade.detail.reportProblem')}</button> : null}
         </div>
         {reportOpen ? (
           <form className="proposal-composer" onSubmit={submitReport}>
             <label className="field-label">
-              What happened?
-              <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder="Explain what went wrong so support can review the trade." rows={4} />
+              {t('trade.detail.whatHappened')}
+              <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder={t('trade.detail.reportPlaceholder')} rows={4} />
             </label>
-            <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>Send report</button>
+            <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>{t('trade.detail.sendReport')}</button>
           </form>
         ) : null}
       </section>
@@ -313,25 +316,25 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         <section className="trade-social-section trade-social-section--compact trade-danger-zone">
           <div className="trade-section-heading">
             <div>
-              <p className="eyebrow">Owner controls</p>
-              <h2 className="icon-heading"><WebIcon name="warning" size={21} decorative /> Delete trade</h2>
+              <p className="eyebrow">{t('trade.labels.ownerControls')}</p>
+              <h2 className="icon-heading"><WebIcon name="warning" size={21} decorative /> {t('trade.detail.deleteTrade')}</h2>
             </div>
-            <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? 'Available' : 'Protected'}</span>
+            <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? t('trade.labels.available') : t('trade.labels.protected')}</span>
           </div>
-          <p>{canDeleteTrade ? 'Remove this trade from the public feed. Your saved inventory item will stay in your account.' : 'This trade cannot be deleted while it is in progress, submitted, completed, or disputed.'}</p>
+          <p>{canDeleteTrade ? t('trade.detail.removeTradeBody') : t('trade.detail.deleteProtectedBody')}</p>
           <div className="trade-action-row">
-            <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>Delete trade</button>
+            <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>{t('trade.detail.deleteTrade')}</button>
           </div>
         </section>
       ) : null}
 
       <ConfirmDialog
         open={confirmCompletionOpen}
-        eyebrow="Confirmation"
-        title="Confirm completed?"
-        body="Confirm only when your trade is complete. This will close the exchange and update the trade status."
+        eyebrow={t('trade.labels.confirmation')}
+        title={t('trade.detail.confirmCompletedTitle')}
+        body={t('trade.detail.confirmCompletedBody')}
         variant="warning"
-        confirmLabel="Confirm completed"
+        confirmLabel={t('trade.detail.confirmCompleted')}
         loading={actionLoading === 'completed'}
         onCancel={() => setConfirmCompletionOpen(false)}
         onConfirm={async () => {
@@ -342,11 +345,11 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
 
       <ConfirmDialog
         open={deleteTradeOpen}
-        eyebrow="Owner action"
-        title="Delete trade?"
-        body="This will remove the trade from the public feed and close pending proposals. Your saved Need and Offer will not be deleted."
+        eyebrow={t('trade.detail.ownerAction')}
+        title={t('trade.detail.deleteTradeTitle')}
+        body={t('trade.detail.deleteTradeBody')}
         variant="danger"
-        confirmLabel="Delete trade"
+        confirmLabel={t('trade.detail.deleteTrade')}
         loading={actionLoading === 'delete'}
         onCancel={() => setDeleteTradeOpen(false)}
         onConfirm={deleteTrade}
