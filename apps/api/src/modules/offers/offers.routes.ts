@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { createOfferRequestSchema, updateOfferRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 
 export const offersRoutes = Router();
@@ -83,7 +83,7 @@ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
   });
 }));
 
-offersRoutes.post('/', asyncRoute(async (req, res) => {
+offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createOfferRequestSchema.parse(req.body);
   const offer = await prisma.offer.create({
     data: {
@@ -105,7 +105,7 @@ offersRoutes.post('/', asyncRoute(async (req, res) => {
   res.status(201).json({ offer: await withOneMedia('offer', offer) });
 }));
 
-offersRoutes.patch('/:offerId', asyncRoute(async (req, res) => {
+offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateOfferRequestSchema.parse(req.body);
   const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -118,7 +118,7 @@ offersRoutes.patch('/:offerId', asyncRoute(async (req, res) => {
   res.json({ offer: await withOneMedia('offer', offer) });
 }));
 
-offersRoutes.delete('/:offerId', asyncRoute(async (req, res) => {
+offersRoutes.delete('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
   const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const active = await loadActiveLinkedTrades(existing.id);

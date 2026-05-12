@@ -23,7 +23,7 @@ export const navigation = {
     editOffer: 'Modifier l’offre',
     offer: 'Offre',
     settings: 'Paramètres',
-    support: 'Support',
+    support: 'Assistance',
     hellowhen: 'Hellowhen',
   },
 } as const;

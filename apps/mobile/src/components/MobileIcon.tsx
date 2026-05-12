@@ -21,6 +21,7 @@ export type MobileIconName =
   | 'proposal'
   | 'proposal-accepted'
   | 'proposal-declined'
+  | 'report-flag'
   | 'refresh'
   | 'search'
   | 'send'
@@ -78,6 +79,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" strokeWidth={1.35} {...strokeProps} /><Path d="M13.9 6.8L15.05 7.95L17.25 5.75" strokeWidth={1.35} {...strokeProps} /></>;
     case 'proposal-declined':
       return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.25L19 6.75L15.5 10.25L12 6.75L15.5 3.25Z" strokeWidth={1.35} {...strokeProps} /><Path d="M14.2 5.45L16.8 8.05" strokeWidth={1.35} {...strokeProps} /><Path d="M16.8 5.45L14.2 8.05" strokeWidth={1.35} {...strokeProps} /></>;
+    case 'report-flag':
+      return <><Path d="M6 20V5.5" strokeWidth={1.9} {...strokeProps} /><Path d="M6 5.5H17.5L15.25 9.25L17.5 13H6" strokeWidth={1.9} {...strokeProps} /><Path d="M10.5 8.25V10.75" strokeWidth={1.7} {...strokeProps} /><Path d="M10.5 12.4H10.51" strokeWidth={2.2} {...strokeProps} /></>;
     case 'refresh':
       return <><Path d="M19 8.5C17.75 6.4 15.46 5 12.85 5C8.95 5 5.75 8.1 5.6 12" strokeWidth={1.9} {...strokeProps} /><Path d="M19 5V8.5H15.5" strokeWidth={1.9} {...strokeProps} /><Path d="M5 15.5C6.25 17.6 8.54 19 11.15 19C15.05 19 18.25 15.9 18.4 12" strokeWidth={1.9} {...strokeProps} /><Path d="M5 19V15.5H8.5" strokeWidth={1.9} {...strokeProps} /></>;
     case 'search':

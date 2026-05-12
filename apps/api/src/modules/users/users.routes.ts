@@ -1,16 +1,13 @@
 import { Router } from 'express';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { withTradeDeckMedia } from '../trades/trades.routes.js';
+import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
 import { publicUserProfileSelect } from './publicUser.js';
 
 export const usersRoutes = Router();
 
 const publicPostWhereBase = (userId: string) => ({
-  ownerId: userId,
-  isPublic: true,
-  status: 'active' as const,
-  OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+  AND: [publicTradeVisibilityWhere(), { ownerId: userId }],
 });
 
 const publicTradeSummaryInclude = {
@@ -24,10 +21,10 @@ usersRoutes.get('/:userId/public-profile', asyncRoute(async (req, res) => {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: publicUserProfileSelect,
+    select: { ...publicUserProfileSelect, trustTier: true },
   });
 
-  if (!user) return res.status(404).json({ error: 'not_found' });
+  if (!user || user.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
 
   const [completedTradesCount, activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),

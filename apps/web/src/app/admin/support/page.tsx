@@ -1,20 +1,32 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import type { AuthResponse, SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
+import { getWebApiBaseUrl } from '../../../lib/api';
 import { formatWebDateTime } from '../../../lib/webFormat';
 
-type LoginResponse = { accessToken: string };
-type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null } | null }; _count?: { messages: number } };
+type LoginResponse = AuthResponse | { requiresTwoFactor: true; challengeToken: string; message?: string };
+type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; _count?: { messages: number } };
 type TicketsResponse = { tickets: AdminTicketItem[] };
 type TicketResponse = { ticket: AdminTicketItem };
+type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
+type AssignedFilter = 'all' | 'unassigned' | 'mine';
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const adminTokenKey = 'hellowhen:admin_access_token';
 const statuses: Array<SupportTicketStatus | 'all'> = ['all', 'open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
 const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
 const priorities: Array<SupportTicketPriority | 'all'> = ['all', 'low', 'normal', 'high', 'urgent'];
+const assignedFilters: AssignedFilter[] = ['all', 'unassigned', 'mine'];
 
-function labelize(value: string) { return value.replaceAll('_', ' '); }
+function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+}
+
+function labelize(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'unknown'; }
+function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
+  return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
+}
 function statusTone(status: SupportTicketStatus | 'all') {
   if (status === 'resolved') return 'success';
   if (status === 'waiting_for_user') return 'instruction';
@@ -39,30 +51,69 @@ function categoryTone(category: SupportTicketCategory | 'all') {
 }
 
 export default function AdminSupportPage() {
+  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
   const [email, setEmail] = useState('admin@hellowhen.app');
   const [password, setPassword] = useState('password123');
   const [token, setToken] = useState('');
+  const [currentAdminId, setCurrentAdminId] = useState<string | null>(null);
   const [status, setStatus] = useState<SupportTicketStatus | 'all'>('open');
   const [category, setCategory] = useState<SupportTicketCategory | 'all'>('all');
   const [priority, setPriority] = useState<SupportTicketPriority | 'all'>('all');
+  const [assigned, setAssigned] = useState<AssignedFilter>('all');
+  const [query, setQuery] = useState('');
   const [tickets, setTickets] = useState<AdminTicketItem[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<AdminTicketItem | null>(null);
+  const [deepLinkTicketId, setDeepLinkTicketId] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
   const [internal, setInternal] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
 
+  useEffect(() => {
+    const saved = window.localStorage.getItem(adminTokenKey);
+    if (saved) setToken(saved);
+    const ticketId = new URLSearchParams(window.location.search).get('ticketId');
+    if (ticketId) setDeepLinkTicketId(ticketId);
+  }, []);
+
+  useEffect(() => {
+    if (token) window.localStorage.setItem(adminTokenKey, token);
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || !deepLinkTicketId) return;
+    void openTicket(deepLinkTicketId);
+    setDeepLinkTicketId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, deepLinkTicketId]);
+
   async function login() {
-    setLoading(true); setMessage(null);
+    setLoading(true);
+    setNotice(null);
     try {
       const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed');
+      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
       const data = await response.json() as LoginResponse;
+      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
       setToken(data.accessToken);
-      setMessage('Admin logged in. Load support tickets to handle feedback and problems.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
-    finally { setLoading(false); }
+      setCurrentAdminId(data.user.id);
+      window.localStorage.setItem(adminTokenKey, data.accessToken);
+      setNotice({ tone: 'success', body: 'Admin logged in. Load support tickets or open the escalated ticket from the report queue.' });
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function logout() {
+    setToken('');
+    setCurrentAdminId(null);
+    setTickets([]);
+    setSelectedTicket(null);
+    window.localStorage.removeItem(adminTokenKey);
+    setNotice({ tone: 'info', body: 'Admin token cleared from this browser.' });
   }
 
   function queryString() {
@@ -70,102 +121,188 @@ export default function AdminSupportPage() {
     if (status !== 'all') params.set('status', status);
     if (category !== 'all') params.set('category', category);
     if (priority !== 'all') params.set('priority', priority);
-    const query = params.toString();
-    return query ? `?${query}` : '';
+    if (assigned !== 'all') params.set('assigned', assigned);
+    if (query.trim()) params.set('q', query.trim());
+    const text = params.toString();
+    return text ? `?${text}` : '';
   }
 
   async function loadTickets() {
-    if (!token) { setMessage('Log in as admin first.'); return; }
-    setLoading(true); setMessage(null);
+    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    setLoading(true);
+    setNotice(null);
     try {
       const response = await fetch(`${apiBase}/admin/support/tickets${queryString()}`, { headers });
-      if (!response.ok) throw new Error('Could not load support tickets. Make sure this account has admin role.');
+      if (!response.ok) throw new Error('Could not load support tickets. Make sure this account has admin role and satisfies 2FA requirements.');
       const data = await response.json() as TicketsResponse;
       setTickets(data.tickets);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load tickets'); }
-    finally { setLoading(false); }
+      if (selectedTicket) setSelectedTicket(data.tickets.find((item) => item.id === selectedTicket.id) ?? selectedTicket);
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load tickets.' });
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function openTicket(ticketId: string) {
     if (!token) return;
-    setLoading(true); setMessage(null);
+    setLoading(true);
+    setNotice(null);
     try {
       const response = await fetch(`${apiBase}/admin/support/tickets/${ticketId}`, { headers });
-      if (!response.ok) throw new Error('Could not open support ticket');
+      if (!response.ok) throw new Error('Could not open support ticket. It may have been deleted or your admin session may need refreshing.');
       const data = await response.json() as TicketResponse;
       setSelectedTicket(data.ticket);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open ticket'); }
-    finally { setLoading(false); }
+      setTickets((current) => current.some((item) => item.id === data.ticket.id) ? current.map((item) => item.id === data.ticket.id ? data.ticket : item) : [data.ticket, ...current]);
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not open ticket.' });
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function updateTicket(nextStatus: SupportTicketStatus, nextPriority = selectedTicket?.priority ?? 'normal') {
+  async function updateTicket(next: { status?: SupportTicketStatus; priority?: SupportTicketPriority; assignedAdminId?: string | null }) {
     if (!token || !selectedTicket) return;
-    setLoading(true); setMessage(null);
+    setLoading(true);
+    setNotice(null);
     try {
-      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus, priority: nextPriority }) });
-      if (!response.ok) throw new Error('Could not update support ticket');
+      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}`, { method: 'PATCH', headers, body: JSON.stringify(next) });
+      if (!response.ok) throw new Error('Could not update support ticket.');
       const data = await response.json() as TicketResponse;
       setSelectedTicket(data.ticket);
-      await loadTickets();
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update ticket'); }
-    finally { setLoading(false); }
+      setTickets((current) => current.map((item) => item.id === data.ticket.id ? data.ticket : item));
+      setNotice({ tone: 'success', body: 'Support ticket updated and written to the admin audit log.' });
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update ticket.' });
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function sendReply() {
     if (!token || !selectedTicket || !replyBody.trim()) return;
-    setLoading(true); setMessage(null);
+    setLoading(true);
+    setNotice(null);
     try {
-      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}/messages`, { method: 'POST', headers, body: JSON.stringify({ body: replyBody.trim(), internal, status: internal ? selectedTicket.status : 'waiting_for_user' }) });
-      if (!response.ok) throw new Error('Could not send support reply');
+      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ body: replyBody.trim(), internal, status: internal ? selectedTicket.status : 'waiting_for_user' }),
+      });
+      if (!response.ok) throw new Error('Could not send support reply.');
       setReplyBody('');
       await openTicket(selectedTicket.id);
       await loadTickets();
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not send reply'); }
-    finally { setLoading(false); }
+      setNotice({ tone: 'success', body: internal ? 'Internal note added.' : 'Reply sent to the user and ticket marked waiting for user.' });
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not send reply.' });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <section style={{ display: 'grid', gap: 16 }}>
-      <div className="card">
-        <span className="semantic-badge instruction">Support Admin</span>
-        <h1>Feedback & support tickets</h1>
-        <p className="notice-box info">Handle user feedback, trade issues, credit questions, image/content issues, bug reports, account problems, and safety concerns. This is separate from proposal conversations.</p>
-        <div className="form-row">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
-          </div>
-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
+    <main className="admin-console">
+      <section className="app-card admin-console__hero">
+        <div className="status-row">
+          <span className="semantic-badge instruction">Support admin</span>
+          <Link className="button secondary" href="/admin">Back to admin</Link>
+          <Link className="button secondary" href="/admin/reports">Report queue</Link>
         </div>
-        <div className="form-row" style={{ marginTop: 12, gridTemplateColumns: '1fr 1fr 1fr auto' }}>
-          <select value={status} onChange={(event) => setStatus(event.target.value as SupportTicketStatus | 'all')}>{statuses.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
-          <select value={category} onChange={(event) => setCategory(event.target.value as SupportTicketCategory | 'all')}>{categories.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
-          <select value={priority} onChange={(event) => setPriority(event.target.value as SupportTicketPriority | 'all')}>{priorities.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
-          <button className="secondary" onClick={() => { void loadTickets(); }} disabled={loading}>Load tickets</button>
+        <div>
+          <p className="eyebrow">Phase 24.3</p>
+          <h1>Support inbox</h1>
+          <p>Handle user tickets, internal notes, report escalations, and safety follow-up without exposing internal moderation details to users.</p>
         </div>
-        {message ? <p className="notice-box info">{message}</p> : null}
-      </div>
-      <div className="support-layout">
-        <div className="card">
+        <div className="admin-console__login-grid">
+          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
+          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
+          <button type="button" onClick={() => { void login(); }} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
+          <button type="button" className="secondary" onClick={logout} disabled={!token}>Clear token</button>
+        </div>
+        {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+      </section>
+
+      <section className="admin-detail-grid">
+        <article className="app-card admin-action-card">
+          <div className="status-row"><span className="semantic-badge info">Inbox</span><span className="semantic-badge admin">No deletes</span></div>
           <h2>Tickets</h2>
-          <div style={{ display: 'grid', gap: 10 }}>
-            {tickets.map((ticket) => <button key={ticket.id} className="support-ticket-button" onClick={() => { void openTicket(ticket.id); }}><span className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</span><span className={`semantic-badge ${categoryTone(ticket.category)}`}>{labelize(ticket.category)}</span><strong>{ticket.subject}</strong><span className="meta">{ticket.user?.profile?.displayName ?? ticket.user?.email ?? ticket.userId} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · {formatWebDateTime(ticket.updatedAt)}</span></button>)}
+          <div className="admin-trust-controls">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject, message, user, ticket ID" />
+            <select value={status} onChange={(event) => setStatus(event.target.value as SupportTicketStatus | 'all')}>{statuses.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
+            <select value={category} onChange={(event) => setCategory(event.target.value as SupportTicketCategory | 'all')}>{categories.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
+            <select value={priority} onChange={(event) => setPriority(event.target.value as SupportTicketPriority | 'all')}>{priorities.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
+            <select value={assigned} onChange={(event) => setAssigned(event.target.value as AssignedFilter)}>{assignedFilters.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
+            <button type="button" onClick={() => { void loadTickets(); }} disabled={loading || !token}>Load tickets</button>
+          </div>
+          <div className="admin-user-list">
+            {tickets.map((ticket) => (
+              <button type="button" key={ticket.id} className={selectedTicket?.id === ticket.id ? 'admin-user-row is-active' : 'admin-user-row'} onClick={() => { void openTicket(ticket.id); }}>
+                <span>
+                  <strong>{ticket.subject}</strong>
+                  <small>{personLabel(ticket.user)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
+                  <small>{formatWebDateTime(ticket.updatedAt)} · {ticket.id}</small>
+                </span>
+                <em className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</em>
+              </button>
+            ))}
             {tickets.length === 0 ? <p>No support tickets loaded yet.</p> : null}
           </div>
-        </div>
-        <div className="card">
-          {selectedTicket ? <>
-            <div className="status-row"><span className={`semantic-badge ${statusTone(selectedTicket.status)}`}>{labelize(selectedTicket.status)}</span><span className={`semantic-badge ${categoryTone(selectedTicket.category)}`}>{labelize(selectedTicket.category)}</span><span className={`semantic-badge ${priorityTone(selectedTicket.priority)}`}>{selectedTicket.priority}</span></div>
-            <h2>{selectedTicket.subject}</h2>
-            <p className="meta">User: {selectedTicket.user?.profile?.displayName ?? selectedTicket.user?.email ?? selectedTicket.userId}</p>
-            <p>{selectedTicket.message}</p>
-            <div className="status-row">{selectedTicket.relatedTradeId ? <span className="semantic-badge trade">Trade {selectedTicket.relatedTradeId}</span> : null}{selectedTicket.relatedProposalId ? <span className="semantic-badge proposal">Proposal {selectedTicket.relatedProposalId}</span> : null}{selectedTicket.relatedMediaId ? <span className="semantic-badge warning">Media {selectedTicket.relatedMediaId}</span> : null}</div>
-            <div className="support-thread">{selectedTicket.messages?.map((item) => <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}><div className="status-row"><span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender?.profile?.displayName ?? item.sender?.email ?? 'User')}</span>{item.internal ? <span className="semantic-badge warning">internal</span> : null}</div><p>{item.body}</p><p className="meta">{formatWebDateTime(item.createdAt)}</p></article>)}</div>
-            <div className="cta-row"><button className="warning" onClick={() => { void updateTicket('in_review'); }} disabled={loading}>Mark in review</button><button className="secondary" onClick={() => { void updateTicket('waiting_for_user'); }} disabled={loading}>Waiting for user</button><button className="success" onClick={() => { void updateTicket('resolved'); }} disabled={loading}>Resolve</button><button className="danger" onClick={() => { void updateTicket('closed'); }} disabled={loading}>Close</button></div>
-            <div style={{ display: 'grid', gap: 10, marginTop: 14 }}><textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} placeholder="Reply to the user or add an internal note" rows={5} /><label className="meta"><input style={{ width: 'auto', marginRight: 8 }} type="checkbox" checked={internal} onChange={(event) => setInternal(event.target.checked)} /> Internal admin note only</label><button onClick={() => { void sendReply(); }} disabled={loading || !replyBody.trim()}>{internal ? 'Add internal note' : 'Send public reply'}</button></div>
-          </> : <p>Select a ticket to read the full conversation.</p>}
-        </div>
-      </div>
-    </section>
+        </article>
+
+        <article className="app-card admin-action-card">
+          {selectedTicket ? (
+            <>
+              <div className="status-row">
+                <span className={`semantic-badge ${statusTone(selectedTicket.status)}`}>{labelize(selectedTicket.status)}</span>
+                <span className={`semantic-badge ${categoryTone(selectedTicket.category)}`}>{labelize(selectedTicket.category)}</span>
+                <span className={`semantic-badge ${priorityTone(selectedTicket.priority)}`}>{labelize(selectedTicket.priority)}</span>
+              </div>
+              <h2>{selectedTicket.subject}</h2>
+              <p className="meta">User: {personLabel(selectedTicket.user)} · Assigned: {personLabel(selectedTicket.assignedAdmin)} · Updated {formatWebDateTime(selectedTicket.updatedAt)}</p>
+              <p>{selectedTicket.message}</p>
+              <div className="status-row">
+                {selectedTicket.relatedTradeId ? <Link className="semantic-badge trade" href={`/trades/${selectedTicket.relatedTradeId}`}>Trade {selectedTicket.relatedTradeId}</Link> : null}
+                {selectedTicket.relatedProposalId ? <span className="semantic-badge proposal">Proposal {selectedTicket.relatedProposalId}</span> : null}
+                {selectedTicket.relatedMediaId ? <span className="semantic-badge warning">Media {selectedTicket.relatedMediaId}</span> : null}
+              </div>
+              <div className="admin-action-grid">
+                <button type="button" className="warning" onClick={() => { void updateTicket({ status: 'in_review' }); }} disabled={loading}>Mark in review</button>
+                <button type="button" className="secondary" onClick={() => { void updateTicket({ status: 'waiting_for_user' }); }} disabled={loading}>Waiting for user</button>
+                <button type="button" className="success" onClick={() => { void updateTicket({ status: 'resolved' }); }} disabled={loading}>Resolve</button>
+                <button type="button" className="danger" onClick={() => { void updateTicket({ status: 'closed' }); }} disabled={loading}>Close</button>
+                <button type="button" className="warning" onClick={() => { void updateTicket({ priority: 'urgent' }); }} disabled={loading}>Mark urgent</button>
+                <button type="button" className="secondary" onClick={() => { void updateTicket({ priority: 'normal' }); }} disabled={loading}>Normalize priority</button>
+                <button type="button" className="secondary" onClick={() => { void updateTicket({ assignedAdminId: currentAdminId }); }} disabled={loading || !currentAdminId}>Claim ticket</button>
+                <button type="button" className="secondary" onClick={() => { void updateTicket({ assignedAdminId: null }); }} disabled={loading}>Unassign</button>
+              </div>
+              <div className="support-thread">
+                {selectedTicket.messages?.map((item) => (
+                  <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}>
+                    <div className="status-row">
+                      <span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : personLabel(item.sender)}</span>
+                      {item.internal ? <span className="semantic-badge warning">internal note</span> : null}
+                    </div>
+                    <p>{item.body}</p>
+                    <p className="meta">{formatWebDateTime(item.createdAt)}</p>
+                  </article>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                <textarea value={replyBody} onChange={(event) => setReplyBody(event.target.value)} placeholder="Reply to the user or add an internal note" rows={5} />
+                <label className="meta"><input style={{ width: 'auto', marginRight: 8 }} type="checkbox" checked={internal} onChange={(event) => setInternal(event.target.checked)} /> Internal admin note only</label>
+                <button type="button" onClick={() => { void sendReply(); }} disabled={loading || !replyBody.trim()}>{internal ? 'Add internal note' : 'Send public reply'}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="status-row"><span className="semantic-badge admin">Select ticket</span></div>
+              <h2>Ticket detail</h2>
+              <p>Select a ticket to read the full conversation, claim it, update status/priority, reply to the user, or add an internal admin note.</p>
+            </>
+          )}
+        </article>
+      </section>
+    </main>
   );
 }

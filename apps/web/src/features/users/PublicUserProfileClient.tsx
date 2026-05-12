@@ -5,6 +5,7 @@ import { truncateText } from '@hellowhen/shared';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
+import { ReportContentButton } from '../../components/ReportContentButton';
 import { api, resolveWebAssetUrl } from '../../lib/api';
 import { UserAvatar } from './UserAvatar';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -262,6 +263,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
             {location ? <span>{location}</span> : null}
           </div>
           {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">{t('profile.noBio')}</p>}
+          <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
         </div>
       </section>
 

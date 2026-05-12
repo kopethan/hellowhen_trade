@@ -15,6 +15,7 @@ export type WebIconName =
   | 'proposal'
   | 'proposal-accepted'
   | 'proposal-declined'
+  | 'report-flag'
   | 'search'
   | 'settings'
   | 'trade'

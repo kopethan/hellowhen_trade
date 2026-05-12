@@ -82,6 +82,29 @@ export const account = {
     trusted: 'Trusted',
     restricted: 'Restricted',
   },
+  payoutStatuses: {
+    draft: 'Draft',
+    requested: 'Requested',
+    approved: 'Approved',
+    paid: 'Paid',
+    rejected: 'Rejected',
+    cancelled: 'Cancelled',
+  },
+  moneySafety: {
+    launchModes: {
+      disabled: 'Disabled',
+      demo: 'Demo',
+      private_beta: 'Private beta',
+      production: 'Production',
+    },
+    messages: {
+      disabled: 'Money features are disabled for this launch.',
+      privateBeta: 'Money features are currently limited to the private beta.',
+      policyRequired: 'Review and accept the wallet, payout, refund, and dispute policies before using money features.',
+      production: 'Production money mode is enabled. Keep limits low and monitor payouts closely.',
+      demoOrBeta: 'Money features are in demo or beta safety mode. No production money movement is enabled by default.',
+    },
+  },
   addMoney: {
     title: 'Add money',
     loading: 'Loading your session...',
@@ -89,6 +112,7 @@ export const account = {
     hiddenBody: 'Wallet top-ups are disabled for the first international beta. Use Needs and Offers for service or goods exchanges.',
     signedOutTitle: 'Sign in to use the demo top-up',
     signedOutBody: 'Wallet money is private to your account and can later be selected inside Need/Offer trade sides.',
+    stripeDemoBadge: 'Stripe demo',
     simulationOnly: 'Simulation only',
     simulationBody: 'This adds demo wallet money for testing the flow. No real card charge is used here.',
     safetyTitle: 'Money launch safety',
@@ -213,6 +237,19 @@ export const account = {
     loadErrorTitle: 'Could not load profiles',
     emptyTitle: 'No business profiles yet',
     emptyBody: 'Business and brand account creation is available through the API during this phase.',
+    types: {
+      business: 'Business',
+      agency: 'Agency',
+      brand: 'Brand',
+      enterprise: 'Enterprise',
+    },
+    statuses: {
+      draft: 'Draft',
+      pending: 'Pending',
+      verified: 'Verified',
+      rejected: 'Rejected',
+      disabled: 'Disabled',
+    },
   },
   items: {
     profile: {

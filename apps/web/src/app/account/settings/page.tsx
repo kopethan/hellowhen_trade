@@ -58,7 +58,7 @@ export default function AccountSettingsPage() {
     setError(null);
     try {
       const response = await api.auth.requestEmailVerification() as { message?: string; devVerificationUrl?: string };
-      setMessage(response.devVerificationUrl ? `${response.message ?? t('settings.security.verificationRequested')} Development link: ${response.devVerificationUrl}` : response.message ?? t('settings.security.verificationRequested'));
+      setMessage(response.devVerificationUrl ? `${response.message ?? t('settings.security.verificationRequested')} ${t('settings.security.developmentLink')}: ${response.devVerificationUrl}` : response.message ?? t('settings.security.verificationRequested'));
       await auth.refreshMe().catch(() => undefined);
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));

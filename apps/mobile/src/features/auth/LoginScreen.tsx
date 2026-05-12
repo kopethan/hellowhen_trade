@@ -20,9 +20,6 @@ const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?
 const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
 const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim() ?? '';
 
-const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `Default currency ${country.currency.toUpperCase()}` }));
-const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
-
 function authSubtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
   if (mode === 'forgot') return 'auth.subtitles.forgotNative';
@@ -49,6 +46,16 @@ export function LoginScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const googleConfigured = useMemo(() => Boolean(googleWebClientId || googleIosClientId || googleAndroidClientId), []);
+  const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
+    value: country.code,
+    label: t(`common.locale.countries.${country.code}`),
+    helper: t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() }),
+  })), [t]);
+  const currencySelectOptions = useMemo(() => currencyOptions.map((currency) => ({
+    value: currency.code,
+    label: currency.label,
+    helper: t(`common.locale.currencies.${currency.code}`),
+  })), [t]);
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
@@ -82,8 +89,8 @@ export function LoginScreen() {
       if (mode === 'login') await auth.login(email, password);
       else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency);
       else {
-        const result = await auth.forgotPassword(email);
-        setMessage(result.message);
+        await auth.forgotPassword(email);
+        setMessage(t('auth.reset.requested'));
       }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));

@@ -8,6 +8,7 @@ export const auth = {
     forgotNative: 'Reset your password using your account email.',
   },
   modes: {
+    label: 'Auth mode',
     login: 'Login',
     register: 'Register',
     reset: 'Reset',
@@ -51,6 +52,7 @@ export const auth = {
     googleFailed: 'Google sign-in failed.',
   },
   actions: {
+    googleUnavailableWeb: 'Google sign-in is not wired for web yet',
     signIn: 'Sign in',
     login: 'Login',
     createAccount: 'Create account',
@@ -62,6 +64,7 @@ export const auth = {
     backToLogin: 'Back to login',
   },
   reset: {
+    requested: 'If that email exists, we sent a password reset link.',
     badge: 'Password reset',
     title: 'Reset your Hellowhen password',
     body: 'Choose a new password for your Hellowhen account. Reset links are one-time use and expire automatically.',

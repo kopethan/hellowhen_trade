@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { createProposalMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 
@@ -22,7 +22,7 @@ proposalsRoutes.get('/:proposalId', asyncRoute(async (req, res) => {
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
   res.json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
 }));
-proposalsRoutes.patch('/:proposalId/status', asyncRoute(async (req, res) => {
+proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateProposalStatusRequestSchema.parse(req.body);
   const actorId = req.user!.id;
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: proposalInclude });
@@ -68,7 +68,7 @@ proposalsRoutes.get('/:proposalId/messages', asyncRoute(async (req, res) => {
   const messages = await prisma.proposalMessage.findMany({ where: { proposalId: proposal.id }, include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' } });
   res.json({ messages });
 }));
-proposalsRoutes.post('/:proposalId/messages', asyncRoute(async (req, res) => {
+proposalsRoutes.post('/:proposalId/messages', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createProposalMessageRequestSchema.parse(req.body);
   const actorId = req.user!.id;
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });

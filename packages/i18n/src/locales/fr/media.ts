@@ -3,7 +3,7 @@ export const media = {
     image: 'image',
   },
   states: {
-    uploading: 'Importation...',
+    uploading: 'Importation…',
   },
   empty: {
     noImagesYet: 'Aucune image pour le moment',

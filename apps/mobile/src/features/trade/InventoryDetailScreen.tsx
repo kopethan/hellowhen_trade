@@ -30,6 +30,7 @@ import {
 } from './components/InventoryDetailFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import type { InventoryItemType } from '@hellowhen/contracts';
+import { formatLocalizedDate } from '@hellowhen/i18n';
 import type { NeedItem, OfferItem } from './types';
 
 type InventoryKind = 'need' | 'offer';
@@ -183,10 +184,7 @@ export function InventoryDetailScreen({
     }
   }
 
-  const rawUpdatedAt: unknown = item?.updatedAt;
-  const updatedAt = typeof rawUpdatedAt === 'string' || rawUpdatedAt instanceof Date
-    ? new Date(rawUpdatedAt).toLocaleDateString(language)
-    : '';
+  const updatedAt = formatLocalizedDate(typeof item?.updatedAt === 'string' ? item.updatedAt : null, language, '');
 
   const meta = useMemo(
     () => [itemTypeLabel(itemType, t), category, timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),

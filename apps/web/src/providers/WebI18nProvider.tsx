@@ -40,6 +40,7 @@ export function WebI18nProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     document.documentElement.lang = language;
+    document.documentElement.dataset.language = language;
   }, [language]);
 
   const value = useMemo<WebI18nContextValue>(() => ({ language, preference: settings.language, t }), [language, settings.language, t]);

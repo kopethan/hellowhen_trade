@@ -1,4 +1,4 @@
-import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
+import type { LedgerEntryDto, MoneySafetyStatusDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
@@ -91,8 +91,24 @@ export function ledgerLabel(type: string, t?: (key: string, values?: Translation
   return labels[type] ?? type.replace(/_/g, ' ');
 }
 
-export function payoutStatusLabel(status: string) {
+export function payoutStatusLabel(status: string, t?: (key: string, values?: TranslationValues) => string) {
+  const localized = t?.(`account.payoutStatuses.${status}`);
+  if (localized && localized !== `account.payoutStatuses.${status}`) return localized;
   return status.replace(/_/g, ' ');
+}
+
+export function moneyLaunchModeLabel(mode: string, t?: (key: string, values?: TranslationValues) => string) {
+  const localized = t?.(`account.moneySafety.launchModes.${mode}`);
+  if (localized && localized !== `account.moneySafety.launchModes.${mode}`) return localized;
+  return mode.replace(/_/g, ' ');
+}
+
+export function moneySafetyMessage(status: MoneySafetyStatusDto, t?: (key: string, values?: TranslationValues) => string) {
+  if (status.launchMode === 'disabled') return t?.('account.moneySafety.messages.disabled') ?? status.message;
+  if (!status.privateBetaAllowed) return t?.('account.moneySafety.messages.privateBeta') ?? status.message;
+  if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return t?.('account.moneySafety.messages.policyRequired') ?? status.message;
+  if (status.launchMode === 'production') return t?.('account.moneySafety.messages.production') ?? status.message;
+  return t?.('account.moneySafety.messages.demoOrBeta') ?? status.message;
 }
 
 export function moneyDeltaClassName(cents: number) {
@@ -106,6 +122,18 @@ export function assetUrl(value?: string | null) {
   return resolveWebAssetUrl(value);
 }
 
+
+export function businessTypeLabel(type: string, t?: (key: string, values?: TranslationValues) => string) {
+  const localized = t?.(`account.business.types.${type}`);
+  if (localized && localized !== `account.business.types.${type}`) return localized;
+  return type.replace(/_/g, ' ');
+}
+
+export function businessStatusLabel(status: string, t?: (key: string, values?: TranslationValues) => string) {
+  const localized = t?.(`account.business.statuses.${status}`);
+  if (localized && localized !== `account.business.statuses.${status}`) return localized;
+  return status.replace(/_/g, ' ');
+}
 
 export function trustTierLabel(tier?: string | null, t?: (key: string, values?: TranslationValues) => string) {
   const key = tier || 'new';

@@ -67,6 +67,22 @@ function money(value: number, currency: string, language: SupportedLanguage) {
   return formatLocalizedMoney(value, currency, language);
 }
 
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+
+function moneySafetyMessage(status: MoneySafetyStatusDto, t: TFunction) {
+  if (status.launchMode === 'disabled') return t('account.moneySafety.messages.disabled');
+  if (!status.privateBetaAllowed) return t('account.moneySafety.messages.privateBeta');
+  if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return t('account.moneySafety.messages.policyRequired');
+  if (status.launchMode === 'production') return t('account.moneySafety.messages.production');
+  return t('account.moneySafety.messages.demoOrBeta');
+}
+
+function payoutStatusLabel(status: string, t: TFunction) {
+  const key = `account.payoutStatuses.${status}`;
+  const label = t(key);
+  return label === key ? status.replace(/_/g, ' ') : label;
+}
+
 export function PayoutsScreen({ navigation }: Props) {
   const theme = useThemeTokens();
   const auth = useAuth();
@@ -201,7 +217,7 @@ export function PayoutsScreen({ navigation }: Props) {
     <AppFixedHeaderScreen header={<AppHeader title={t('account.payouts.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
         <View style={styles.headerCopy}>
-          <SemanticBadge label={stripeConnectConfigured ? 'Stripe Connect test' : 'Stripe demo'} tone="success" />
+          <SemanticBadge label={stripeConnectConfigured ? t('account.payouts.stripeReady') : t('account.addMoney.stripeDemoBadge')} tone="success" />
           <AppText style={styles.title}>{t('account.payouts.title')}</AppText>
           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.payouts.availableEarningsBody', { rate })}</AppText>
         </View>
@@ -213,7 +229,7 @@ export function PayoutsScreen({ navigation }: Props) {
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
                 <AppText style={styles.sectionTitle}>{t('account.payouts.safetyTitle')}</AppText>
-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafety.message}</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafetyMessage(moneySafety, t)}</AppText>
               </View>
               <SemanticBadge label={moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
             </View>
@@ -357,7 +373,7 @@ function PayoutRow({ payout, theme }: { payout: PayoutRequestDto; theme: ThemeTo
   const grossCents = getPayoutGrossCents(payout);
   const feeCents = getPayoutFeeCents(payout);
   const netCents = getPayoutNetCents(payout);
-  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} size="sm" /><AppText style={styles.payoutTitle}>{money(netCents, payout.currency, language)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{t('account.payouts.grossFee', { gross: money(grossCents, payout.currency, language), fee: money(feeCents, payout.currency, language) })}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatLocalizedShortDate(payout.paidAt ?? payout.requestedAt, language, '')}</AppText></View>;
+  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} label={payoutStatusLabel(payout.status, t)} size="sm" /><AppText style={styles.payoutTitle}>{money(netCents, payout.currency, language)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{t('account.payouts.grossFee', { gross: money(grossCents, payout.currency, language), fee: money(feeCents, payout.currency, language) })}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatLocalizedShortDate(payout.paidAt ?? payout.requestedAt, language, '')}</AppText></View>;
 }
 
 const styles = StyleSheet.create({

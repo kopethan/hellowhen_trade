@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { createNeedRequestSchema, updateNeedRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 
 export const needsRoutes = Router();
@@ -82,7 +82,7 @@ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
   });
 }));
 
-needsRoutes.post('/', asyncRoute(async (req, res) => {
+needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createNeedRequestSchema.parse(req.body);
   const need = await prisma.need.create({
     data: {
@@ -103,7 +103,7 @@ needsRoutes.post('/', asyncRoute(async (req, res) => {
   res.status(201).json({ need: await withOneMedia('need', need) });
 }));
 
-needsRoutes.patch('/:needId', asyncRoute(async (req, res) => {
+needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateNeedRequestSchema.parse(req.body);
   const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -116,7 +116,7 @@ needsRoutes.patch('/:needId', asyncRoute(async (req, res) => {
   res.json({ need: await withOneMedia('need', need) });
 }));
 
-needsRoutes.delete('/:needId', asyncRoute(async (req, res) => {
+needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
   const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const active = await loadActiveLinkedTrades(existing.id);

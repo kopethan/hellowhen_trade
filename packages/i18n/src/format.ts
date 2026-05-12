@@ -73,3 +73,31 @@ export function formatLocalizedMoney(cents = 0, currency = 'eur', language: Supp
     return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
   }
 }
+
+
+export function formatLocalizedRelativeTime(value: number, unit: Intl.RelativeTimeFormatUnit, language: SupportedLanguage, fallback?: string) {
+  try {
+    return new Intl.RelativeTimeFormat(getLocaleForLanguage(language), { numeric: 'always', style: 'short' }).format(value, unit);
+  } catch {
+    return fallback ?? `${value} ${unit}`;
+  }
+}
+
+export function formatLocalizedTimeUntil(
+  value: string | null | undefined,
+  language: SupportedLanguage,
+  options: { noValue: string; expired: string; fallback?: (count: number, unit: 'hour' | 'day') => string },
+) {
+  const date = toValidDate(value);
+  if (!date) return options.noValue;
+  const diffMs = date.getTime() - Date.now();
+  if (diffMs <= 0) return options.expired;
+
+  const hours = Math.ceil(diffMs / 1000 / 60 / 60);
+  if (hours < 24) {
+    return formatLocalizedRelativeTime(hours, 'hour', language, options.fallback?.(hours, 'hour'));
+  }
+
+  const days = Math.ceil(hours / 24);
+  return formatLocalizedRelativeTime(days, 'day', language, options.fallback?.(days, 'day'));
+}

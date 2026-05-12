@@ -115,7 +115,7 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
-  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label="Beta" tone="instruction" /></View><AppText style={styles.title}>{t('account.title')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText></View>;
+  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View><AppText style={styles.title}>{t('account.title')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText></View>;
 
   return (
     <AppFixedHeaderScreen header={header}>

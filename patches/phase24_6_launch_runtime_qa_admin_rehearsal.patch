@@ -1,0 +1,704 @@
+diff --git a/apps/api/src/lib/tokens.ts b/apps/api/src/lib/tokens.ts
+index e3b768f..87c3205 100644
+--- a/apps/api/src/lib/tokens.ts
++++ b/apps/api/src/lib/tokens.ts
+@@ -5,6 +5,8 @@ export type AccessTokenPayload = {
+   sub: string;
+   email: string;
+   sid?: string;
++  iat?: number;
++  exp?: number;
+ };
+ 
+ export function signAccessToken(payload: AccessTokenPayload) {
+diff --git a/apps/api/src/middleware/auth.ts b/apps/api/src/middleware/auth.ts
+index 118a194..d73ee70 100644
+--- a/apps/api/src/middleware/auth.ts
++++ b/apps/api/src/middleware/auth.ts
+@@ -1,6 +1,6 @@
+ import type { NextFunction, Request, Response } from 'express';
+ import { env } from '../config/env.js';
+-import { verifyAccessToken } from '../lib/tokens.js';
++import { verifyAccessToken, type AccessTokenPayload } from '../lib/tokens.js';
+ import { prisma } from '../lib/prisma.js';
+ 
+ declare global {
+@@ -16,28 +16,58 @@ function readBearerToken(req: Request) {
+   return header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : null;
+ }
+ 
++function tokenIssuedBeforeRevocation(payload: AccessTokenPayload, revokedAt: Date | null | undefined) {
++  if (!revokedAt) return false;
++  const issuedAtMs = typeof payload.iat === 'number' ? payload.iat * 1000 : 0;
++  return issuedAtMs > 0 && issuedAtMs < revokedAt.getTime();
++}
++
++async function resolveTokenUser(token: string) {
++  const payload = verifyAccessToken(token);
++  const user = await prisma.user.findUnique({
++    where: { id: payload.sub },
++    select: { id: true, email: true, sessionRevokedAt: true },
++  });
++  if (!user) return null;
++  if (tokenIssuedBeforeRevocation(payload, user.sessionRevokedAt)) return null;
++
++  if (payload.sid) {
++    const session = await prisma.session.findUnique({
++      where: { id: payload.sid },
++      select: { id: true, userId: true, revokedAt: true, expiresAt: true, createdAt: true },
++    });
++    if (!session || session.userId !== user.id) return null;
++    if (session.revokedAt || session.expiresAt < new Date()) return null;
++    if (user.sessionRevokedAt && session.createdAt < user.sessionRevokedAt) return null;
++  }
++
++  return { id: user.id, email: user.email, sessionId: payload.sid };
++}
++
+ export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+   const token = readBearerToken(req);
+   if (!token) return next();
+-  try {
+-    const payload = verifyAccessToken(token);
+-    req.user = { id: payload.sub, email: payload.email, sessionId: payload.sid };
+-  } catch {
+-    // Keep public reads public even with an expired token.
+-  }
+-  return next();
++  resolveTokenUser(token)
++    .then((user) => {
++      if (user) req.user = user;
++      return next();
++    })
++    .catch(() => {
++      // Keep public reads public even with an expired, invalid, or revoked token.
++      return next();
++    });
+ }
+ 
+ export function requireAuth(req: Request, res: Response, next: NextFunction) {
+   const token = readBearerToken(req);
+   if (!token) return res.status(401).json({ error: 'unauthorized' });
+-  try {
+-    const payload = verifyAccessToken(token);
+-    req.user = { id: payload.sub, email: payload.email, sessionId: payload.sid };
+-    return next();
+-  } catch {
+-    return res.status(401).json({ error: 'unauthorized' });
+-  }
++  resolveTokenUser(token)
++    .then((user) => {
++      if (!user) return res.status(401).json({ error: 'unauthorized' });
++      req.user = user;
++      return next();
++    })
++    .catch(() => res.status(401).json({ error: 'unauthorized' }));
+ }
+ 
+ export async function requireFreshSensitiveAction(req: Request, res: Response, next: NextFunction) {
+@@ -51,7 +81,6 @@ export async function requireFreshSensitiveAction(req: Request, res: Response, n
+   return next();
+ }
+ 
+-
+ export function requireActiveAccount(req: Request, res: Response, next: NextFunction) {
+   if (!req.user) return res.status(401).json({ error: 'unauthorized' });
+   prisma.user.findUnique({ where: { id: req.user.id }, select: { trustTier: true } })
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index c50d849..cc362f2 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -430,21 +430,35 @@ adminRoutes.get('/users', asyncRoute(async (req, res) => {
+ 
+ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
+   const input = adminUpdateTrustTierRequestSchema.parse(req.body);
+-  const existing = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true } });
++  if (input.trustTier === 'restricted' && req.params.userId === req.user!.id) {
++    return res.status(409).json({ error: 'self_restrict_blocked', message: 'Admins cannot restrict their own account.' });
++  }
++  const existing = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, sessionRevokedAt: true } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
++  const now = new Date();
++  const restrictingUser = input.trustTier === 'restricted' && existing.trustTier !== 'restricted';
+   const user = await prisma.$transaction(async (tx: any) => {
+     const updated = await tx.user.update({
+       where: { id: req.params.userId },
+-      data: { trustTier: input.trustTier, trustTierUpdatedAt: new Date(), trustTierNote: input.note ?? null },
+-      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } }
++      data: {
++        trustTier: input.trustTier,
++        trustTierUpdatedAt: now,
++        trustTierNote: input.note ?? null,
++        ...(restrictingUser ? { sessionRevokedAt: now, sensitiveActionVerifiedAt: null } : {}),
++      },
++      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } }
+     });
++    if (restrictingUser) {
++      await tx.session.updateMany({ where: { userId: existing.id, revokedAt: null }, data: { revokedAt: now } });
++    }
+     await recordAdminAuditLog(tx, req.user!.id, {
+       action: 'user.trust_tier.update',
+       targetType: 'user',
+       targetId: updated.id,
+       reason: input.note,
+-      previousValue: { trustTier: existing.trustTier, trustTierNote: existing.trustTierNote },
+-      nextValue: { trustTier: updated.trustTier, trustTierNote: updated.trustTierNote },
++      previousValue: { trustTier: existing.trustTier, trustTierNote: existing.trustTierNote, sessionRevokedAt: existing.sessionRevokedAt },
++      nextValue: { trustTier: updated.trustTier, trustTierNote: updated.trustTierNote, sessionRevokedAt: restrictingUser ? now : existing.sessionRevokedAt },
++      metadata: { sessionsRevoked: restrictingUser },
+     });
+     return updated;
+   });
+@@ -983,6 +997,130 @@ adminRoutes.get('/launch-checklist', asyncRoute(async (_req, res) => {
+   res.json({ overallStatus, generatedAt: now.toISOString(), items, summary });
+ }));
+ 
++
++adminRoutes.get('/runtime-qa', asyncRoute(async (_req, res) => {
++  type QaStatus = 'pass' | 'warning' | 'fail';
++  const now = new Date();
++  const moneySafety = buildGlobalMoneySafetyConfig();
++  const moneyOff = !moneySafety.moneyFeaturesVisible || moneySafety.launchMode === 'disabled' || !moneySafety.moneyTradesEnabled;
++
++  const [
++    restrictedUsersWithOpenSessions,
++    activePublicMoneyTradesWhileMoneyOff,
++    feedEligibleRestrictedOwnerTrades,
++    feedEligibleClosedNeedTrades,
++    feedEligibleClosedOfferTrades,
++    pendingReports,
++    urgentSupportTickets,
++    pendingReviewMedia,
++    flaggedMedia,
++  ] = await Promise.all([
++    prisma.session.count({ where: { revokedAt: null, expiresAt: { gt: now }, user: { trustTier: 'restricted' } } }),
++    moneyOff ? prisma.trade.count({ where: { status: 'active', isPublic: true, OR: [{ amountCents: { gt: 0 } }, { creditAmount: { gt: 0 } }] } }) : Promise.resolve(0),
++    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { owner: { trustTier: 'restricted' } }] } }),
++    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { needId: { not: null }, need: { is: { status: { not: 'active' } } } }] } }),
++    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } }] } }),
++    (prisma as any).report?.count({ where: { status: 'pending' } }) ?? Promise.resolve(0),
++    prisma.supportTicket.count({ where: { priority: { in: ['high', 'urgent'] }, status: { in: ['open', 'in_review', 'waiting_for_user'] } } }),
++    prisma.mediaAsset.count({ where: { status: 'pending_review' } }),
++    prisma.mediaAsset.count({ where: { status: 'flagged' } }),
++  ]);
++
++  const publicVisibilityLeaks = feedEligibleRestrictedOwnerTrades + feedEligibleClosedNeedTrades + feedEligibleClosedOfferTrades;
++  const pendingOrFlaggedMedia = pendingReviewMedia + flaggedMedia;
++  const checks: Array<{ id: string; label: string; status: QaStatus; detail: string; action?: string }> = [
++    {
++      id: 'auth-session-revocation',
++      label: 'Session revocation enforced',
++      status: restrictedUsersWithOpenSessions > 0 ? 'warning' : 'pass',
++      detail: restrictedUsersWithOpenSessions > 0
++        ? `${restrictedUsersWithOpenSessions} active session(s) still belong to restricted users. Access tokens are checked against session revocation, but these users should be forced out for a cleaner launch state.`
++        : 'Authenticated requests now validate access tokens against session revocation, global user sessionRevokedAt, and session expiry.',
++      action: restrictedUsersWithOpenSessions > 0 ? 'Use Suspend or Force logout from /admin for restricted users with active sessions.' : undefined,
++    },
++    {
++      id: 'optional-auth-public-fallback',
++      label: 'Public reads tolerate revoked tokens',
++      status: 'pass',
++      detail: 'Optional public reads fall back to anonymous access when a stale, expired, or revoked token is sent.',
++    },
++    {
++      id: 'public-visibility-leaks',
++      label: 'Public visibility filters',
++      status: publicVisibilityLeaks > 0 ? 'fail' : 'pass',
++      detail: publicVisibilityLeaks > 0
++        ? `${publicVisibilityLeaks} feed-eligible visibility leak(s) were detected.`
++        : 'No restricted-owner or closed-inventory rows are eligible for public trade discovery.',
++      action: publicVisibilityLeaks > 0 ? 'Run /admin/moderation-smoke and inspect samples in /admin/content.' : undefined,
++    },
++    {
++      id: 'money-off-runtime',
++      label: 'Money-off launch runtime',
++      status: moneySafety.realMoneyEnabled ? 'fail' : activePublicMoneyTradesWhileMoneyOff > 0 ? 'warning' : moneySafety.moneyFeaturesVisible ? 'warning' : 'pass',
++      detail: moneySafety.realMoneyEnabled
++        ? `Real money is enabled through ${moneySafety.moneyProvider}.`
++        : activePublicMoneyTradesWhileMoneyOff > 0
++          ? `${activePublicMoneyTradesWhileMoneyOff} active public money/credit trade(s) exist while money is off. Public feed filters should hide them, but close or review them before launch.`
++          : moneySafety.moneyFeaturesVisible
++            ? 'Money UI is visible in demo/sandbox mode; keep this only for controlled QA.'
++            : 'Money, wallet, payouts, and money trades are hidden for first launch runtime.',
++      action: moneySafety.realMoneyEnabled ? 'Set MONEY_LAUNCH_MODE=disabled and MONEY_PRODUCTION_ENABLED=false.' : activePublicMoneyTradesWhileMoneyOff > 0 ? 'Use /admin/content to close or hide old money/credit trades.' : undefined,
++    },
++    {
++      id: 'admin-two-factor-runtime',
++      label: 'Admin 2FA runtime guard',
++      status: env.adminRequireTwoFactor ? 'pass' : 'warning',
++      detail: env.adminRequireTwoFactor
++        ? 'Admin routes require authenticator app 2FA before tools can be used.'
++        : 'ADMIN_REQUIRE_TWO_FACTOR is disabled. This should only happen in local smoke tests.',
++      action: env.adminRequireTwoFactor ? undefined : 'Set ADMIN_REQUIRE_TWO_FACTOR=true before public launch.',
++    },
++    {
++      id: 'reports-support-media-queues',
++      label: 'Safety queues ready for rehearsal',
++      status: pendingReports > 0 || urgentSupportTickets > 0 || pendingOrFlaggedMedia > 0 ? 'warning' : 'pass',
++      detail: `${pendingReports} pending report(s), ${urgentSupportTickets} urgent/high support ticket(s), ${pendingOrFlaggedMedia} pending/flagged media item(s).`,
++      action: pendingReports > 0 || urgentSupportTickets > 0 || pendingOrFlaggedMedia > 0 ? 'Open /admin/reports, /admin/support, and /admin/media before launch.' : undefined,
++    },
++  ];
++
++  const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: acc[item.status] + 1 }), { pass: 0, warning: 0, fail: 0 });
++  const overallStatus: QaStatus = summary.fail > 0 ? 'fail' : summary.warning > 0 ? 'warning' : 'pass';
++
++  res.json({
++    overallStatus,
++    generatedAt: now.toISOString(),
++    launchMode: {
++      nodeEnv: env.nodeEnv,
++      moneyLaunchMode: moneySafety.launchMode,
++      moneyFeaturesVisible: moneySafety.moneyFeaturesVisible,
++      walletVisible: moneySafety.walletVisible,
++      payoutsVisible: moneySafety.payoutsVisible,
++      moneyTradesEnabled: moneySafety.moneyTradesEnabled,
++      realMoneyEnabled: moneySafety.realMoneyEnabled,
++      adminRequireTwoFactor: env.adminRequireTwoFactor,
++    },
++    counts: {
++      restrictedUsersWithOpenSessions,
++      activePublicMoneyTradesWhileMoneyOff,
++      publicVisibilityLeaks,
++      pendingReports,
++      urgentSupportTickets,
++      pendingOrFlaggedMedia,
++    },
++    checks,
++    rehearsal: [
++      { step: 1, label: 'Load launch dashboard', expected: 'Overview, launch checklist, runtime QA, and moderation smoke all load for an admin account.', operatorAction: 'Open /admin and click Load dashboard.' },
++      { step: 2, label: 'Suspend a non-admin test user', expected: 'Sessions are revoked, public profile becomes unavailable, and existing active public posts disappear from discovery.', operatorAction: 'Use /admin user controls with an internal note.' },
++      { step: 3, label: 'Confirm stale token behavior', expected: 'The suspended user receives 401/403 on authenticated writes; public reads work as anonymous.', operatorAction: 'Retry the app with the suspended user session in web or Expo.' },
++      { step: 4, label: 'Hide and restore one test content item', expected: 'Hidden/closed content shows as not discoverable in /admin/content and is absent from public feed.', operatorAction: 'Use /admin/content actions with an internal note.' },
++      { step: 5, label: 'Escalate one test report to support', expected: 'The report moves to reviewing, a linked support ticket is created, and audit log records the escalation.', operatorAction: 'Use /admin/reports → Escalate to support.' },
++      { step: 6, label: 'Review support/media queues', expected: 'Urgent support and pending/flagged media queues have a launch decision or admin note.', operatorAction: 'Open /admin/support and /admin/media.' },
++    ],
++    summary,
++  });
++}));
++
+ adminRoutes.get('/money-safety', asyncRoute(async (_req, res) => {
+   res.json(await buildAdminMoneySafetySummary(prisma));
+ }));
+diff --git a/apps/web/src/app/admin/page.tsx b/apps/web/src/app/admin/page.tsx
+index 52b8c8d..15e3e6c 100644
+--- a/apps/web/src/app/admin/page.tsx
++++ b/apps/web/src/app/admin/page.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Link from 'next/link';
+ import { useEffect, useMemo, useState } from 'react';
+-import type { AdminLaunchChecklistResponse, AdminModerationSmokeResponse, AdminOverviewResponse, AdminUserSummaryDto, AdminUsersResponse, UserTrustTier } from '@hellowhen/contracts';
++import type { AdminLaunchChecklistResponse, AdminModerationSmokeResponse, AdminOverviewResponse, AdminRuntimeQaResponse, AdminUserSummaryDto, AdminUsersResponse, UserTrustTier } from '@hellowhen/contracts';
+ import { getWebApiBaseUrl } from '../../lib/api';
+ import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
+ 
+@@ -76,6 +76,7 @@ export default function AdminHomePage() {
+   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
+   const [moderationSmoke, setModerationSmoke] = useState<AdminModerationSmokeResponse | null>(null);
+   const [launchChecklist, setLaunchChecklist] = useState<AdminLaunchChecklistResponse | null>(null);
++  const [runtimeQa, setRuntimeQa] = useState<AdminRuntimeQaResponse | null>(null);
+   const [users, setUsers] = useState<AdminUserSummaryDto[]>([]);
+   const [query, setQuery] = useState('');
+   const [trustTier, setTrustTier] = useState<UserTrustTier | 'all'>('all');
+@@ -119,6 +120,7 @@ export default function AdminHomePage() {
+     setOverview(null);
+     setModerationSmoke(null);
+     setLaunchChecklist(null);
++    setRuntimeQa(null);
+     setUsers([]);
+     setSelectedUser(null);
+     window.localStorage.removeItem(adminTokenKey);
+@@ -173,6 +175,23 @@ export default function AdminHomePage() {
+     }
+   }
+ 
++
++  async function loadRuntimeQa() {
++    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    setLoading(true);
++    setNotice(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/runtime-qa`, { headers });
++      if (!response.ok) throw new Error('Could not load runtime QA.');
++      const data = await response.json() as AdminRuntimeQaResponse;
++      setRuntimeQa(data);
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load runtime QA.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
+   async function loadUsers() {
+     if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+     setLoading(true);
+@@ -272,9 +291,9 @@ export default function AdminHomePage() {
+           <span className={`semantic-badge ${summary?.money.realMoneyEnabled ? 'danger' : summary?.money.moneyFeaturesVisible ? 'warning' : 'success'}`}>{moneyFlagLabel(overview)}</span>
+         </div>
+         <div>
+-          <p className="eyebrow">Phase 24.5</p>
++          <p className="eyebrow">Phase 24.6</p>
+           <h1>Launch admin dashboard</h1>
+-          <p>One safe entry point for launch health, user limits, support queues, content moderation, and audit history. Keep money tools gated until the launch mode explicitly enables them.</p>
++          <p>One safe entry point for launch health, runtime QA, user limits, support queues, content moderation, and audit history. Keep money tools gated until the launch mode explicitly enables them.</p>
+         </div>
+         <div className="admin-console__login-grid">
+           <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
+@@ -283,8 +302,9 @@ export default function AdminHomePage() {
+           <button type="button" className="secondary" onClick={logout} disabled={!token}>Clear token</button>
+         </div>
+         <div className="cta-row">
+-          <button type="button" onClick={() => { void loadOverview(); void loadUsers(); void loadModerationSmoke(); void loadLaunchChecklist(); }} disabled={loading || !token}>Load dashboard</button>
++          <button type="button" onClick={() => { void loadOverview(); void loadUsers(); void loadModerationSmoke(); void loadLaunchChecklist(); void loadRuntimeQa(); }} disabled={loading || !token}>Load dashboard</button>
+           <button type="button" className="secondary" onClick={() => { void loadLaunchChecklist(); }} disabled={loading || !token}>Run launch checklist</button>
++          <button type="button" className="secondary" onClick={() => { void loadRuntimeQa(); }} disabled={loading || !token}>Run runtime QA</button>
+           <button type="button" className="secondary" onClick={() => { void loadModerationSmoke(); }} disabled={loading || !token}>Run moderation smoke</button>
+           <Link className="button secondary" href="/admin/support">Open support inbox</Link>
+           <Link className="button secondary" href="/admin/media">Open media moderation</Link>
+@@ -325,6 +345,47 @@ export default function AdminHomePage() {
+         </section>
+       ) : null}
+ 
++      {runtimeQa ? (
++        <section className="app-card admin-action-card">
++          <div className="status-row">
++            <span className={`semantic-badge ${checklistTone(runtimeQa.overallStatus)}`}>Runtime QA: {runtimeQa.overallStatus}</span>
++            <span className="semantic-badge admin">{runtimeQa.summary.pass} pass · {runtimeQa.summary.warning} warning · {runtimeQa.summary.fail} fail</span>
++          </div>
++          <h2>Launch-mode runtime QA and moderation rehearsal</h2>
++          <p>Use this pass with a real browser and Expo session to confirm auth revocation, money-off gates, public visibility filters, and safety queues.</p>
++          <div className="admin-money-strip">
++            <span><small>Restricted sessions</small><strong>{countLabel(runtimeQa.counts.restrictedUsersWithOpenSessions)}</strong></span>
++            <span><small>Money-off public trades</small><strong>{countLabel(runtimeQa.counts.activePublicMoneyTradesWhileMoneyOff)}</strong></span>
++            <span><small>Visibility leaks</small><strong>{countLabel(runtimeQa.counts.publicVisibilityLeaks)}</strong></span>
++            <span><small>Safety queue items</small><strong>{countLabel(runtimeQa.counts.pendingReports + runtimeQa.counts.urgentSupportTickets + runtimeQa.counts.pendingOrFlaggedMedia)}</strong></span>
++          </div>
++          <div className="admin-audit-list">
++            {runtimeQa.checks.map((item) => (
++              <article key={item.id} className="admin-audit-row">
++                <span>
++                  <strong>{item.label}</strong>
++                  <small>{item.detail}</small>
++                  {item.action ? <small>Action: {item.action}</small> : null}
++                </span>
++                <em className={`semantic-badge ${checklistTone(item.status)}`}>{item.status}</em>
++              </article>
++            ))}
++          </div>
++          <h3>Moderation rehearsal steps</h3>
++          <div className="admin-audit-list">
++            {runtimeQa.rehearsal.map((step) => (
++              <article key={step.step} className="admin-audit-row">
++                <span>
++                  <strong>{step.step}. {step.label}</strong>
++                  <small>Expected: {step.expected}</small>
++                  {step.operatorAction ? <small>Action: {step.operatorAction}</small> : null}
++                </span>
++              </article>
++            ))}
++          </div>
++        </section>
++      ) : null}
++
+       {moderationSmoke ? (
+         <section className="app-card admin-action-card">
+           <div className="status-row">
+diff --git a/docs/phase-24-6-launch-runtime-qa-admin-rehearsal.md b/docs/phase-24-6-launch-runtime-qa-admin-rehearsal.md
+new file mode 100644
+index 0000000..8592c31
+--- /dev/null
++++ b/docs/phase-24-6-launch-runtime-qa-admin-rehearsal.md
+@@ -0,0 +1,185 @@
++# Phase 24.6 — Final launch-mode runtime QA and admin moderation rehearsal
++
++## Scope
++
++This phase is the final first-launch admin safety pass before moving on to the next product area.
++
++It keeps the launch mode conservative:
++
++- no wallet enablement
++- no payout enablement
++- no Stripe production flow
++- no Airwallex production flow
++- no money-trade enablement
++- no permanent delete tools
++
++## Runtime safety fix
++
++Admin suspend/force-logout actions already revoked sessions in the database, but authenticated middleware did not verify access tokens against session revocation on every request.
++
++This phase updates API auth middleware so authenticated requests now validate:
++
++- access token signature/expiry
++- user existence
++- global `User.sessionRevokedAt`
++- per-session `Session.revokedAt`
++- per-session expiry
++- session/user ownership
++
++Public optional-auth reads still stay user-friendly: if a stale, expired, invalid, or revoked token is sent to a public route, the request falls back to anonymous access instead of breaking public discovery.
++
++## Trust-tier safety polish
++
++The generic admin trust-tier endpoint now treats moving a user to `restricted` as a full moderation restriction:
++
++- blocks self-restriction by the current admin
++- revokes active sessions
++- clears fresh sensitive-action verification
++- writes session-revocation context to the admin audit log
++
++The dedicated Suspend action already did this; this closes the alternate path where an admin could set `restricted` through the trust-tier control.
++
++## New runtime QA endpoint
++
++Backend endpoint:
++
++```txt
++GET /admin/runtime-qa
++```
++
++The response includes:
++
++- overall runtime QA status
++- launch-mode flags
++- restricted users with active sessions
++- active public money/credit trades while money launch is off
++- public visibility leak count
++- pending report/support/media queue counts
++- human-readable moderation rehearsal steps
++
++Web entry point:
++
++```txt
++/admin → Run runtime QA
++```
++
++CLI entry points:
++
++```txt
++npm run admin:smoke
++npm run admin:rehearsal
++```
++
++Both CLI commands call:
++
++- `/admin/overview`
++- `/admin/moderation-smoke`
++- `/admin/launch-checklist`
++- `/admin/runtime-qa`
++
++The CLI exits non-zero when launch checklist or runtime QA has a `fail` status, or when moderation smoke finds feed leaks.
++
++## Manual browser + Expo rehearsal
++
++Use this with a seeded local API, web app, and Expo app.
++
++### 1. Admin dashboard loads
++
++1. Start API.
++2. Start web.
++3. Open `/admin`.
++4. Log in as admin.
++5. Click **Load dashboard**.
++
++Expected:
++
++- overview loads
++- launch checklist loads
++- runtime QA loads
++- moderation smoke loads
++- money status remains hidden/off for first launch
++
++### 2. Suspend test user
++
++1. In `/admin`, select a non-admin test user.
++2. Add an internal note.
++3. Click **Suspend user**.
++4. Click **Run runtime QA** and **Run moderation smoke**.
++
++Expected:
++
++- user becomes `restricted`
++- sessions are revoked
++- runtime QA does not show open restricted sessions after refresh/re-login cleanup
++- public profile returns unavailable
++- user-owned active public trades disappear from feed/profile discovery
++
++### 3. Verify stale user sessions
++
++Using the suspended user session in web or Expo:
++
++Expected:
++
++- create/update/delete Need is blocked
++- create/update/delete Offer is blocked
++- create/delete/close Trade is blocked
++- create proposal is blocked
++- update proposal status is blocked
++- send proposal message is blocked
++- support access remains available
++- public feed still loads as anonymous when stale auth is present
++
++### 4. Hide/restore content
++
++1. Open `/admin/content`.
++2. Hide or close one test trade/need/offer with an internal note.
++3. Run moderation smoke.
++4. Restore the item if needed.
++
++Expected:
++
++- hidden/closed content is not discoverable
++- linked closed Need/Offer blocks trade discovery
++- audit log records the action
++- restore changes status back to active where supported
++
++### 5. Report-to-support escalation
++
++1. Submit a report from a non-owner user.
++2. Open `/admin/reports`.
++3. Add an internal note.
++4. Escalate to support.
++
++Expected:
++
++- report moves to `reviewing`
++- support ticket is created and linked
++- ticket is assigned to the admin
++- audit log records `report.escalate_to_support`
++
++### 6. Final launch checks
++
++Before any public beta/demo:
++
++1. `npm run admin:smoke`
++2. `/admin → Run launch checklist`
++3. `/admin → Run runtime QA`
++4. `/admin → Run moderation smoke`
++5. Clear or document warnings:
++   - pending reports
++   - urgent/high support tickets
++   - pending/flagged media
++   - default seed admin account
++   - admin accounts missing 2FA
++
++## Intentional non-goals
++
++Still intentionally not included:
++
++- multi-role admin permissions
++- irreversible deletion
++- automated fraud scoring
++- production payout approval
++- wallet ledger admin mutation
++- provider dashboard mutations
++- AI moderation
+diff --git a/package.json b/package.json
+index 17ab619..675b08e 100644
+--- a/package.json
++++ b/package.json
+@@ -17,7 +17,8 @@
+     "prisma:migrate": "prisma migrate dev --schema apps/api/prisma/schema.prisma",
+     "prisma:validate": "prisma validate --schema apps/api/prisma/schema.prisma",
+     "prisma:seed": "prisma db seed --schema apps/api/prisma/schema.prisma",
+-    "admin:smoke": "node scripts/admin-launch-smoke.mjs"
++    "admin:smoke": "node scripts/admin-launch-smoke.mjs",
++    "admin:rehearsal": "node scripts/admin-launch-smoke.mjs"
+   },
+   "devDependencies": {
+     "typescript": "^5.4.5"
+diff --git a/packages/contracts/src/admin.ts b/packages/contracts/src/admin.ts
+index eb74bd3..359caba 100644
+--- a/packages/contracts/src/admin.ts
++++ b/packages/contracts/src/admin.ts
+@@ -170,6 +170,50 @@ export const adminLaunchChecklistResponseSchema = z.object({
+   }),
+ });
+ 
++
++export const adminRuntimeQaCheckSchema = z.object({
++  id: z.string(),
++  label: z.string(),
++  status: z.enum(['pass', 'warning', 'fail']),
++  detail: z.string(),
++  action: z.string().optional(),
++});
++
++export const adminRuntimeQaResponseSchema = z.object({
++  overallStatus: z.enum(['pass', 'warning', 'fail']),
++  generatedAt: z.string(),
++  launchMode: z.object({
++    nodeEnv: z.string(),
++    moneyLaunchMode: z.string(),
++    moneyFeaturesVisible: z.boolean(),
++    walletVisible: z.boolean(),
++    payoutsVisible: z.boolean(),
++    moneyTradesEnabled: z.boolean(),
++    realMoneyEnabled: z.boolean(),
++    adminRequireTwoFactor: z.boolean(),
++  }),
++  counts: z.object({
++    restrictedUsersWithOpenSessions: z.number().int(),
++    activePublicMoneyTradesWhileMoneyOff: z.number().int(),
++    publicVisibilityLeaks: z.number().int(),
++    pendingReports: z.number().int(),
++    urgentSupportTickets: z.number().int(),
++    pendingOrFlaggedMedia: z.number().int(),
++  }),
++  checks: z.array(adminRuntimeQaCheckSchema),
++  rehearsal: z.array(z.object({
++    step: z.number().int(),
++    label: z.string(),
++    expected: z.string(),
++    operatorAction: z.string().optional(),
++  })),
++  summary: z.object({
++    pass: z.number().int(),
++    warning: z.number().int(),
++    fail: z.number().int(),
++  }),
++});
++
+ export const adminModerationSmokeResponseSchema = z.object({
+   checks: z.object({
+     restrictedOwnersHiddenFromFeed: z.boolean(),
+@@ -210,6 +254,8 @@ export type AdminContentItemDto = z.infer<typeof adminContentItemSchema>;
+ export type AdminContentResponse = z.infer<typeof adminContentResponseSchema>;
+ export type AdminContentActionRequest = z.infer<typeof adminContentActionRequestSchema>;
+ export type AdminContentActionResponse = z.infer<typeof adminContentActionResponseSchema>;
++export type AdminRuntimeQaCheckDto = z.infer<typeof adminRuntimeQaCheckSchema>;
++export type AdminRuntimeQaResponse = z.infer<typeof adminRuntimeQaResponseSchema>;
+ export type AdminModerationSmokeResponse = z.infer<typeof adminModerationSmokeResponseSchema>;
+ export type AdminLaunchChecklistItemDto = z.infer<typeof adminLaunchChecklistItemSchema>;
+ export type AdminLaunchChecklistResponse = z.infer<typeof adminLaunchChecklistResponseSchema>;
+diff --git a/scripts/admin-launch-smoke.mjs b/scripts/admin-launch-smoke.mjs
+index 94b2e83..673709b 100755
+--- a/scripts/admin-launch-smoke.mjs
++++ b/scripts/admin-launch-smoke.mjs
+@@ -32,10 +32,11 @@ async function main() {
+   if (!token) throw new Error('Login did not return an access token.');
+   const authHeaders = { Authorization: `Bearer ${token}` };
+ 
+-  const [overview, smoke, checklist] = await Promise.all([
++  const [overview, smoke, checklist, runtimeQa] = await Promise.all([
+     request('/admin/overview', { headers: authHeaders }),
+     request('/admin/moderation-smoke', { headers: authHeaders }),
+     request('/admin/launch-checklist', { headers: authHeaders }),
++    request('/admin/runtime-qa', { headers: authHeaders }),
+   ]);
+ 
+   const leakCount = smoke.counts.feedEligibleRestrictedOwnerTrades + smoke.counts.feedEligibleClosedNeedTrades + smoke.counts.feedEligibleClosedOfferTrades;
+@@ -44,8 +45,10 @@ async function main() {
+   console.log(`Support: ${overview.summary.support.open} open, ${overview.summary.support.urgent} urgent/high`);
+   console.log(`Moderation smoke leaks: ${leakCount}`);
+   console.log(`Launch checklist: ${checklist.overallStatus} (${checklist.summary.pass} pass, ${checklist.summary.warning} warning, ${checklist.summary.fail} fail)`);
++  console.log(`Runtime QA: ${runtimeQa.overallStatus} (${runtimeQa.summary.pass} pass, ${runtimeQa.summary.warning} warning, ${runtimeQa.summary.fail} fail)`);
++  console.log(`Restricted open sessions: ${runtimeQa.counts.restrictedUsersWithOpenSessions}`);
+ 
+-  if (leakCount > 0 || checklist.overallStatus === 'fail') {
++  if (leakCount > 0 || checklist.overallStatus === 'fail' || runtimeQa.overallStatus === 'fail') {
+     process.exitCode = 1;
+   }
+ }

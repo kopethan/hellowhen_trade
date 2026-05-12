@@ -7,6 +7,7 @@ import type { SquareStackDeckCard, SquareStackDeckProps } from '../squareStackDe
 import { classifySquareStackPanIntent, type SquareStackGestureIntent } from '../squareStackGestureIntent';
 import { MobileIcon } from '../../../../components/MobileIcon';
 import { useThemeTokens } from '../../../../providers/ThemeProvider';
+import { useTranslation } from '../../../../providers/MobileI18nProvider';
 import { SquareStackCardShell } from './SquareStackCardShell';
 
 type LayerProps<TCard extends SquareStackDeckCard> = {
@@ -81,6 +82,7 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
 }: SquareStackDeckProps<TCard>) {
   const { width, height } = useWindowDimensions();
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   const layoutMetrics = useMemo(() => getSquareStackLayoutMetrics({
     availableWidth: availableWidth && availableWidth > 0 ? availableWidth : width - 36,
     availableHeight: availableHeight && availableHeight > 0 ? availableHeight : height * 0.54,
@@ -246,7 +248,7 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
         {canGoPrevious ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Previous card"
+            accessibilityLabel={t('common.actions.previousCard')}
             hitSlop={12}
             disabled={programmaticAnimating}
             onPress={() => commitFromControl(-1)}
@@ -258,7 +260,7 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
         {canGoNext ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Next card"
+            accessibilityLabel={t('common.actions.nextCard')}
             hitSlop={12}
             disabled={programmaticAnimating}
             onPress={() => commitFromControl(1)}

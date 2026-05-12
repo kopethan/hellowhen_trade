@@ -33,6 +33,22 @@ function money(value: number, currency: string, language: SupportedLanguage) {
   return formatLocalizedMoney(value, currency, language);
 }
 
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+
+function moneyLaunchModeLabel(mode: string, t: TFunction) {
+  const key = `account.moneySafety.launchModes.${mode}`;
+  const localized = t(key);
+  return localized === key ? mode.replace(/_/g, ' ') : localized;
+}
+
+function moneySafetyMessage(status: MoneySafetyStatusDto, t: TFunction) {
+  if (status.launchMode === 'disabled') return t('account.moneySafety.messages.disabled');
+  if (!status.privateBetaAllowed) return t('account.moneySafety.messages.privateBeta');
+  if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return t('account.moneySafety.messages.policyRequired');
+  if (status.launchMode === 'production') return t('account.moneySafety.messages.production');
+  return t('account.moneySafety.messages.demoOrBeta');
+}
+
 function entryAmount(entry: LedgerEntryDto, language: SupportedLanguage) {
   const currency = entry.currency ?? 'eur';
   if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${money(entry.amountCents, currency, language)}`;
@@ -113,7 +129,7 @@ export function BuyCreditsScreen({ navigation }: Props) {
     <AppFixedHeaderScreen header={<AppHeader title={t('account.addMoney.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
         <View style={styles.headerCopy}>
-          <SemanticBadge label="Stripe demo" tone="credits" />
+          <SemanticBadge label={t('account.addMoney.stripeDemoBadge')} tone="credits" />
           <AppText style={styles.title}>{t('account.addMoney.addDemoMoney')}</AppText>
           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.addMoney.simulationBody')}</AppText>
         </View>
@@ -125,7 +141,7 @@ export function BuyCreditsScreen({ navigation }: Props) {
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionCopy}>
                 <AppText style={styles.sectionTitle}>{t('account.addMoney.safetyTitle')}</AppText>
-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafety.message}</AppText>
+                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafetyMessage(moneySafety, t)}</AppText>
               </View>
               <SemanticBadge label={moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
             </View>

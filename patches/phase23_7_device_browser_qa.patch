@@ -1,0 +1,838 @@
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-12 08:43:34.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-12 16:49:57.818740691 +0000
+@@ -115,7 +115,7 @@
+     else navigation.navigate('BuyCredits');
+   }
+ 
+-  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label="Beta" tone="instruction" /></View><AppText style={styles.title}>{t('account.title')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText></View>;
++  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View><AppText style={styles.title}>{t('account.title')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText></View>;
+ 
+   return (
+     <AppFixedHeaderScreen header={header}>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/account/BusinessAccountsScreen.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/account/BusinessAccountsScreen.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/account/BusinessAccountsScreen.tsx	2026-05-12 10:08:29.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/account/BusinessAccountsScreen.tsx	2026-05-12 16:40:02.649637139 +0000
+@@ -16,6 +16,19 @@
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'BusinessAccounts'>;
+ type BusinessProfile = { id: string; displayName: string; type: string; status: string; preferredCurrency?: string; countryCode?: string | null; updatedAt?: string };
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
++function localizedBusinessType(type: string, t: TFunction) {
++  const key = `account.business.types.${type}`;
++  const label = t(key);
++  return label === key ? type.replaceAll('_', ' ') : label;
++}
++
++function localizedBusinessStatus(status: string, t: TFunction) {
++  const key = `account.business.statuses.${status}`;
++  const label = t(key);
++  return label === key ? status.replaceAll('_', ' ') : label;
++}
+ 
+ export function BusinessAccountsScreen({ navigation }: Props) {
+   const theme = useThemeTokens();
+@@ -53,9 +66,9 @@
+             <AppCard key={profile.id}>
+               <View style={styles.row}>
+                 <View style={styles.copy}>
+-                  <SemanticBadge label={profile.type.replaceAll('_', ' ')} tone={profile.status === 'verified' ? 'success' : 'instruction'} />
++                  <SemanticBadge label={localizedBusinessType(profile.type, t)} tone={profile.status === 'verified' ? 'success' : 'instruction'} />
+                   <AppText style={styles.title}>{profile.displayName}</AppText>
+-                  <AppText style={[styles.meta, { color: theme.color.muted }]}>{profile.status.replaceAll('_', ' ')} · {(profile.preferredCurrency ?? 'eur').toUpperCase()}{profile.countryCode ? ` · ${profile.countryCode}` : ''}</AppText>
++                  <AppText style={[styles.meta, { color: theme.color.muted }]}>{localizedBusinessStatus(profile.status, t)} · {(profile.preferredCurrency ?? 'eur').toUpperCase()}{profile.countryCode ? ` · ${profile.countryCode}` : ''}</AppText>
+                 </View>
+               </View>
+             </AppCard>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/account/BuyCreditsScreen.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/account/BuyCreditsScreen.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/account/BuyCreditsScreen.tsx	2026-05-12 10:10:46.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/account/BuyCreditsScreen.tsx	2026-05-12 16:40:02.649046623 +0000
+@@ -33,6 +33,22 @@
+   return formatLocalizedMoney(value, currency, language);
+ }
+ 
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
++function moneyLaunchModeLabel(mode: string, t: TFunction) {
++  const key = `account.moneySafety.launchModes.${mode}`;
++  const localized = t(key);
++  return localized === key ? mode.replace(/_/g, ' ') : localized;
++}
++
++function moneySafetyMessage(status: MoneySafetyStatusDto, t: TFunction) {
++  if (status.launchMode === 'disabled') return t('account.moneySafety.messages.disabled');
++  if (!status.privateBetaAllowed) return t('account.moneySafety.messages.privateBeta');
++  if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return t('account.moneySafety.messages.policyRequired');
++  if (status.launchMode === 'production') return t('account.moneySafety.messages.production');
++  return t('account.moneySafety.messages.demoOrBeta');
++}
++
+ function entryAmount(entry: LedgerEntryDto, language: SupportedLanguage) {
+   const currency = entry.currency ?? 'eur';
+   if (entry.amountCents) return `${entry.amountCents > 0 ? '+' : ''}${money(entry.amountCents, currency, language)}`;
+@@ -113,7 +129,7 @@
+     <AppFixedHeaderScreen header={<AppHeader title={t('account.addMoney.title')} onBack={() => navigation.goBack()} />}>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+         <View style={styles.headerCopy}>
+-          <SemanticBadge label="Stripe demo" tone="credits" />
++          <SemanticBadge label={t('account.addMoney.stripeDemoBadge')} tone="credits" />
+           <AppText style={styles.title}>{t('account.addMoney.addDemoMoney')}</AppText>
+           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.addMoney.simulationBody')}</AppText>
+         </View>
+@@ -125,7 +141,7 @@
+             <View style={styles.sectionHeaderRow}>
+               <View style={styles.sectionCopy}>
+                 <AppText style={styles.sectionTitle}>{t('account.addMoney.safetyTitle')}</AppText>
+-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafety.message}</AppText>
++                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafetyMessage(moneySafety, t)}</AppText>
+               </View>
+               <SemanticBadge label={moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
+             </View>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/wallet/PayoutsScreen.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/wallet/PayoutsScreen.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/mobile/src/features/wallet/PayoutsScreen.tsx	2026-05-12 10:07:25.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/mobile/src/features/wallet/PayoutsScreen.tsx	2026-05-12 16:48:45.606835232 +0000
+@@ -67,6 +67,22 @@
+   return formatLocalizedMoney(value, currency, language);
+ }
+ 
++type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
++
++function moneySafetyMessage(status: MoneySafetyStatusDto, t: TFunction) {
++  if (status.launchMode === 'disabled') return t('account.moneySafety.messages.disabled');
++  if (!status.privateBetaAllowed) return t('account.moneySafety.messages.privateBeta');
++  if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return t('account.moneySafety.messages.policyRequired');
++  if (status.launchMode === 'production') return t('account.moneySafety.messages.production');
++  return t('account.moneySafety.messages.demoOrBeta');
++}
++
++function payoutStatusLabel(status: string, t: TFunction) {
++  const key = `account.payoutStatuses.${status}`;
++  const label = t(key);
++  return label === key ? status.replace(/_/g, ' ') : label;
++}
++
+ export function PayoutsScreen({ navigation }: Props) {
+   const theme = useThemeTokens();
+   const auth = useAuth();
+@@ -201,7 +217,7 @@
+     <AppFixedHeaderScreen header={<AppHeader title={t('account.payouts.title')} onBack={() => navigation.goBack()} />}>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+         <View style={styles.headerCopy}>
+-          <SemanticBadge label={stripeConnectConfigured ? 'Stripe Connect test' : 'Stripe demo'} tone="success" />
++          <SemanticBadge label={stripeConnectConfigured ? t('account.payouts.stripeReady') : t('account.addMoney.stripeDemoBadge')} tone="success" />
+           <AppText style={styles.title}>{t('account.payouts.title')}</AppText>
+           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.payouts.availableEarningsBody', { rate })}</AppText>
+         </View>
+@@ -213,7 +229,7 @@
+             <View style={styles.sectionHeaderRow}>
+               <View style={styles.sectionCopy}>
+                 <AppText style={styles.sectionTitle}>{t('account.payouts.safetyTitle')}</AppText>
+-                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafety.message}</AppText>
++                <AppText style={[styles.cardText, { color: theme.color.muted }]}>{moneySafetyMessage(moneySafety, t)}</AppText>
+               </View>
+               <SemanticBadge label={moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')} tone={moneySafety.policyAcknowledged ? 'success' : 'warning'} size="sm" />
+             </View>
+@@ -357,7 +373,7 @@
+   const grossCents = getPayoutGrossCents(payout);
+   const feeCents = getPayoutFeeCents(payout);
+   const netCents = getPayoutNetCents(payout);
+-  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} size="sm" /><AppText style={styles.payoutTitle}>{money(netCents, payout.currency, language)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{t('account.payouts.grossFee', { gross: money(grossCents, payout.currency, language), fee: money(feeCents, payout.currency, language) })}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatLocalizedShortDate(payout.paidAt ?? payout.requestedAt, language, '')}</AppText></View>;
++  return <View style={[styles.payoutRow, { borderTopColor: theme.color.border }]}><View style={styles.payoutCopy}><StatusBadge status={payout.status} label={payoutStatusLabel(payout.status, t)} size="sm" /><AppText style={styles.payoutTitle}>{money(netCents, payout.currency, language)}</AppText><AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{t('account.payouts.grossFee', { gross: money(grossCents, payout.currency, language), fee: money(feeCents, payout.currency, language) })}</AppText>{payout.notes ? <AppText style={[styles.payoutNote, { color: theme.color.muted }]}>{payout.notes}</AppText> : null}</View><AppText style={[styles.dateText, { color: theme.color.muted }]}>{formatLocalizedShortDate(payout.paidAt ?? payout.requestedAt, language, '')}</AppText></View>;
+ }
+ 
+ const styles = StyleSheet.create({
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/components/WebTopHeader.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/components/WebTopHeader.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/components/WebTopHeader.tsx	2026-05-12 08:40:38.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/components/WebTopHeader.tsx	2026-05-12 16:49:57.802764989 +0000
+@@ -9,9 +9,10 @@
+ import { WebIcon } from './WebIcon';
+ 
+ function WebBetaHeaderBadge() {
++  const { t } = useWebTranslation();
+   if (betaFeatures.moneyFeaturesVisible) return null;
+ 
+-  return <span className="web-header-beta-badge">BETA</span>;
++  return <span className="web-header-beta-badge">{t('common.states.beta')}</span>;
+ }
+ 
+ function WebDesktopNav({ pathname, authenticated }: { pathname: string; authenticated: boolean }) {
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/features/account/AddMoneyClient.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/features/account/AddMoneyClient.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/features/account/AddMoneyClient.tsx	2026-05-12 10:00:03.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/features/account/AddMoneyClient.tsx	2026-05-12 16:40:37.103653151 +0000
+@@ -8,7 +8,7 @@
+ import { currencyOptions, isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyPreferences';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+-import { fallbackCurrency, formatMoney, normalizeLimits, normalizeWallet, parseMoneyInputToCents } from './accountPresentation';
++import { fallbackCurrency, formatMoney, moneyLaunchModeLabel, moneySafetyMessage, normalizeLimits, normalizeWallet, parseMoneyInputToCents } from './accountPresentation';
+ 
+ const quickAmounts = ['5', '10', '25', '50'];
+ 
+@@ -116,11 +116,11 @@
+           <div className="trade-section-heading">
+             <div>
+               <p className="eyebrow">{t('account.addMoney.safetyTitle')}</p>
+-              <h3>{moneySafety.launchMode.replace(/_/g, ' ')}</h3>
++              <h3>{moneyLaunchModeLabel(moneySafety.launchMode, t)}</h3>
+             </div>
+             <span className={`semantic-badge ${moneySafety.policyAcknowledged ? 'success' : 'warning'}`}>{moneySafety.policyAcknowledged ? t('account.addMoney.safetyAccepted') : t('account.addMoney.safetyReview')}</span>
+           </div>
+-          <p>{moneySafety.message}</p>
++          <p>{moneySafetyMessage(moneySafety, t)}</p>
+           {!moneySafety.policyAcknowledged ? <button type="button" className="secondary" onClick={() => { void acknowledgeSafety(); }} disabled={saving}>{t('account.addMoney.acceptPolicies')}</button> : <p className="meta">{t('account.addMoney.policyAccepted', { version: moneySafety.policyVersion })}</p>}
+         </section>
+       ) : null}
+@@ -146,7 +146,7 @@
+                 if (isSupportedCurrency(event.target.value)) setCurrency(event.target.value);
+               }}
+             >
+-              {currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
++              {currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.label} · {t(`common.locale.currencies.${option.code}`)}</option>)}
+             </select>
+           </label>
+         </div>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/features/account/PayoutsClient.tsx /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/features/account/PayoutsClient.tsx
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/features/account/PayoutsClient.tsx	2026-05-12 10:11:53.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/features/account/PayoutsClient.tsx	2026-05-12 16:39:31.696753373 +0000
+@@ -7,7 +7,7 @@
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+-import { calculatePayoutFeeCents, fallbackCurrency, formatDateTime, formatLimitCount, formatMoney, formatPayoutFeeRate, getPayoutFeeCents, getPayoutGrossCents, getPayoutNetCents, normalizePayoutFeeRateBps, normalizePayouts, parseMoneyInputToCents, payoutStatusLabel, trustTierLabel } from './accountPresentation';
++import { calculatePayoutFeeCents, fallbackCurrency, formatDateTime, formatLimitCount, formatMoney, formatPayoutFeeRate, getPayoutFeeCents, getPayoutGrossCents, getPayoutNetCents, moneyLaunchModeLabel, moneySafetyMessage, normalizePayoutFeeRateBps, normalizePayouts, parseMoneyInputToCents, payoutStatusLabel, trustTierLabel } from './accountPresentation';
+ 
+ type T = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ 
+@@ -40,7 +40,7 @@
+   return (
+     <div className="wallet-ledger-row" key={payout.id}>
+       <span>
+-        <strong>{payoutStatusLabel(payout.status)}</strong>
++        <strong>{payoutStatusLabel(payout.status, t)}</strong>
+         <small>{payout.notes || formatDateTime(payout.requestedAt, language)}</small>
+         <small>{t('account.payouts.grossFee', { gross: formatMoney(grossCents, payout.currency, language), fee: formatMoney(feeCents, payout.currency, language) })}</small>
+       </span>
+@@ -206,7 +206,7 @@
+ 
+       <section className="wallet-hero-card"><div><span className="semantic-badge success">{t('account.availableEarnings')}</span><h2>{formatMoney(available, currency, language)}</h2><p>{t('account.payouts.availableEarningsBody', { rate: feeRate })}</p></div></section>
+ 
+-      {moneySafety ? <section className="mobile-card wallet-form-card"><div className="trade-section-heading"><div><p className="eyebrow">{t('account.payouts.safetyTitle')}</p><h3>{moneySafety.launchMode.replace(/_/g, ' ')}</h3></div><span className={`semantic-badge ${moneySafety.policyAcknowledged ? 'success' : 'warning'}`}>{moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')}</span></div><p>{moneySafety.message}</p><div className="wallet-limit-grid"><span><strong>{moneySafety.realMoneyEnabled ? t('common.states.yes') : t('common.states.no')}</strong><small>{t('account.payouts.productionMoney')}</small></span><span><strong>{moneySafety.stripeTransfersEnabled ? t('common.states.yes') : t('common.states.no')}</strong><small>{t('account.payouts.stripeTransfers')}</small></span><span><strong>{moneySafety.requiresManualPayoutReview ? t('common.states.yes') : t('common.states.no')}</strong><small>{t('account.payouts.manualReview')}</small></span><span><strong>{moneySafety.policyVersion}</strong><small>{t('account.payouts.policyVersion')}</small></span></div>{!moneySafety.policyAcknowledged ? <button type="button" className="secondary" onClick={() => { void acknowledgeSafety(); }} disabled={saving}>{t('account.addMoney.acceptPolicies')}</button> : <p className="meta">{t('account.addMoney.policyAcceptedAt', { date: formatDateTime(moneySafety.acknowledgedAt, language) })}</p>}</section> : null}
++      {moneySafety ? <section className="mobile-card wallet-form-card"><div className="trade-section-heading"><div><p className="eyebrow">{t('account.payouts.safetyTitle')}</p><h3>{moneyLaunchModeLabel(moneySafety.launchMode, t)}</h3></div><span className={`semantic-badge ${moneySafety.policyAcknowledged ? 'success' : 'warning'}`}>{moneySafety.policyAcknowledged ? t('common.states.accepted') : t('common.states.review')}</span></div><p>{moneySafetyMessage(moneySafety, t)}</p><div className="wallet-limit-grid"><span><strong>{moneySafety.realMoneyEnabled ? t('common.states.yes') : t('common.states.no')}</strong><small>{t('account.payouts.productionMoney')}</small></span><span><strong>{moneySafety.stripeTransfersEnabled ? t('common.states.yes') : t('common.states.no')}</strong><small>{t('account.payouts.stripeTransfers')}</small></span><span><strong>{moneySafety.requiresManualPayoutReview ? t('common.states.yes') : t('common.states.no')}</strong><small>{t('account.payouts.manualReview')}</small></span><span><strong>{moneySafety.policyVersion}</strong><small>{t('account.payouts.policyVersion')}</small></span></div>{!moneySafety.policyAcknowledged ? <button type="button" className="secondary" onClick={() => { void acknowledgeSafety(); }} disabled={saving}>{t('account.addMoney.acceptPolicies')}</button> : <p className="meta">{t('account.addMoney.policyAcceptedAt', { date: formatDateTime(moneySafety.acknowledgedAt, language) })}</p>}</section> : null}
+ 
+       {limits ? <section className="mobile-card wallet-form-card"><div className="trade-section-heading"><div><p className="eyebrow">{t('account.payouts.launchLimits')}</p><h3>{trustTierLabel(limits.effectiveTrustTier, t)}</h3></div><span className="semantic-badge instruction">{t('account.wallet.safety')}</span></div><div className="wallet-limit-grid"><span><strong>{formatMoney(limits.minimumPayoutCents, currency, language)}</strong><small>{t('account.payouts.minimumPayout')}</small></span><span><strong>{formatMoney(limits.weeklyPayoutCapCents, currency, language)}</strong><small>{t('account.payouts.weeklyPayoutCap')}</small></span><span><strong>{formatMoney(Math.max(0, limits.weeklyPayoutCapCents - limits.weeklyRequestedPayoutGrossCents), currency, language)}</strong><small>{t('account.payouts.weeklyRemaining')}</small></span><span><strong>{formatLimitCount(limits.activeMoneyTradeCount, limits.moneyActiveTradeLimit)}</strong><small>{t('account.wallet.activeMoneyTrades')}</small></span></div><p>{t('account.payouts.launchLimitsBody')}</p></section> : null}
+ 
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/features/account/accountPresentation.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/features/account/accountPresentation.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/apps/web/src/features/account/accountPresentation.ts	2026-05-12 09:59:21.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/apps/web/src/features/account/accountPresentation.ts	2026-05-12 16:39:05.162306794 +0000
+@@ -1,4 +1,4 @@
+-import type { LedgerEntryDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
++import type { LedgerEntryDto, MoneySafetyStatusDto, PayoutRequestDto, PayoutSummaryDto, WalletDto, WalletLimitsDto } from '@hellowhen/contracts';
+ import { resolveWebAssetUrl } from '../../lib/api';
+ import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
+ import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+@@ -91,10 +91,26 @@
+   return labels[type] ?? type.replace(/_/g, ' ');
+ }
+ 
+-export function payoutStatusLabel(status: string) {
++export function payoutStatusLabel(status: string, t?: (key: string, values?: TranslationValues) => string) {
++  const localized = t?.(`account.payoutStatuses.${status}`);
++  if (localized && localized !== `account.payoutStatuses.${status}`) return localized;
+   return status.replace(/_/g, ' ');
+ }
+ 
++export function moneyLaunchModeLabel(mode: string, t?: (key: string, values?: TranslationValues) => string) {
++  const localized = t?.(`account.moneySafety.launchModes.${mode}`);
++  if (localized && localized !== `account.moneySafety.launchModes.${mode}`) return localized;
++  return mode.replace(/_/g, ' ');
++}
++
++export function moneySafetyMessage(status: MoneySafetyStatusDto, t?: (key: string, values?: TranslationValues) => string) {
++  if (status.launchMode === 'disabled') return t?.('account.moneySafety.messages.disabled') ?? status.message;
++  if (!status.privateBetaAllowed) return t?.('account.moneySafety.messages.privateBeta') ?? status.message;
++  if (status.policyAcknowledgementRequired && !status.policyAcknowledged) return t?.('account.moneySafety.messages.policyRequired') ?? status.message;
++  if (status.launchMode === 'production') return t?.('account.moneySafety.messages.production') ?? status.message;
++  return t?.('account.moneySafety.messages.demoOrBeta') ?? status.message;
++}
++
+ export function moneyDeltaClassName(cents: number) {
+   if (cents > 0) return 'success';
+   if (cents < 0) return 'danger';
+@@ -107,6 +123,18 @@
+ }
+ 
+ 
++export function businessTypeLabel(type: string, t?: (key: string, values?: TranslationValues) => string) {
++  const localized = t?.(`account.business.types.${type}`);
++  if (localized && localized !== `account.business.types.${type}`) return localized;
++  return type.replace(/_/g, ' ');
++}
++
++export function businessStatusLabel(status: string, t?: (key: string, values?: TranslationValues) => string) {
++  const localized = t?.(`account.business.statuses.${status}`);
++  if (localized && localized !== `account.business.statuses.${status}`) return localized;
++  return status.replace(/_/g, ' ');
++}
++
+ export function trustTierLabel(tier?: string | null, t?: (key: string, values?: TranslationValues) => string) {
+   const key = tier || 'new';
+   const localized = t?.(`account.trustTiers.${key}`);
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/docs/phase-23-7-device-browser-qa.md /mnt/data/phase23_7_work/hellowhen_trade-dev/docs/phase-23-7-device-browser-qa.md
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/docs/phase-23-7-device-browser-qa.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/docs/phase-23-7-device-browser-qa.md	2026-05-12 16:53:23.811611129 +0000
+@@ -0,0 +1,120 @@
++# Phase 23.7 — device/browser language QA and French copy polish
++
++## Scope
++
++This pass continues the i18n work from Phase 23.6 without changing routes, app visuals, feed/deck behavior, proposal logic, wallet/money logic, or public profile behavior.
++
++The goal was to run practical browser/native checks where the sandbox allows it, polish French product copy, and fix remaining safe runtime-visible labels.
++
++## Runtime-visible fixes made
++
++- Localized the web and native beta badge through `common.states.beta`.
++- Localized wallet/payout money-safety messages on web and native instead of rendering backend English text directly.
++- Localized payout status labels in web payout history and native payout history.
++- Localized native business profile type/status labels.
++- Localized the native `Stripe demo` badge through the shared dictionary.
++- Localized the web Add Money currency selector helper text.
++- Polished French copy from “support” to “assistance” in user-facing surfaces.
++- Polished French business/account copy from “business” to “professionnel” where it is user-facing.
++- Kept provider/brand/product names unchanged where appropriate: Hellowhen, Stripe, Stripe Connect, Airwallex, KYB.
++
++## Browser QA performed in sandbox
++
++### Next.js dev session
++
++Command:
++
++```bash
++npm run dev -w @hellowhen/web
++```
++
++Result:
++
++- Next.js dev server started successfully.
++- `/account/settings` returned `200 OK`.
++- `/account/wallet` redirected to `/account` when wallet features were not visible, which matches the current beta feature flags.
++
++Notes:
++
++- Server-rendered HTML still starts in English when there is no server-side language cookie or route locale. The client i18n provider resolves browser/localStorage language after hydration. Avoiding all initial English SSR copy would require a cookie-backed language preference or route-based locale, which is intentionally out of scope for the current preference-based implementation.
++
++### Next.js build
++
++Command:
++
++```bash
++NEXT_TELEMETRY_DISABLED=1 NEXT_BUILD_WORKER_COUNT=1 npm run build -w @hellowhen/web
++```
++
++Result:
++
++- Production build compiled successfully.
++- Web TypeScript finished successfully during the build.
++- The sandbox command timed out during Next.js static page-data collection, after compile/typecheck had completed. Re-run locally to confirm full build exit.
++
++## Native/Expo QA performed in sandbox
++
++### Expo config validation
++
++Command:
++
++```bash
++npx expo config --type public --json
++```
++
++Result:
++
++- Expo config resolved successfully.
++- SDK reported as `51.0.0`.
++- Platforms reported as `ios` and `android`.
++
++### Expo start attempt
++
++Command:
++
++```bash
++npm run start -w @hellowhen/mobile -- --non-interactive
++```
++
++Result:
++
++- Metro startup was attempted.
++- Expo then failed on network access to `api.expo.dev` with `EAI_AGAIN` while fetching SDK native module metadata.
++- This is an environment/network limitation, not an app type/syntax failure.
++
++## Static validation performed
++
++- `npm run typecheck -w @hellowhen/i18n` passed.
++- `npm run typecheck -w @hellowhen/web` passed.
++- `npm run typecheck -w @hellowhen/mobile` passed.
++- English/French dictionary parity passed with `1275` keys.
++- Targeted TS/TSX syntax transpile checks passed for changed files.
++- Non-admin hardcoded-label audit only found intentional names/placeholders:
++  - `Hellowhen`
++  - `Kopy` placeholder
++
++## Full workspace typecheck note
++
++`npm run typecheck` is still blocked at the API workspace until Prisma Client is generated. Prisma generation could not complete in the sandbox because downloading Prisma engine binaries from `binaries.prisma.sh` failed with `EAI_AGAIN`.
++
++## Manual real-device/browser QA checklist
++
++### Web browser
++
++1. Open `/account/settings` in Chrome/Firefox/Safari.
++2. Set language to `Français`.
++3. Refresh the page and confirm settings/account labels are French after hydration.
++4. Set language to `English` and confirm labels switch back.
++5. Set language to `System default`, change browser preferred language to French, and confirm app labels resolve to French.
++6. Confirm public route paths remain unchanged, including `/users/[userId]`.
++7. Confirm trade titles, descriptions, bios, support messages, proposal messages, and conversation messages are not translated.
++
++### Expo Go / native runtime
++
++1. Open the app with device language set to English.
++2. Confirm tabs and Account/Settings labels are English.
++3. Change app language to French in Settings and confirm tabs/account/wallet/support labels switch to French.
++4. Restart Expo Go and confirm the saved language remains selected.
++5. Set app language to System default, change the device language to French, then reload the app and confirm French labels.
++6. Confirm native proposal messages, trade titles, descriptions, bios, and support ticket bodies stay as user-written content.
++7. Confirm payout/wallet hidden states still respect current beta feature flags.
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts	2026-05-12 10:48:33.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts	2026-05-12 16:40:01.414012586 +0000
+@@ -82,6 +82,29 @@
+     trusted: 'Trusted',
+     restricted: 'Restricted',
+   },
++  payoutStatuses: {
++    draft: 'Draft',
++    requested: 'Requested',
++    approved: 'Approved',
++    paid: 'Paid',
++    rejected: 'Rejected',
++    cancelled: 'Cancelled',
++  },
++  moneySafety: {
++    launchModes: {
++      disabled: 'Disabled',
++      demo: 'Demo',
++      private_beta: 'Private beta',
++      production: 'Production',
++    },
++    messages: {
++      disabled: 'Money features are disabled for this launch.',
++      privateBeta: 'Money features are currently limited to the private beta.',
++      policyRequired: 'Review and accept the wallet, payout, refund, and dispute policies before using money features.',
++      production: 'Production money mode is enabled. Keep limits low and monitor payouts closely.',
++      demoOrBeta: 'Money features are in demo or beta safety mode. No production money movement is enabled by default.',
++    },
++  },
+   addMoney: {
+     title: 'Add money',
+     loading: 'Loading your session...',
+@@ -89,6 +112,7 @@
+     hiddenBody: 'Wallet top-ups are disabled for the first international beta. Use Needs and Offers for service or goods exchanges.',
+     signedOutTitle: 'Sign in to use the demo top-up',
+     signedOutBody: 'Wallet money is private to your account and can later be selected inside Need/Offer trade sides.',
++    stripeDemoBadge: 'Stripe demo',
+     simulationOnly: 'Simulation only',
+     simulationBody: 'This adds demo wallet money for testing the flow. No real card charge is used here.',
+     safetyTitle: 'Money launch safety',
+@@ -213,6 +237,19 @@
+     loadErrorTitle: 'Could not load profiles',
+     emptyTitle: 'No business profiles yet',
+     emptyBody: 'Business and brand account creation is available through the API during this phase.',
++    types: {
++      business: 'Business',
++      agency: 'Agency',
++      brand: 'Brand',
++      enterprise: 'Enterprise',
++    },
++    statuses: {
++      draft: 'Draft',
++      pending: 'Pending',
++      verified: 'Verified',
++      rejected: 'Rejected',
++      disabled: 'Disabled',
++    },
+   },
+   items: {
+     profile: {
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts	2026-05-12 16:16:29.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts	2026-05-12 16:49:57.801973647 +0000
+@@ -31,6 +31,7 @@
+     viewAll: 'View all',
+   },
+   states: {
++    beta: 'Beta',
+     loading: 'Loading',
+     working: 'Working...',
+     saving: 'Saving...',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts	2026-05-12 16:40:01.414515486 +0000
+@@ -1,15 +1,15 @@
+ export const account = {
+   title: 'Compte',
+   eyebrow: 'Privé',
+-  body: 'Gérez votre profil, vos paramètres et le support ici.',
++  body: 'Gérez votre profil, vos paramètres et l’assistance ici.',
+   payoutsPageBody: 'Gérez les paramètres de versement lorsque cette fonctionnalité planifiée est activée.',
+   walletPageBody: 'Gérez les soldes d’échange optionnels lorsque cette fonctionnalité planifiée est activée.',
+   addBalanceTitle: 'Ajouter du solde',
+   addBalanceBody: 'Gérez le solde d’échange lorsque cette fonctionnalité planifiée est activée.',
+-  headerBody: 'Profil, paramètres et support sont regroupés ici.',
++  headerBody: 'Profil, paramètres et assistance sont regroupés ici.',
+   signedOut: {
+     title: 'Connectez-vous pour ouvrir votre compte',
+-    body: 'Profil, paramètres, portefeuille et support sont disponibles après connexion.',
++    body: 'Profil, paramètres, portefeuille et assistance sont disponibles après connexion.',
+   },
+   addHandle: 'Ajouter un identifiant',
+   addHandleOnProfile: 'Ajoutez un identifiant sur votre profil.',
+@@ -41,14 +41,14 @@
+     estimatedPayoutBody: 'Montant estimé reçu après les frais de plateforme.',
+     availableBody: 'Argent optionnel disponible dans le côté « J’offre de l’argent » lors de la création d’un échange.',
+     heldBody: 'Argent réservé pour les échanges qui ne sont pas encore terminés.',
+-    earningsBody: 'Gains d’échange avant les frais de versement de {{rate}}.',
++    earningsBody: 'Gains d’échange avant les frais de plateforme de {{rate}}.',
+     launchLimits: 'Limites de lancement',
+     safety: 'Sécurité',
+     activeServiceTrades: 'échanges de service actifs',
+     activeMoneyTrades: 'échanges avec argent actifs',
+     perMoneyTrade: 'par échange avec argent',
+     walletCap: 'plafond du portefeuille',
+-    launchLimitsBody: 'Les limites de lancement maintiennent de petits flux d’argent. Vérifiez votre compte de versement ou contactez le support pour demander une limite plus élevée.',
++    launchLimitsBody: 'Les limites de lancement maintiennent de petits flux d’argent. Vérifiez votre compte de versement ou contactez l’assistance pour demander une limite plus élevée.',
+     providerSnapshot: 'Instantané du solde fournisseur',
+     providerSnapshotTitle: 'Soldes sandbox Airwallex',
+     readOnly: 'Lecture seule',
+@@ -79,8 +79,31 @@
+     new: 'Nouveau compte',
+     email_verified: 'E-mail vérifié',
+     stripe_verified: 'Versement vérifié',
+-    trusted: 'Fiable',
+-    restricted: 'Restreint',
++    trusted: 'Compte fiable',
++    restricted: 'Compte restreint',
++  },
++  payoutStatuses: {
++    draft: 'Brouillon',
++    requested: 'Demandé',
++    approved: 'Approuvé',
++    paid: 'Payé',
++    rejected: 'Refusé',
++    cancelled: 'Annulé',
++  },
++  moneySafety: {
++    launchModes: {
++      disabled: 'Désactivé',
++      demo: 'Démo',
++      private_beta: 'Bêta privée',
++      production: 'Production',
++    },
++    messages: {
++      disabled: 'Les fonctionnalités financières sont désactivées pour ce lancement.',
++      privateBeta: 'Les fonctionnalités financières sont actuellement limitées à la bêta privée.',
++      policyRequired: 'Lisez et acceptez les règles de portefeuille, versement, remboursement et litige avant d’utiliser les fonctionnalités financières.',
++      production: 'Le mode argent réel est activé. Gardez des limites basses et surveillez les versements attentivement.',
++      demoOrBeta: 'Les fonctionnalités financières sont en mode démo ou bêta sécurisée. Aucun mouvement d’argent réel n’est activé par défaut.',
++    },
+   },
+   addMoney: {
+     title: 'Ajouter de l’argent',
+@@ -89,9 +112,10 @@
+     hiddenBody: 'Les rechargements du portefeuille sont désactivés pour la première bêta internationale. Utilisez les besoins et offres pour les échanges de services ou biens.',
+     signedOutTitle: 'Connectez-vous pour utiliser le rechargement démo',
+     signedOutBody: 'L’argent du portefeuille est privé et lié à votre compte et pourra être sélectionné dans les côtés Besoin/Offre.',
++    stripeDemoBadge: 'Démo Stripe',
+     simulationOnly: 'Simulation uniquement',
+     simulationBody: 'Ajoutez de l’argent démo pour tester le flux. Aucune carte réelle n’est débitée.',
+-    safetyTitle: 'Sécurité du lancement avec argent',
++    safetyTitle: 'Sécurité du lancement financier',
+     safetyAccepted: 'Accepté',
+     safetyReview: 'À vérifier',
+     acceptPolicies: 'Accepter les règles portefeuille, versement, remboursement et litige',
+@@ -101,8 +125,8 @@
+     amount: 'Montant',
+     currency: 'Devise',
+     launchWalletCap: 'Plafond portefeuille : {{cap}} · restant : {{remaining}}',
+-    blockedSafety: 'Acceptez les règles de sécurité argent avant d’ajouter de l’argent démo.',
+-    blockedLimit: 'Ce rechargement dépasse votre limite actuelle. Vérifiez votre compte ou contactez le support pour demander une limite plus élevée.',
++    blockedSafety: 'Acceptez les règles de sécurité liées à l’argent avant d’ajouter de l’argent démo.',
++    blockedLimit: 'Ce rechargement dépasse votre limite actuelle. Vérifiez votre compte ou contactez l’assistance pour demander une limite plus élevée.',
+     newBalance: 'Nouveau solde : {{amount}}',
+     adding: 'Ajout…',
+     addDemoMoney: 'Ajouter l’argent démo',
+@@ -133,7 +157,7 @@
+     signedOutTitle: 'Connectez-vous pour voir les versements',
+     signedOutBody: 'La simulation de versement est privée et utilise seulement vos gains d’échange éligibles.',
+     availableEarningsBody: 'Les versements démo utilisent seulement les gains éligibles. Hellowhen conserve {{rate}} de frais de plateforme sur les gains éligibles.',
+-    safetyTitle: 'Sécurité du lancement avec argent',
++    safetyTitle: 'Sécurité du lancement financier',
+     productionMoney: 'argent réel',
+     stripeTransfers: 'transferts Stripe',
+     manualReview: 'vérification manuelle',
+@@ -182,7 +206,7 @@
+     requestDemoPayout: 'Demander un versement démo',
+     requestTestPayout: 'Demander un versement test',
+     requesting: 'Demande…',
+-    safetyBlocked: 'Acceptez les règles de sécurité argent avant de demander un versement.',
++    safetyBlocked: 'Acceptez les règles de sécurité liées à l’argent avant de demander un versement.',
+     connectFirstDemo: 'Connectez d’abord le compte de versement démo.',
+     connectFirstStripe: 'Terminez d’abord l’onboarding test Stripe Connect.',
+     noEligible: 'Aucun gain éligible au versement pour le moment.',
+@@ -207,12 +231,25 @@
+     demoPayoutKind: 'Versement démo terminé',
+   },
+   business: {
+-    title: 'Business / marque',
+-    hiddenTitle: 'Comptes business masqués',
+-    hiddenBody: 'Les profils business et marque sont contrôlés par les feature flags de la bêta actuelle.',
++    title: 'Professionnel / marque',
++    hiddenTitle: 'Comptes professionnels masqués',
++    hiddenBody: 'Les profils professionnels et marque sont contrôlés par les indicateurs de fonctionnalité de la bêta actuelle.',
+     loadErrorTitle: 'Impossible de charger les profils',
+-    emptyTitle: 'Aucun profil business pour le moment',
+-    emptyBody: 'La création de comptes business et marque est disponible via l’API pendant cette phase.',
++    emptyTitle: 'Aucun profil professionnel pour le moment',
++    emptyBody: 'La création de comptes professionnels et marque est disponible via l’API pendant cette phase.',
++    types: {
++      business: 'Professionnel',
++      agency: 'Agence',
++      brand: 'Marque',
++      enterprise: 'Entreprise',
++    },
++    statuses: {
++      draft: 'Brouillon',
++      pending: 'En attente',
++      verified: 'Vérifié',
++      rejected: 'Refusé',
++      disabled: 'Désactivé',
++    },
+   },
+   items: {
+     profile: {
+@@ -222,9 +259,9 @@
+       badge: 'Profil',
+     },
+     business: {
+-      title: 'Business / marque',
+-      body: 'Créez plus tard des profils business, agence, marque ou entreprise prêts pour le KYB.',
+-      bodyNative: 'Futurs profils business, agence, marque et entreprise.',
++      title: 'Professionnel / marque',
++      body: 'Créez plus tard des profils professionnels, agence, marque ou entreprise prêts pour le KYB.',
++      bodyNative: 'Futurs profils professionnels, agence, marque et entreprise.',
+       badge: 'Marque',
+     },
+     wallet: {
+@@ -246,8 +283,8 @@
+       badge: 'Paramètres',
+     },
+     support: {
+-      title: 'Support',
+-      body: 'Créez des tickets de support, joignez des captures et suivez les réponses.',
++      title: 'Assistance',
++      body: 'Créez des tickets d’assistance, joignez des captures et suivez les réponses.',
+       bodyNative: 'Obtenir de l’aide pour les échanges, images ou la sécurité.',
+       badge: 'Aide',
+     },
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts	2026-05-12 16:49:57.802502499 +0000
+@@ -31,6 +31,7 @@
+     viewAll: 'Tout voir',
+   },
+   states: {
++    beta: 'Bêta',
+     loading: 'Chargement',
+     working: 'Traitement…',
+     saving: 'Enregistrement…',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts	2026-05-12 16:38:28.672942026 +0000
+@@ -142,8 +142,8 @@
+     offerImageSection: 'Images de l’offre',
+     needImageHint: 'Ajoutez des images qui expliquent votre besoin.',
+     offerImageHint: 'Ajoutez des exemples qui renforcent la confiance dans l’offre.',
+-    imagePanelBody: 'Les images apparaissent sur ce besoin ou cette offre enregistrée après import. Le support peut retirer les images signalées si nécessaire.',
+-    imagePickerDefaultBody: 'Les images apparaissent sur votre besoin ou votre offre enregistrée après import. Utilisez le support pour signaler un problème d’image ou de contenu.',
++    imagePanelBody: 'Les images apparaissent sur ce besoin ou cette offre enregistrée après import. L’assistance peut retirer les images signalées si nécessaire.',
++    imagePickerDefaultBody: 'Les images apparaissent sur votre besoin ou votre offre enregistrée après import. Utilisez l’assistance pour signaler un problème d’image ou de contenu.',
+     imagePickerHint: 'Ajoutez jusqu’à {{count}} images JPEG, PNG ou WEBP.',
+     selectedCount: '{{count}}/5 sélectionnées',
+     previewTitleFallback: 'Le titre apparaîtra ici',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts	2026-05-12 16:38:01.550800166 +0000
+@@ -23,7 +23,7 @@
+     editOffer: 'Modifier l’offre',
+     offer: 'Offre',
+     settings: 'Paramètres',
+-    support: 'Support',
++    support: 'Assistance',
+     hellowhen: 'Hellowhen',
+   },
+ } as const;
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts	2026-05-12 16:38:28.672318468 +0000
+@@ -7,8 +7,8 @@
+     badge: 'Compte',
+     title: 'Notifications',
+     body: 'Ceci utilise le même modèle de paramètres que l’application mobile. Les règles push/e-mail viendront plus tard.',
+-    bodyNative: 'Mises à jour d’échanges, messages de proposition, signalements d’images/contenus et activité du support.',
+-    enable: 'Activer les notifications d’échanges et de support',
++    bodyNative: 'Mises à jour d’échanges, messages de proposition, signalements d’images/contenus et activité de l’assistance.',
++    enable: 'Activer les notifications d’échanges et d’assistance',
+     savedAccount: 'Préférence de notification enregistrée sur votre compte.',
+     savedLocal: 'Préférence de notification enregistrée sur cet appareil.',
+     savedBrowser: 'Préférence de notification enregistrée sur ce navigateur.',
+@@ -45,7 +45,7 @@
+     badge: 'Sécurité',
+     title: 'Protection du compte',
+     body: 'La vérification e-mail, la vérification en deux étapes et les contrôles de session protègent votre compte, vos conversations d’échange et les outils admin.',
+-    bodyNative: 'La vérification e-mail et la vérification en deux étapes aident à protéger votre compte, vos échanges et vos messages de support. La configuration via application d’authentification est d’abord disponible sur le web.',
++    bodyNative: 'La vérification e-mail et la vérification en deux étapes aident à protéger votre compte, vos échanges et vos messages d’assistance. La configuration via application d’authentification est d’abord disponible sur le web.',
+     email: 'E-mail',
+     authenticator: 'Application d’authentification',
+     verified: 'Vérifié',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts	2026-05-12 16:38:00.396704254 +0000
+@@ -1,16 +1,16 @@
+ export const support = {
+-  defaultTradeIssueMessage: 'J’ai besoin d’aide admin avec cet échange.',
+-  title: 'Support',
++  defaultTradeIssueMessage: 'J’ai besoin d’aide de l’équipe avec cet échange.',
++  title: 'Assistance',
+   getHelpTitle: 'Obtenir de l’aide',
+-  pageBody: 'Créez des tickets support, joignez des captures d’écran et suivez les réponses depuis un seul écran compte mobile-web.',
+-  ticketTitle: 'Ticket de support',
+-  feedbackTitle: 'Feedback et support',
++  pageBody: 'Créez des tickets d’assistance, joignez des captures d’écran et suivez les réponses depuis un seul écran compte mobile-web.',
++  ticketTitle: 'Ticket d’assistance',
++  feedbackTitle: 'Retours et assistance',
+   feedbackBody: 'Envoyez un retour, signalez un problème d’échange ou demandez de l’aide. C’est séparé des conversations de proposition.',
+-  purposeTitle: 'À quoi sert le support',
+-  purposeBody: 'Utilisez le support pour les retours produit, problèmes de sécurité, bugs, images/contenus et problèmes d’échange nécessitant une attention admin.',
+-  messageTitle: 'Message du support',
++  purposeTitle: 'À quoi sert l’assistance',
++  purposeBody: 'Utilisez l’assistance pour les retours produit, problèmes de sécurité, bugs, images/contenus et problèmes d’échange nécessitant une intervention de l’équipe.',
++  messageTitle: 'Message de l’assistance',
+   newRequest: 'Nouvelle demande',
+-  createTicket: 'Créer un ticket de support',
++  createTicket: 'Créer un ticket d’assistance',
+   createTicketShort: 'Créer un ticket',
+   attachments: 'Pièces jointes',
+   category: 'Catégorie',
+@@ -29,35 +29,35 @@
+   attachImages: 'Joindre des images',
+   screenshots: 'Captures d’écran',
+   screenshotsHint: 'Joignez des captures ou images qui expliquent le problème.',
+-  replyImagesHint: 'Joignez des captures ou photos pour aider le support à comprendre votre réponse.',
++  replyImagesHint: 'Joignez des captures ou photos pour aider l’assistance à comprendre votre réponse.',
+   submitTicket: 'Envoyer le ticket',
+   creatingTicket: 'Création…',
+-  ticketCreated: 'Ticket de support créé.',
++  ticketCreated: 'Ticket d’assistance créé.',
+   replySent: 'Réponse envoyée.',
+   ticketClosed: 'Ticket fermé.',
+   ticketReopened: 'Ticket rouvert.',
+   yourTickets: 'Vos tickets',
+   myTickets: 'Mes tickets',
+-  history: 'Historique du support',
++  history: 'Historique de l’assistance',
+   noTickets: 'Aucun ticket pour le moment',
+-  noTicketsBody: 'Créez votre premier ticket de support ci-dessus.',
+-  noTicketsNative: 'Aucun ticket de support pour le moment.',
++  noTicketsBody: 'Créez votre premier ticket d’assistance ci-dessus.',
++  noTicketsNative: 'Aucun ticket d’assistance pour le moment.',
+   selectedTicket: 'Ticket sélectionné',
+   conversation: 'Conversation',
+   noMessages: 'Aucun message pour le moment.',
+-  supportSender: 'Support',
+-  adminSender: 'Support Hellowhen',
++  supportSender: 'Assistance',
++  adminSender: 'Assistance Hellowhen',
+   youSender: 'Vous',
+   internal: 'interne',
+   closed: 'Fermé',
+   closedBody: 'Ce ticket est fermé. Rouvrez-le si vous devez continuer la conversation.',
+-  replyToSupport: 'Répondre au support',
++  replyToSupport: 'Répondre à l’assistance',
+   closeTicket: 'Fermer le ticket',
+   reopenTicket: 'Rouvrir le ticket',
+   couldNotLoad: 'Le ticket n’a pas pu être chargé.',
+-  signedOutTitle: 'Connectez-vous pour contacter le support',
+-  signedOutBody: 'Les tickets de support et pièces jointes sont privés à votre compte.',
+-  loading: 'Chargement du support…',
++  signedOutTitle: 'Connectez-vous pour contacter l’assistance',
++  signedOutBody: 'Les tickets d’assistance et pièces jointes sont privés à votre compte.',
++  loading: 'Chargement de l’assistance…',
+   uploadMissing: 'L’import est terminé, mais aucune image n’a été retournée.',
+   categories: {
+     general_feedback: 'Retour général',
+@@ -79,6 +79,6 @@
+     closed: 'fermé',
+     resolved: 'résolu',
+     waiting_for_user: 'en attente de vous',
+-    waiting_for_admin: 'en attente du support',
++    waiting_for_admin: 'en attente de l’assistance',
+   },
+ } as const;
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.expo' '--exclude=dist' '--exclude=*.tsbuildinfo' /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts
+--- /mnt/data/phase23_7_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts	2026-05-12 16:22:14.000000000 +0000
++++ /mnt/data/phase23_7_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts	2026-05-12 16:38:28.673868730 +0000
+@@ -424,7 +424,7 @@
+     acceptedUsesConfirmation: 'Les échanges acceptés utilisent une confirmation de livraison avant d’être clôturés.',
+     markDeliveredHint: 'Une partie doit marquer comme livré, puis l’autre confirme la fin.',
+     submittedHint: 'En attente de confirmation par l’autre partie.',
+-    disputedHint: 'Le support examinera cet échange et aidera les membres à le résoudre.',
++    disputedHint: 'L’assistance examinera cet échange et aidera les membres à le résoudre.',
+     completedHint: 'Cet échange est terminé.',
+     cancelledHint: 'Cet échange n’est plus actif.',
+     activeOwnerOfferHint: 'Ouvert aux propositions d’offre. Examinez chaque proposition privée avant d’en accepter une.',
+@@ -435,7 +435,7 @@
+     activeViewerTradeHint: 'Envoyez une proposition privée pour demander cet échange.',
+     inProgressHint: 'En cours. Le prestataire doit d’abord marquer comme livré. L’autre partie confirme après vérification.',
+     submittedHintNative: 'La livraison a été marquée. L’autre partie doit confirmer seulement si tout est correct.',
+-    disputedHintNative: 'Signalé. Le support examinera cet échange.',
++    disputedHintNative: 'Signalé. L’assistance examinera cet échange.',
+     completedHintNative: 'Terminé. Cet échange est clôturé.',
+     cancelledHintNative: 'Annulé. Cet échange n’est plus actif.',
+     reviewStatusHint: 'Vérifiez le statut actuel de l’échange avant d’agir.',
+@@ -445,14 +445,14 @@
+     refreshing: 'Actualisation du détail de l’échange…',
+     deliveryMarked: 'Livraison marquée. L’autre partie peut maintenant confirmer la fin.',
+     tradeConfirmed: 'Échange confirmé.',
+-    tradeReported: 'Échange signalé pour examen par le support.',
++    tradeReported: 'Échange signalé pour examen par l’assistance.',
+     tradeUpdated: 'Échange mis à jour.',
+     tradeCancelled: 'Échange annulé.',
+     couldNotUpdate: 'Impossible de mettre à jour l’échange pour le moment. Vérifiez son statut et réessayez.',
+     couldNotUpdateNative: 'Impossible de mettre à jour cet échange. Veuillez réessayer.',
+-    reportSent: 'Signalement envoyé. Le support examinera cet échange.',
+-    couldNotReport: 'Impossible d’envoyer le signalement pour le moment. Réessayez depuis Compte > Support.',
+-    couldNotReportNative: 'Impossible de signaler cet échange. Réessayez depuis Compte > Support.',
++    reportSent: 'Signalement envoyé. L’assistance examinera cet échange.',
++    couldNotReport: 'Impossible d’envoyer le signalement pour le moment. Réessayez depuis Compte > Assistance.',
++    couldNotReportNative: 'Impossible de signaler cet échange. Réessayez depuis Compte > Assistance.',
+     couldNotDelete: 'Impossible de supprimer cet échange pour le moment. Vérifiez son statut et réessayez.',
+     removeTradeBody: 'Retirer cet échange du fil public. Votre élément d’inventaire enregistré restera dans votre compte.',
+     deleteProtectedBody: 'Cet échange ne peut pas être supprimé lorsqu’il est en cours, soumis, terminé ou contesté.',
+@@ -464,7 +464,7 @@
+     deleteTradeTitle: 'Supprimer l’échange ?',
+     deleteTradeBody: 'Cela retirera l’échange du fil public et clôturera les propositions en attente. Votre besoin et votre offre enregistrés ne seront pas supprimés.',
+     whatHappened: 'Que s’est-il passé ?',
+-    reportPlaceholder: 'Expliquez ce qui s’est mal passé afin que le support examine l’échange.',
++    reportPlaceholder: 'Expliquez ce qui s’est mal passé afin que l’assistance examine l’échange.',
+     sendReport: 'Envoyer le signalement',
+     markDelivered: 'Marquer comme livré',
+     cancelTrade: 'Annuler l’échange',

@@ -1,0 +1,1135 @@
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx	2026-05-12 10:02:01.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx	2026-05-12 16:17:30.982350620 +0000
+@@ -20,9 +20,6 @@
+ const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
+ const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim() ?? '';
+ 
+-const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `Default currency ${country.currency.toUpperCase()}` }));
+-const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
+-
+ function authSubtitleKey(mode: AuthMode) {
+   if (mode === 'register') return 'auth.subtitles.register';
+   if (mode === 'forgot') return 'auth.subtitles.forgotNative';
+@@ -49,6 +46,16 @@
+   const [error, setError] = useState<string | null>(null);
+ 
+   const googleConfigured = useMemo(() => Boolean(googleWebClientId || googleIosClientId || googleAndroidClientId), []);
++  const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
++    value: country.code,
++    label: t(`common.locale.countries.${country.code}`),
++    helper: t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() }),
++  })), [t]);
++  const currencySelectOptions = useMemo(() => currencyOptions.map((currency) => ({
++    value: currency.code,
++    label: currency.label,
++    helper: t(`common.locale.currencies.${currency.code}`),
++  })), [t]);
+ 
+   useEffect(() => {
+     if (!auth.isAuthenticated) return;
+@@ -82,8 +89,8 @@
+       if (mode === 'login') await auth.login(email, password);
+       else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency);
+       else {
+-        const result = await auth.forgotPassword(email);
+-        setMessage(result.message);
++        await auth.forgotPassword(email);
++        setMessage(t('auth.reset.requested'));
+       }
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/me/MeScreen.tsx phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/me/MeScreen.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/me/MeScreen.tsx	2026-05-12 10:46:55.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/me/MeScreen.tsx	2026-05-12 16:17:30.982873893 +0000
+@@ -1,4 +1,4 @@
+-import React, { useState } from 'react';
++import React, { useMemo, useState } from 'react';
+ import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import * as ImagePicker from 'expo-image-picker';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+@@ -21,7 +21,6 @@
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
+ type ProfileResponse = { profile: ProfileDto };
+-const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
+ 
+ function optionalText(value: string) {
+   const trimmed = value.trim();
+@@ -50,7 +49,16 @@
+   const [error, setError] = useState<string | null>(null);
+   const [saved, setSaved] = useState(false);
+   const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
+-  const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `${t('profile.edit.countryHelper')}: ${country.currency.toUpperCase()}` }));
++  const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
++    value: country.code,
++    label: t(`common.locale.countries.${country.code}`),
++    helper: t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() }),
++  })), [t]);
++  const currencySelectOptions = useMemo(() => currencyOptions.map((currency) => ({
++    value: currency.code,
++    label: currency.label,
++    helper: t(`common.locale.currencies.${currency.code}`),
++  })), [t]);
+ 
+   async function pickAvatar() {
+     setError(null);
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx	2026-05-12 09:46:12.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/InventoryDetailScreen.tsx	2026-05-12 16:25:02.127268001 +0000
+@@ -30,6 +30,7 @@
+ } from './components/InventoryDetailFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ import type { InventoryItemType } from '@hellowhen/contracts';
++import { formatLocalizedDate } from '@hellowhen/i18n';
+ import type { NeedItem, OfferItem } from './types';
+ 
+ type InventoryKind = 'need' | 'offer';
+@@ -183,9 +184,7 @@
+     }
+   }
+ 
+-  const updatedAt = typeof item?.updatedAt === 'string' || item?.updatedAt instanceof Date
+-    ? new Date(item.updatedAt).toLocaleDateString(language)
+-    : '';
++  const updatedAt = formatLocalizedDate(typeof item?.updatedAt === 'string' ? item.updatedAt : null, language, '');
+ 
+   const meta = useMemo(
+     () => [itemTypeLabel(itemType, t), category, timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/TradeDetailScreen.tsx phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/TradeDetailScreen.tsx	2026-05-12 09:23:53.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/TradeDetailScreen.tsx	2026-05-12 16:17:47.559256364 +0000
+@@ -3,7 +3,7 @@
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { MediaAssetDto, ProposalActionStatus, TradeActionStatus, TradePostType, TradeStatus } from '@hellowhen/contracts';
+ import type { ThemeTokens } from '@hellowhen/theme';
+-import { formatLocalizedDate, type SupportedLanguage } from '@hellowhen/i18n';
++import { formatLocalizedDate, formatLocalizedTimeUntil, type SupportedLanguage } from '@hellowhen/i18n';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+@@ -49,7 +49,7 @@
+ function needMeta(need: NeedItem | null | undefined, t: TFunction) { return compactList([need?.category, need?.timing, modeLabel(need?.mode, t), need?.locationLabel]) || t('trade.detail.needDetailsFallback'); }
+ function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode, t), offer?.locationLabel]) || t('trade.detail.offerDetailsFallback'); }
+ function exchangeLabel(trade: TradeDeckItem, t: TFunction) { const postType = tradePostType(trade); if (postType === 'open_need') return trade.offer ? t('trade.postTypes.openNeedMatched') : t('trade.postTypes.openForOffers'); if (postType === 'open_offer') return trade.need ? t('trade.postTypes.openOfferMatched') : t('trade.postTypes.openForNeeds'); return t('trade.postTypes.needOfferExchange'); }
+-function expiryLabel(expiresAt: string | null | undefined, t: TFunction) { if (!expiresAt) return t('trade.expiry.noExpirySet'); const ms = new Date(expiresAt).getTime(); if (!Number.isFinite(ms)) return t('trade.expiry.noExpirySet'); const diff = ms - Date.now(); if (diff <= 0) return t('trade.expiry.expired'); const hours = Math.ceil(diff / 1000 / 60 / 60); return hours < 24 ? t('trade.expiry.hoursLeft', { count: hours }) : t('trade.expiry.daysLeft', { count: Math.ceil(hours / 24) }); }
++function expiryLabel(expiresAt: string | null | undefined, t: TFunction, language: SupportedLanguage) { return formatLocalizedTimeUntil(expiresAt, language, { noValue: t('trade.expiry.noExpirySet'), expired: t('trade.expiry.expired'), fallback: (count, unit) => unit === 'hour' ? t('trade.expiry.hoursLeft', { count }) : t('trade.expiry.daysLeft', { count }) }); }
+ function formatDate(value: string | null | undefined, language: SupportedLanguage) { return formatLocalizedDate(value, language, ''); }
+ function formatStatus(status: string, t: TFunction) { const label = t(`trade.statuses.${status}`); return label === `trade.statuses.${status}` ? status.replace(/_/g, ' ') : label; }
+ function statusHint(trade: TradeDeckItem, role: DetailRole, t: TFunction) { if (trade.status === 'active') { const side = requiredProposalSide(trade); if (role === 'owner') return side === 'offer' ? t('trade.detail.activeOwnerOfferHint') : side === 'need' ? t('trade.detail.activeOwnerNeedHint') : t('trade.detail.activeOwnerTradeHint'); return side === 'offer' ? t('trade.detail.activeViewerOfferHint') : side === 'need' ? t('trade.detail.activeViewerNeedHint') : t('trade.detail.activeViewerTradeHint'); } if (trade.status === 'in_progress') return t('trade.detail.inProgressHint'); if (trade.status === 'submitted') return t('trade.detail.submittedHintNative'); if (trade.status === 'disputed') return t('trade.detail.disputedHintNative'); if (trade.status === 'completed') return t('trade.detail.completedHintNative'); if (trade.status === 'cancelled') return t('trade.detail.cancelledHintNative'); return t('trade.detail.reviewStatusHint'); }
+@@ -231,7 +231,7 @@
+   }, [replyDrafts, t]);
+ 
+   return <AppFixedHeaderScreen header={<AppHeader title={t('trade.labels.trade')} onBack={() => navigation.goBack()} />}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+-    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} label={formatStatus(trade.status, t)} /><SemanticBadge label={postTypeLabel(trade, t)} tone="trade" size="sm" /></View><AppText style={styles.title}>{detailTitle(trade, t)}</AppText><View style={styles.ownerLine}><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('trade.labels.postedBy')}</AppText><UserIdentityPressable user={trade.owner} userId={trade.ownerId} variant="chip" avatarSize="xs" statusText={trade.expiresAt ? expiryLabel(trade.expiresAt, t) : undefined} /></View><AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText></View>
++    <View style={styles.hero}><View style={styles.headerRow}><StatusBadge status={trade.status} label={formatStatus(trade.status, t)} /><SemanticBadge label={postTypeLabel(trade, t)} tone="trade" size="sm" /></View><AppText style={styles.title}>{detailTitle(trade, t)}</AppText><View style={styles.ownerLine}><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('trade.labels.postedBy')}</AppText><UserIdentityPressable user={trade.owner} userId={trade.ownerId} variant="chip" avatarSize="xs" statusText={trade.expiresAt ? expiryLabel(trade.expiresAt, t, language) : undefined} /></View><AppText style={[styles.paymentLine, { color: theme.color.muted }]}>{paymentLabel}</AppText></View>
+ 
+     <Separator theme={theme} />
+     {trade.need ? <InventorySection eyebrow={t('trade.labels.iNeed')} title={needTitle(trade, t)} description={needDescription(trade)} meta={needMeta(trade.need, t)} images={trade.need?.media ?? []} emptyImageLabel={t('trade.labels.noNeedImages')} theme={theme} /> : null}
+@@ -240,7 +240,7 @@
+     {requiredSide === 'need' ? <><Separator theme={theme} /><OpenSideInvite title={t('trade.proposals.openForNeeds')} body={t('trade.proposals.openForNeedsBody')} tone="need" theme={theme} /></> : null}
+ 
+     <Separator theme={theme} />
+-    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{t('trade.labels.tradeDetails')}</AppText><View style={styles.detailRows}><DetailRow label={t('trade.labels.type')} value={postTypeLabel(trade, t)} theme={theme} /><DetailRow label={t('trade.labels.status')} value={formatStatus(trade.status, t)} theme={theme} /><DetailRow label={t('trade.labels.expiry')} value={expiryLabel(trade.expiresAt, t)} theme={theme} /><DetailRow label={t('trade.labels.exchange')} value={paymentLabel} theme={theme} />{createdLabel ? <DetailRow label={t('trade.labels.created')} value={createdLabel} theme={theme} /> : null}<DetailIdentityRow label={t('trade.labels.owner')} user={trade.owner} userId={trade.ownerId} theme={theme} />{trade.provider ? <DetailIdentityRow label={t('trade.labels.provider')} user={trade.provider} userId={trade.providerId} theme={theme} /> : null}</View><InfoNotice tone="info" title={t('trade.labels.nextStep')} body={statusHint(trade, role, t)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? t('trade.detail.updated') : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
++    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{t('trade.labels.tradeDetails')}</AppText><View style={styles.detailRows}><DetailRow label={t('trade.labels.type')} value={postTypeLabel(trade, t)} theme={theme} /><DetailRow label={t('trade.labels.status')} value={formatStatus(trade.status, t)} theme={theme} /><DetailRow label={t('trade.labels.expiry')} value={expiryLabel(trade.expiresAt, t, language)} theme={theme} /><DetailRow label={t('trade.labels.exchange')} value={paymentLabel} theme={theme} />{createdLabel ? <DetailRow label={t('trade.labels.created')} value={createdLabel} theme={theme} /> : null}<DetailIdentityRow label={t('trade.labels.owner')} user={trade.owner} userId={trade.ownerId} theme={theme} />{trade.provider ? <DetailIdentityRow label={t('trade.labels.provider')} user={trade.provider} userId={trade.providerId} theme={theme} /> : null}</View><InfoNotice tone="info" title={t('trade.labels.nextStep')} body={statusHint(trade, role, t)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? t('trade.detail.updated') : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
+ 
+     <Separator theme={theme} />
+     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? t('trade.proposals.title') : myProposal ? t('trade.proposals.yourProposal') : proposalActionTitle(trade, t)}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}{message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.detail.refreshing')}</AppText> : null}{!auth.isAuthenticated ? <SignedOutProposalBox trade={trade} onLogin={() => navigation.navigate('Login')} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer trade={trade} requiredSide={requiredSide} value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} sideLoading={sideLoading} needs={activeProposalNeeds} offers={activeProposalOffers} selectedNeedId={selectedProposalNeedId} selectedOfferId={selectedProposalOfferId} onSelectNeed={setSelectedProposalNeedId} onSelectOffer={setSelectedProposalOfferId} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.notAccepting')}</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noProposalsOwner')}</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title={t('trade.proposals.acceptedConversation')} body={t('trade.proposals.acceptedConversationBody')} /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} t={t} />)}</View></View>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/components/TradeDeckCard.tsx phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/components/TradeDeckCard.tsx	2026-05-12 10:46:55.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/components/TradeDeckCard.tsx	2026-05-12 16:17:47.559693844 +0000
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import { truncateText } from '@hellowhen/shared';
++import { formatLocalizedTimeUntil, type SupportedLanguage } from '@hellowhen/i18n';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { AppText } from '../../../components/AppText';
+ import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
+@@ -31,19 +32,16 @@
+   return ownerId;
+ }
+ 
+-function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction) {
+-  if (!expiresAt) return t('trade.labels.openExpiry');
+-  const expiresMs = new Date(expiresAt).getTime();
+-  if (!Number.isFinite(expiresMs)) return t('trade.labels.openExpiry');
+-  const diffMs = expiresMs - Date.now();
+-  if (diffMs <= 0) return t('trade.expiry.expired');
+-  const hours = Math.ceil(diffMs / 1000 / 60 / 60);
+-  if (hours < 24) return t('trade.expiry.hoursLeft', { count: hours });
+-  return t('trade.expiry.daysLeft', { count: Math.ceil(hours / 24) });
++function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction, language: SupportedLanguage) {
++  return formatLocalizedTimeUntil(expiresAt, language, {
++    noValue: t('trade.labels.openExpiry'),
++    expired: t('trade.expiry.expired'),
++    fallback: (count, unit) => unit === 'hour' ? t('trade.expiry.hoursLeft', { count }) : t('trade.expiry.daysLeft', { count }),
++  });
+ }
+ 
+ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSave }: TradeDeckCardProps) {
+-  const { t } = useTranslation();
++  const { t, language } = useTranslation();
+   const kind = getTradeKind(trade, t);
+   return (
+     <View style={styles.card}>
+@@ -69,7 +67,7 @@
+         />
+       </View>
+       <View style={styles.metaRow}>
+-        <SemanticBadge label={getExpiryLabel(trade.expiresAt, t)} tone="time" size="sm" />
++        <SemanticBadge label={getExpiryLabel(trade.expiresAt, t, language)} tone="time" size="sm" />
+         <SemanticBadge label={t('trade.labels.optionalMoney')} tone="info" size="sm" />
+       </View>
+       <View style={styles.actionsRow}>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx	2026-05-12 16:17:47.560307526 +0000
+@@ -7,6 +7,7 @@
+ import { classifySquareStackPanIntent, type SquareStackGestureIntent } from '../squareStackGestureIntent';
+ import { MobileIcon } from '../../../../components/MobileIcon';
+ import { useThemeTokens } from '../../../../providers/ThemeProvider';
++import { useTranslation } from '../../../../providers/MobileI18nProvider';
+ import { SquareStackCardShell } from './SquareStackCardShell';
+ 
+ type LayerProps<TCard extends SquareStackDeckCard> = {
+@@ -81,6 +82,7 @@
+ }: SquareStackDeckProps<TCard>) {
+   const { width, height } = useWindowDimensions();
+   const theme = useThemeTokens();
++  const { t } = useTranslation();
+   const layoutMetrics = useMemo(() => getSquareStackLayoutMetrics({
+     availableWidth: availableWidth && availableWidth > 0 ? availableWidth : width - 36,
+     availableHeight: availableHeight && availableHeight > 0 ? availableHeight : height * 0.54,
+@@ -246,7 +248,7 @@
+         {canGoPrevious ? (
+           <Pressable
+             accessibilityRole="button"
+-            accessibilityLabel="Previous card"
++            accessibilityLabel={t('common.actions.previousCard')}
+             hitSlop={12}
+             disabled={programmaticAnimating}
+             onPress={() => commitFromControl(-1)}
+@@ -258,7 +260,7 @@
+         {canGoNext ? (
+           <Pressable
+             accessibilityRole="button"
+-            accessibilityLabel="Next card"
++            accessibilityLabel={t('common.actions.nextCard')}
+             hitSlop={12}
+             disabled={programmaticAnimating}
+             onPress={() => commitFromControl(1)}
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/next-env.d.ts phase23_6_work/hellowhen_trade-dev/apps/web/next-env.d.ts
+--- phase23_6_original/hellowhen_trade-dev/apps/web/next-env.d.ts	2026-05-12 08:26:08.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/next-env.d.ts	2026-05-12 16:25:49.034805133 +0000
+@@ -1,6 +1,6 @@
+ /// <reference types="next" />
+ /// <reference types="next/image-types/global" />
+-import "./.next/dev/types/routes.d.ts";
++import "./.next/types/routes.d.ts";
+ 
+ // NOTE: This file should not be edited
+ // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/src/app/account/profile/page.tsx phase23_6_work/hellowhen_trade-dev/apps/web/src/app/account/profile/page.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/web/src/app/account/profile/page.tsx	2026-05-12 10:33:20.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/src/app/account/profile/page.tsx	2026-05-12 16:17:18.533222470 +0000
+@@ -197,7 +197,7 @@
+                 </label>
+                 {avatarUrl ? <button type="button" className="secondary" disabled={saving} onClick={() => { void removeAvatar(); }}>{t('common.actions.remove')}</button> : null}
+               </div>
+-              {avatar?.status ? <span className="semantic-badge instruction">{avatar.status.replace(/_/g, ' ')}</span> : null}
++              {avatar?.status ? <span className="semantic-badge instruction">{t(`media.statuses.${avatar.status}`)}</span> : null}
+             </div>
+           </div>
+ 
+@@ -231,7 +231,7 @@
+                   }}
+                 >
+                   {countryOptions.map((country) => (
+-                    <option key={country.code} value={country.code}>{country.label} · default {country.currency.toUpperCase()}</option>
++                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)} · {t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() })}</option>
+                   ))}
+                 </select>
+               </label>
+@@ -244,7 +244,7 @@
+                   }}
+                 >
+                   {currencyOptions.map((currency) => (
+-                    <option key={currency.code} value={currency.code}>{currency.label} · {currency.helper}</option>
++                    <option key={currency.code} value={currency.code}>{currency.label} · {t(`common.locale.currencies.${currency.code}`)}</option>
+                   ))}
+                 </select>
+               </label>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx phase23_6_work/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx	2026-05-12 08:41:06.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx	2026-05-12 16:17:18.533440784 +0000
+@@ -58,7 +58,7 @@
+     setError(null);
+     try {
+       const response = await api.auth.requestEmailVerification() as { message?: string; devVerificationUrl?: string };
+-      setMessage(response.devVerificationUrl ? `${response.message ?? t('settings.security.verificationRequested')} Development link: ${response.devVerificationUrl}` : response.message ?? t('settings.security.verificationRequested'));
++      setMessage(response.devVerificationUrl ? `${response.message ?? t('settings.security.verificationRequested')} ${t('settings.security.developmentLink')}: ${response.devVerificationUrl}` : response.message ?? t('settings.security.verificationRequested'));
+       await auth.refreshMe().catch(() => undefined);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/src/app/layout.tsx phase23_6_work/hellowhen_trade-dev/apps/web/src/app/layout.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/web/src/app/layout.tsx	2026-05-12 08:45:00.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/src/app/layout.tsx	2026-05-12 16:17:18.533574160 +0000
+@@ -21,15 +21,22 @@
+       ? appearance
+       : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+     var language = settings && settings.language ? settings.language : 'system';
+-    var browserLanguage = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+-    var browserBase = String(browserLanguage).toLowerCase().split('-')[0];
+-    var resolvedLanguage = language === 'fr' || (language === 'system' && browserBase === 'fr') ? 'fr' : 'en';
++    var candidates = Array.isArray(navigator.languages) && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
++    var resolvedLanguage = language === 'fr' || language === 'en' ? language : 'en';
++    if (language === 'system') {
++      for (var i = 0; i < candidates.length; i += 1) {
++        var base = String(candidates[i] || '').toLowerCase().replace('_', '-').split('-')[0];
++        if (base === 'fr' || base === 'en') { resolvedLanguage = base; break; }
++      }
++    }
+     document.documentElement.dataset.theme = theme;
+     document.documentElement.dataset.appearance = appearance;
++    document.documentElement.dataset.language = resolvedLanguage;
+     document.documentElement.lang = resolvedLanguage;
+   } catch (error) {
+     document.documentElement.dataset.theme = 'light';
+     document.documentElement.dataset.appearance = 'system';
++    document.documentElement.dataset.language = 'en';
+     document.documentElement.lang = 'en';
+   }
+ })();
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/src/components/ConfirmDialog.tsx phase23_6_work/hellowhen_trade-dev/apps/web/src/components/ConfirmDialog.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/web/src/components/ConfirmDialog.tsx	2026-05-12 08:26:08.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/src/components/ConfirmDialog.tsx	2026-05-12 16:17:18.532438886 +0000
+@@ -1,6 +1,7 @@
+ 'use client';
+ 
+ import { useEffect } from 'react';
++import { useWebTranslation } from '../providers/WebI18nProvider';
+ 
+ type ConfirmDialogVariant = 'default' | 'danger' | 'warning';
+ 
+@@ -23,14 +24,18 @@
+   title,
+   body,
+   eyebrow,
+-  confirmLabel = 'Confirm',
+-  cancelLabel = 'Cancel',
++  confirmLabel,
++  cancelLabel,
+   variant = 'default',
+   loading = false,
+   showCancel = true,
+   onConfirm,
+   onCancel,
+ }: ConfirmDialogProps) {
++  const { t } = useWebTranslation();
++  const confirmText = confirmLabel ?? t('common.actions.confirm');
++  const cancelText = cancelLabel ?? t('common.actions.cancel');
++
+   useEffect(() => {
+     if (!open) return;
+     function onKeyDown(event: KeyboardEvent) {
+@@ -60,8 +65,8 @@
+           <p>{body}</p>
+         </div>
+         <div className="app-dialog__actions">
+-          {showCancel ? <button type="button" className="secondary" onClick={onCancel} disabled={loading}>{cancelLabel}</button> : null}
+-          <button type="button" className={confirmClass} onClick={() => void onConfirm()} disabled={loading}>{loading ? 'Working...' : confirmLabel}</button>
++          {showCancel ? <button type="button" className="secondary" onClick={onCancel} disabled={loading}>{cancelText}</button> : null}
++          <button type="button" className={confirmClass} onClick={() => void onConfirm()} disabled={loading}>{loading ? t('common.states.working') : confirmText}</button>
+         </div>
+       </section>
+     </div>
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx phase23_6_work/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx	2026-05-12 09:58:39.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx	2026-05-12 16:18:54.485925963 +0000
+@@ -90,8 +90,8 @@
+         router.replace(redirectTo);
+         router.refresh();
+       } else {
+-        const result = await auth.forgotPassword(email.trim());
+-        setMessage(result.message);
++        await auth.forgotPassword(email.trim());
++        setMessage(t('auth.reset.requested'));
+       }
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -108,7 +108,7 @@
+         <p>{t(subtitleKey(mode))}</p>
+       </div>
+ 
+-      <div className="auth-toggle-row" role="tablist" aria-label="Auth mode">
++      <div className="auth-toggle-row" role="tablist" aria-label={t('auth.modes.label')}>
+         <button className={mode === 'login' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('login')}>{t('auth.modes.login')}</button>
+         <button className={mode === 'register' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('register')}>{t('auth.modes.register')}</button>
+         <button className={mode === 'forgot' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('forgot')}>{t('auth.modes.reset')}</button>
+@@ -160,7 +160,7 @@
+                   }}
+                 >
+                   {countryOptions.map((country) => (
+-                    <option key={country.code} value={country.code}>{country.label} · {t('auth.localDisplay.countryDefaultCurrency', { currency: country.currency.toUpperCase() })}</option>
++                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)} · {t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() })}</option>
+                   ))}
+                 </select>
+               </label>
+@@ -173,7 +173,7 @@
+                   }}
+                 >
+                   {currencyOptions.map((currency) => (
+-                    <option key={currency.code} value={currency.code}>{currency.label} · {currency.helper}</option>
++                    <option key={currency.code} value={currency.code}>{currency.label} · {t(`common.locale.currencies.${currency.code}`)}</option>
+                   ))}
+                 </select>
+               </label>
+@@ -193,7 +193,7 @@
+ 
+       <div className="auth-actions">
+         <button type="button" onClick={() => { void submit(); }} disabled={submitting}>{primaryLabel}</button>
+-        <button type="button" className="secondary" disabled title="Google sign-in is not wired for web yet">{t('auth.actions.continueWithGoogle')}</button>
++        <button type="button" className="secondary" disabled title={t('auth.actions.googleUnavailableWeb')}>{t('auth.actions.continueWithGoogle')}</button>
+       </div>
+     </section>
+   );
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/apps/web/src/providers/WebI18nProvider.tsx phase23_6_work/hellowhen_trade-dev/apps/web/src/providers/WebI18nProvider.tsx
+--- phase23_6_original/hellowhen_trade-dev/apps/web/src/providers/WebI18nProvider.tsx	2026-05-12 08:39:45.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/apps/web/src/providers/WebI18nProvider.tsx	2026-05-12 16:17:18.533732479 +0000
+@@ -40,6 +40,7 @@
+ 
+   useEffect(() => {
+     document.documentElement.lang = language;
++    document.documentElement.dataset.language = language;
+   }, [language]);
+ 
+   const value = useMemo<WebI18nContextValue>(() => ({ language, preference: settings.language, t }), [language, settings.language, t]);
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/docs/phase-23-6-language-runtime-qa.md phase23_6_work/hellowhen_trade-dev/docs/phase-23-6-language-runtime-qa.md
+--- phase23_6_original/hellowhen_trade-dev/docs/phase-23-6-language-runtime-qa.md	1970-01-01 00:00:00.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/docs/phase-23-6-language-runtime-qa.md	2026-05-12 16:27:35.066375961 +0000
+@@ -0,0 +1,54 @@
++# Phase 23.6 — Language runtime QA and French copy polish
++
++## Scope
++
++This pass focused on runtime-visible localization issues after the broader Phase 23.1–23.5 rollout. It did not change routes, app visuals, feed/deck behavior, proposal logic, wallet/money logic, or public profile behavior.
++
++## Runtime-facing fixes
++
++- Improved web pre-hydration language resolution so `system` language checks the browser locale candidate list instead of only the first browser language.
++- Web now keeps both `html[lang]` and `html[data-language]` in sync with the resolved app language.
++- Added shared localized country/currency labels for the registration and profile local-display selectors.
++- Localized web auth tab accessibility text and disabled Google sign-in tooltip.
++- Localized default web confirm-dialog action text and loading text.
++- Localized native deck previous/next accessibility labels.
++- Switched native trade expiry labels to shared locale-aware relative-time formatting with dictionary fallbacks.
++- Switched native inventory updated-date formatting to the shared selected-language date formatter.
++
++## French copy polish
++
++- Replaced remaining French ASCII ellipses with the French ellipsis character where the copy is user-facing.
++- Improved wallet/payout copy around roadmap features, money-trade wording, platform fee wording, and sensitive-action verification.
++- Replaced awkward French labels such as `Expiration ouverte`, `Tags de l’échange`, and `argent production` with clearer product copy.
++- Added French country/currency names for currently supported local-display options.
++
++## Checks run
++
++- `npm ci --ignore-scripts --no-audit --no-fund`
++- `npm run typecheck -w @hellowhen/i18n`
++- `npm run typecheck -w @hellowhen/web`
++- `npm run typecheck -w @hellowhen/mobile`
++- English/French dictionary key parity check.
++- English/French interpolation-token parity check.
++- Literal `t('...')` key check across web and native source.
++- Node-based i18n runtime smoke test for:
++  - `system` language resolution from `fr-FR`, `en-US`, and unsupported locales
++  - French navigation translation
++  - French country translation
++  - French money/date formatting
++  - French relative expiry formatting
++- Targeted TS/TSX transpile syntax check for changed files.
++
++## Build/typecheck notes
++
++- Web typecheck passed.
++- Mobile typecheck passed.
++- The web Next build compiled successfully and printed the completed route table, but the sandbox command did not exit before the timeout.
++- Full workspace typecheck is still blocked on API Prisma client generation because Prisma attempted to download query-engine binaries from `binaries.prisma.sh`, which was unavailable in the sandbox (`EAI_AGAIN`).
++
++## Still intentionally not localized
++
++- User-generated content: trade titles, need/offer descriptions, bios, proposal messages, conversation messages, support ticket content, tags, and uploaded media data.
++- Brand/provider names such as Hellowhen, Stripe, Airwallex, and Google.
++- Admin/internal pages and backend API error messages.
++- Demo/beta/product flag identifiers where they function as internal/debug labels.
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/format.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/format.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/format.ts	2026-05-12 09:07:02.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/format.ts	2026-05-12 16:17:47.552420340 +0000
+@@ -73,3 +73,31 @@
+     return `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+   }
+ }
++
++
++export function formatLocalizedRelativeTime(value: number, unit: Intl.RelativeTimeFormatUnit, language: SupportedLanguage, fallback?: string) {
++  try {
++    return new Intl.RelativeTimeFormat(getLocaleForLanguage(language), { numeric: 'always', style: 'short' }).format(value, unit);
++  } catch {
++    return fallback ?? `${value} ${unit}`;
++  }
++}
++
++export function formatLocalizedTimeUntil(
++  value: string | null | undefined,
++  language: SupportedLanguage,
++  options: { noValue: string; expired: string; fallback?: (count: number, unit: 'hour' | 'day') => string },
++) {
++  const date = toValidDate(value);
++  if (!date) return options.noValue;
++  const diffMs = date.getTime() - Date.now();
++  if (diffMs <= 0) return options.expired;
++
++  const hours = Math.ceil(diffMs / 1000 / 60 / 60);
++  if (hours < 24) {
++    return formatLocalizedRelativeTime(hours, 'hour', language, options.fallback?.(hours, 'hour'));
++  }
++
++  const days = Math.ceil(hours / 24);
++  return formatLocalizedRelativeTime(days, 'day', language, options.fallback?.(days, 'day'));
++}
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts	2026-05-12 09:56:25.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts	2026-05-12 16:16:29.906758087 +0000
+@@ -8,6 +8,7 @@
+     forgotNative: 'Reset your password using your account email.',
+   },
+   modes: {
++    label: 'Auth mode',
+     login: 'Login',
+     register: 'Register',
+     reset: 'Reset',
+@@ -51,6 +52,7 @@
+     googleFailed: 'Google sign-in failed.',
+   },
+   actions: {
++    googleUnavailableWeb: 'Google sign-in is not wired for web yet',
+     signIn: 'Sign in',
+     login: 'Login',
+     createAccount: 'Create account',
+@@ -62,6 +64,7 @@
+     backToLogin: 'Back to login',
+   },
+   reset: {
++    requested: 'If that email exists, we sent a password reset link.',
+     badge: 'Password reset',
+     title: 'Reset your Hellowhen password',
+     body: 'Choose a new password for your Hellowhen account. Reset links are one-time use and expire automatically.',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts	2026-05-12 10:49:44.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/common.ts	2026-05-12 16:16:29.906026736 +0000
+@@ -5,6 +5,7 @@
+     cancel: 'Cancel',
+     close: 'Close',
+     continue: 'Continue',
++    confirm: 'Confirm',
+     create: 'Create',
+     edit: 'Edit',
+     hide: 'Hide',
+@@ -50,6 +51,24 @@
+     no: 'Off',
+     notSynced: 'not synced',
+   },
++  locale: {
++    countries: {
++      FR: 'France',
++      US: 'United States',
++      GB: 'United Kingdom',
++      DE: 'Germany',
++      ES: 'Spain',
++      IT: 'Italy',
++    },
++    currencies: {
++      eur: 'Euro',
++      usd: 'US dollar',
++      gbp: 'British pound',
++    },
++    defaultCurrency: 'Default currency {{currency}}',
++    selectCountry: 'Select country',
++    selectCurrency: 'Select currency',
++  },
+   messages: {
+     settingsUpdated: 'Your settings have been updated.',
+     chooseOneOption: 'Choose one option',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts	2026-05-12 08:38:20.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts	2026-05-12 16:20:03.601668939 +0000
+@@ -60,6 +60,7 @@
+     password: 'Password',
+     authenticatorOrRecovery: 'Authenticator or recovery code',
+     verificationRequested: 'Verification email requested.',
++    developmentLink: 'Development link',
+     setupStarted: 'Add the secret to your authenticator app, then enter the 6-digit code.',
+     twoFactorEnabled: 'Two-step verification enabled. Save your recovery codes now.',
+     twoFactorDisabled: 'Two-step verification disabled.',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/trade.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/trade.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/en/trade.ts	2026-05-12 10:54:08.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/en/trade.ts	2026-05-12 16:16:29.908698205 +0000
+@@ -14,7 +14,7 @@
+     othersCanProposeOffers: 'Others can propose offers',
+     openOfferFallback: 'Open offer',
+     openRequestFallback: 'Open request',
+-    openExpiry: 'Open expiry',
++    openExpiry: 'No expiry',
+     needOffer: 'Need + Offer',
+     serviceForService: 'Service-for-service',
+     iNeed: 'I need',
+@@ -105,7 +105,7 @@
+     othersCanProposeOffers: 'Others can propose offers',
+     openOfferFallback: 'Open offer',
+     openRequestFallback: 'Open request',
+-    openExpiry: 'Open expiry',
++    openExpiry: 'No expiry',
+     needOffer: 'Need + Offer',
+   },
+   modes: {
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts	2026-05-12 10:52:51.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts	2026-05-12 16:22:14.115087476 +0000
+@@ -2,10 +2,10 @@
+   title: 'Compte',
+   eyebrow: 'Privé',
+   body: 'Gérez votre profil, vos paramètres et le support ici.',
+-  payoutsPageBody: 'Gérez les paramètres de versement lorsque cette fonctionnalité de roadmap est activée.',
+-  walletPageBody: 'Gérez les soldes d’échange optionnels lorsque cette fonctionnalité de roadmap est activée.',
++  payoutsPageBody: 'Gérez les paramètres de versement lorsque cette fonctionnalité planifiée est activée.',
++  walletPageBody: 'Gérez les soldes d’échange optionnels lorsque cette fonctionnalité planifiée est activée.',
+   addBalanceTitle: 'Ajouter du solde',
+-  addBalanceBody: 'Gérez le solde d’échange lorsque cette fonctionnalité de roadmap est activée.',
++  addBalanceBody: 'Gérez le solde d’échange lorsque cette fonctionnalité planifiée est activée.',
+   headerBody: 'Profil, paramètres et support sont regroupés ici.',
+   signedOut: {
+     title: 'Connectez-vous pour ouvrir votre compte',
+@@ -16,7 +16,7 @@
+   editProfile: 'Modifier le profil',
+   walletMoney: 'Argent du portefeuille',
+   availableEarnings: 'Gains disponibles',
+-  payoutFee: 'Frais de versement {{rate}}',
++  payoutFee: 'Frais de plateforme {{rate}}',
+   total: 'total',
+   walletUnavailable: 'Portefeuille indisponible',
+   noWalletActivity: 'Aucune activité de portefeuille pour le moment.',
+@@ -27,11 +27,11 @@
+     held: 'Bloqué',
+     earnings: 'Gains',
+     recentActivity: 'Activité récente',
+-    loading: 'Chargement du portefeuille...',
++    loading: 'Chargement du portefeuille…',
+     signedOutTitle: 'Connectez-vous pour voir le portefeuille',
+     signedOutBody: 'L’argent du portefeuille est optionnel, mais votre solde et la simulation de versement sont privés.',
+     optionalWallet: 'Portefeuille optionnel',
+-    optionalWalletBody: 'L’argent reste optionnel. Utilisez-le seulement lorsqu’un échange a besoin de “j’ai besoin d’argent” ou “j’offre de l’argent”.',
++    optionalWalletBody: 'L’argent reste optionnel. Utilisez-le seulement lorsqu’un échange utilise le côté « J’ai besoin d’argent » ou « J’offre de l’argent ».',
+     addMoney: 'Ajouter de l’argent',
+     payoutRequests: 'Demandes de versement',
+     payoutRequestsBody: 'Versements démo demandés ou approuvés après frais de plateforme.',
+@@ -39,23 +39,23 @@
+     platformFeeBody: '{{rate}} est conservé sur les gains éligibles au versement.',
+     estimatedPayout: 'Versement estimé',
+     estimatedPayoutBody: 'Montant estimé reçu après les frais de plateforme.',
+-    availableBody: 'Argent optionnel disponible sous “j’offre de l’argent” lors de la création d’un échange.',
++    availableBody: 'Argent optionnel disponible dans le côté « J’offre de l’argent » lors de la création d’un échange.',
+     heldBody: 'Argent réservé pour les échanges qui ne sont pas encore terminés.',
+     earningsBody: 'Gains d’échange avant les frais de versement de {{rate}}.',
+     launchLimits: 'Limites de lancement',
+     safety: 'Sécurité',
+-    activeServiceTrades: 'échanges service actifs',
+-    activeMoneyTrades: 'échanges argent actifs',
+-    perMoneyTrade: 'par échange argent',
+-    walletCap: 'plafond portefeuille',
+-    launchLimitsBody: 'Les limites de lancement gardent les flux d’argent petits. Vérifiez votre compte de versement ou contactez le support pour demander une limite plus élevée.',
++    activeServiceTrades: 'échanges de service actifs',
++    activeMoneyTrades: 'échanges avec argent actifs',
++    perMoneyTrade: 'par échange avec argent',
++    walletCap: 'plafond du portefeuille',
++    launchLimitsBody: 'Les limites de lancement maintiennent de petits flux d’argent. Vérifiez votre compte de versement ou contactez le support pour demander une limite plus élevée.',
+     providerSnapshot: 'Instantané du solde fournisseur',
+     providerSnapshotTitle: 'Soldes sandbox Airwallex',
+     readOnly: 'Lecture seule',
+     providerSnapshotBody: 'Les soldes fournisseur servent seulement à la réconciliation. Le registre Hellowhen reste la source de vérité produit.',
+     providerSnapshotMeta: 'Instantané fournisseur',
+     moneyRules: 'Règles d’argent',
+-    moneyRulesBody: 'L’argent n’est pas un champ d’échange séparé. Il reste dans le langage produit : j’ai besoin d’argent ou j’offre de l’argent. Lors du retrait de gains éligibles, Hellowhen conserve des frais de plateforme transparents de {{rate}}.',
++    moneyRulesBody: 'L’argent n’est pas un champ d’échange séparé. Il reste dans le langage produit : « J’ai besoin d’argent » ou « J’offre de l’argent ». Lors du retrait de gains éligibles, Hellowhen conserve des frais de plateforme transparents de {{rate}}.',
+     walletActivity: 'Activité du portefeuille',
+     demoSafe: 'Démo sécurisée',
+     noActivityTitle: 'Aucune activité de portefeuille',
+@@ -84,14 +84,14 @@
+   },
+   addMoney: {
+     title: 'Ajouter de l’argent',
+-    loading: 'Chargement de votre session...',
++    loading: 'Chargement de votre session…',
+     hiddenTitle: 'Ajout d’argent masqué pour la bêta',
+     hiddenBody: 'Les rechargements du portefeuille sont désactivés pour la première bêta internationale. Utilisez les besoins et offres pour les échanges de services ou biens.',
+     signedOutTitle: 'Connectez-vous pour utiliser le rechargement démo',
+-    signedOutBody: 'L’argent du portefeuille est privé à votre compte et pourra être sélectionné dans les côtés Besoin/Offre.',
++    signedOutBody: 'L’argent du portefeuille est privé et lié à votre compte et pourra être sélectionné dans les côtés Besoin/Offre.',
+     simulationOnly: 'Simulation uniquement',
+-    simulationBody: 'Ajoute de l’argent démo pour tester le flux. Aucune carte réelle n’est débitée.',
+-    safetyTitle: 'Sécurité du lancement argent',
++    simulationBody: 'Ajoutez de l’argent démo pour tester le flux. Aucune carte réelle n’est débitée.',
++    safetyTitle: 'Sécurité du lancement avec argent',
+     safetyAccepted: 'Accepté',
+     safetyReview: 'À vérifier',
+     acceptPolicies: 'Accepter les règles portefeuille, versement, remboursement et litige',
+@@ -103,15 +103,15 @@
+     launchWalletCap: 'Plafond portefeuille : {{cap}} · restant : {{remaining}}',
+     blockedSafety: 'Acceptez les règles de sécurité argent avant d’ajouter de l’argent démo.',
+     blockedLimit: 'Ce rechargement dépasse votre limite actuelle. Vérifiez votre compte ou contactez le support pour demander une limite plus élevée.',
+-    newBalance: 'Nouveau solde : {{amount}}',
+-    adding: 'Ajout...',
++    newBalance: 'Nouveau solde : {{amount}}',
++    adding: 'Ajout…',
+     addDemoMoney: 'Ajouter l’argent démo',
+     added: 'Argent démo ajouté. Aucune carte réelle n’a été débitée.',
+     minAmount: 'Saisissez au moins 1,00.',
+     recentTopUps: 'Rechargements démo récents',
+     noTopUps: 'Aucun rechargement démo pour le moment.',
+     walletBalance: 'Solde du portefeuille',
+-    balanceBody: 'L’argent disponible peut être offert dans “j’offre” sur un échange.',
++    balanceBody: 'L’argent disponible peut être proposé dans le côté « J’offre » d’un échange.',
+     available: 'disponible',
+     chooseDemoAmount: 'Choisir un montant démo',
+     demo: 'démo',
+@@ -129,19 +129,19 @@
+   },
+   payouts: {
+     title: 'Versements',
+-    loading: 'Chargement des versements...',
++    loading: 'Chargement des versements…',
+     signedOutTitle: 'Connectez-vous pour voir les versements',
+     signedOutBody: 'La simulation de versement est privée et utilise seulement vos gains d’échange éligibles.',
+     availableEarningsBody: 'Les versements démo utilisent seulement les gains éligibles. Hellowhen conserve {{rate}} de frais de plateforme sur les gains éligibles.',
+-    safetyTitle: 'Sécurité du lancement argent',
+-    productionMoney: 'argent production',
++    safetyTitle: 'Sécurité du lancement avec argent',
++    productionMoney: 'argent réel',
+     stripeTransfers: 'transferts Stripe',
+-    manualReview: 'revue manuelle',
++    manualReview: 'vérification manuelle',
+     policyVersion: 'version de politique',
+     launchLimits: 'Limites de lancement',
+     minimumPayout: 'versement minimum',
+-    weeklyPayoutCap: 'plafond hebdo',
+-    weeklyRemaining: 'reste hebdo',
++    weeklyPayoutCap: 'plafond hebdomadaire',
++    weeklyRemaining: 'reste hebdomadaire',
+     launchLimitsBody: 'Les limites de versement sont volontairement basses au lancement. La vérification pourra les augmenter plus tard.',
+     payoutFee: 'Frais de versement',
+     feePreview: 'Aperçu des frais',
+@@ -155,7 +155,7 @@
+     freshWindow: '10 min',
+     freshBody: 'Avant de connecter les paramètres de versement ou de demander un versement, confirmez votre mot de passe ou code d’authentification. Cela sera redemandé après une courte fenêtre de sécurité.',
+     password: 'Mot de passe',
+-    authenticatorCode: 'Code authenticator ou de récupération',
++    authenticatorCode: 'Code d’authentification ou de récupération',
+     optionalCode: 'Code optionnel',
+     freshRequired: 'Confirmez d’abord votre mot de passe ou code d’authentification.',
+     setup: 'Configuration du versement',
+@@ -181,7 +181,7 @@
+     payoutAgreement: 'En demandant un versement, vous acceptez que Hellowhen conserve {{rate}} de frais de plateforme sur les gains éligibles. Versement estimé : {{amount}}.',
+     requestDemoPayout: 'Demander un versement démo',
+     requestTestPayout: 'Demander un versement test',
+-    requesting: 'Demande...',
++    requesting: 'Demande…',
+     safetyBlocked: 'Acceptez les règles de sécurité argent avant de demander un versement.',
+     connectFirstDemo: 'Connectez d’abord le compte de versement démo.',
+     connectFirstStripe: 'Terminez d’abord l’onboarding test Stripe Connect.',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts	2026-05-12 09:56:25.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts	2026-05-12 16:22:14.115418654 +0000
+@@ -1,5 +1,5 @@
+ export const auth = {
+-  checkingAccess: 'Vérification de l’accès à votre compte...',
++  checkingAccess: 'Vérification de l’accès à votre compte…',
+   brandBadge: 'Échange',
+   subtitles: {
+     login: 'Connectez-vous pour créer des besoins, offres, échanges et propositions.',
+@@ -8,6 +8,7 @@
+     forgotNative: 'Réinitialisez votre mot de passe avec l’e-mail de votre compte.',
+   },
+   modes: {
++    label: 'Mode d’authentification',
+     login: 'Connexion',
+     register: 'Inscription',
+     reset: 'Réinitialiser',
+@@ -51,17 +52,19 @@
+     googleFailed: 'La connexion Google a échoué.',
+   },
+   actions: {
++    googleUnavailableWeb: 'La connexion Google n’est pas encore connectée sur le web.',
+     signIn: 'Se connecter',
+     login: 'Connexion',
+     createAccount: 'Créer un compte',
+     sendResetLink: 'Envoyer le lien',
+     continueWithGoogle: 'Continuer avec Google',
+-    openingGoogle: 'Ouverture de Google...',
++    openingGoogle: 'Ouverture de Google…',
+     resetPassword: 'Réinitialiser le mot de passe',
+-    resetting: 'Réinitialisation...',
++    resetting: 'Réinitialisation…',
+     backToLogin: 'Retour à la connexion',
+   },
+   reset: {
++    requested: 'Si cette adresse e-mail existe, nous avons envoyé un lien de réinitialisation.',
+     badge: 'Réinitialisation',
+     title: 'Réinitialiser votre mot de passe Hellowhen',
+     body: 'Choisissez un nouveau mot de passe pour votre compte Hellowhen. Les liens de réinitialisation sont à usage unique et expirent automatiquement.',
+@@ -70,7 +73,7 @@
+     success: 'Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.',
+   },
+   session: {
+-    checkingTitle: 'Vérification de la session...',
++    checkingTitle: 'Vérification de la session…',
+     checkingBody: 'Chargement de l’état de votre compte.',
+     signedOutTitle: 'Connectez-vous pour gérer votre compte',
+     signedOutBody: 'Créez des besoins, offres, échanges, propositions et demandes de support après connexion.',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts	2026-05-12 10:49:44.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/common.ts	2026-05-12 16:22:14.115582022 +0000
+@@ -5,6 +5,7 @@
+     cancel: 'Annuler',
+     close: 'Fermer',
+     continue: 'Continuer',
++    confirm: 'Confirmer',
+     create: 'Créer',
+     edit: 'Modifier',
+     hide: 'Masquer',
+@@ -17,7 +18,7 @@
+     openWallet: 'Ouvrir le portefeuille',
+     payout: 'Versements',
+     remove: 'Supprimer',
+-    retrying: 'Nouvel essai...',
++    retrying: 'Nouvel essai…',
+     search: 'Rechercher',
+     save: 'Enregistrer',
+     send: 'Envoyer',
+@@ -31,12 +32,12 @@
+   },
+   states: {
+     loading: 'Chargement',
+-    working: 'Traitement...',
+-    saving: 'Enregistrement...',
+-    sending: 'Envoi...',
+-    uploading: 'Import...',
+-    creating: 'Création...',
+-    submitting: 'Envoi...',
++    working: 'Traitement…',
++    saving: 'Enregistrement…',
++    sending: 'Envoi…',
++    uploading: 'Importation…',
++    creating: 'Création…',
++    submitting: 'Envoi…',
+     saved: 'Enregistré',
+     done: 'Terminé',
+     accepted: 'Accepté',
+@@ -50,6 +51,24 @@
+     no: 'Non',
+     notSynced: 'non synchronisé',
+   },
++  locale: {
++    countries: {
++      FR: 'France',
++      US: 'États-Unis',
++      GB: 'Royaume-Uni',
++      DE: 'Allemagne',
++      ES: 'Espagne',
++      IT: 'Italie',
++    },
++    currencies: {
++      eur: 'Euro',
++      usd: 'Dollar américain',
++      gbp: 'Livre sterling',
++    },
++    defaultCurrency: 'Devise par défaut {{currency}}',
++    selectCountry: 'Choisir un pays',
++    selectCurrency: 'Choisir une devise',
++  },
+   messages: {
+     settingsUpdated: 'Vos paramètres ont été mis à jour.',
+     chooseOneOption: 'Choisissez une option',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts	2026-05-12 10:54:08.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/inventory.ts	2026-05-12 16:22:14.115980959 +0000
+@@ -120,16 +120,16 @@
+     descriptionOfferPlaceholder: 'Décrivez ce que vous pouvez fournir.',
+     descriptionNeedMobile: 'Décrivez le résultat attendu, les détails utiles et ce qui veut dire “terminé”.',
+     descriptionOfferMobile: 'Décrivez ce que vous livrez, comment cela fonctionne et les limites éventuelles.',
+-    categoryPlaceholder: 'Design, cours, réparation...',
+-    categoryNeedPlaceholder: 'Design, rédaction, photographie...',
+-    categoryOfferPlaceholder: 'Photographie, rédaction, coaching...',
+-    timingPlaceholder: 'Cette semaine, aujourd’hui, flexible...',
+-    timingMobilePlaceholder: 'Cette semaine, week-end, aujourd’hui...',
+-    availabilityPlaceholder: 'Week-ends, soirées, à distance...',
+-    availabilityMobilePlaceholder: 'Week-end, cette semaine, soirées...',
+-    locationPlaceholder: 'À distance, Paris, zone locale...',
+-    locationNeedPlaceholder: 'À distance, Paris, retrait local...',
+-    locationOfferPlaceholder: 'À distance, studio local, retrait seulement...',
++    categoryPlaceholder: 'Design, cours, réparation…',
++    categoryNeedPlaceholder: 'Design, rédaction, photographie…',
++    categoryOfferPlaceholder: 'Photographie, rédaction, coaching…',
++    timingPlaceholder: 'Cette semaine, aujourd’hui, flexible…',
++    timingMobilePlaceholder: 'Cette semaine, week-end, aujourd’hui…',
++    availabilityPlaceholder: 'Week-ends, soirées, à distance…',
++    availabilityMobilePlaceholder: 'Week-end, cette semaine, soirées…',
++    locationPlaceholder: 'À distance, Paris, zone locale…',
++    locationNeedPlaceholder: 'À distance, Paris, retrait local…',
++    locationOfferPlaceholder: 'À distance, studio local, retrait seulement…',
+     tagsPlaceholder: 'design, lancement, à distance',
+     tagsNeedPlaceholder: 'marque, figma, urgent',
+     tagsOfferPlaceholder: 'photo, retouches, ecommerce',
+@@ -173,7 +173,7 @@
+     starterSaved: 'Modèle enregistré',
+     starterSavedToMine: '{{title}} a été enregistré dans {{collection}}.',
+     openIt: 'L’ouvrir',
+-    loadingItems: 'Chargement des {{items}}...',
++    loadingItems: 'Chargement des {{items}}…',
+     visibleItems: '{{count}} {{items}}',
+     visibleStarterItems: '{{count}} éléments de départ {{items}}',
+     loadingStarterLibrary: 'Chargement de la bibliothèque de départ',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts	2026-05-12 09:38:00.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/media.ts	2026-05-12 16:22:14.116298654 +0000
+@@ -3,7 +3,7 @@
+     image: 'image',
+   },
+   states: {
+-    uploading: 'Importation...',
++    uploading: 'Importation…',
+   },
+   empty: {
+     noImagesYet: 'Aucune image pour le moment',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/profile.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/profile.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/profile.ts	2026-05-12 10:44:09.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/profile.ts	2026-05-12 16:22:14.116634791 +0000
+@@ -16,10 +16,10 @@
+   },
+   loading: {
+     badge: 'Chargement',
+-    title: 'Chargement du profil...',
++    title: 'Chargement du profil…',
+     body: 'Récupération des informations publiques de la marketplace.',
+     nativeTitle: 'Chargement du profil',
+-    nativeBody: 'Ouverture de ce profil public marketplace...',
++    nativeBody: 'Ouverture de ce profil public marketplace…',
+   },
+   errors: {
+     linkUnavailable: 'Ce lien de profil public n’est plus disponible.',
+@@ -29,7 +29,7 @@
+     eyebrow: 'Profil',
+     title: 'Votre identité publique',
+     body: 'Mettez à jour votre profil affiché, votre photo et vos préférences locales pour le web.',
+-    loadingSession: 'Chargement de votre session...',
++    loadingSession: 'Chargement de votre session…',
+     loginRequiredTitle: 'Connexion requise',
+     loginRequiredBody: 'Connectez-vous avant de modifier votre profil ou vos préférences locales.',
+     photoTitle: 'Photo de profil',
+@@ -45,7 +45,7 @@
+     saveProfile: 'Enregistrer le profil',
+     changePhoto: 'Changer la photo',
+     addPhoto: 'Ajouter une photo',
+-    removing: 'Suppression...',
++    removing: 'Suppression…',
+     addHandle: 'Ajouter un identifiant',
+     profilePictureNotice: 'Les photos de profil apparaissent après import. Si une image est signalée puis supprimée, elle disparaît de votre profil public.',
+     countryHelper: 'Utilisé pour les valeurs locales par défaut',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts	2026-05-12 08:39:04.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts	2026-05-12 16:22:14.116792625 +0000
+@@ -60,6 +60,7 @@
+     password: 'Mot de passe',
+     authenticatorOrRecovery: 'Code d’authentification ou de récupération',
+     verificationRequested: 'E-mail de vérification demandé.',
++    developmentLink: 'Lien de développement',
+     setupStarted: 'Ajoutez le secret à votre application d’authentification, puis saisissez le code à 6 chiffres.',
+     twoFactorEnabled: 'Vérification en deux étapes activée. Enregistrez vos codes de récupération maintenant.',
+     twoFactorDisabled: 'Vérification en deux étapes désactivée.',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts	2026-05-12 10:48:33.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/support.ts	2026-05-12 16:22:14.116959509 +0000
+@@ -22,8 +22,8 @@
+   subjectPlaceholderShort: 'Sujet',
+   messagePlaceholder: 'Dites-nous ce qui s’est passé.',
+   messagePlaceholderNative: 'Que s’est-il passé ? De quoi avez-vous besoin ?',
+-  replyPlaceholder: 'Ajouter une réponse...',
+-  replyPlaceholderNative: 'Écrire une réponse...',
++  replyPlaceholder: 'Ajouter une réponse…',
++  replyPlaceholderNative: 'Écrire une réponse…',
+   attachScreenshot: 'Joindre une capture',
+   attachToReply: 'Joindre à la réponse',
+   attachImages: 'Joindre des images',
+@@ -31,7 +31,7 @@
+   screenshotsHint: 'Joignez des captures ou images qui expliquent le problème.',
+   replyImagesHint: 'Joignez des captures ou photos pour aider le support à comprendre votre réponse.',
+   submitTicket: 'Envoyer le ticket',
+-  creatingTicket: 'Création...',
++  creatingTicket: 'Création…',
+   ticketCreated: 'Ticket de support créé.',
+   replySent: 'Réponse envoyée.',
+   ticketClosed: 'Ticket fermé.',
+@@ -57,7 +57,7 @@
+   couldNotLoad: 'Le ticket n’a pas pu être chargé.',
+   signedOutTitle: 'Connectez-vous pour contacter le support',
+   signedOutBody: 'Les tickets de support et pièces jointes sont privés à votre compte.',
+-  loading: 'Chargement du support...',
++  loading: 'Chargement du support…',
+   uploadMissing: 'L’import est terminé, mais aucune image n’a été retournée.',
+   categories: {
+     general_feedback: 'Retour général',
+diff -ruN '--exclude=node_modules' '--exclude=.next' '--exclude=.turbo' '--exclude=tsconfig.tsbuildinfo' '--exclude=package-lock.json' phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts
+--- phase23_6_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts	2026-05-12 10:54:08.000000000 +0000
++++ phase23_6_work/hellowhen_trade-dev/packages/i18n/src/locales/fr/trade.ts	2026-05-12 16:22:14.117546186 +0000
+@@ -14,7 +14,7 @@
+     othersCanProposeOffers: 'Les autres peuvent proposer des offres',
+     openOfferFallback: 'Offre ouverte',
+     openRequestFallback: 'Demande ouverte',
+-    openExpiry: 'Expiration ouverte',
++    openExpiry: 'Sans expiration',
+     needOffer: 'Besoin + Offre',
+     serviceForService: 'Service contre service',
+     iNeed: 'J’ai besoin',
+@@ -69,7 +69,7 @@
+     ownerControls: 'Contrôles du propriétaire',
+     available: 'Disponible',
+     protected: 'Protégé',
+-    tags: 'Tags de l’échange',
++    tags: 'Étiquettes de l’échange',
+   },
+   statuses: {
+     draft: 'Brouillon',
+@@ -105,7 +105,7 @@
+     othersCanProposeOffers: 'Les autres peuvent proposer des offres',
+     openOfferFallback: 'Offre ouverte',
+     openRequestFallback: 'Demande ouverte',
+-    openExpiry: 'Expiration ouverte',
++    openExpiry: 'Sans expiration',
+     needOffer: 'Besoin + Offre',
+   },
+   modes: {
+@@ -162,10 +162,10 @@
+     savedInventoryNeeded: 'Inventaire enregistré requis',
+     addOfferBeforeProposing: 'Ajoutez une offre avant de proposer sur ce besoin ouvert.',
+     addNeedBeforeProposing: 'Ajoutez un besoin avant de proposer sur cette offre ouverte.',
+-    loadingInventory: 'Chargement de votre inventaire enregistré...',
+-    loadingProposal: 'Chargement de la proposition...',
++    loadingInventory: 'Chargement de votre inventaire enregistré…',
++    loadingProposal: 'Chargement de la proposition…',
+     proposalUpdated: 'Proposition mise à jour',
+-    writeMessage: 'Écrire un message...',
++    writeMessage: 'Écrire un message…',
+     openTradeDetail: 'Ouvrir le détail de l’échange',
+     acceptedProvider: 'Prestataire accepté',
+     acceptedProviderBody: 'Vous êtes le prestataire accepté pour cet échange.',
+@@ -193,26 +193,26 @@
+     openPrivateThread: 'Ouvrir le fil privé',
+     closedConversation: 'Cette conversation de proposition est fermée.',
+     reply: 'Réponse',
+-    replyPrivately: 'Répondre en privé...',
+-    writePrivateReply: 'Écrire une réponse privée...',
++    replyPrivately: 'Répondre en privé…',
++    writePrivateReply: 'Écrire une réponse privée…',
+     send: 'Envoyer',
+     sendReply: 'Envoyer la réponse',
+-    sending: 'Envoi...',
+-    accepting: 'Acceptation...',
+-    declining: 'Refus...',
+-    withdrawing: 'Retrait...',
++    sending: 'Envoi…',
++    accepting: 'Acceptation…',
++    declining: 'Refus…',
++    withdrawing: 'Retrait…',
+     accept: 'Accepter',
+     decline: 'Refuser',
+     withdraw: 'Retirer la proposition',
+     signInToSend: 'Connectez-vous pour envoyer une proposition',
+     signInReady: 'Connectez-vous ou créez un compte quand vous êtes prêt.',
+     notAccepting: 'Cet échange n’accepte pas de nouvelles propositions.',
+-    placeholderOffer: 'Expliquez au propriétaire comment votre offre peut aider...',
+-    placeholderNeed: 'Expliquez au propriétaire ce dont vous avez besoin avec cette offre...',
+-    placeholderTrade: 'Je peux aider avec cela. Mon délai est...',
+-    placeholderOpenNeed: 'Dites au créateur ce que vous pouvez offrir pour ce besoin...',
+-    placeholderOpenOffer: 'Dites au créateur ce dont vous avez besoin en échange de cette offre...',
+-    placeholderNeedOffer: 'Écrivez une courte note sur la manière dont vous pouvez échanger...',
++    placeholderOffer: 'Expliquez au propriétaire comment votre offre peut aider…',
++    placeholderNeed: 'Expliquez au propriétaire ce dont vous avez besoin avec cette offre…',
++    placeholderTrade: 'Je peux aider avec cela. Mon délai est…',
++    placeholderOpenNeed: 'Dites au créateur ce que vous pouvez offrir pour ce besoin…',
++    placeholderOpenOffer: 'Dites au créateur ce dont vous avez besoin en échange de cette offre…',
++    placeholderNeedOffer: 'Écrivez une courte note sur la manière dont vous pouvez échanger…',
+     helperOpenNeed: 'Ce besoin ouvert recherche des offres. Les détails de proposition restent privés entre les deux membres.',
+     helperOpenOffer: 'Cette offre ouverte attend des besoins ou demandes. Les détails de proposition restent privés entre les deux membres.',
+     helperNeedOffer: 'Les messages de proposition sont privés entre le créateur et le candidat, mais ils vivent ici sur la page de détail de l’échange.',
+@@ -233,9 +233,9 @@
+     choosePublishType: 'Choisissez d’abord ce que vous voulez publier.',
+     changePublishType: 'Changer le type de publication',
+     missingSide: 'Côté manquant',
+-    checkingAccount: 'Vérification de votre compte...',
++    checkingAccount: 'Vérification de votre compte…',
+     checkingSession: 'Vérification de votre session. Réessayez dans un instant.',
+-    loadingSavedInventory: 'Chargement de votre inventaire enregistré...',
++    loadingSavedInventory: 'Chargement de votre inventaire enregistré…',
+     loadingInventoryNoticeDemo: 'Utilisation de l’inventaire démo car vos besoins/offres en direct n’ont pas pu être chargés. La création d’un échange réel nécessite toujours la session API.',
+     loadingInventoryNoticeLive: 'Vos besoins/offres enregistrés n’ont pas pu être chargés. Vérifiez votre connexion et réessayez.',
+     sessionTitle: 'Session',
+@@ -273,7 +273,7 @@
+     publishTrade: 'Publier l’échange',
+     publishOpenNeed: 'Publier le besoin ouvert',
+     publishOpenOffer: 'Publier l’offre ouverte',
+-    publishing: 'Publication...',
++    publishing: 'Publication…',
+     walletMoneyDescription: '{{amount}} d’argent portefeuille',
+     savedNeedFallback: 'un besoin enregistré',
+     savedOfferFallback: 'une offre enregistrée',
+@@ -344,12 +344,12 @@
+     createNew: 'Créer un nouveau {{item}}',
+     createNewBody: 'Enregistrez-le, puis revenez à Créer un échange avec cet élément sélectionné.',
+     useThis: 'Utiliser ce {{item}}',
+-    savingStarter: 'Enregistrement...',
++    savingStarter: 'Enregistrement…',
+     noMatches: 'Aucun résultat',
+     noSavedYet: 'Aucun {{items}} enregistré pour le moment',
+     noMatchesBody: 'Essayez une autre recherche, créez un nouvel élément enregistré ou utilisez un modèle.',
+     noSavedBody: 'Créez d’abord un {{item}}, ou commencez depuis la bibliothèque Hellowhen.',
+-    loadingStarter: 'Chargement des {{items}} modèles...',
++    loadingStarter: 'Chargement des {{items}} modèles…',
+     checkingLibrary: 'Vérification de la bibliothèque Hellowhen.',
+     emptyStarterTitle: 'Aucun {{items}} modèle trouvé',
+     emptyStarterBody: 'Essayez une autre recherche, changez le type d’élément ou créez-en un manuellement.',
+@@ -383,7 +383,7 @@
+     reset: 'Réinitialiser',
+     includesWalletMoney: 'Inclut de l’argent portefeuille',
+     controls: 'Contrôles du fil d’échanges',
+-    loadingTrades: 'Chargement des échanges...',
++    loadingTrades: 'Chargement des échanges…',
+     activeTrades: '{{count}} échanges actifs',
+     activeTradeOne: '1 échange actif',
+     error: 'Erreur',
+@@ -413,7 +413,7 @@
+     couldNotSendMessage: 'Impossible d’envoyer ce message pour le moment.',
+   },
+   detail: {
+-    loadingTitle: 'Chargement de l’échange...',
++    loadingTitle: 'Chargement de l’échange…',
+     couldNotLoad: 'Cet échange n’a pas pu être chargé.',
+     checkApi: 'Vérifiez que l’API fonctionne ou ouvrez un échange depuis le fil.',
+     howOpenNeedWorks: 'Le créateur a publié uniquement un besoin. Les candidats doivent proposer ce qu’ils peuvent offrir.',
+@@ -442,7 +442,7 @@
+     viewingAs: 'Vous consultez en tant que {{role}}.',
+     tradeError: 'Erreur d’échange',
+     updated: 'Mis à jour',
+-    refreshing: 'Actualisation du détail de l’échange...',
++    refreshing: 'Actualisation du détail de l’échange…',
+     deliveryMarked: 'Livraison marquée. L’autre partie peut maintenant confirmer la fin.',
+     tradeConfirmed: 'Échange confirmé.',
+     tradeReported: 'Échange signalé pour examen par le support.',

@@ -5,6 +5,8 @@ export type AccessTokenPayload = {
   sub: string;
   email: string;
   sid?: string;
+  iat?: number;
+  exp?: number;
 };
 
 export function signAccessToken(payload: AccessTokenPayload) {

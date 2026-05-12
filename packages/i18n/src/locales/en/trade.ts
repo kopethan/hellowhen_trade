@@ -14,7 +14,7 @@ export const trade = {
     othersCanProposeOffers: 'Others can propose offers',
     openOfferFallback: 'Open offer',
     openRequestFallback: 'Open request',
-    openExpiry: 'Open expiry',
+    openExpiry: 'No expiry',
     needOffer: 'Need + Offer',
     serviceForService: 'Service-for-service',
     iNeed: 'I need',
@@ -105,7 +105,7 @@ export const trade = {
     othersCanProposeOffers: 'Others can propose offers',
     openOfferFallback: 'Open offer',
     openRequestFallback: 'Open request',
-    openExpiry: 'Open expiry',
+    openExpiry: 'No expiry',
     needOffer: 'Need + Offer',
   },
   modes: {

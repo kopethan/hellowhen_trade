@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { adminBusinessProfileActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
@@ -12,10 +12,50 @@ import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/
 import { buildMoneyProviderStatus, getActiveMoneyProvider, getMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
 import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
-import { refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+import { findReportTarget, hydrateReports, moderateReportedTarget } from '../reports/reports.routes.js';
+import { publicTradeVisibilityWhere, refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
 
 export const adminRoutes = Router();
-const mediaUserSelect = { id: true, email: true, profile: true } as const;
+const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+const adminOverviewUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+
+
+type AdminAuditInput = {
+  action: string;
+  targetType: string;
+  targetId?: string | null;
+  reason?: string | null;
+  previousValue?: unknown;
+  nextValue?: unknown;
+  metadata?: unknown;
+};
+
+async function recordAdminAuditLog(client: unknown, adminId: string, input: AdminAuditInput) {
+  const auditClient = client as { adminAuditLog?: { create: (args: unknown) => Promise<unknown> } };
+  if (!auditClient.adminAuditLog) return;
+  await auditClient.adminAuditLog.create({
+    data: {
+      adminId,
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId ?? null,
+      reason: input.reason ?? null,
+      previousValue: input.previousValue === undefined ? undefined : input.previousValue,
+      nextValue: input.nextValue === undefined ? undefined : input.nextValue,
+      metadata: input.metadata === undefined ? undefined : input.metadata,
+    },
+  });
+}
+
+function toStringParam(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function clampTake(value: unknown, fallback = 100, max = 250) {
+  const parsed = typeof value === 'string' ? Number.parseInt(value, 10) : Number.NaN;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, 1), max);
+}
 
 async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'profile' | 'support_ticket' | 'support_message' | null; entityId: string | null }>(media: T[]) {
   const needIds = media.filter((item) => item.entityType === 'need' && item.entityId).map((item) => item.entityId!);
@@ -68,11 +108,321 @@ adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
 adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
 
 
-adminRoutes.get('/users', asyncRoute(async (_req, res) => {
-  const users = await prisma.user.findMany({
-    select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, profile: true, wallet: true },
+adminRoutes.get('/overview', asyncRoute(async (_req, res) => {
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const moneySafety = buildGlobalMoneySafetyConfig();
+
+  const [
+    totalUsers,
+    newUsers24h,
+    newUsers7d,
+    adminUsers,
+    restrictedUsers,
+    activeTrades,
+    disputedTrades,
+    activeNeeds,
+    activeOffers,
+    openSupportTickets,
+    urgentSupportTickets,
+    pendingReports,
+    reviewingReports,
+    pendingReviewMedia,
+    flaggedMedia,
+    recentUsers,
+    recentTickets,
+    recentAuditLogs,
+  ] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.count({ where: { createdAt: { gte: dayAgo } } }),
+    prisma.user.count({ where: { createdAt: { gte: weekAgo } } }),
+    prisma.user.count({ where: { role: 'admin' } }),
+    prisma.user.count({ where: { trustTier: 'restricted' } }),
+    prisma.trade.count({ where: publicTradeVisibilityWhere() }),
+    prisma.trade.count({ where: { status: 'disputed' } }),
+    prisma.need.count({ where: { status: 'active', owner: { trustTier: { not: 'restricted' } } } }),
+    prisma.offer.count({ where: { status: 'active', owner: { trustTier: { not: 'restricted' } } } }),
+    prisma.supportTicket.count({ where: { status: { in: ['open', 'in_review', 'waiting_for_user'] } } }),
+    prisma.supportTicket.count({ where: { priority: { in: ['high', 'urgent'] }, status: { in: ['open', 'in_review', 'waiting_for_user'] } } }),
+    (prisma as any).report?.count({ where: { status: 'pending' } }) ?? Promise.resolve(0),
+    (prisma as any).report?.count({ where: { status: 'reviewing' } }) ?? Promise.resolve(0),
+    prisma.mediaAsset.count({ where: { status: 'pending_review' } }),
+    prisma.mediaAsset.count({ where: { status: 'flagged' } }),
+    prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+      select: { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, createdAt: true, profile: true },
+    }),
+    prisma.supportTicket.findMany({
+      where: { status: { in: ['open', 'in_review', 'waiting_for_user'] } },
+      orderBy: { updatedAt: 'desc' },
+      take: 8,
+      include: { user: { select: { id: true, email: true, profile: true } }, _count: { select: { messages: true } } },
+    }),
+    (prisma as any).adminAuditLog?.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 12,
+      include: { admin: { select: { id: true, email: true, profile: true } } },
+    }) ?? Promise.resolve([]),
+  ]);
+
+  res.json({
+    summary: {
+      users: { total: totalUsers, new24h: newUsers24h, new7d: newUsers7d, admins: adminUsers, restricted: restrictedUsers },
+      content: { activeTrades, disputedTrades, activeNeeds, activeOffers },
+      support: { open: openSupportTickets, urgent: urgentSupportTickets },
+      reports: { pending: pendingReports, reviewing: reviewingReports },
+      media: { pendingReview: pendingReviewMedia, flagged: flaggedMedia },
+      money: {
+        moneyFeaturesVisible: moneySafety.moneyFeaturesVisible,
+        walletVisible: moneySafety.walletVisible,
+        payoutsVisible: moneySafety.payoutsVisible,
+        moneyTradesEnabled: moneySafety.moneyTradesEnabled,
+        realMoneyEnabled: moneySafety.realMoneyEnabled,
+        moneyProvider: moneySafety.moneyProvider,
+        moneyProviderEnvironment: moneySafety.moneyProviderEnvironment,
+      },
+    },
+    recentUsers,
+    recentTickets: await withSupportTicketMedia(recentTickets, 'admin'),
+    recentAuditLogs,
+  });
+}));
+
+adminRoutes.get('/audit-log', asyncRoute(async (req, res) => {
+  const targetType = toStringParam(req.query.targetType);
+  const targetId = toStringParam(req.query.targetId);
+  const action = toStringParam(req.query.action);
+  const take = clampTake(req.query.take, 100, 250);
+  const auditLogClient = (prisma as any).adminAuditLog;
+  if (!auditLogClient) return res.json({ logs: [] });
+  const logs = await auditLogClient.findMany({
+    where: {
+      ...(targetType ? { targetType } : {}),
+      ...(targetId ? { targetId } : {}),
+      ...(action ? { action } : {}),
+    },
     orderBy: { createdAt: 'desc' },
-    take: 100
+    take,
+    include: { admin: { select: { id: true, email: true, profile: true } } },
+  });
+  res.json({ logs });
+}));
+
+
+adminRoutes.get('/reports', asyncRoute(async (req, res) => {
+  const input = adminListReportsQuerySchema.parse(req.query);
+  const reportClient = (prisma as any).report;
+  if (!reportClient) return res.json({ reports: [] });
+  const reports = await reportClient.findMany({
+    where: {
+      ...(input.status && input.status !== 'all' ? { status: input.status } : {}),
+      ...(input.targetType ? { targetType: input.targetType } : {}),
+      ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.q ? {
+        OR: [
+          { details: { contains: input.q, mode: 'insensitive' as const } },
+          { targetId: { contains: input.q, mode: 'insensitive' as const } },
+          { reporter: { is: { email: { contains: input.q, mode: 'insensitive' as const } } } },
+          { reporter: { is: { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } } } },
+          { reporter: { is: { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } } } },
+        ],
+      } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: input.take ?? 100,
+    include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+  });
+  res.json({ reports: await hydrateReports(reports) });
+}));
+
+
+async function findRelatedTradeIdForReport(targetType: string, targetId: string) {
+  if (targetType === 'trade') return targetId;
+  if (targetType === 'proposal') {
+    const proposal = await prisma.tradeProposal.findUnique({ where: { id: targetId }, select: { tradeId: true } });
+    return proposal?.tradeId ?? null;
+  }
+  if (targetType === 'message') {
+    const message = await prisma.proposalMessage.findUnique({ where: { id: targetId }, select: { proposal: { select: { tradeId: true } } } });
+    return message?.proposal?.tradeId ?? null;
+  }
+  if (targetType === 'media') {
+    const media = await prisma.mediaAsset.findUnique({ where: { id: targetId }, select: { entityType: true, entityId: true } });
+    return media?.entityType === 'trade' ? media.entityId : null;
+  }
+  return null;
+}
+
+function reportSupportCategory(reason: string, targetType: string) {
+  if (reason === 'illegal_unsafe' || reason === 'harassment' || reason === 'scam') return 'safety_concern';
+  if (targetType === 'media' || reason === 'inappropriate_image') return 'media_issue';
+  if (targetType === 'trade' || targetType === 'proposal' || targetType === 'message') return 'trade_issue';
+  if (targetType === 'user' || targetType === 'profile' || reason === 'fake_profile') return 'account_issue';
+  return 'general_feedback';
+}
+
+function reportSupportPriority(reason: string) {
+  if (reason === 'illegal_unsafe' || reason === 'scam') return 'urgent';
+  if (reason === 'harassment' || reason === 'inappropriate_image') return 'high';
+  return 'normal';
+}
+
+function truncateSupportSubject(value: string) {
+  const text = value.trim().replace(/\s+/g, ' ');
+  return text.length <= 140 ? text : `${text.slice(0, 137)}…`;
+}
+
+function buildReportEscalationMessage(report: { id: string; reason: string; details?: string | null; targetType: string; targetId: string; targetOwnerId?: string | null }, target: { label?: string | null; ownerId?: string | null; status?: string | null; isPublic?: boolean | null } | null, note?: string | null) {
+  const lines = [
+    'Admin escalated this report into a support ticket for safer follow-up.',
+    '',
+    `Report: ${report.id}`,
+    `Reason: ${report.reason}`,
+    `Target: ${report.targetType} ${report.targetId}`,
+    target?.label ? `Target label: ${target.label}` : null,
+    target?.ownerId ? `Target owner: ${target.ownerId}` : report.targetOwnerId ? `Target owner: ${report.targetOwnerId}` : null,
+    target?.status ? `Target status: ${target.status}` : null,
+    typeof target?.isPublic === 'boolean' ? `Target visibility: ${target.isPublic ? 'public' : 'hidden'}` : null,
+    '',
+    report.details ? `Reporter details:\n${report.details}` : 'Reporter details: none provided.',
+    note ? `\nAdmin note:\n${note}` : null,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+async function escalateReportToSupportTicket(existing: any, adminId: string, note?: string | null) {
+  if (existing.escalatedSupportTicketId) {
+    const alreadyEscalatedTicket = await prisma.supportTicket.findUnique({ where: { id: existing.escalatedSupportTicketId }, include: supportTicketIncludeForAdmin });
+    return { report: existing, supportTicket: alreadyEscalatedTicket };
+  }
+
+  const target = await findReportTarget(existing.targetType, existing.targetId);
+  const relatedTradeId = await findRelatedTradeIdForReport(existing.targetType, existing.targetId);
+  const now = new Date();
+  const subject = truncateSupportSubject(`Report escalation: ${target?.label ?? `${existing.targetType} ${existing.targetId}`}`);
+  const message = buildReportEscalationMessage(existing, target, note);
+  const category = reportSupportCategory(existing.reason, existing.targetType) as any;
+  const priority = reportSupportPriority(existing.reason) as any;
+
+  return prisma.$transaction(async (tx: any) => {
+    const supportTicket = await tx.supportTicket.create({
+      data: {
+        userId: existing.reporterId,
+        category,
+        subject,
+        message,
+        priority,
+        status: 'in_review',
+        assignedAdminId: adminId,
+        relatedTradeId,
+        relatedProposalId: existing.targetType === 'proposal' ? existing.targetId : null,
+        relatedMediaId: existing.targetType === 'media' ? existing.targetId : null,
+        messages: {
+          create: [
+            { senderId: existing.reporterId, senderRole: 'user', body: existing.details?.trim() || 'Report submitted for admin review.' },
+            { senderId: adminId, senderRole: 'admin', internal: true, body: message },
+          ],
+        },
+      },
+      include: supportTicketIncludeForAdmin,
+    });
+    const report = await (tx as any).report.update({
+      where: { id: existing.id },
+      data: {
+        status: 'reviewing',
+        reviewedById: adminId,
+        reviewedAt: now,
+        resolutionNote: note ?? existing.resolutionNote ?? null,
+        escalatedSupportTicketId: supportTicket.id,
+        escalatedAt: now,
+        escalatedById: adminId,
+      },
+      include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+    });
+    await recordAdminAuditLog(tx, adminId, {
+      action: 'report.escalate_to_support',
+      targetType: 'report',
+      targetId: existing.id,
+      reason: note,
+      previousValue: { status: existing.status, escalatedSupportTicketId: existing.escalatedSupportTicketId ?? null },
+      nextValue: { status: 'reviewing', escalatedSupportTicketId: supportTicket.id },
+      metadata: { targetType: existing.targetType, targetId: existing.targetId, supportTicketId: supportTicket.id },
+    });
+    return { report, supportTicket };
+  });
+}
+
+adminRoutes.patch('/reports/:reportId/action', asyncRoute(async (req, res) => {
+  const input = adminReportActionRequestSchema.parse(req.body ?? {});
+  const reportClient = (prisma as any).report;
+  if (!reportClient) return res.status(404).json({ error: 'reports_unavailable' });
+  const existing = await reportClient.findUnique({ where: { id: req.params.reportId }, include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } } });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const note = input.note?.trim();
+  const now = new Date();
+
+  if (input.action === 'escalate_to_support') {
+    if (!note) return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before escalating a report to support.' });
+    const { report, supportTicket } = await escalateReportToSupportTicket(existing, req.user!.id, note);
+    const [hydrated] = await hydrateReports([report]);
+    return res.json({ report: hydrated, supportTicket: supportTicket ? await withOneSupportTicketMedia(supportTicket, 'admin') : null });
+  }
+
+  if (input.action === 'hide_target' || input.action === 'suspend_target_owner') {
+    const moderated = await moderateReportedTarget(existing.targetType, existing.targetId, input.action, req.user!.id);
+    if (!moderated) return res.status(409).json({ error: 'report_target_action_not_supported', message: 'This report target cannot be moderated with that action.' });
+  }
+
+  const nextStatus = input.action === 'mark_reviewing' ? 'reviewing' : input.action === 'dismiss' ? 'dismissed' : 'resolved';
+  const updated = await prisma.$transaction(async (tx: any) => {
+    const report = await (tx as any).report.update({
+      where: { id: existing.id },
+      data: { status: nextStatus, reviewedById: req.user!.id, reviewedAt: now, resolutionNote: note ?? existing.resolutionNote ?? null },
+      include: { reporter: { select: adminOverviewUserSelect }, reviewer: { select: adminOverviewUserSelect } },
+    });
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `report.${input.action}`,
+      targetType: 'report',
+      targetId: existing.id,
+      reason: note,
+      previousValue: { status: existing.status, reviewedById: existing.reviewedById, resolutionNote: existing.resolutionNote },
+      nextValue: { status: nextStatus, reviewedById: req.user!.id, resolutionNote: note ?? existing.resolutionNote ?? null },
+      metadata: { targetType: existing.targetType, targetId: existing.targetId, targetOwnerId: existing.targetOwnerId },
+    });
+    return report;
+  });
+  const [hydrated] = await hydrateReports([updated]);
+  res.json({ report: hydrated });
+}));
+
+adminRoutes.get('/users', asyncRoute(async (req, res) => {
+  const q = toStringParam(req.query.q);
+  const rawTrustTier = toStringParam(req.query.trustTier);
+  const trustTier = rawTrustTier && ['new', 'email_verified', 'stripe_verified', 'trusted', 'restricted'].includes(rawTrustTier) ? rawTrustTier as 'new' | 'email_verified' | 'stripe_verified' | 'trusted' | 'restricted' : undefined;
+  const rawRole = toStringParam(req.query.role);
+  const role = rawRole && ['user', 'admin'].includes(rawRole) ? rawRole as 'user' | 'admin' : undefined;
+  const take = clampTake(req.query.take, 100, 250);
+  const users = await prisma.user.findMany({
+    where: {
+      ...(trustTier ? { trustTier } : {}),
+      ...(role ? { role } : {}),
+      ...(q ? {
+        OR: [
+          { email: { contains: q, mode: 'insensitive' as const } },
+          { profile: { is: { displayName: { contains: q, mode: 'insensitive' as const } } } },
+          { profile: { is: { handle: { contains: q, mode: 'insensitive' as const } } } },
+        ],
+      } : {}),
+    },
+    select: {
+      id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true,
+      emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true,
+      _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take
   });
   const usersWithLimits = await Promise.all(users.map(async (user) => ({ ...user, limits: await buildLaunchLimits(prisma, user.id) })));
   res.json({ users: usersWithLimits });
@@ -80,14 +430,696 @@ adminRoutes.get('/users', asyncRoute(async (_req, res) => {
 
 adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
   const input = adminUpdateTrustTierRequestSchema.parse(req.body);
-  const user = await prisma.user.update({
-    where: { id: req.params.userId },
-    data: { trustTier: input.trustTier, trustTierUpdatedAt: new Date(), trustTierNote: input.note ?? null },
-    select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, profile: true, wallet: true }
+  if (input.trustTier === 'restricted' && req.params.userId === req.user!.id) {
+    return res.status(409).json({ error: 'self_restrict_blocked', message: 'Admins cannot restrict their own account.' });
+  }
+  const existing = await prisma.user.findUnique({ where: { id: req.params.userId }, select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, sessionRevokedAt: true } });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const now = new Date();
+  const restrictingUser = input.trustTier === 'restricted' && existing.trustTier !== 'restricted';
+  const user = await prisma.$transaction(async (tx: any) => {
+    const updated = await tx.user.update({
+      where: { id: req.params.userId },
+      data: {
+        trustTier: input.trustTier,
+        trustTierUpdatedAt: now,
+        trustTierNote: input.note ?? null,
+        ...(restrictingUser ? { sessionRevokedAt: now, sensitiveActionVerifiedAt: null } : {}),
+      },
+      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } }
+    });
+    if (restrictingUser) {
+      await tx.session.updateMany({ where: { userId: existing.id, revokedAt: null }, data: { revokedAt: now } });
+    }
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: 'user.trust_tier.update',
+      targetType: 'user',
+      targetId: updated.id,
+      reason: input.note,
+      previousValue: { trustTier: existing.trustTier, trustTierNote: existing.trustTierNote, sessionRevokedAt: existing.sessionRevokedAt },
+      nextValue: { trustTier: updated.trustTier, trustTierNote: updated.trustTierNote, sessionRevokedAt: restrictingUser ? now : existing.sessionRevokedAt },
+      metadata: { sessionsRevoked: restrictingUser },
+    });
+    return updated;
   });
   res.json({ user: { ...user, limits: await buildLaunchLimits(prisma, user.id) } });
 }));
 
+
+
+const adminContentUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+const tradeStatusValues = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'] as const;
+const needStatusValues = ['draft', 'active', 'fulfilled', 'closed', 'expired'] as const;
+const offerStatusValues = ['draft', 'active', 'accepted', 'closed', 'expired'] as const;
+
+type AdminContentType = 'trade' | 'need' | 'offer';
+type AdminContentItem = {
+  id: string;
+  type: AdminContentType;
+  ownerId: string;
+  title: string;
+  description: string;
+  status: string;
+  isPublic?: boolean;
+  postType?: string | null;
+  category?: string | null;
+  itemType?: string | null;
+  mode?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  expiresAt?: Date | null;
+  closedAt?: Date | null;
+  owner?: unknown;
+  mediaCount?: number;
+  proposalCount?: number;
+  linkedTradeCount?: number;
+  publicDiscoverable?: boolean;
+  visibilityBlockers?: string[];
+};
+
+function isOneOf<T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value);
+}
+
+function contentSearchWhere(q: string | undefined) {
+  return q ? { OR: [{ title: { contains: q, mode: 'insensitive' as const } }, { description: { contains: q, mode: 'insensitive' as const } }] } : {};
+}
+
+function tradeVisibilityBlockers(trade: any) {
+  const blockers: string[] = [];
+  if (trade.status !== 'active') blockers.push(`trade status: ${trade.status}`);
+  if (!trade.isPublic) blockers.push('trade is hidden');
+  if (trade.expiresAt && new Date(trade.expiresAt).getTime() <= Date.now()) blockers.push('trade expired');
+  if (trade.owner?.trustTier === 'restricted') blockers.push('owner restricted');
+  if (trade.needId && trade.need?.status !== 'active') blockers.push(`need status: ${trade.need?.status ?? 'missing'}`);
+  if (trade.offerId && trade.offer?.status !== 'active') blockers.push(`offer status: ${trade.offer?.status ?? 'missing'}`);
+  return blockers;
+}
+
+function inventoryVisibilityBlockers(item: any, type: 'need' | 'offer') {
+  const blockers: string[] = [];
+  if (item.status !== 'active') blockers.push(`${type} status: ${item.status}`);
+  if (item.owner?.trustTier === 'restricted') blockers.push('owner restricted');
+  if (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()) blockers.push(`${type} expired`);
+  return blockers;
+}
+
+async function countMediaForContent(items: Array<{ id: string; type: AdminContentType }>) {
+  const counts = new Map<string, number>();
+  await Promise.all((['trade', 'need', 'offer'] as const).map(async (entityType) => {
+    const ids = items.filter((item) => item.type === entityType).map((item) => item.id);
+    if (!ids.length) return;
+    const rows = await prisma.mediaAsset.groupBy({ by: ['entityId'], where: { entityType, entityId: { in: ids }, status: { not: 'removed' } }, _count: { _all: true } });
+    for (const row of rows) if (row.entityId) counts.set(`${entityType}:${row.entityId}`, row._count._all);
+  }));
+  return counts;
+}
+
+async function hydrateAdminContent(items: AdminContentItem[]) {
+  const mediaCounts = await countMediaForContent(items);
+  return items.map((item) => ({ ...item, mediaCount: mediaCounts.get(`${item.type}:${item.id}`) ?? item.mediaCount ?? 0 }));
+}
+
+async function toAdminTradeItem(trade: any): Promise<AdminContentItem> {
+  const visibilityBlockers = tradeVisibilityBlockers(trade);
+  return {
+    id: trade.id,
+    type: 'trade',
+    ownerId: trade.ownerId,
+    title: trade.title,
+    description: trade.description,
+    status: trade.status,
+    isPublic: trade.isPublic,
+    postType: trade.postType,
+    category: trade.need?.category ?? trade.offer?.category ?? null,
+    itemType: trade.need?.itemType ?? trade.offer?.itemType ?? null,
+    mode: trade.need?.mode ?? trade.offer?.mode ?? null,
+    createdAt: trade.createdAt,
+    updatedAt: trade.updatedAt,
+    expiresAt: trade.expiresAt,
+    closedAt: trade.closedAt,
+    owner: trade.owner,
+    proposalCount: trade._count?.proposals ?? 0,
+    publicDiscoverable: visibilityBlockers.length === 0,
+    visibilityBlockers,
+  };
+}
+
+function toAdminNeedItem(need: any): AdminContentItem {
+  const visibilityBlockers = inventoryVisibilityBlockers(need, 'need');
+  return {
+    id: need.id,
+    type: 'need',
+    ownerId: need.ownerId,
+    title: need.title,
+    description: need.description,
+    status: need.status,
+    category: need.category ?? null,
+    itemType: need.itemType ?? null,
+    mode: need.mode ?? null,
+    createdAt: need.createdAt,
+    updatedAt: need.updatedAt,
+    expiresAt: need.expiresAt,
+    owner: need.owner,
+    linkedTradeCount: need._count?.trades ?? 0,
+    publicDiscoverable: visibilityBlockers.length === 0,
+    visibilityBlockers,
+  };
+}
+
+function toAdminOfferItem(offer: any): AdminContentItem {
+  const visibilityBlockers = inventoryVisibilityBlockers(offer, 'offer');
+  return {
+    id: offer.id,
+    type: 'offer',
+    ownerId: offer.ownerId,
+    title: offer.title,
+    description: offer.description,
+    status: offer.status,
+    category: offer.category ?? null,
+    itemType: offer.itemType ?? null,
+    mode: offer.mode ?? null,
+    createdAt: offer.createdAt,
+    updatedAt: offer.updatedAt,
+    expiresAt: offer.expiresAt,
+    owner: offer.owner,
+    linkedTradeCount: offer._count?.trades ?? 0,
+    publicDiscoverable: visibilityBlockers.length === 0,
+    visibilityBlockers,
+  };
+}
+
+async function loadAdminContentItem(type: AdminContentType, id: string) {
+  if (type === 'trade') {
+    const trade = await prisma.trade.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } } });
+    return trade ? (await hydrateAdminContent([await toAdminTradeItem(trade)]))[0] : null;
+  }
+  if (type === 'need') {
+    const need = await prisma.need.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } } });
+    return need ? (await hydrateAdminContent([toAdminNeedItem(need)]))[0] : null;
+  }
+  const offer = await prisma.offer.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } } });
+  return offer ? (await hydrateAdminContent([toAdminOfferItem(offer)]))[0] : null;
+}
+
+adminRoutes.patch('/users/:userId/moderation', asyncRoute(async (req, res) => {
+  const input = adminUserModerationActionRequestSchema.parse(req.body ?? {});
+  if (input.action === 'suspend' && req.params.userId === req.user!.id) {
+    return res.status(409).json({ error: 'self_suspend_blocked', message: 'Admins cannot suspend their own account.' });
+  }
+  const existing = await prisma.user.findUnique({
+    where: { id: req.params.userId },
+    select: { id: true, email: true, role: true, trustTier: true, trustTierNote: true, trustTierUpdatedAt: true, sessionRevokedAt: true },
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  const now = new Date();
+  const note = input.note?.trim() || (input.action === 'suspend' ? 'Suspended by admin moderation action.' : undefined);
+  const nextTrustTier = input.action === 'suspend'
+    ? 'restricted'
+    : input.action === 'restore'
+      ? (input.trustTier && input.trustTier !== 'restricted' ? input.trustTier : 'new')
+      : existing.trustTier;
+
+  const user = await prisma.$transaction(async (tx: any) => {
+    const data = input.action === 'force_logout'
+      ? { sessionRevokedAt: now, sensitiveActionVerifiedAt: null }
+      : {
+          trustTier: nextTrustTier,
+          trustTierUpdatedAt: now,
+          trustTierNote: note ?? existing.trustTierNote,
+          ...(input.action === 'suspend' ? { sessionRevokedAt: now, sensitiveActionVerifiedAt: null } : {}),
+        };
+    const updated = await tx.user.update({
+      where: { id: existing.id },
+      data,
+      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } },
+    });
+    if (input.action === 'suspend' || input.action === 'force_logout') {
+      await tx.session.updateMany({ where: { userId: existing.id, revokedAt: null }, data: { revokedAt: now } });
+    }
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `user.moderation.${input.action}`,
+      targetType: 'user',
+      targetId: existing.id,
+      reason: note,
+      previousValue: { trustTier: existing.trustTier, trustTierNote: existing.trustTierNote, sessionRevokedAt: existing.sessionRevokedAt },
+      nextValue: { trustTier: updated.trustTier, trustTierNote: updated.trustTierNote, sessionRevokedAt: input.action === 'suspend' || input.action === 'force_logout' ? now : existing.sessionRevokedAt },
+    });
+    return updated;
+  });
+
+  res.json({ user: { ...user, limits: await buildLaunchLimits(prisma, user.id) } });
+}));
+
+adminRoutes.get('/content', asyncRoute(async (req, res) => {
+  const input = adminListContentQuerySchema.parse(req.query);
+  const types: AdminContentType[] = input.type === 'all' ? ['trade', 'need', 'offer'] : [input.type as AdminContentType];
+  const take = input.take ?? 100;
+  const content: AdminContentItem[] = [];
+
+  if (types.includes('trade')) {
+    const where = {
+      ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+      ...(isOneOf(input.status, tradeStatusValues) ? { status: input.status } : {}),
+      ...contentSearchWhere(input.q),
+    };
+    const trades = await prisma.trade.findMany({
+      where,
+      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    for (const trade of trades) content.push(await toAdminTradeItem(trade));
+  }
+
+  if (types.includes('need')) {
+    const where = {
+      ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+      ...(isOneOf(input.status, needStatusValues) ? { status: input.status } : {}),
+      ...contentSearchWhere(input.q),
+    };
+    const needs = await prisma.need.findMany({
+      where,
+      include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    content.push(...needs.map(toAdminNeedItem));
+  }
+
+  if (types.includes('offer')) {
+    const where = {
+      ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+      ...(isOneOf(input.status, offerStatusValues) ? { status: input.status } : {}),
+      ...contentSearchWhere(input.q),
+    };
+    const offers = await prisma.offer.findMany({
+      where,
+      include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } },
+      orderBy: { createdAt: 'desc' },
+      take,
+    });
+    content.push(...offers.map(toAdminOfferItem));
+  }
+
+  const hydrated = await hydrateAdminContent(content.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, take));
+  res.json({ content: hydrated });
+}));
+
+adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res) => {
+  const rawType = req.params.type;
+  const type: AdminContentType | null = rawType === 'trade' || rawType === 'need' || rawType === 'offer' ? rawType : null;
+  if (!type) return res.status(400).json({ error: 'invalid_content_type' });
+  const input = adminContentActionRequestSchema.parse(req.body ?? {});
+  const note = input.note?.trim();
+  const contentId = req.params.contentId;
+  if (!contentId) return res.status(400).json({ error: 'content_id_required' });
+
+  const existing = await loadAdminContentItem(type, contentId);
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  if (type === 'trade') {
+    if (input.action === 'close' && ['funded', 'in_progress', 'submitted', 'disputed'].includes(existing.status)) {
+      return res.status(409).json({ error: 'active_trade_requires_dispute_flow', message: 'Use the dispute/admin trade flow for funded, in-progress, submitted, or disputed trades.' });
+    }
+    if (input.action !== 'mark_reviewed') {
+      const data = input.action === 'hide'
+        ? { isPublic: false }
+        : input.action === 'restore'
+          ? { isPublic: true, ...(existing.status === 'closed' || existing.status === 'expired' ? { status: 'active' as const, closedAt: null } : {}) }
+          : { isPublic: false, status: 'closed' as const, closedAt: new Date() };
+      await prisma.trade.update({ where: { id: contentId }, data });
+    }
+  } else if (type === 'need') {
+    if (input.action !== 'mark_reviewed') {
+      const data = input.action === 'restore' ? { status: 'active' as const } : { status: 'closed' as const };
+      await prisma.need.update({ where: { id: contentId }, data });
+    }
+  } else {
+    if (input.action !== 'mark_reviewed') {
+      const data = input.action === 'restore' ? { status: 'active' as const } : { status: 'closed' as const };
+      await prisma.offer.update({ where: { id: contentId }, data });
+    }
+  }
+
+  const updated = await loadAdminContentItem(type, contentId);
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `content.${type}.${input.action}`,
+    targetType: type,
+    targetId: contentId,
+    reason: note,
+    previousValue: { status: existing.status, isPublic: existing.isPublic, closedAt: existing.closedAt },
+    nextValue: updated ? { status: updated.status, isPublic: updated.isPublic, closedAt: updated.closedAt } : undefined,
+    metadata: { ownerId: existing.ownerId, title: existing.title },
+  });
+  res.json({ item: updated });
+}));
+
+
+adminRoutes.get('/moderation-smoke', asyncRoute(async (_req, res) => {
+  const [
+    feedEligibleTrades,
+    feedEligibleRestrictedOwnerTrades,
+    feedEligibleClosedNeedTrades,
+    feedEligibleClosedOfferTrades,
+    publicTradesOwnedByRestrictedUsers,
+    publicTradesWithClosedNeeds,
+    publicTradesWithClosedOffers,
+    restrictedUsers,
+    activeNeedsOwnedByRestrictedUsers,
+    activeOffersOwnedByRestrictedUsers,
+    restrictedOwnerSamples,
+    closedInventorySamples,
+  ] = await Promise.all([
+    prisma.trade.count({ where: publicTradeVisibilityWhere() }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { owner: { trustTier: 'restricted' } }] } }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { needId: { not: null }, need: { is: { status: { not: 'active' } } } }] } }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } }] } }),
+    prisma.trade.count({ where: { status: 'active', isPublic: true, owner: { trustTier: 'restricted' } } }),
+    prisma.trade.count({ where: { status: 'active', isPublic: true, needId: { not: null }, need: { is: { status: { not: 'active' } } } } }),
+    prisma.trade.count({ where: { status: 'active', isPublic: true, offerId: { not: null }, offer: { is: { status: { not: 'active' } } } } }),
+    prisma.user.count({ where: { trustTier: 'restricted' } }),
+    prisma.need.count({ where: { status: 'active', owner: { trustTier: 'restricted' } } }),
+    prisma.offer.count({ where: { status: 'active', owner: { trustTier: 'restricted' } } }),
+    prisma.trade.findMany({
+      where: { status: 'active', isPublic: true, owner: { trustTier: 'restricted' } },
+      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
+    prisma.trade.findMany({
+      where: {
+        status: 'active',
+        isPublic: true,
+        OR: [
+          { needId: { not: null }, need: { is: { status: { not: 'active' } } } },
+          { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } },
+        ],
+      },
+      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    }),
+  ]);
+
+  const [restrictedOwnerItems, closedInventoryItems] = await Promise.all([
+    Promise.all(restrictedOwnerSamples.map(toAdminTradeItem)),
+    Promise.all(closedInventorySamples.map(toAdminTradeItem)),
+  ]);
+
+  res.json({
+    checks: {
+      restrictedOwnersHiddenFromFeed: feedEligibleRestrictedOwnerTrades === 0,
+      closedNeedsHiddenFromFeed: feedEligibleClosedNeedTrades === 0,
+      closedOffersHiddenFromFeed: feedEligibleClosedOfferTrades === 0,
+      publicFeedUsesDiscoverableFilter: true,
+    },
+    counts: {
+      feedEligibleTrades,
+      feedEligibleRestrictedOwnerTrades,
+      feedEligibleClosedNeedTrades,
+      feedEligibleClosedOfferTrades,
+      publicTradesOwnedByRestrictedUsers,
+      publicTradesWithClosedNeeds,
+      publicTradesWithClosedOffers,
+      restrictedUsers,
+      activeNeedsOwnedByRestrictedUsers,
+      activeOffersOwnedByRestrictedUsers,
+    },
+    samples: {
+      publicTradesOwnedByRestrictedUsers: await hydrateAdminContent(restrictedOwnerItems),
+      publicTradesWithClosedInventory: await hydrateAdminContent(closedInventoryItems),
+    },
+  });
+}));
+
+
+adminRoutes.get('/launch-checklist', asyncRoute(async (_req, res) => {
+  type ChecklistStatus = 'pass' | 'warning' | 'fail';
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const moneySafety = buildGlobalMoneySafetyConfig();
+
+  const [
+    adminUsers,
+    adminsMissingTwoFactor,
+    defaultSeedAdminUsers,
+    feedEligibleTrades,
+    feedEligibleRestrictedOwnerTrades,
+    feedEligibleClosedNeedTrades,
+    feedEligibleClosedOfferTrades,
+    publicTradesOwnedByRestrictedUsers,
+    publicTradesWithClosedNeeds,
+    publicTradesWithClosedOffers,
+    pendingReports,
+    reviewingReports,
+    openSupportTickets,
+    urgentSupportTickets,
+    pendingReviewMedia,
+    flaggedMedia,
+    recentAuditLogs,
+    activeNeeds,
+    activeOffers,
+  ] = await Promise.all([
+    prisma.user.count({ where: { role: 'admin' } }),
+    prisma.user.count({ where: { role: 'admin', twoFactorEnabled: false } }),
+    prisma.user.count({ where: { role: 'admin', email: 'admin@hellowhen.app' } }),
+    prisma.trade.count({ where: publicTradeVisibilityWhere() }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { owner: { trustTier: 'restricted' } }] } }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { needId: { not: null }, need: { is: { status: { not: 'active' } } } }] } }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } }] } }),
+    prisma.trade.count({ where: { status: 'active', isPublic: true, owner: { trustTier: 'restricted' } } }),
+    prisma.trade.count({ where: { status: 'active', isPublic: true, needId: { not: null }, need: { is: { status: { not: 'active' } } } } }),
+    prisma.trade.count({ where: { status: 'active', isPublic: true, offerId: { not: null }, offer: { is: { status: { not: 'active' } } } } }),
+    (prisma as any).report?.count({ where: { status: 'pending' } }) ?? Promise.resolve(0),
+    (prisma as any).report?.count({ where: { status: 'reviewing' } }) ?? Promise.resolve(0),
+    prisma.supportTicket.count({ where: { status: { in: ['open', 'in_review', 'waiting_for_user'] } } }),
+    prisma.supportTicket.count({ where: { priority: { in: ['high', 'urgent'] }, status: { in: ['open', 'in_review', 'waiting_for_user'] } } }),
+    prisma.mediaAsset.count({ where: { status: 'pending_review' } }),
+    prisma.mediaAsset.count({ where: { status: 'flagged' } }),
+    (prisma as any).adminAuditLog?.count({ where: { createdAt: { gte: weekAgo } } }) ?? Promise.resolve(0),
+    prisma.need.count({ where: { status: 'active', owner: { trustTier: { not: 'restricted' } } } }),
+    prisma.offer.count({ where: { status: 'active', owner: { trustTier: { not: 'restricted' } } } }),
+  ]);
+
+  const visibilityLeaks = feedEligibleRestrictedOwnerTrades + feedEligibleClosedNeedTrades + feedEligibleClosedOfferTrades;
+  const staleHiddenRows = publicTradesOwnedByRestrictedUsers + publicTradesWithClosedNeeds + publicTradesWithClosedOffers;
+  const items: Array<{ id: string; label: string; status: ChecklistStatus; detail: string; action?: string }> = [
+    {
+      id: 'admin-account',
+      label: 'Admin account exists',
+      status: adminUsers > 0 ? 'pass' : 'fail',
+      detail: adminUsers > 0 ? `${adminUsers} admin account(s) found.` : 'No admin account exists.',
+      action: adminUsers > 0 ? undefined : 'Run npm run prisma:seed or promote one trusted user to admin directly in the database.',
+    },
+    {
+      id: 'admin-two-factor',
+      label: 'Admin two-step policy',
+      status: env.adminRequireTwoFactor ? (adminsMissingTwoFactor > 0 ? 'warning' : 'pass') : 'warning',
+      detail: env.adminRequireTwoFactor
+        ? adminsMissingTwoFactor > 0
+          ? `${adminsMissingTwoFactor} admin account(s) still do not have authenticator 2FA enabled.`
+          : 'ADMIN_REQUIRE_TWO_FACTOR is enabled and all admin accounts have authenticator 2FA enabled.'
+        : 'ADMIN_REQUIRE_TWO_FACTOR is disabled. This is okay only for local smoke tests.',
+      action: env.adminRequireTwoFactor && adminsMissingTwoFactor > 0 ? 'Enable authenticator 2FA for every admin account before launch.' : undefined,
+    },
+    {
+      id: 'default-admin-seed',
+      label: 'Default seed admin reviewed',
+      status: defaultSeedAdminUsers > 0 ? 'warning' : 'pass',
+      detail: defaultSeedAdminUsers > 0
+        ? 'The default admin@hellowhen.app seed account exists.'
+        : 'No default admin@hellowhen.app account was found.',
+      action: defaultSeedAdminUsers > 0 ? 'Use SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD for non-local environments, or rotate/remove the default seed admin.' : undefined,
+    },
+    {
+      id: 'money-off-launch',
+      label: 'Money features launch gate',
+      status: moneySafety.realMoneyEnabled ? 'fail' : moneySafety.moneyFeaturesVisible ? 'warning' : 'pass',
+      detail: moneySafety.realMoneyEnabled
+        ? `Real-money mode is enabled with provider ${moneySafety.moneyProvider}.`
+        : moneySafety.moneyFeaturesVisible
+          ? 'Money UI is visible in demo/sandbox mode.'
+          : 'Money, wallet, payouts, and money trades are hidden for first launch.',
+      action: moneySafety.realMoneyEnabled ? 'Set MONEY_LAUNCH_MODE=disabled and MONEY_PRODUCTION_ENABLED=false before first launch.' : undefined,
+    },
+    {
+      id: 'public-visibility-filter',
+      label: 'Public visibility filter',
+      status: visibilityLeaks === 0 ? (staleHiddenRows > 0 ? 'warning' : 'pass') : 'fail',
+      detail: visibilityLeaks === 0
+        ? staleHiddenRows > 0
+          ? `${staleHiddenRows} stale active public row(s) are blocked by runtime filters.`
+          : 'No restricted-owner or closed-inventory trade leaks detected in feed eligibility.'
+        : `${visibilityLeaks} feed eligibility leak(s) detected.`,
+      action: visibilityLeaks > 0 ? 'Review publicTradeVisibilityWhere and /admin/moderation-smoke before launch.' : staleHiddenRows > 0 ? 'Use /admin/content to close or hide stale rows for cleaner data.' : undefined,
+    },
+    {
+      id: 'reports-queue',
+      label: 'Reports queue reviewed',
+      status: pendingReports > 0 ? 'warning' : 'pass',
+      detail: pendingReports > 0 ? `${pendingReports} pending report(s), ${reviewingReports} in review.` : `${reviewingReports} report(s) in review and none pending.`,
+      action: pendingReports > 0 ? 'Open /admin/reports and resolve, dismiss, hide, suspend, or escalate pending reports.' : undefined,
+    },
+    {
+      id: 'support-queue',
+      label: 'Support queue reviewed',
+      status: urgentSupportTickets > 0 ? 'warning' : 'pass',
+      detail: urgentSupportTickets > 0 ? `${urgentSupportTickets} urgent/high support ticket(s), ${openSupportTickets} open total.` : `${openSupportTickets} open support ticket(s), none urgent/high.`,
+      action: urgentSupportTickets > 0 ? 'Open /admin/support and claim or update urgent tickets.' : undefined,
+    },
+    {
+      id: 'media-queue',
+      label: 'Media moderation queue reviewed',
+      status: flaggedMedia > 0 || pendingReviewMedia > 0 ? 'warning' : 'pass',
+      detail: `${pendingReviewMedia} pending media item(s), ${flaggedMedia} flagged media item(s).`,
+      action: flaggedMedia > 0 || pendingReviewMedia > 0 ? 'Open /admin/media and review pending or flagged media.' : undefined,
+    },
+    {
+      id: 'audit-log',
+      label: 'Admin audit log active',
+      status: recentAuditLogs > 0 ? 'pass' : 'warning',
+      detail: recentAuditLogs > 0 ? `${recentAuditLogs} audit log entry/entries recorded in the last 7 days.` : 'No admin audit log entries in the last 7 days.',
+      action: recentAuditLogs > 0 ? undefined : 'Run one harmless admin action such as mark reviewed and confirm it writes to /admin/audit-log.',
+    },
+    {
+      id: 'marketplace-content',
+      label: 'Launch content baseline',
+      status: feedEligibleTrades > 0 && activeNeeds > 0 && activeOffers > 0 ? 'pass' : 'warning',
+      detail: `${feedEligibleTrades} feed-eligible trade(s), ${activeNeeds} active need(s), ${activeOffers} active offer(s).`,
+      action: feedEligibleTrades > 0 && activeNeeds > 0 && activeOffers > 0 ? undefined : 'Run seed data locally or create a small clean starter set before demoing the marketplace.',
+    },
+  ];
+
+  const summary = items.reduce((acc, item) => ({ ...acc, [item.status]: acc[item.status] + 1 }), { pass: 0, warning: 0, fail: 0 });
+  const overallStatus: ChecklistStatus = summary.fail > 0 ? 'fail' : summary.warning > 0 ? 'warning' : 'pass';
+  res.json({ overallStatus, generatedAt: now.toISOString(), items, summary });
+}));
+
+
+adminRoutes.get('/runtime-qa', asyncRoute(async (_req, res) => {
+  type QaStatus = 'pass' | 'warning' | 'fail';
+  const now = new Date();
+  const moneySafety = buildGlobalMoneySafetyConfig();
+  const moneyOff = !moneySafety.moneyFeaturesVisible || moneySafety.launchMode === 'disabled' || !moneySafety.moneyTradesEnabled;
+
+  const [
+    restrictedUsersWithOpenSessions,
+    activePublicMoneyTradesWhileMoneyOff,
+    feedEligibleRestrictedOwnerTrades,
+    feedEligibleClosedNeedTrades,
+    feedEligibleClosedOfferTrades,
+    pendingReports,
+    urgentSupportTickets,
+    pendingReviewMedia,
+    flaggedMedia,
+  ] = await Promise.all([
+    prisma.session.count({ where: { revokedAt: null, expiresAt: { gt: now }, user: { trustTier: 'restricted' } } }),
+    moneyOff ? prisma.trade.count({ where: { status: 'active', isPublic: true, OR: [{ amountCents: { gt: 0 } }, { creditAmount: { gt: 0 } }] } }) : Promise.resolve(0),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { owner: { trustTier: 'restricted' } }] } }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { needId: { not: null }, need: { is: { status: { not: 'active' } } } }] } }),
+    prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } }] } }),
+    (prisma as any).report?.count({ where: { status: 'pending' } }) ?? Promise.resolve(0),
+    prisma.supportTicket.count({ where: { priority: { in: ['high', 'urgent'] }, status: { in: ['open', 'in_review', 'waiting_for_user'] } } }),
+    prisma.mediaAsset.count({ where: { status: 'pending_review' } }),
+    prisma.mediaAsset.count({ where: { status: 'flagged' } }),
+  ]);
+
+  const publicVisibilityLeaks = feedEligibleRestrictedOwnerTrades + feedEligibleClosedNeedTrades + feedEligibleClosedOfferTrades;
+  const pendingOrFlaggedMedia = pendingReviewMedia + flaggedMedia;
+  const checks: Array<{ id: string; label: string; status: QaStatus; detail: string; action?: string }> = [
+    {
+      id: 'auth-session-revocation',
+      label: 'Session revocation enforced',
+      status: restrictedUsersWithOpenSessions > 0 ? 'warning' : 'pass',
+      detail: restrictedUsersWithOpenSessions > 0
+        ? `${restrictedUsersWithOpenSessions} active session(s) still belong to restricted users. Access tokens are checked against session revocation, but these users should be forced out for a cleaner launch state.`
+        : 'Authenticated requests now validate access tokens against session revocation, global user sessionRevokedAt, and session expiry.',
+      action: restrictedUsersWithOpenSessions > 0 ? 'Use Suspend or Force logout from /admin for restricted users with active sessions.' : undefined,
+    },
+    {
+      id: 'optional-auth-public-fallback',
+      label: 'Public reads tolerate revoked tokens',
+      status: 'pass',
+      detail: 'Optional public reads fall back to anonymous access when a stale, expired, or revoked token is sent.',
+    },
+    {
+      id: 'public-visibility-leaks',
+      label: 'Public visibility filters',
+      status: publicVisibilityLeaks > 0 ? 'fail' : 'pass',
+      detail: publicVisibilityLeaks > 0
+        ? `${publicVisibilityLeaks} feed-eligible visibility leak(s) were detected.`
+        : 'No restricted-owner or closed-inventory rows are eligible for public trade discovery.',
+      action: publicVisibilityLeaks > 0 ? 'Run /admin/moderation-smoke and inspect samples in /admin/content.' : undefined,
+    },
+    {
+      id: 'money-off-runtime',
+      label: 'Money-off launch runtime',
+      status: moneySafety.realMoneyEnabled ? 'fail' : activePublicMoneyTradesWhileMoneyOff > 0 ? 'warning' : moneySafety.moneyFeaturesVisible ? 'warning' : 'pass',
+      detail: moneySafety.realMoneyEnabled
+        ? `Real money is enabled through ${moneySafety.moneyProvider}.`
+        : activePublicMoneyTradesWhileMoneyOff > 0
+          ? `${activePublicMoneyTradesWhileMoneyOff} active public money/credit trade(s) exist while money is off. Public feed filters should hide them, but close or review them before launch.`
+          : moneySafety.moneyFeaturesVisible
+            ? 'Money UI is visible in demo/sandbox mode; keep this only for controlled QA.'
+            : 'Money, wallet, payouts, and money trades are hidden for first launch runtime.',
+      action: moneySafety.realMoneyEnabled ? 'Set MONEY_LAUNCH_MODE=disabled and MONEY_PRODUCTION_ENABLED=false.' : activePublicMoneyTradesWhileMoneyOff > 0 ? 'Use /admin/content to close or hide old money/credit trades.' : undefined,
+    },
+    {
+      id: 'admin-two-factor-runtime',
+      label: 'Admin 2FA runtime guard',
+      status: env.adminRequireTwoFactor ? 'pass' : 'warning',
+      detail: env.adminRequireTwoFactor
+        ? 'Admin routes require authenticator app 2FA before tools can be used.'
+        : 'ADMIN_REQUIRE_TWO_FACTOR is disabled. This should only happen in local smoke tests.',
+      action: env.adminRequireTwoFactor ? undefined : 'Set ADMIN_REQUIRE_TWO_FACTOR=true before public launch.',
+    },
+    {
+      id: 'reports-support-media-queues',
+      label: 'Safety queues ready for rehearsal',
+      status: pendingReports > 0 || urgentSupportTickets > 0 || pendingOrFlaggedMedia > 0 ? 'warning' : 'pass',
+      detail: `${pendingReports} pending report(s), ${urgentSupportTickets} urgent/high support ticket(s), ${pendingOrFlaggedMedia} pending/flagged media item(s).`,
+      action: pendingReports > 0 || urgentSupportTickets > 0 || pendingOrFlaggedMedia > 0 ? 'Open /admin/reports, /admin/support, and /admin/media before launch.' : undefined,
+    },
+  ];
+
+  const summary = checks.reduce((acc, item) => ({ ...acc, [item.status]: acc[item.status] + 1 }), { pass: 0, warning: 0, fail: 0 });
+  const overallStatus: QaStatus = summary.fail > 0 ? 'fail' : summary.warning > 0 ? 'warning' : 'pass';
+
+  res.json({
+    overallStatus,
+    generatedAt: now.toISOString(),
+    launchMode: {
+      nodeEnv: env.nodeEnv,
+      moneyLaunchMode: moneySafety.launchMode,
+      moneyFeaturesVisible: moneySafety.moneyFeaturesVisible,
+      walletVisible: moneySafety.walletVisible,
+      payoutsVisible: moneySafety.payoutsVisible,
+      moneyTradesEnabled: moneySafety.moneyTradesEnabled,
+      realMoneyEnabled: moneySafety.realMoneyEnabled,
+      adminRequireTwoFactor: env.adminRequireTwoFactor,
+    },
+    counts: {
+      restrictedUsersWithOpenSessions,
+      activePublicMoneyTradesWhileMoneyOff,
+      publicVisibilityLeaks,
+      pendingReports,
+      urgentSupportTickets,
+      pendingOrFlaggedMedia,
+    },
+    checks,
+    rehearsal: [
+      { step: 1, label: 'Load launch dashboard', expected: 'Overview, launch checklist, runtime QA, and moderation smoke all load for an admin account.', operatorAction: 'Open /admin and click Load dashboard.' },
+      { step: 2, label: 'Suspend a non-admin test user', expected: 'Sessions are revoked, public profile becomes unavailable, and existing active public posts disappear from discovery.', operatorAction: 'Use /admin user controls with an internal note.' },
+      { step: 3, label: 'Confirm stale token behavior', expected: 'The suspended user receives 401/403 on authenticated writes; public reads work as anonymous.', operatorAction: 'Retry the app with the suspended user session in web or Expo.' },
+      { step: 4, label: 'Hide and restore one test content item', expected: 'Hidden/closed content shows as not discoverable in /admin/content and is absent from public feed.', operatorAction: 'Use /admin/content actions with an internal note.' },
+      { step: 5, label: 'Escalate one test report to support', expected: 'The report moves to reviewing, a linked support ticket is created, and audit log records the escalation.', operatorAction: 'Use /admin/reports → Escalate to support.' },
+      { step: 6, label: 'Review support/media queues', expected: 'Urgent support and pending/flagged media queues have a launch decision or admin note.', operatorAction: 'Open /admin/support and /admin/media.' },
+    ],
+    summary,
+  });
+}));
 
 adminRoutes.get('/money-safety', asyncRoute(async (_req, res) => {
   res.json(await buildAdminMoneySafetySummary(prisma));
@@ -116,7 +1148,7 @@ adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
   if (trade.status !== 'disputed') return res.status(409).json({ error: 'trade_not_disputed', message: 'Only disputed trades can be resolved through this action.' });
   const note = input.note?.trim();
   const disputePayment = trade.payment;
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx: any) => {
     if (input.action === 'refund_payer') {
       await refundHeldWalletMoney(tx, trade, req.user!.id);
       return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', closedAt: new Date(), confirmedById: req.user!.id, confirmedAt: new Date() }, include: tradeInclude });
@@ -136,6 +1168,14 @@ adminRoutes.patch('/trades/:tradeId/dispute', asyncRoute(async (req, res) => {
   if (note || trade.disputeTicketId) {
     await prisma.supportTicketMessage.create({ data: { ticketId: trade.disputeTicketId ?? '', senderId: req.user!.id, senderRole: 'admin', internal: true, body: note || `Admin resolved dispute with action: ${input.action}` } }).catch(() => null);
   }
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `trade.dispute.${input.action}`,
+    targetType: 'trade',
+    targetId: trade.id,
+    reason: note,
+    previousValue: { status: trade.status, disputedAt: trade.disputedAt, disputeTicketId: trade.disputeTicketId },
+    nextValue: { status: updated.status, closedAt: updated.closedAt },
+  });
   res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
 }));
 
@@ -310,7 +1350,7 @@ adminRoutes.patch('/payouts/:payoutId/action', asyncRoute(async (req, res) => {
     }
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx: any) => {
     if (walletIncrement > 0 && payout.user.wallet) {
       await tx.wallet.update({ where: { id: payout.user.wallet.id }, data: { pendingPayoutCents: { increment: walletIncrement } } });
       await tx.creditLedgerEntry.create({ data: { userId: payout.userId, walletId: payout.user.wallet.id, type: 'adjustment', balanceType: 'earned_pending', amount: 0, amountCents: walletIncrement, currency: payout.currency, description: ledgerDescription, metadata: { payoutId: payout.id, adminAction: input.action } } });
@@ -655,6 +1695,15 @@ adminRoutes.patch('/media/:mediaId/status', asyncRoute(async (req, res) => {
   if (updated.entityType === 'profile' && updated.entityId && input.status === 'removed') {
     await prisma.profile.updateMany({ where: { id: updated.entityId, avatarMediaId: updated.id }, data: { avatarUrl: null, avatarMediaId: null } });
   }
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: 'media.status.update',
+    targetType: 'media',
+    targetId: updated.id,
+    reason: input.reviewNote,
+    previousValue: { status: media.status, reviewNote: media.reviewNote },
+    nextValue: { status: updated.status, reviewNote: updated.reviewNote },
+    metadata: { entityType: updated.entityType, entityId: updated.entityId, ownerId: updated.ownerId },
+  });
   res.json({ media: (await withMediaEntityContext([updated]))[0] });
 }));
 
@@ -685,6 +1734,8 @@ adminRoutes.get('/support/tickets', asyncRoute(async (req, res) => {
   const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
   const rawCategory = typeof req.query.category === 'string' ? req.query.category : undefined;
   const rawPriority = typeof req.query.priority === 'string' ? req.query.priority : undefined;
+  const rawAssigned = typeof req.query.assigned === 'string' ? req.query.assigned : undefined;
+  const q = toStringParam(req.query.q);
   const status = rawStatus ? supportTicketStatusSchema.safeParse(rawStatus) : null;
   const category = rawCategory ? supportTicketCategorySchema.safeParse(rawCategory) : null;
   const priority = rawPriority ? supportTicketPrioritySchema.safeParse(rawPriority) : null;
@@ -692,6 +1743,17 @@ adminRoutes.get('/support/tickets', asyncRoute(async (req, res) => {
     ...(status?.success ? { status: status.data } : {}),
     ...(category?.success ? { category: category.data } : {}),
     ...(priority?.success ? { priority: priority.data } : {}),
+    ...(rawAssigned === 'unassigned' ? { assignedAdminId: null } : rawAssigned === 'mine' ? { assignedAdminId: req.user!.id } : {}),
+    ...(q ? {
+      OR: [
+        { subject: { contains: q, mode: 'insensitive' as const } },
+        { message: { contains: q, mode: 'insensitive' as const } },
+        { id: { contains: q, mode: 'insensitive' as const } },
+        { user: { is: { email: { contains: q, mode: 'insensitive' as const } } } },
+        { user: { is: { profile: { is: { displayName: { contains: q, mode: 'insensitive' as const } } } } } },
+        { user: { is: { profile: { is: { handle: { contains: q, mode: 'insensitive' as const } } } } } },
+      ],
+    } : {}),
   };
   const tickets = await prisma.supportTicket.findMany({
     where,
@@ -723,6 +1785,13 @@ adminRoutes.patch('/support/tickets/:ticketId', asyncRoute(async (req, res) => {
     },
     include: supportTicketIncludeForAdmin,
   });
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: 'support.ticket.update',
+    targetType: 'support_ticket',
+    targetId: existing.id,
+    previousValue: { status: existing.status, priority: existing.priority, assignedAdminId: existing.assignedAdminId },
+    nextValue: { status: updated.status, priority: updated.priority, assignedAdminId: updated.assignedAdminId },
+  });
   res.json({ ticket: await withOneSupportTicketMedia(updated, 'admin') });
 }));
 
@@ -745,6 +1814,12 @@ adminRoutes.post('/support/tickets/:ticketId/messages', asyncRoute(async (req, r
   await prisma.supportTicket.update({
     where: { id: ticket.id },
     data: { status: nextStatus, assignedAdminId: ticket.assignedAdminId ?? req.user!.id, resolvedAt: nextStatus === 'resolved' || nextStatus === 'closed' ? new Date() : null },
+  });
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: input.internal ? 'support.internal_note.create' : 'support.reply.create',
+    targetType: 'support_ticket',
+    targetId: ticket.id,
+    nextValue: { status: nextStatus, messageId: message.id, internal: input.internal ?? false },
   });
   res.status(201).json({ message: await withOneSupportMessageMedia(message, 'admin') });
 }));

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { ReportContentButton } from '../../components/ReportContentButton';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -259,6 +260,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           />
           <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt, i18n)}</span>
         </div>
+        {!isOwner ? <ReportContentButton targetType="trade" targetId={currentTrade.id} labelKey="report.trade" helperKey="report.helper.trade" buttonClassName="button secondary danger-text" /> : null}
       </section>
 
       {postType !== 'open_offer' ? <SideSection side={needSide} i18n={i18n} /> : null}

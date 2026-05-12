@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -21,7 +21,6 @@ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpl
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AccountProfile'>;
 type ProfileResponse = { profile: ProfileDto };
-const currencySelectOptions = currencyOptions.map((currency) => ({ value: currency.code, label: currency.label, helper: currency.helper }));
 
 function optionalText(value: string) {
   const trimmed = value.trim();
@@ -50,7 +49,16 @@ export function ProfileScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
-  const countrySelectOptions = countryOptions.map((country) => ({ value: country.code, label: country.label, helper: `${t('profile.edit.countryHelper')}: ${country.currency.toUpperCase()}` }));
+  const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
+    value: country.code,
+    label: t(`common.locale.countries.${country.code}`),
+    helper: t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() }),
+  })), [t]);
+  const currencySelectOptions = useMemo(() => currencyOptions.map((currency) => ({
+    value: currency.code,
+    label: currency.label,
+    helper: t(`common.locale.currencies.${currency.code}`),
+  })), [t]);
 
   async function pickAvatar() {
     setError(null);

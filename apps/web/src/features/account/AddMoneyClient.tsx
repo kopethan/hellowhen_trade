@@ -8,7 +8,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { currencyOptions, isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyPreferences';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { fallbackCurrency, formatMoney, normalizeLimits, normalizeWallet, parseMoneyInputToCents } from './accountPresentation';
+import { fallbackCurrency, formatMoney, moneyLaunchModeLabel, moneySafetyMessage, normalizeLimits, normalizeWallet, parseMoneyInputToCents } from './accountPresentation';
 
 const quickAmounts = ['5', '10', '25', '50'];
 
@@ -116,11 +116,11 @@ export function AddMoneyClient() {
           <div className="trade-section-heading">
             <div>
               <p className="eyebrow">{t('account.addMoney.safetyTitle')}</p>
-              <h3>{moneySafety.launchMode.replace(/_/g, ' ')}</h3>
+              <h3>{moneyLaunchModeLabel(moneySafety.launchMode, t)}</h3>
             </div>
             <span className={`semantic-badge ${moneySafety.policyAcknowledged ? 'success' : 'warning'}`}>{moneySafety.policyAcknowledged ? t('account.addMoney.safetyAccepted') : t('account.addMoney.safetyReview')}</span>
           </div>
-          <p>{moneySafety.message}</p>
+          <p>{moneySafetyMessage(moneySafety, t)}</p>
           {!moneySafety.policyAcknowledged ? <button type="button" className="secondary" onClick={() => { void acknowledgeSafety(); }} disabled={saving}>{t('account.addMoney.acceptPolicies')}</button> : <p className="meta">{t('account.addMoney.policyAccepted', { version: moneySafety.policyVersion })}</p>}
         </section>
       ) : null}
@@ -146,7 +146,7 @@ export function AddMoneyClient() {
                 if (isSupportedCurrency(event.target.value)) setCurrency(event.target.value);
               }}
             >
-              {currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
+              {currencyOptions.map((option) => <option key={option.code} value={option.code}>{option.label} · {t(`common.locale.currencies.${option.code}`)}</option>)}
             </select>
           </label>
         </div>

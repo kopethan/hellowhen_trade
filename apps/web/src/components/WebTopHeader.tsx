@@ -9,9 +9,10 @@ import { useWebTranslation } from '../providers/WebI18nProvider';
 import { WebIcon } from './WebIcon';
 
 function WebBetaHeaderBadge() {
+  const { t } = useWebTranslation();
   if (betaFeatures.moneyFeaturesVisible) return null;
 
-  return <span className="web-header-beta-badge">BETA</span>;
+  return <span className="web-header-beta-badge">{t('common.states.beta')}</span>;
 }
 
 function WebDesktopNav({ pathname, authenticated }: { pathname: string; authenticated: boolean }) {

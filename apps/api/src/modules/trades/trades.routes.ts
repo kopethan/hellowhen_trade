@@ -4,7 +4,7 @@ import { createTradeProposalRequestSchema, createTradeRequestSchema, listTradesF
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
 import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
 import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
@@ -155,10 +155,19 @@ function sortTradesForDiscovery<T extends { id: string; createdAt?: Date | strin
   });
 }
 
+export function publicTradeVisibilityWhere(now = new Date()): Prisma.TradeWhereInput {
+  return {
+    AND: [
+      { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+      { owner: { trustTier: { not: 'restricted' } } },
+      { OR: [{ needId: null }, { need: { is: { status: 'active' } } }] },
+      { OR: [{ offerId: null }, { offer: { is: { status: 'active' } } }] },
+    ],
+  };
+}
+
 function buildFeedWhere(input: ListTradesFeedQuery): Prisma.TradeWhereInput {
-  const and: Prisma.TradeWhereInput[] = [
-    { status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
-  ];
+  const and: Prisma.TradeWhereInput[] = [publicTradeVisibilityWhere()];
 
   const q = input.q?.trim();
   if (q) {
@@ -288,7 +297,17 @@ tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
 }));
 tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
-  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, AND: [...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])], OR: [{ isPublic: true }, ...(actorId ? [{ ownerId: actorId }, { providerId: actorId }, { proposals: { some: { applicantId: actorId } } }] : [])] }, include: tradeInclude });
+  const participantAccess: Prisma.TradeWhereInput[] = actorId
+    ? [{ ownerId: actorId }, { providerId: actorId }, { proposals: { some: { applicantId: actorId } } }]
+    : [];
+  const trade = await prisma.trade.findFirst({
+    where: {
+      id: req.params.tradeId,
+      AND: [...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])],
+      OR: [publicTradeVisibilityWhere(), ...participantAccess],
+    },
+    include: tradeInclude,
+  });
   if (!trade) return res.status(404).json({ error: 'not_found' });
   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
@@ -298,7 +317,7 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
 const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
 const tradeDuplicateBlockingStatuses = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'disputed'] as const;
 
-tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
+tradesRoutes.delete('/:tradeId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: actorId }, include: tradeInclude });
   if (!trade) return res.status(404).json({ error: 'not_found' });
@@ -325,7 +344,7 @@ tradesRoutes.delete('/:tradeId', requireAuth, asyncRoute(async (req, res) => {
 
   res.json({ trade: await withOneTradeDeckMedia(deleted, 'owner'), deleted: true });
 }));
-tradesRoutes.post('/', requireAuth, asyncRoute(async (req, res) => {
+tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createTradeRequestSchema.parse(req.body);
   const actorId = req.user!.id;
   const postType = input.postType ?? 'need_offer';
@@ -461,10 +480,10 @@ tradesRoutes.get('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res)
   const proposals = await prisma.tradeProposal.findMany({ where: trade.ownerId === actorId ? { tradeId: trade.id } : { tradeId: trade.id, applicantId: actorId }, include: proposalInclude, orderBy: { createdAt: 'desc' } });
   res.json({ proposals: await withProposalTradeMedia(proposals, 'owner') });
 }));
-tradesRoutes.post('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res) => {
+tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createTradeProposalRequestSchema.parse(req.body);
   const actorId = req.user!.id;
-  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, status: 'active', isPublic: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } });
+  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ...publicTradeVisibilityWhere() } });
   if (!trade) return res.status(404).json({ error: 'not_found', message: 'This trade is no longer open for proposals.' });
   if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
@@ -544,7 +563,7 @@ export async function refundHeldWalletMoney(tx: Prisma.TransactionClient, trade:
   await tx.tradeEscrow.updateMany({ where: { tradeId: trade.id }, data: { holdReleasedAt: new Date() } });
 }
 
-tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) => {
+tradesRoutes.patch('/:tradeId/status', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateTradeStatusRequestSchema.parse(req.body);
   const actorId = req.user!.id;
   const trade = await prisma.trade.findUnique({ where: { id: req.params.tradeId }, include: tradeInclude });
@@ -608,7 +627,7 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, asyncRoute(async (req, res) 
   }
   return res.status(409).json({ error: 'invalid_trade_status_transition' });
 }));
-tradesRoutes.post('/:tradeId/close', requireAuth, asyncRoute(async (req, res) => {
+tradesRoutes.post('/:tradeId/close', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: req.user!.id } });
   if (!trade) return res.status(404).json({ error: 'not_found' });
   const closed = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'closed', isPublic: false, closedAt: new Date() }, include: tradeInclude });

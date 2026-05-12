@@ -1,5 +1,5 @@
 export const auth = {
-  checkingAccess: 'Vérification de l’accès à votre compte...',
+  checkingAccess: 'Vérification de l’accès à votre compte…',
   brandBadge: 'Échange',
   subtitles: {
     login: 'Connectez-vous pour créer des besoins, offres, échanges et propositions.',
@@ -8,6 +8,7 @@ export const auth = {
     forgotNative: 'Réinitialisez votre mot de passe avec l’e-mail de votre compte.',
   },
   modes: {
+    label: 'Mode d’authentification',
     login: 'Connexion',
     register: 'Inscription',
     reset: 'Réinitialiser',
@@ -51,17 +52,19 @@ export const auth = {
     googleFailed: 'La connexion Google a échoué.',
   },
   actions: {
+    googleUnavailableWeb: 'La connexion Google n’est pas encore connectée sur le web.',
     signIn: 'Se connecter',
     login: 'Connexion',
     createAccount: 'Créer un compte',
     sendResetLink: 'Envoyer le lien',
     continueWithGoogle: 'Continuer avec Google',
-    openingGoogle: 'Ouverture de Google...',
+    openingGoogle: 'Ouverture de Google…',
     resetPassword: 'Réinitialiser le mot de passe',
-    resetting: 'Réinitialisation...',
+    resetting: 'Réinitialisation…',
     backToLogin: 'Retour à la connexion',
   },
   reset: {
+    requested: 'Si cette adresse e-mail existe, nous avons envoyé un lien de réinitialisation.',
     badge: 'Réinitialisation',
     title: 'Réinitialiser votre mot de passe Hellowhen',
     body: 'Choisissez un nouveau mot de passe pour votre compte Hellowhen. Les liens de réinitialisation sont à usage unique et expirent automatiquement.',
@@ -70,7 +73,7 @@ export const auth = {
     success: 'Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.',
   },
   session: {
-    checkingTitle: 'Vérification de la session...',
+    checkingTitle: 'Vérification de la session…',
     checkingBody: 'Chargement de l’état de votre compte.',
     signedOutTitle: 'Connectez-vous pour gérer votre compte',
     signedOutBody: 'Créez des besoins, offres, échanges, propositions et demandes de support après connexion.',

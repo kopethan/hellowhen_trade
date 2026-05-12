@@ -2,7 +2,25 @@ import bcrypt from 'bcryptjs';
 import { PrismaClient, type Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const passwordHashPromise = bcrypt.hash('password123', 12);
+
+const demoPassword = process.env.SEED_DEMO_PASSWORD?.trim() || 'password123';
+const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim() || 'admin@hellowhen.app';
+const adminPassword = process.env.SEED_ADMIN_PASSWORD?.trim() || demoPassword;
+const adminDisplayName = process.env.SEED_ADMIN_DISPLAY_NAME?.trim() || 'Admin Reviewer';
+const adminHandle = process.env.SEED_ADMIN_HANDLE?.trim() || 'admin';
+const passwordHashCache = new Map<string, Promise<string>>();
+
+function getPasswordHash(password: string) {
+  const safePassword = password.trim();
+  if (!safePassword || safePassword.length < 8) {
+    throw new Error('Seed passwords must be at least 8 characters. Set SEED_DEMO_PASSWORD or SEED_ADMIN_PASSWORD.');
+  }
+  const cached = passwordHashCache.get(safePassword);
+  if (cached) return cached;
+  const hashPromise = bcrypt.hash(safePassword, 12);
+  passwordHashCache.set(safePassword, hashPromise);
+  return hashPromise;
+}
 
 type DemoUserInput = {
   email: string;
@@ -10,10 +28,11 @@ type DemoUserInput = {
   handle: string;
   bio: string;
   role?: 'user' | 'admin';
+  password?: string;
 };
 
 async function upsertDemoUser(input: DemoUserInput) {
-  const passwordHash = await passwordHashPromise;
+  const passwordHash = await getPasswordHash(input.password ?? demoPassword);
   const role = input.role ?? 'user';
 
   const user = await prisma.user.upsert({
@@ -491,11 +510,12 @@ async function main() {
   });
 
   const admin = await upsertDemoUser({
-    email: 'admin@hellowhen.app',
-    displayName: 'Admin Reviewer',
-    handle: 'admin',
+    email: adminEmail,
+    displayName: adminDisplayName,
+    handle: adminHandle,
     bio: 'Demo admin account for reviewing support tickets and safety reports.',
     role: 'admin',
+    password: adminPassword,
   });
 
   await removeLegacyMoneyDemoData([demo.id, helper.id, admin.id]);
@@ -873,9 +893,13 @@ async function main() {
   }
 
   console.log('Seeded beta-safe demo accounts, starter Need/Offer templates, expanded inventory, stress-test trades, proposal flow, and support ticket flow.');
-  console.log('Owner:  demo@hellowhen.app / password123');
-  console.log('Helper: helper@hellowhen.app / password123');
-  console.log('Admin:  admin@hellowhen.app / password123');
+  console.log(`Owner:  demo@hellowhen.app / ${demoPassword}`);
+  console.log(`Helper: helper@hellowhen.app / ${demoPassword}`);
+  console.log(`Admin:  ${adminEmail} / ${adminPassword}`);
+  if (adminPassword === 'password123') {
+    console.log('Admin setup warning: SEED_ADMIN_PASSWORD is using the default local demo password. Change it outside local development.');
+  }
+  console.log('Admin setup note: if ADMIN_REQUIRE_TWO_FACTOR=true, enable authenticator 2FA on the admin account before using /admin tools, or set ADMIN_REQUIRE_TWO_FACTOR=false only for local smoke tests.');
   console.log(`Sample trades: ${openTrade.title}; ${helperTrade.title}`);
 }
 

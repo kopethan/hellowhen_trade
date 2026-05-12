@@ -60,6 +60,7 @@ export const settings = {
     password: 'Password',
     authenticatorOrRecovery: 'Authenticator or recovery code',
     verificationRequested: 'Verification email requested.',
+    developmentLink: 'Development link',
     setupStarted: 'Add the secret to your authenticator app, then enter the 6-digit code.',
     twoFactorEnabled: 'Two-step verification enabled. Save your recovery codes now.',
     twoFactorDisabled: 'Two-step verification disabled.',

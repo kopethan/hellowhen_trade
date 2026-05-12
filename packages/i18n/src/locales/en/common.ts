@@ -5,6 +5,7 @@ export const common = {
     cancel: 'Cancel',
     close: 'Close',
     continue: 'Continue',
+    confirm: 'Confirm',
     create: 'Create',
     edit: 'Edit',
     hide: 'Hide',
@@ -30,6 +31,7 @@ export const common = {
     viewAll: 'View all',
   },
   states: {
+    beta: 'Beta',
     loading: 'Loading',
     working: 'Working...',
     saving: 'Saving...',
@@ -49,6 +51,24 @@ export const common = {
     yes: 'On',
     no: 'Off',
     notSynced: 'not synced',
+  },
+  locale: {
+    countries: {
+      FR: 'France',
+      US: 'United States',
+      GB: 'United Kingdom',
+      DE: 'Germany',
+      ES: 'Spain',
+      IT: 'Italy',
+    },
+    currencies: {
+      eur: 'Euro',
+      usd: 'US dollar',
+      gbp: 'British pound',
+    },
+    defaultCurrency: 'Default currency {{currency}}',
+    selectCountry: 'Select country',
+    selectCurrency: 'Select currency',
   },
   messages: {
     settingsUpdated: 'Your settings have been updated.',

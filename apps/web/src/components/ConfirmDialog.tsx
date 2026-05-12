@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useWebTranslation } from '../providers/WebI18nProvider';
 
 type ConfirmDialogVariant = 'default' | 'danger' | 'warning';
 
@@ -23,14 +24,18 @@ export function ConfirmDialog({
   title,
   body,
   eyebrow,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   variant = 'default',
   loading = false,
   showCancel = true,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useWebTranslation();
+  const confirmText = confirmLabel ?? t('common.actions.confirm');
+  const cancelText = cancelLabel ?? t('common.actions.cancel');
+
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
@@ -60,8 +65,8 @@ export function ConfirmDialog({
           <p>{body}</p>
         </div>
         <div className="app-dialog__actions">
-          {showCancel ? <button type="button" className="secondary" onClick={onCancel} disabled={loading}>{cancelLabel}</button> : null}
-          <button type="button" className={confirmClass} onClick={() => void onConfirm()} disabled={loading}>{loading ? 'Working...' : confirmLabel}</button>
+          {showCancel ? <button type="button" className="secondary" onClick={onCancel} disabled={loading}>{cancelText}</button> : null}
+          <button type="button" className={confirmClass} onClick={() => void onConfirm()} disabled={loading}>{loading ? t('common.states.working') : confirmText}</button>
         </div>
       </section>
     </div>

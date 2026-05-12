@@ -8,3 +8,5 @@ export * from './credits.js';
 export * from './support.js';
 export * from './business.js';
 export * from './users.js';
+export * from './admin.js';
+export * from './reports.js';

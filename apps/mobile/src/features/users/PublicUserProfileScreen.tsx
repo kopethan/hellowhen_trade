@@ -8,6 +8,7 @@ import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+import { ReportContentPanel } from '../../components/ReportContentPanel';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
@@ -241,6 +242,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                   {profile.user.profile?.countryCode ? <SemanticBadge label={profile.user.profile.countryCode} tone="muted" size="sm" /> : null}
                   {memberSince ? <SemanticBadge label={t('profile.memberSince', { date: memberSince })} tone="info" size="sm" /> : null}
                 </View>
+                <ReportContentPanel targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" />
               </View>
             </AppCard>
 

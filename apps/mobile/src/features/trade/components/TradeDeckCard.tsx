@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { truncateText } from '@hellowhen/shared';
+import { formatLocalizedTimeUntil, type SupportedLanguage } from '@hellowhen/i18n';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
 import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
@@ -31,19 +32,16 @@ function getPublicOwnerId(ownerId?: string | null) {
   return ownerId;
 }
 
-function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction) {
-  if (!expiresAt) return t('trade.labels.openExpiry');
-  const expiresMs = new Date(expiresAt).getTime();
-  if (!Number.isFinite(expiresMs)) return t('trade.labels.openExpiry');
-  const diffMs = expiresMs - Date.now();
-  if (diffMs <= 0) return t('trade.expiry.expired');
-  const hours = Math.ceil(diffMs / 1000 / 60 / 60);
-  if (hours < 24) return t('trade.expiry.hoursLeft', { count: hours });
-  return t('trade.expiry.daysLeft', { count: Math.ceil(hours / 24) });
+function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction, language: SupportedLanguage) {
+  return formatLocalizedTimeUntil(expiresAt, language, {
+    noValue: t('trade.labels.openExpiry'),
+    expired: t('trade.expiry.expired'),
+    fallback: (count, unit) => unit === 'hour' ? t('trade.expiry.hoursLeft', { count }) : t('trade.expiry.daysLeft', { count }),
+  });
 }
 
 export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSave }: TradeDeckCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const kind = getTradeKind(trade, t);
   return (
     <View style={styles.card}>
@@ -69,7 +67,7 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
         />
       </View>
       <View style={styles.metaRow}>
-        <SemanticBadge label={getExpiryLabel(trade.expiresAt, t)} tone="time" size="sm" />
+        <SemanticBadge label={getExpiryLabel(trade.expiresAt, t, language)} tone="time" size="sm" />
         <SemanticBadge label={t('trade.labels.optionalMoney')} tone="info" size="sm" />
       </View>
       <View style={styles.actionsRow}>

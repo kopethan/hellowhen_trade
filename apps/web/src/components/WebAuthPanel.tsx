@@ -90,8 +90,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
         router.replace(redirectTo);
         router.refresh();
       } else {
-        const result = await auth.forgotPassword(email.trim());
-        setMessage(result.message);
+        await auth.forgotPassword(email.trim());
+        setMessage(t('auth.reset.requested'));
       }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
@@ -108,7 +108,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
         <p>{t(subtitleKey(mode))}</p>
       </div>
 
-      <div className="auth-toggle-row" role="tablist" aria-label="Auth mode">
+      <div className="auth-toggle-row" role="tablist" aria-label={t('auth.modes.label')}>
         <button className={mode === 'login' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('login')}>{t('auth.modes.login')}</button>
         <button className={mode === 'register' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('register')}>{t('auth.modes.register')}</button>
         <button className={mode === 'forgot' ? 'auth-toggle auth-toggle--active' : 'auth-toggle'} type="button" onClick={() => switchMode('forgot')}>{t('auth.modes.reset')}</button>
@@ -160,7 +160,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
                   }}
                 >
                   {countryOptions.map((country) => (
-                    <option key={country.code} value={country.code}>{country.label} · {t('auth.localDisplay.countryDefaultCurrency', { currency: country.currency.toUpperCase() })}</option>
+                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)} · {t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() })}</option>
                   ))}
                 </select>
               </label>
@@ -173,7 +173,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
                   }}
                 >
                   {currencyOptions.map((currency) => (
-                    <option key={currency.code} value={currency.code}>{currency.label} · {currency.helper}</option>
+                    <option key={currency.code} value={currency.code}>{currency.label} · {t(`common.locale.currencies.${currency.code}`)}</option>
                   ))}
                 </select>
               </label>
@@ -193,7 +193,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
       <div className="auth-actions">
         <button type="button" onClick={() => { void submit(); }} disabled={submitting}>{primaryLabel}</button>
-        <button type="button" className="secondary" disabled title="Google sign-in is not wired for web yet">{t('auth.actions.continueWithGoogle')}</button>
+        <button type="button" className="secondary" disabled title={t('auth.actions.googleUnavailableWeb')}>{t('auth.actions.continueWithGoogle')}</button>
       </div>
     </section>
   );

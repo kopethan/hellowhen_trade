@@ -16,6 +16,19 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BusinessAccounts'>;
 type BusinessProfile = { id: string; displayName: string; type: string; status: string; preferredCurrency?: string; countryCode?: string | null; updatedAt?: string };
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+
+function localizedBusinessType(type: string, t: TFunction) {
+  const key = `account.business.types.${type}`;
+  const label = t(key);
+  return label === key ? type.replaceAll('_', ' ') : label;
+}
+
+function localizedBusinessStatus(status: string, t: TFunction) {
+  const key = `account.business.statuses.${status}`;
+  const label = t(key);
+  return label === key ? status.replaceAll('_', ' ') : label;
+}
 
 export function BusinessAccountsScreen({ navigation }: Props) {
   const theme = useThemeTokens();
@@ -53,9 +66,9 @@ export function BusinessAccountsScreen({ navigation }: Props) {
             <AppCard key={profile.id}>
               <View style={styles.row}>
                 <View style={styles.copy}>
-                  <SemanticBadge label={profile.type.replaceAll('_', ' ')} tone={profile.status === 'verified' ? 'success' : 'instruction'} />
+                  <SemanticBadge label={localizedBusinessType(profile.type, t)} tone={profile.status === 'verified' ? 'success' : 'instruction'} />
                   <AppText style={styles.title}>{profile.displayName}</AppText>
-                  <AppText style={[styles.meta, { color: theme.color.muted }]}>{profile.status.replaceAll('_', ' ')} · {(profile.preferredCurrency ?? 'eur').toUpperCase()}{profile.countryCode ? ` · ${profile.countryCode}` : ''}</AppText>
+                  <AppText style={[styles.meta, { color: theme.color.muted }]}>{localizedBusinessStatus(profile.status, t)} · {(profile.preferredCurrency ?? 'eur').toUpperCase()}{profile.countryCode ? ` · ${profile.countryCode}` : ''}</AppText>
                 </View>
               </View>
             </AppCard>

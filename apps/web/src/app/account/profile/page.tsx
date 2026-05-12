@@ -197,7 +197,7 @@ export default function AccountProfilePage() {
                 </label>
                 {avatarUrl ? <button type="button" className="secondary" disabled={saving} onClick={() => { void removeAvatar(); }}>{t('common.actions.remove')}</button> : null}
               </div>
-              {avatar?.status ? <span className="semantic-badge instruction">{avatar.status.replace(/_/g, ' ')}</span> : null}
+              {avatar?.status ? <span className="semantic-badge instruction">{t(`media.statuses.${avatar.status}`)}</span> : null}
             </div>
           </div>
 
@@ -231,7 +231,7 @@ export default function AccountProfilePage() {
                   }}
                 >
                   {countryOptions.map((country) => (
-                    <option key={country.code} value={country.code}>{country.label} · default {country.currency.toUpperCase()}</option>
+                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)} · {t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() })}</option>
                   ))}
                 </select>
               </label>
@@ -244,7 +244,7 @@ export default function AccountProfilePage() {
                   }}
                 >
                   {currencyOptions.map((currency) => (
-                    <option key={currency.code} value={currency.code}>{currency.label} · {currency.helper}</option>
+                    <option key={currency.code} value={currency.code}>{currency.label} · {t(`common.locale.currencies.${currency.code}`)}</option>
                   ))}
                 </select>
               </label>
