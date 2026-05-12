@@ -52,6 +52,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname === '/offers', title: 'Offers', root: true },
   { match: (pathname) => pathname === '/account', title: 'Account', root: true },
   { match: (pathname) => pathname === '/trades/create', title: 'Create trade', backHref: '/trades' },
+  { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), title: 'Profile', backHref: '/trades' },
   { match: (pathname) => /^\/trades\/[^/]+$/.test(pathname), title: 'Trade', backHref: '/trades' },
   { match: (pathname) => pathname === '/needs/new', title: 'Create need', backHref: '/needs' },
   { match: (pathname) => /^\/needs\/[^/]+\/edit$/.test(pathname), title: 'Edit need', backHref: '/needs' },

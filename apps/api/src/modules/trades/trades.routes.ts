@@ -9,11 +9,11 @@ import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
 import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
 import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+import { publicUserPreviewSelect } from '../users/publicUser.js';
 
 export const tradesRoutes = Router();
-const userPreviewSelect = { id: true, profile: true } as const;
-export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
-export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
 
 type DeckRelatedEntity = { id: string } | null | undefined;
 type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };

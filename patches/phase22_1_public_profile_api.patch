@@ -1,0 +1,296 @@
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json apps/api/src/modules/proposals/proposals.routes.ts apps/api/src/modules/proposals/proposals.routes.ts
+--- apps/api/src/modules/proposals/proposals.routes.ts	2026-05-11 20:17:12.000000000 +0000
++++ apps/api/src/modules/proposals/proposals.routes.ts	2026-05-11 20:25:44.883222304 +0000
+@@ -4,6 +4,7 @@
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+ import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
++import { publicUserPreviewSelect } from '../users/publicUser.js';
+ 
+ export const proposalsRoutes = Router();
+ proposalsRoutes.use(requireAuth);
+@@ -64,7 +65,7 @@
+   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+-  const messages = await prisma.proposalMessage.findMany({ where: { proposalId: proposal.id }, include: { sender: { select: { id: true, profile: true } } }, orderBy: { createdAt: 'asc' } });
++  const messages = await prisma.proposalMessage.findMany({ where: { proposalId: proposal.id }, include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' } });
+   res.json({ messages });
+ }));
+ proposalsRoutes.post('/:proposalId/messages', asyncRoute(async (req, res) => {
+@@ -74,7 +75,7 @@
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+   if (['declined', 'withdrawn'].includes(proposal.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
+-  const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: { id: true, profile: true } } } });
++  const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: publicUserPreviewSelect } } });
+   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
+   res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
+ }));
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json apps/api/src/modules/trades/trades.routes.ts apps/api/src/modules/trades/trades.routes.ts
+--- apps/api/src/modules/trades/trades.routes.ts	2026-05-11 20:17:12.000000000 +0000
++++ apps/api/src/modules/trades/trades.routes.ts	2026-05-11 20:25:43.371772610 +0000
+@@ -9,11 +9,11 @@
+ import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
+ import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+ import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
++import { publicUserPreviewSelect } from '../users/publicUser.js';
+ 
+ export const tradesRoutes = Router();
+-const userPreviewSelect = { id: true, profile: true } as const;
+-export const tradeInclude = { owner: { select: userPreviewSelect }, provider: { select: userPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+-export const proposalInclude = { applicant: { select: userPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: userPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
++export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
++export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+ 
+ type DeckRelatedEntity = { id: string } | null | undefined;
+ type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json apps/api/src/modules/users/publicUser.ts apps/api/src/modules/users/publicUser.ts
+--- apps/api/src/modules/users/publicUser.ts	1970-01-01 00:00:00.000000000 +0000
++++ apps/api/src/modules/users/publicUser.ts	2026-05-11 20:25:30.563681258 +0000
+@@ -0,0 +1,24 @@
++export const publicProfilePreviewSelect = {
++  displayName: true,
++  handle: true,
++  avatarUrl: true,
++} as const;
++
++export const publicProfileSelect = {
++  displayName: true,
++  handle: true,
++  bio: true,
++  avatarUrl: true,
++  countryCode: true,
++} as const;
++
++export const publicUserPreviewSelect = {
++  id: true,
++  profile: { select: publicProfilePreviewSelect },
++} as const;
++
++export const publicUserProfileSelect = {
++  id: true,
++  createdAt: true,
++  profile: { select: publicProfileSelect },
++} as const;
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json apps/api/src/modules/users/users.routes.ts apps/api/src/modules/users/users.routes.ts
+--- apps/api/src/modules/users/users.routes.ts	1970-01-01 00:00:00.000000000 +0000
++++ apps/api/src/modules/users/users.routes.ts	2026-05-11 20:28:39.199112953 +0000
+@@ -0,0 +1,66 @@
++import { Router } from 'express';
++import { asyncRoute } from '../../lib/asyncRoute.js';
++import { prisma } from '../../lib/prisma.js';
++import { withTradeDeckMedia } from '../trades/trades.routes.js';
++import { publicUserProfileSelect } from './publicUser.js';
++
++export const usersRoutes = Router();
++
++const publicPostWhereBase = (userId: string) => ({
++  ownerId: userId,
++  isPublic: true,
++  status: 'active' as const,
++  OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
++});
++
++const publicTradeSummaryInclude = {
++  need: true,
++  offer: true,
++} as const;
++
++usersRoutes.get('/:userId/public-profile', asyncRoute(async (req, res) => {
++  const userId = req.params.userId;
++  if (!userId) return res.status(400).json({ error: 'missing_user_id' });
++
++  const user = await prisma.user.findUnique({
++    where: { id: userId },
++    select: publicUserProfileSelect,
++  });
++
++  if (!user) return res.status(404).json({ error: 'not_found' });
++
++  const [completedTradesCount, activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
++    prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
++    prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' } }),
++    prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'open_need' } }),
++    prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'open_offer' } }),
++    prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
++    prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_need' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
++    prisma.trade.findMany({ where: { ...publicPostWhereBase(userId), postType: 'open_offer' }, include: publicTradeSummaryInclude, orderBy: { createdAt: 'desc' }, take: 12 }),
++  ]);
++
++  const [activeTradesWithMedia, openNeedsWithMedia, openOffersWithMedia] = await Promise.all([
++    withTradeDeckMedia(activeTrades, 'trade_public'),
++    withTradeDeckMedia(openNeeds, 'trade_public'),
++    withTradeDeckMedia(openOffers, 'trade_public'),
++  ]);
++
++  res.json({
++    user: {
++      id: user.id,
++      memberSince: user.createdAt,
++      profile: user.profile,
++    },
++    stats: {
++      completedTradesCount,
++      activeTradesCount,
++      openNeedsCount,
++      openOffersCount,
++    },
++    sections: {
++      activeTrades: activeTradesWithMedia,
++      openNeeds: openNeedsWithMedia,
++      openOffers: openOffersWithMedia,
++    },
++  });
++}));
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json apps/api/src/routes.ts apps/api/src/routes.ts
+--- apps/api/src/routes.ts	2026-05-11 20:17:12.000000000 +0000
++++ apps/api/src/routes.ts	2026-05-11 20:25:31.761575667 +0000
+@@ -13,6 +13,7 @@
+ import { settingsRoutes } from './modules/settings/settings.routes.js';
+ import { supportRoutes } from './modules/support/support.routes.js';
+ import { tradesRoutes } from './modules/trades/trades.routes.js';
++import { usersRoutes } from './modules/users/users.routes.js';
+ import { walletRoutes } from './modules/wallet/wallet.routes.js';
+ import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireWalletVisible } from './middleware/featureGates.js';
+ 
+@@ -29,6 +30,7 @@
+ routes.use('/needs', needsRoutes);
+ routes.use('/offers', offersRoutes);
+ routes.use('/trades', tradesRoutes);
++routes.use('/users', usersRoutes);
+ routes.use('/proposals', proposalsRoutes);
+ routes.use('/wallet', requireWalletVisible(), walletRoutes);
+ routes.use('/media', mediaRoutes);
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json packages/api-client/src/index.ts packages/api-client/src/index.ts
+--- packages/api-client/src/index.ts	2026-05-11 20:17:12.000000000 +0000
++++ packages/api-client/src/index.ts	2026-05-11 20:26:01.528639434 +0000
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -21,6 +21,8 @@
+     needs: { create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/needs/mine'), get: (needId: string) => requestJson(options, `/needs/${needId}`), deleteImpact: (needId: string) => requestJson(options, `/needs/${needId}/delete-impact`), update: (needId: string, body: UpdateNeedRequest) => requestJson(options, `/needs/${needId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (needId: string) => requestJson(options, `/needs/${needId}`, { method: 'DELETE' }) },
+     offers: { create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/offers/mine'), get: (offerId: string) => requestJson(options, `/offers/${offerId}`), deleteImpact: (offerId: string) => requestJson(options, `/offers/${offerId}/delete-impact`), update: (offerId: string, body: UpdateOfferRequest) => requestJson(options, `/offers/${offerId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (offerId: string) => requestJson(options, `/offers/${offerId}`, { method: 'DELETE' }) },
+     inventoryTemplates: { list: (query?: ListInventoryTemplatesQuery) => requestJson(options, `/inventory-templates${buildQueryString(query as Record<string, unknown> | undefined)}`), get: (templateId: string) => requestJson(options, `/inventory-templates/${templateId}`), clone: (templateId: string, body?: CloneInventoryTemplateRequest) => requestJson(options, `/inventory-templates/${templateId}/clone`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`) },
++
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json packages/contracts/src/index.ts packages/contracts/src/index.ts
+--- packages/contracts/src/index.ts	2026-05-11 20:17:12.000000000 +0000
++++ packages/contracts/src/index.ts	2026-05-11 20:25:18.451867107 +0000
+@@ -7,3 +7,4 @@
+ export * from './credits.js';
+ export * from './support.js';
+ export * from './business.js';
++export * from './users.js';
+diff -ruN --exclude node_modules --exclude package-lock.json --exclude package.json packages/contracts/src/users.ts packages/contracts/src/users.ts
+--- packages/contracts/src/users.ts	1970-01-01 00:00:00.000000000 +0000
++++ packages/contracts/src/users.ts	2026-05-11 20:25:17.211713260 +0000
+@@ -0,0 +1,102 @@
++import { z } from 'zod';
++import { mediaAssetSchema } from './media.js';
++import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
++
++export const publicProfileSchema = z.object({
++  displayName: z.string().nullable().optional(),
++  handle: z.string().nullable().optional(),
++  bio: z.string().nullable().optional(),
++  avatarUrl: z.string().nullable().optional(),
++  countryCode: z.string().nullable().optional(),
++});
++
++export const publicUserProfileSchema = z.object({
++  id: z.string(),
++  memberSince: z.string(),
++  profile: publicProfileSchema.nullable().optional(),
++});
++
++const publicNeedSummarySchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string(),
++  itemType: inventoryItemTypeSchema.optional().default('service'),
++  category: z.string().nullable().optional(),
++  timing: z.string().nullable().optional(),
++  mode: tradeExchangeModeSchema.nullable().optional(),
++  locationLabel: z.string().nullable().optional(),
++  tags: z.array(z.string()).optional(),
++  status: needStatusSchema,
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  expiresAt: z.string().nullable().optional(),
++  media: z.array(mediaAssetSchema).optional(),
++});
++
++const publicOfferSummarySchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string(),
++  itemType: inventoryItemTypeSchema.optional().default('service'),
++  category: z.string().nullable().optional(),
++  availability: z.string().nullable().optional(),
++  mode: tradeExchangeModeSchema.nullable().optional(),
++  locationLabel: z.string().nullable().optional(),
++  includes: z.array(z.string()).optional(),
++  tags: z.array(z.string()).optional(),
++  status: offerStatusSchema,
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  expiresAt: z.string().nullable().optional(),
++  media: z.array(mediaAssetSchema).optional(),
++});
++
++export const publicProfileTradeSummarySchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  providerId: z.string().nullable().optional(),
++  needId: z.string().nullable().optional(),
++  offerId: z.string().nullable().optional(),
++  title: z.string(),
++  description: z.string(),
++  amountCents: z.number().int().optional().default(0),
++  currency: z.string().optional().default('eur'),
++  postType: tradePostTypeSchema.optional().default('need_offer'),
++  status: tradeStatusSchema,
++  isPublic: z.boolean(),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  expiresAt: z.string().nullable().optional(),
++  closedAt: z.string().nullable().optional(),
++  need: publicNeedSummarySchema.nullable().optional(),
++  offer: publicOfferSummarySchema.nullable().optional(),
++  media: z.array(mediaAssetSchema).optional(),
++});
++
++export const publicProfileStatsSchema = z.object({
++  completedTradesCount: z.number().int().nonnegative(),
++  activeTradesCount: z.number().int().nonnegative(),
++  openNeedsCount: z.number().int().nonnegative(),
++  openOffersCount: z.number().int().nonnegative(),
++});
++
++export const publicProfileSectionsSchema = z.object({
++  activeTrades: z.array(publicProfileTradeSummarySchema),
++  openNeeds: z.array(publicProfileTradeSummarySchema),
++  openOffers: z.array(publicProfileTradeSummarySchema),
++});
++
++export const publicProfileResponseSchema = z.object({
++  user: publicUserProfileSchema,
++  stats: publicProfileStatsSchema,
++  sections: publicProfileSectionsSchema,
++});
++
++export type PublicProfile = z.infer<typeof publicProfileSchema>;
++export type PublicUserProfile = z.infer<typeof publicUserProfileSchema>;
++export type PublicProfileTradeSummary = z.infer<typeof publicProfileTradeSummarySchema>;
++export type PublicProfileStats = z.infer<typeof publicProfileStatsSchema>;
++export type PublicProfileSections = z.infer<typeof publicProfileSectionsSchema>;
++export type PublicProfileResponse = z.infer<typeof publicProfileResponseSchema>;

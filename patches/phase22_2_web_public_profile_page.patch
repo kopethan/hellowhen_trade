@@ -1,0 +1,330 @@
+diff -ruN apps/web/src/app/globals.css apps/web/src/app/globals.css
+--- apps/web/src/app/globals.css	2026-05-11 20:17:12.000000000 +0000
++++ apps/web/src/app/globals.css	2026-05-12 06:53:06.312821156 +0000
+@@ -1552,3 +1552,45 @@
+   font-weight: 760;
+   line-height: 1.45;
+ }
++
++/* Phase 22.2: public user profile page */
++.public-profile-page { display: grid; gap: 16px; max-width: 760px; margin: -4px auto 0; }
++.public-profile-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent); padding: 8px 4px 20px; }
++.public-profile-hero--loading { min-height: 180px; align-items: center; }
++.public-profile-hero h2 { margin: 8px 0 6px; font-size: clamp(28px, 8vw, 42px); line-height: 0.98; letter-spacing: -0.06em; }
++.public-profile-hero p { margin-bottom: 0; }
++.public-profile-hero__body { min-width: 0; }
++.public-profile-avatar { display: grid; place-items: center; overflow: hidden; width: 88px; height: 88px; border: 1px solid var(--app-border-strong); border-radius: 999px; background: linear-gradient(135deg, var(--app-surface), var(--app-surface-soft)); color: var(--app-text); box-shadow: var(--app-card-shadow); }
++.public-profile-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
++.public-profile-avatar span { font-size: 36px; font-weight: 950; letter-spacing: -0.08em; }
++.public-profile-meta-row { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; color: var(--app-text-muted); font-size: 13px; font-weight: 850; }
++.public-profile-meta-row span { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 999px; background: var(--app-surface-soft); padding: 0 10px; }
++.public-profile-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
++.public-profile-stats div { display: grid; gap: 3px; min-width: 0; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: 22px; background: var(--app-surface); padding: 13px 9px; text-align: center; box-shadow: var(--app-card-shadow); }
++.public-profile-stats strong { color: var(--app-text); font-size: 22px; line-height: 1; letter-spacing: -0.04em; }
++.public-profile-stats span { color: var(--app-text-muted); font-size: 10px; font-weight: 950; letter-spacing: 0.04em; line-height: 1.18; text-transform: uppercase; }
++.public-profile-section { display: grid; gap: 12px; border-top: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent); padding: 20px 4px 0; }
++.public-profile-section .trade-section-heading p { margin-bottom: 0; }
++.public-profile-post-list { display: grid; gap: 10px; }
++.public-profile-post-card { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; align-items: stretch; border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent); border-radius: 26px; background: var(--app-surface); padding: 10px; box-shadow: var(--app-card-shadow); }
++.public-profile-post-card__image { display: block; width: 88px; height: 100%; min-height: 104px; border-radius: 20px; background: var(--app-surface-soft); object-fit: cover; }
++.public-profile-post-card__image--fallback { display: grid; place-items: center; color: var(--app-text-soft); }
++.public-profile-post-card__body { display: grid; gap: 7px; min-width: 0; padding: 4px 4px 4px 0; }
++.public-profile-post-card h3 { margin: 0; color: var(--app-text); font-size: 17px; letter-spacing: -0.025em; }
++.public-profile-post-card p { display: -webkit-box; overflow: hidden; margin: 0; font-size: 13px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
++.public-profile-post-card .status-row { align-items: center; justify-content: space-between; gap: 8px; }
++.public-profile-post-card .status-row .meta { overflow: hidden; font-size: 11px; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
++.public-profile-post-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--app-text-muted); font-size: 12px; font-weight: 850; }
++.public-profile-post-card__meta span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.public-profile-post-card__meta strong { flex: 0 0 auto; color: var(--app-text); font-size: 12px; }
++.public-profile-empty-state { display: grid; place-items: center; gap: 6px; min-height: 132px; border: 2px dashed var(--app-border-strong); border-radius: 26px; background: var(--app-surface-soft); padding: 18px; text-align: center; }
++.public-profile-empty-state strong { font-size: 16px; }
++.public-profile-empty-state span { color: var(--app-text-muted); font-weight: 780; }
++
++@media (max-width: 420px) {
++  .public-profile-hero { grid-template-columns: 1fr; }
++  .public-profile-avatar { width: 82px; height: 82px; }
++  .public-profile-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .public-profile-post-card { grid-template-columns: 78px minmax(0, 1fr); }
++  .public-profile-post-card__image { width: 78px; min-height: 112px; }
++}
+diff -ruN apps/web/src/app/users/[userId]/page.tsx apps/web/src/app/users/[userId]/page.tsx
+--- apps/web/src/app/users/[userId]/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ apps/web/src/app/users/[userId]/page.tsx	2026-05-12 06:52:39.409879672 +0000
+@@ -0,0 +1,10 @@
++import { PublicUserProfileClient } from '../../../features/users/PublicUserProfileClient';
++
++type PublicUserProfilePageProps = {
++  params: Promise<{ userId: string }>;
++};
++
++export default async function PublicUserProfilePage({ params }: PublicUserProfilePageProps) {
++  const { userId } = await params;
++  return <PublicUserProfileClient userId={userId} />;
++}
+diff -ruN apps/web/src/features/users/PublicUserProfileClient.tsx apps/web/src/features/users/PublicUserProfileClient.tsx
+--- apps/web/src/features/users/PublicUserProfileClient.tsx	1970-01-01 00:00:00.000000000 +0000
++++ apps/web/src/features/users/PublicUserProfileClient.tsx	2026-05-12 06:52:39.430021535 +0000
+@@ -0,0 +1,252 @@
++'use client';
++
++import type { PublicProfileResponse, PublicProfileTradeSummary } from '@hellowhen/contracts';
++import { truncateText } from '@hellowhen/shared';
++import Link from 'next/link';
++import { useEffect, useMemo, useState } from 'react';
++import { WebIcon } from '../../components/WebIcon';
++import { api, resolveWebAssetUrl } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
++
++function profileName(profile: PublicProfileResponse['user']['profile']) {
++  return profile?.displayName?.trim() || profile?.handle?.trim() || 'Hellowhen member';
++}
++
++function profileInitial(profile: PublicProfileResponse['user']['profile']) {
++  const name = profileName(profile);
++  return name.slice(0, 1).toUpperCase() || 'H';
++}
++
++function countryLabel(countryCode?: string | null) {
++  const code = countryCode?.trim().toUpperCase();
++  if (!code) return null;
++  try {
++    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
++  } catch {
++    return code;
++  }
++}
++
++function compactJoin(values: Array<string | null | undefined>) {
++  return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
++}
++
++function postTypeLabel(post: PublicProfileTradeSummary) {
++  if (post.postType === 'open_need') return 'Open Need';
++  if (post.postType === 'open_offer') return 'Open Offer';
++  return 'Trade';
++}
++
++function postBadgeClass(post: PublicProfileTradeSummary) {
++  if (post.postType === 'open_need') return 'need';
++  if (post.postType === 'open_offer') return 'offer';
++  return 'trade';
++}
++
++function postTitle(post: PublicProfileTradeSummary) {
++  if (post.postType === 'open_need') return post.need?.title ?? post.title;
++  if (post.postType === 'open_offer') return post.offer?.title ?? post.title;
++  const needTitle = post.need?.title;
++  const offerTitle = post.offer?.title;
++  if (needTitle && offerTitle) return `${needTitle} ↔ ${offerTitle}`;
++  return post.title;
++}
++
++function postDescription(post: PublicProfileTradeSummary) {
++  if (post.postType === 'open_need') return post.need?.description ?? post.description;
++  if (post.postType === 'open_offer') return post.offer?.description ?? post.description;
++  return post.description;
++}
++
++function postMeta(post: PublicProfileTradeSummary) {
++  const needMeta = post.need ? compactJoin([post.need.category, post.need.timing, post.need.mode, post.need.locationLabel]) : '';
++  const offerMeta = post.offer ? compactJoin([post.offer.category, post.offer.availability, post.offer.mode, post.offer.locationLabel]) : '';
++  const mode = post.need?.mode ?? post.offer?.mode ?? null;
++  const details = post.postType === 'open_need'
++    ? needMeta
++    : post.postType === 'open_offer'
++      ? offerMeta
++      : compactJoin([mode, post.status]);
++  return details || `Posted ${formatWebShortDate(post.createdAt)}`;
++}
++
++function postImage(post: PublicProfileTradeSummary) {
++  const needImage = post.need?.media?.find((item) => item.status === 'active' && (item.url || item.storageKey));
++  const offerImage = post.offer?.media?.find((item) => item.status === 'active' && (item.url || item.storageKey));
++  const tradeImage = post.media?.find((item) => item.status === 'active' && (item.url || item.storageKey));
++  return needImage ?? offerImage ?? tradeImage ?? null;
++}
++
++function PostCard({ post }: { post: PublicProfileTradeSummary }) {
++  const image = postImage(post);
++  const imageSrc = image ? resolveWebAssetUrl(image.url, image.storageKey) : '';
++  const amountCents = post.amountCents ?? 0;
++  const hasMoney = amountCents > 0;
++
++  return (
++    <Link href={`/trades/${post.id}`} className="public-profile-post-card" aria-label={`Open ${postTitle(post)}`}>
++      {imageSrc ? (
++        <img className="public-profile-post-card__image" src={imageSrc} alt="" loading="lazy" />
++      ) : (
++        <div className="public-profile-post-card__image public-profile-post-card__image--fallback" aria-hidden="true">
++          <WebIcon name={post.postType === 'open_need' ? 'need' : post.postType === 'open_offer' ? 'offer' : 'trade'} size={28} decorative />
++        </div>
++      )}
++      <div className="public-profile-post-card__body">
++        <div className="status-row">
++          <span className={`semantic-badge ${postBadgeClass(post)}`}>{postTypeLabel(post)}</span>
++          <span className="meta">{post.status}</span>
++        </div>
++        <h3>{postTitle(post)}</h3>
++        <p>{truncateText(postDescription(post), 120)}</p>
++        <div className="public-profile-post-card__meta">
++          <span>{postMeta(post)}</span>
++          <strong>{hasMoney ? formatWebMoney(amountCents, post.currency) : 'Service-for-service'}</strong>
++        </div>
++      </div>
++    </Link>
++  );
++}
++
++function PublicProfileSection({ title, body, posts }: { title: string; body: string; posts: PublicProfileTradeSummary[] }) {
++  return (
++    <section className="public-profile-section">
++      <div className="trade-section-heading">
++        <div>
++          <p className="eyebrow">Public posts</p>
++          <h2>{title}</h2>
++          <p>{body}</p>
++        </div>
++        <span className="semantic-badge instruction">{posts.length}</span>
++      </div>
++      {posts.length ? (
++        <div className="public-profile-post-list">
++          {posts.map((post) => <PostCard key={post.id} post={post} />)}
++        </div>
++      ) : (
++        <div className="public-profile-empty-state">
++          <strong>Nothing public here yet</strong>
++          <span>Public active posts from this member will appear here.</span>
++        </div>
++      )}
++    </section>
++  );
++}
++
++function ProfileSkeleton() {
++  return (
++    <article className="public-profile-page">
++      <section className="public-profile-hero public-profile-hero--loading">
++        <div className="public-profile-avatar" aria-hidden="true"><span>H</span></div>
++        <div>
++          <span className="semantic-badge instruction">Loading</span>
++          <h2>Loading profile...</h2>
++          <p>Fetching public marketplace information.</p>
++        </div>
++      </section>
++    </article>
++  );
++}
++
++export function PublicUserProfileClient({ userId }: { userId: string }) {
++  const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
++  const [loading, setLoading] = useState(true);
++  const [error, setError] = useState<string | null>(null);
++
++  useEffect(() => {
++    let mounted = true;
++    async function loadProfile() {
++      setLoading(true);
++      setError(null);
++      try {
++        const response = await api.users.publicProfile(userId);
++        if (!mounted) return;
++        setProfile(response);
++      } catch (cause) {
++        if (!mounted) return;
++        setProfile(null);
++        setError(getFriendlyApiErrorMessage(cause, 'This public profile could not be loaded yet.'));
++      } finally {
++        if (mounted) setLoading(false);
++      }
++    }
++    void loadProfile();
++    return () => { mounted = false; };
++  }, [userId]);
++
++  const displayName = profileName(profile?.user.profile);
++  const avatarUrl = resolveWebAssetUrl(profile?.user.profile?.avatarUrl);
++  const location = countryLabel(profile?.user.profile?.countryCode);
++  const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince) : 'Unknown';
++  const handle = profile?.user.profile?.handle?.trim();
++  const stats = useMemo(() => profile ? [
++    { label: 'Completed', value: profile.stats.completedTradesCount },
++    { label: 'Active trades', value: profile.stats.activeTradesCount },
++    { label: 'Open needs', value: profile.stats.openNeedsCount },
++    { label: 'Open offers', value: profile.stats.openOffersCount },
++  ] : [], [profile]);
++
++  if (loading && !profile) return <ProfileSkeleton />;
++
++  if (!profile) {
++    return (
++      <article className="public-profile-page">
++        <section className="public-profile-hero">
++          <div className="public-profile-avatar" aria-hidden="true"><span>?</span></div>
++          <div>
++            <span className="semantic-badge danger">Not available</span>
++            <h2>Profile unavailable</h2>
++            <p>{error ?? 'This public profile could not be loaded.'}</p>
++          </div>
++        </section>
++        <Link href="/trades" className="button secondary">Back to trades</Link>
++      </article>
++    );
++  }
++
++  return (
++    <article className="public-profile-page">
++      <section className="public-profile-hero">
++        <div className="public-profile-avatar" aria-hidden="true">
++          {avatarUrl ? <img src={avatarUrl} alt="" /> : <span>{profileInitial(profile.user.profile)}</span>}
++        </div>
++        <div className="public-profile-hero__body">
++          <span className="semantic-badge trade">Public profile</span>
++          <h2>{displayName}</h2>
++          <div className="public-profile-meta-row">
++            {handle ? <span>@{handle}</span> : null}
++            <span>Member since {memberSince}</span>
++            {location ? <span>{location}</span> : null}
++          </div>
++          {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">This member has not added a public bio yet.</p>}
++        </div>
++      </section>
++
++      <section className="public-profile-stats" aria-label="Public marketplace stats">
++        {stats.map((item) => (
++          <div key={item.label}>
++            <strong>{item.value}</strong>
++            <span>{item.label}</span>
++          </div>
++        ))}
++      </section>
++
++      <PublicProfileSection
++        title="Active trades"
++        body="Public Need + Offer exchanges this member currently has open."
++        posts={profile.sections.activeTrades}
++      />
++      <PublicProfileSection
++        title="Open needs"
++        body="Public needs waiting for other members to propose offers."
++        posts={profile.sections.openNeeds}
++      />
++      <PublicProfileSection
++        title="Open offers"
++        body="Public offers waiting for other members to propose needs."
++        posts={profile.sections.openOffers}
++      />
++    </article>
++  );
++}
+diff -ruN apps/web/src/lib/webRoutes.ts apps/web/src/lib/webRoutes.ts
+--- apps/web/src/lib/webRoutes.ts	2026-05-11 20:17:12.000000000 +0000
++++ apps/web/src/lib/webRoutes.ts	2026-05-12 06:52:49.216182537 +0000
+@@ -52,6 +52,7 @@
+   { match: (pathname) => pathname === '/offers', title: 'Offers', root: true },
+   { match: (pathname) => pathname === '/account', title: 'Account', root: true },
+   { match: (pathname) => pathname === '/trades/create', title: 'Create trade', backHref: '/trades' },
++  { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), title: 'Profile', backHref: '/trades' },
+   { match: (pathname) => /^\/trades\/[^/]+$/.test(pathname), title: 'Trade', backHref: '/trades' },
+   { match: (pathname) => pathname === '/needs/new', title: 'Create need', backHref: '/needs' },
+   { match: (pathname) => /^\/needs\/[^/]+\/edit$/.test(pathname), title: 'Edit need', backHref: '/needs' },

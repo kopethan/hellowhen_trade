@@ -8,6 +8,7 @@ import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getTradePostType, getTradeProposalCopy } from './tradePresentation';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { UserIdentityLink } from '../users/UserIdentityLink';
 
 type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
 type ProposalMessageResponse = { message?: ProposalMessageDto; proposal?: TradeProposalDto };
@@ -94,12 +95,16 @@ function upsertProposal(list: TradeProposalDto[], proposal: TradeProposalDto) {
   return list.map((item) => item.id === proposal.id ? { ...item, ...proposal, messages: proposal.messages ?? item.messages } : item);
 }
 
-function personName(proposal: TradeProposalDto) {
-  return proposal.applicant?.profile?.displayName ?? proposal.applicant?.profile?.handle ?? 'Applicant';
+function proposalApplicantStatus(proposal: TradeProposalDto) {
+  const sideItem = proposalSideItem(proposal);
+  if (sideItem?.kind === 'offer') return 'Offer proposal';
+  if (sideItem?.kind === 'need') return 'Need proposal';
+  return 'Trade request';
 }
 
-function messageSender(message: ProposalMessageDto) {
-  return message.sender?.profile?.displayName ?? message.sender?.profile?.handle ?? 'Message';
+function messageSenderStatus(message: ProposalMessageDto, currentUserId?: string | null) {
+  if (message.senderId === currentUserId) return 'You';
+  return 'Private message';
 }
 
 function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
@@ -464,17 +469,19 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
             const sideItem = proposalSideItem(proposal);
             return (
               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active' : 'proposal-card'}>
+                <div className="proposal-card__header">
+                  <UserIdentityLink
+                    user={proposal.applicant}
+                    userId={proposal.applicantId}
+                    variant="compact"
+                    avatarSize="sm"
+                    statusText={proposalApplicantStatus(proposal)}
+                    showHandle={false}
+                    ariaLabel="Open applicant public profile"
+                  />
+                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
+                </div>
                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
-                  <span className="proposal-card__header">
-                    <span className="proposal-card__person">
-                      <span className="proposal-card__avatar">{personName(proposal).slice(0, 1).toUpperCase()}</span>
-                      <span>
-                        <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
-                        <em>{sideItem ? (sideItem.kind === 'offer' ? 'Offer proposal' : 'Need proposal') : 'Trade request'}</em>
-                      </span>
-                    </span>
-                    <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
-                  </span>
                   {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
                   <span className="proposal-card__message">{proposal.message}</span>
                 </button>
@@ -509,7 +516,15 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
               const sideItem = proposalSideItem(selectedProposal);
               return (
                 <article className="message-bubble message-bubble--proposal">
-                  <strong>{personName(selectedProposal)}</strong>
+                  <UserIdentityLink
+                    user={selectedProposal.applicant}
+                    userId={selectedProposal.applicantId}
+                    variant="compact"
+                    avatarSize="sm"
+                    statusText="Proposal message"
+                    showHandle={false}
+                    className="message-bubble__identity"
+                  />
                   {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
                   <p>{selectedProposal.message}</p>
                 </article>
@@ -517,7 +532,15 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
             })()}
             {messages.map((message) => (
               <article key={message.id} className="message-bubble">
-                <strong>{messageSender(message)}</strong>
+                <UserIdentityLink
+                  user={message.sender}
+                  userId={message.senderId}
+                  variant="compact"
+                  avatarSize="sm"
+                  statusText={messageSenderStatus(message, auth.user?.id)}
+                  showHandle={false}
+                  className="message-bubble__identity"
+                />
                 <p>{message.body}</p>
               </article>
             ))}

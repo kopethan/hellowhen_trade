@@ -13,7 +13,8 @@ import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
 import { TradeProposalPanel } from './TradeProposalPanel';
-import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
+import { UserIdentityLink } from '../users/UserIdentityLink';
+import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
 
 function normalizeTradeResponse(value: unknown): TradeDto | null {
   if (!value || typeof value !== 'object') return null;
@@ -226,7 +227,6 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
 
   const needSide = getNeedSide(currentTrade);
   const offerSide = getOfferSide(currentTrade);
-  const ownerName = getOwnerName(currentTrade);
   const exchange = getExchangeLabel(currentTrade);
   const headline = getTradeHeadline(currentTrade);
   const howItWorks = getTradeHowItWorks(currentTrade);
@@ -244,7 +244,18 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         </div>
         <h2>{headline}</h2>
         <p>{currentTrade.description}</p>
-        <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
+        <div className="trade-detail-owner-row">
+          <span className="meta">Posted by</span>
+          <UserIdentityLink
+            user={currentTrade.owner}
+            userId={currentTrade.ownerId}
+            variant="chip"
+            avatarSize="sm"
+            statusText="Creator"
+            showHandle={false}
+          />
+          <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt)}</span>
+        </div>
       </section>
 
       {postType !== 'open_offer' ? <SideSection side={needSide} /> : null}

@@ -1,0 +1,360 @@
+diff -ruN apps/web/src/app/globals.css apps/web/src/app/globals.css
+--- apps/web/src/app/globals.css	2026-05-12 07:07:43.000000000 +0000
++++ apps/web/src/app/globals.css	2026-05-12 07:12:48.865933674 +0000
+@@ -156,7 +156,10 @@
+ .trade-create-pill { display: inline-grid; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; border-radius: 999px; background: var(--app-text); color: var(--app-bg); line-height: 1; box-shadow: var(--app-control-shadow); }
+ .trade-card { display: grid; gap: 12px; aspect-ratio: 1 / 1; border: 0; border-radius: 34px; background: var(--app-surface); padding: 22px; box-shadow: var(--app-card-shadow-strong); }
+ .trade-card p { margin-bottom: 0; }
+-.trade-card__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
++.trade-card__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
++.trade-card__top .user-identity-link { max-width: min(68%, 190px); }
++.trade-card__open-link { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; color: inherit; text-decoration: none; }
++.trade-card__open-link:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 48%, transparent); outline-offset: 4px; border-radius: 24px; }
+ .trade-card__body { display: grid; gap: 10px; align-content: center; min-height: 0; }
+ .trade-card__title { font-size: 24px; line-height: 1.05; letter-spacing: -0.05em; margin: 0; }
+ .trade-card__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; align-self: end; }
+@@ -299,7 +302,10 @@
+ .trade-deck-card { position: relative; display: grid; aspect-ratio: 1 / 1; min-width: 0; overflow: hidden; scroll-snap-align: start; border: 0; border-radius: 34px; background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-card-shadow-strong); }
+ .trade-deck-card--summary { gap: 12px; padding: 22px; }
+ .trade-deck-card--summary p { margin-bottom: 0; }
+-.trade-deck-card__top, .trade-deck-card__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
++.trade-deck-card__top, .trade-deck-card__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
++.trade-deck-card__top .user-identity-link { max-width: min(68%, 190px); }
++.trade-deck-card__open-link { display: grid; grid-template-rows: 1fr auto; gap: 12px; min-height: 0; color: inherit; text-decoration: none; }
++.trade-deck-card__open-link:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 48%, transparent); outline-offset: 4px; border-radius: 24px; }
+ .trade-deck-card__body { display: grid; align-content: center; gap: 8px; min-height: 0; }
+ .trade-deck-card__body h2 { margin: 0; font-size: 25px; line-height: 1.03; letter-spacing: -0.055em; }
+ .trade-deck-card__body p:not(.eyebrow) { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+@@ -315,6 +321,8 @@
+ .trade-hero-section { padding-top: 8px; }
+ .trade-hero-section h2 { margin: 2px 0 0; font-size: 29px; line-height: 1.03; letter-spacing: -0.055em; }
+ .trade-hero-section p { margin-bottom: 0; }
++.trade-detail-owner-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
++.trade-detail-owner-row > .meta { margin: 0; }
+ .trade-social-section h2 { margin-bottom: 0; font-size: 23px; }
+ .trade-social-section--compact { gap: 14px; }
+ .trade-section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+@@ -344,6 +352,7 @@
+ .proposal-card--active { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 38%, var(--app-surface)); }
+ .proposal-card__main { display: grid; justify-items: stretch; gap: 10px; width: 100%; border: 0; background: transparent; color: var(--app-text); padding: 0; text-align: left; }
+ .proposal-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; width: 100%; }
++.proposal-card__header .user-identity-link { max-width: min(68%, 230px); }
+ .proposal-card__person { display: flex; align-items: center; gap: 9px; min-width: 0; }
+ .proposal-card__person strong { display: block; max-width: 100%; overflow: hidden; color: var(--app-text); font-size: 14px; font-weight: 950; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+ .proposal-card__person em { display: block; margin-top: 2px; color: var(--app-text-muted); font-size: 11px; font-style: normal; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+@@ -378,6 +387,8 @@
+ .message-bubble:nth-child(even) { justify-self: end; background: var(--app-surface-soft); }
+ .message-bubble--proposal { background: var(--proposal-bg); color: var(--proposal-text); border-color: var(--proposal-border); }
+ .message-bubble strong { display: block; margin-bottom: 4px; font-size: 13px; }
++.message-bubble__identity { margin-bottom: 8px; }
++.message-bubble .user-identity-link { max-width: 100%; }
+ .message-bubble p { margin: 0; color: inherit; }
+ .conversation-reply { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+ .conversation-reply textarea { min-height: 52px; resize: vertical; }
+diff -ruN apps/web/src/features/trade/TradeCard.tsx apps/web/src/features/trade/TradeCard.tsx
+--- apps/web/src/features/trade/TradeCard.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/web/src/features/trade/TradeCard.tsx	2026-05-12 07:12:18.410748204 +0000
+@@ -3,6 +3,7 @@
+ import { truncateText } from '@hellowhen/shared';
+ import { formatWebMoney } from '../../lib/webFormat';
+ import { getExchangeLabel, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
++import { UserIdentityLink } from '../users/UserIdentityLink';
+ 
+ function formatTradeExchange(trade: TradeDto) {
+   if ((trade.amountCents ?? 0) > 0) return formatWebMoney(trade.amountCents ?? 0, trade.currency);
+@@ -10,39 +11,47 @@
+ }
+ 
+ export function TradeCard({ trade }: { trade: TradeDto }) {
+-  const ownerName = trade.owner?.profile?.displayName ?? trade.owner?.profile?.handle ?? 'Someone nearby';
+   const postType = getTradePostType(trade);
+   const proposalCopy = getTradeProposalCopy(trade);
+   const needTitle = trade.need?.title ?? 'Need details';
+   const offerTitle = trade.offer?.title ?? 'Offer details';
+ 
+   return (
+-    <Link href={`/trades/${trade.id}`} className="trade-card" aria-label={`Open ${trade.title}`}>
++    <article className="trade-card" aria-label={trade.title}>
+       <div className="trade-card__top">
+         <span className="semantic-badge trade">{trade.status}</span>
+-        <span className="meta">{ownerName}</span>
++        <UserIdentityLink
++          user={trade.owner}
++          userId={trade.ownerId}
++          variant="compact"
++          avatarSize="xs"
++          showHandle={false}
++          ariaLabel="Open owner public profile"
++        />
+       </div>
+-      <div className="trade-card__body">
+-        {postType === 'need_offer' ? (
+-          <>
+-            <p className="eyebrow">I need</p>
+-            <h2 className="trade-card__title">{needTitle}</h2>
+-            <p className="eyebrow">I offer</p>
+-            <h2 className="trade-card__title">{offerTitle}</h2>
+-          </>
+-        ) : (
+-          <>
+-            <p className="eyebrow">{getExchangeLabel(trade)}</p>
+-            <h2 className="trade-card__title">{getTradeHeadline(trade)}</h2>
+-            <p className="meta">{proposalCopy.inviteTitle}</p>
+-          </>
+-        )}
+-        <p>{truncateText(trade.description, 120)}</p>
+-      </div>
+-      <div className="trade-card__footer">
+-        <span className="semantic-badge money">{formatTradeExchange(trade)}</span>
+-        <span className="trade-card__open">Open</span>
+-      </div>
+-    </Link>
++      <Link href={`/trades/${trade.id}`} className="trade-card__open-link" aria-label={`Open ${trade.title}`}>
++        <div className="trade-card__body">
++          {postType === 'need_offer' ? (
++            <>
++              <p className="eyebrow">I need</p>
++              <h2 className="trade-card__title">{needTitle}</h2>
++              <p className="eyebrow">I offer</p>
++              <h2 className="trade-card__title">{offerTitle}</h2>
++            </>
++          ) : (
++            <>
++              <p className="eyebrow">{getExchangeLabel(trade)}</p>
++              <h2 className="trade-card__title">{getTradeHeadline(trade)}</h2>
++              <p className="meta">{proposalCopy.inviteTitle}</p>
++            </>
++          )}
++          <p>{truncateText(trade.description, 120)}</p>
++        </div>
++        <div className="trade-card__footer">
++          <span className="semantic-badge money">{formatTradeExchange(trade)}</span>
++          <span className="trade-card__open">Open</span>
++        </div>
++      </Link>
++    </article>
+   );
+ }
+diff -ruN apps/web/src/features/trade/TradeDeck.tsx apps/web/src/features/trade/TradeDeck.tsx
+--- apps/web/src/features/trade/TradeDeck.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/web/src/features/trade/TradeDeck.tsx	2026-05-12 07:12:18.411578745 +0000
+@@ -1,13 +1,13 @@
+ import Link from 'next/link';
+ import type { TradeDto } from '@hellowhen/contracts';
+ import { truncateText } from '@hellowhen/shared';
+-import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
++import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
++import { UserIdentityLink } from '../users/UserIdentityLink';
+ 
+ export function TradeDeck({ trade }: { trade: TradeDto }) {
+   const need = getNeedSide(trade);
+   const offer = getOfferSide(trade);
+   const images = getDeckImages(trade);
+-  const ownerName = getOwnerName(trade);
+   const exchange = getExchangeLabel(trade);
+   const postType = getTradePostType(trade);
+   const proposalCopy = getTradeProposalCopy(trade);
+@@ -15,33 +15,42 @@
+   return (
+     <section className="trade-deck" aria-label={trade.title}>
+       <div className="trade-deck__rail">
+-        <Link href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--summary" aria-label={`Open ${trade.title}`}>
++        <article className="trade-deck-card trade-deck-card--summary" aria-label={trade.title}>
+           <div className="trade-deck-card__top">
+             <span className="semantic-badge trade">{trade.status}</span>
+-            <span className="meta">{ownerName}</span>
++            <UserIdentityLink
++              user={trade.owner}
++              userId={trade.ownerId}
++              variant="compact"
++              avatarSize="xs"
++              showHandle={false}
++              ariaLabel="Open owner public profile"
++            />
+           </div>
+-          <div className="trade-deck-card__body">
+-            {postType === 'need_offer' ? (
+-              <>
+-                <p className="eyebrow">I need</p>
+-                <h2>{need.title}</h2>
+-                <p className="eyebrow">I offer</p>
+-                <h2>{offer.title}</h2>
+-              </>
+-            ) : (
+-              <>
+-                <p className="eyebrow">{exchange}</p>
+-                <h2>{getTradeHeadline(trade)}</h2>
+-                <p className="meta">{proposalCopy.inviteTitle}</p>
+-              </>
+-            )}
+-            <p>{truncateText(trade.description, 126)}</p>
+-          </div>
+-          <div className="trade-deck-card__footer">
+-            <span className="semantic-badge money">{exchange}</span>
+-            <strong>Open</strong>
+-          </div>
+-        </Link>
++          <Link href={`/trades/${trade.id}`} className="trade-deck-card__open-link" aria-label={`Open ${trade.title}`}>
++            <div className="trade-deck-card__body">
++              {postType === 'need_offer' ? (
++                <>
++                  <p className="eyebrow">I need</p>
++                  <h2>{need.title}</h2>
++                  <p className="eyebrow">I offer</p>
++                  <h2>{offer.title}</h2>
++                </>
++              ) : (
++                <>
++                  <p className="eyebrow">{exchange}</p>
++                  <h2>{getTradeHeadline(trade)}</h2>
++                  <p className="meta">{proposalCopy.inviteTitle}</p>
++                </>
++              )}
++              <p>{truncateText(trade.description, 126)}</p>
++            </div>
++            <div className="trade-deck-card__footer">
++              <span className="semantic-badge money">{exchange}</span>
++              <strong>Open</strong>
++            </div>
++          </Link>
++        </article>
+ 
+         {images.map((image) => (
+           <Link key={image.id} href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--image" aria-label={`Open ${trade.title}`}>
+diff -ruN apps/web/src/features/trade/TradeDetailClient.tsx apps/web/src/features/trade/TradeDetailClient.tsx
+--- apps/web/src/features/trade/TradeDetailClient.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/web/src/features/trade/TradeDetailClient.tsx	2026-05-12 07:12:18.408462684 +0000
+@@ -13,7 +13,8 @@
+ import { mockTrades } from '../../lib/mockData';
+ import { TradeImageGrid } from './TradeImageGrid';
+ import { TradeProposalPanel } from './TradeProposalPanel';
+-import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
++import { UserIdentityLink } from '../users/UserIdentityLink';
++import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeSide } from './tradePresentation';
+ 
+ function normalizeTradeResponse(value: unknown): TradeDto | null {
+   if (!value || typeof value !== 'object') return null;
+@@ -226,7 +227,6 @@
+ 
+   const needSide = getNeedSide(currentTrade);
+   const offerSide = getOfferSide(currentTrade);
+-  const ownerName = getOwnerName(currentTrade);
+   const exchange = getExchangeLabel(currentTrade);
+   const headline = getTradeHeadline(currentTrade);
+   const howItWorks = getTradeHowItWorks(currentTrade);
+@@ -244,7 +244,18 @@
+         </div>
+         <h2>{headline}</h2>
+         <p>{currentTrade.description}</p>
+-        <p className="meta">Posted by {ownerName} · {formatRelativeExpiry(currentTrade.expiresAt)}</p>
++        <div className="trade-detail-owner-row">
++          <span className="meta">Posted by</span>
++          <UserIdentityLink
++            user={currentTrade.owner}
++            userId={currentTrade.ownerId}
++            variant="chip"
++            avatarSize="sm"
++            statusText="Creator"
++            showHandle={false}
++          />
++          <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt)}</span>
++        </div>
+       </section>
+ 
+       {postType !== 'open_offer' ? <SideSection side={needSide} /> : null}
+diff -ruN apps/web/src/features/trade/TradeProposalPanel.tsx apps/web/src/features/trade/TradeProposalPanel.tsx
+--- apps/web/src/features/trade/TradeProposalPanel.tsx	2026-05-11 20:17:12.000000000 +0000
++++ apps/web/src/features/trade/TradeProposalPanel.tsx	2026-05-12 07:12:18.409795350 +0000
+@@ -8,6 +8,7 @@
+ import { api } from '../../lib/api';
+ import { getTradePostType, getTradeProposalCopy } from './tradePresentation';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
++import { UserIdentityLink } from '../users/UserIdentityLink';
+ 
+ type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
+ type ProposalMessageResponse = { message?: ProposalMessageDto; proposal?: TradeProposalDto };
+@@ -94,12 +95,16 @@
+   return list.map((item) => item.id === proposal.id ? { ...item, ...proposal, messages: proposal.messages ?? item.messages } : item);
+ }
+ 
+-function personName(proposal: TradeProposalDto) {
+-  return proposal.applicant?.profile?.displayName ?? proposal.applicant?.profile?.handle ?? 'Applicant';
++function proposalApplicantStatus(proposal: TradeProposalDto) {
++  const sideItem = proposalSideItem(proposal);
++  if (sideItem?.kind === 'offer') return 'Offer proposal';
++  if (sideItem?.kind === 'need') return 'Need proposal';
++  return 'Trade request';
+ }
+ 
+-function messageSender(message: ProposalMessageDto) {
+-  return message.sender?.profile?.displayName ?? message.sender?.profile?.handle ?? 'Message';
++function messageSenderStatus(message: ProposalMessageDto, currentUserId?: string | null) {
++  if (message.senderId === currentUserId) return 'You';
++  return 'Private message';
+ }
+ 
+ function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
+@@ -464,17 +469,19 @@
+             const sideItem = proposalSideItem(proposal);
+             return (
+               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active' : 'proposal-card'}>
++                <div className="proposal-card__header">
++                  <UserIdentityLink
++                    user={proposal.applicant}
++                    userId={proposal.applicantId}
++                    variant="compact"
++                    avatarSize="sm"
++                    statusText={proposalApplicantStatus(proposal)}
++                    showHandle={false}
++                    ariaLabel="Open applicant public profile"
++                  />
++                  <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
++                </div>
+                 <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
+-                  <span className="proposal-card__header">
+-                    <span className="proposal-card__person">
+-                      <span className="proposal-card__avatar">{personName(proposal).slice(0, 1).toUpperCase()}</span>
+-                      <span>
+-                        <strong>{isOwner ? personName(proposal) : proposal.status === 'accepted' ? 'Accepted' : 'Proposal sent'}</strong>
+-                        <em>{sideItem ? (sideItem.kind === 'offer' ? 'Offer proposal' : 'Need proposal') : 'Trade request'}</em>
+-                      </span>
+-                    </span>
+-                    <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {proposal.status}</span>
+-                  </span>
+                   {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
+                   <span className="proposal-card__message">{proposal.message}</span>
+                 </button>
+@@ -509,7 +516,15 @@
+               const sideItem = proposalSideItem(selectedProposal);
+               return (
+                 <article className="message-bubble message-bubble--proposal">
+-                  <strong>{personName(selectedProposal)}</strong>
++                  <UserIdentityLink
++                    user={selectedProposal.applicant}
++                    userId={selectedProposal.applicantId}
++                    variant="compact"
++                    avatarSize="sm"
++                    statusText="Proposal message"
++                    showHandle={false}
++                    className="message-bubble__identity"
++                  />
+                   {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact /> : null}
+                   <p>{selectedProposal.message}</p>
+                 </article>
+@@ -517,7 +532,15 @@
+             })()}
+             {messages.map((message) => (
+               <article key={message.id} className="message-bubble">
+-                <strong>{messageSender(message)}</strong>
++                <UserIdentityLink
++                  user={message.sender}
++                  userId={message.senderId}
++                  variant="compact"
++                  avatarSize="sm"
++                  statusText={messageSenderStatus(message, auth.user?.id)}
++                  showHandle={false}
++                  className="message-bubble__identity"
++                />
+                 <p>{message.body}</p>
+               </article>
+             ))}

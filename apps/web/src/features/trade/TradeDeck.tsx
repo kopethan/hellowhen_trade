@@ -1,13 +1,13 @@
 import Link from 'next/link';
 import type { TradeDto } from '@hellowhen/contracts';
 import { truncateText } from '@hellowhen/shared';
-import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getOwnerName, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
+import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
+import { UserIdentityLink } from '../users/UserIdentityLink';
 
 export function TradeDeck({ trade }: { trade: TradeDto }) {
   const need = getNeedSide(trade);
   const offer = getOfferSide(trade);
   const images = getDeckImages(trade);
-  const ownerName = getOwnerName(trade);
   const exchange = getExchangeLabel(trade);
   const postType = getTradePostType(trade);
   const proposalCopy = getTradeProposalCopy(trade);
@@ -15,33 +15,42 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
   return (
     <section className="trade-deck" aria-label={trade.title}>
       <div className="trade-deck__rail">
-        <Link href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--summary" aria-label={`Open ${trade.title}`}>
+        <article className="trade-deck-card trade-deck-card--summary" aria-label={trade.title}>
           <div className="trade-deck-card__top">
             <span className="semantic-badge trade">{trade.status}</span>
-            <span className="meta">{ownerName}</span>
+            <UserIdentityLink
+              user={trade.owner}
+              userId={trade.ownerId}
+              variant="compact"
+              avatarSize="xs"
+              showHandle={false}
+              ariaLabel="Open owner public profile"
+            />
           </div>
-          <div className="trade-deck-card__body">
-            {postType === 'need_offer' ? (
-              <>
-                <p className="eyebrow">I need</p>
-                <h2>{need.title}</h2>
-                <p className="eyebrow">I offer</p>
-                <h2>{offer.title}</h2>
-              </>
-            ) : (
-              <>
-                <p className="eyebrow">{exchange}</p>
-                <h2>{getTradeHeadline(trade)}</h2>
-                <p className="meta">{proposalCopy.inviteTitle}</p>
-              </>
-            )}
-            <p>{truncateText(trade.description, 126)}</p>
-          </div>
-          <div className="trade-deck-card__footer">
-            <span className="semantic-badge money">{exchange}</span>
-            <strong>Open</strong>
-          </div>
-        </Link>
+          <Link href={`/trades/${trade.id}`} className="trade-deck-card__open-link" aria-label={`Open ${trade.title}`}>
+            <div className="trade-deck-card__body">
+              {postType === 'need_offer' ? (
+                <>
+                  <p className="eyebrow">I need</p>
+                  <h2>{need.title}</h2>
+                  <p className="eyebrow">I offer</p>
+                  <h2>{offer.title}</h2>
+                </>
+              ) : (
+                <>
+                  <p className="eyebrow">{exchange}</p>
+                  <h2>{getTradeHeadline(trade)}</h2>
+                  <p className="meta">{proposalCopy.inviteTitle}</p>
+                </>
+              )}
+              <p>{truncateText(trade.description, 126)}</p>
+            </div>
+            <div className="trade-deck-card__footer">
+              <span className="semantic-badge money">{exchange}</span>
+              <strong>Open</strong>
+            </div>
+          </Link>
+        </article>
 
         {images.map((image) => (
           <Link key={image.id} href={`/trades/${trade.id}`} className="trade-deck-card trade-deck-card--image" aria-label={`Open ${trade.title}`}>
