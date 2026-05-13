@@ -75,5 +75,12 @@ export const settings = {
     title: 'Affichage local',
     body: 'Le pays et la devise d’affichage vivent maintenant dans le Profil afin d’être enregistrés avec les données publiques de votre compte.',
   },
+  policies: {
+    badge: 'Politiques',
+    title: 'Liens légal et sécurité',
+    body: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
+    bodyNative: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
+    open: 'Ouvrir le centre légal et sécurité',
+  },
   signedOutHint: 'Vous n’êtes pas connecté. L’apparence et la langue restent enregistrées localement sur ce navigateur.',
 } as const;

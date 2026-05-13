@@ -82,6 +82,15 @@ export function SupportCenterScreen() {
     <AppHeader title={t('support.title')} onBack={() => navigation.goBack()} />
     <View style={styles.header}><SemanticBadge label={t('support.title')} tone="instruction" /><AppText style={styles.title}>{t('support.feedbackTitle')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('support.feedbackBody')}</AppText></View>
     <InfoNotice tone="info" title={t('support.purposeTitle')} body={t('support.purposeBody')} />
+    <AppCard>
+      <SemanticBadge label={t('navigation.routes.legal')} tone="info" size="sm" />
+      <AppText style={styles.sectionTitle}>{t('legal.support.title')}</AppText>
+      <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('legal.support.body')}</AppText>
+      <View style={styles.wrap}>
+        <TouchableOpacity onPress={() => navigation.navigate('LegalPolicy', { policy: 'safety' })}><SemanticBadge label={t('legal.support.viewSafety')} tone="info" /></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('LegalPolicy', { policy: 'refundDispute' })}><SemanticBadge label={t('legal.support.viewDisputes')} tone="warning" /></TouchableOpacity>
+      </View>
+    </AppCard>
     {error ? <InfoNotice tone="warning" title={t('support.messageTitle')} body={error} /> : null}
     <AppCard><AppText style={styles.sectionTitle}>{t('support.createTicketShort')}</AppText>
       <AppText style={styles.label}>{t('support.category')}</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={t(`support.categories.${item}`)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>

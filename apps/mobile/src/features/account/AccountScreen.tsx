@@ -20,7 +20,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'BuyCredits';
 
 type AccountAction = {
   titleKey: string;
@@ -37,6 +37,7 @@ const accountActions: AccountAction[] = [
   ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
   ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings' },
+  { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning' },
   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help' },
 ];
 
@@ -111,6 +112,7 @@ export function AccountScreen() {
     else if (route === 'Wallet') navigation.navigate('Wallet');
     else if (route === 'Payouts') navigation.navigate('Payouts');
     else if (route === 'Settings') navigation.navigate('Settings');
+    else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
     else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
     else navigation.navigate('BuyCredits');
   }

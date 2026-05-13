@@ -167,6 +167,16 @@ export function SupportClient() {
       {notice ? <p className="notice-box success">{notice}</p> : null}
       {error ? <p className="notice-box danger">{error}</p> : null}
 
+      <section className="mobile-card mobile-card--soft">
+        <span className="semantic-badge info">{t('navigation.routes.legal')}</span>
+        <h3>{t('legal.support.title')}</h3>
+        <p>{t('legal.support.body')}</p>
+        <div className="cta-row">
+          <Link href="/legal/safety" className="button secondary">{t('legal.support.viewSafety')}</Link>
+          <Link href="/legal/refund-dispute" className="button secondary">{t('legal.support.viewDisputes')}</Link>
+        </div>
+      </section>
+
       <section className="mobile-card support-compose-card">
         <div className="trade-section-heading"><div><p className="eyebrow">{t('support.newRequest')}</p><h3>{t('support.createTicket')}</h3></div><span className="semantic-badge instruction">{t('support.attachments')}</span></div>
         <form className="form-stack" onSubmit={(event) => { void createTicket(event); }}>

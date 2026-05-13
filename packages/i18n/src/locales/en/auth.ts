@@ -37,6 +37,7 @@ export const auth = {
     countryDefaultCurrencyNative: 'Default currency {{currency}}',
   },
   terms: 'I agree to the Terms and Privacy Policy.',
+  termsNativeHint: 'Review Terms and Privacy before creating your account.',
   forgotNotice: 'Enter your account email and we will send a reset link if the account exists.',
   errors: {
     signIn: 'Sign-in error',

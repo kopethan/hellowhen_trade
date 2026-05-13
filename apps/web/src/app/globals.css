@@ -1683,3 +1683,13 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 
 .report-content-block { display: grid; gap: 10px; }
 .report-content-form select { min-height: 44px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 0 12px; font-weight: 800; }
+
+.inline-policy-link { color: var(--proposal-text); font-weight: 950; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.legal-page { gap: 14px; }
+.legal-launch-note, .legal-policy-section, .legal-related-card { display: grid; gap: 9px; }
+.legal-card-list { gap: 10px; }
+.legal-link-card { align-items: center; }
+.legal-link-card__action { flex: 0 0 auto; color: var(--app-text); font-size: 12px; font-weight: 950; }
+.legal-updated-note { margin: 0; }
+.legal-policy-section-list { display: grid; gap: 12px; }
+.legal-policy-section p, .legal-related-card p, .legal-launch-note p { margin-bottom: 0; }

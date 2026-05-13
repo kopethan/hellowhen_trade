@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import type { AppSettings } from '@hellowhen/contracts';
 import type { LanguagePreference } from '@hellowhen/i18n';
@@ -258,6 +259,15 @@ export default function AccountSettingsPage() {
             {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
           </div>
         ) : null}
+      </section>
+
+      <section className="mobile-card mobile-card--soft">
+        <span className="semantic-badge info">{t('settings.policies.badge')}</span>
+        <h3>{t('settings.policies.title')}</h3>
+        <p>{t('settings.policies.body')}</p>
+        <div className="cta-row">
+          <Link href="/legal" className="button secondary">{t('settings.policies.open')}</Link>
+        </div>
       </section>
 
       <section className="mobile-card mobile-card--soft">

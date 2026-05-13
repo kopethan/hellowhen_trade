@@ -182,6 +182,17 @@ export function SettingsScreen() {
         </AppCard>
 
         <AppCard>
+          <SemanticBadge label={t('settings.policies.badge')} tone="info" size="sm" />
+          <AppText style={styles.sectionTitle}>{t('settings.policies.title')}</AppText>
+          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.policies.bodyNative')}</AppText>
+          <View style={styles.optionRow}>
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy')} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <AppText style={styles.choiceButtonText}>{t('settings.policies.open')}</AppText>
+            </Pressable>
+          </View>
+        </AppCard>
+
+        <AppCard>
           <SemanticBadge label={t('settings.privacy.badge')} tone="info" size="sm" />
           <AppText style={styles.sectionTitle}>{t('settings.privacy.title')}</AppText>
           <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.privacy.body')}</AppText>

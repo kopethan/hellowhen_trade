@@ -11,6 +11,7 @@ import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
+import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
 import { ProfileScreen } from '../features/me/MeScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
 import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScreen';
@@ -36,6 +37,7 @@ import { AppCard } from '../components/AppCard';
 import { AppScreen } from '../components/AppScreen';
 import { AppText } from '../components/AppText';
 import { useTranslation } from '../providers/MobileI18nProvider';
+import type { LegalPolicyKey } from '@hellowhen/i18n';
 
 export type RootStackParamList = {
   TradeTabs: undefined;
@@ -47,6 +49,7 @@ export type RootStackParamList = {
   BuyCredits: undefined;
   SupportCenter: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
+  LegalPolicy: { policy?: LegalPolicyKey } | undefined;
   CreateNeed: undefined;
   NeedDetail: { needId: string; title?: string };
   CreateOffer: undefined;
@@ -172,6 +175,7 @@ export function RootNavigator() {
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}

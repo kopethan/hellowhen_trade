@@ -35,7 +35,7 @@ export const webTabs: WebTab[] = [
     labelKey: 'navigation.tabs.account',
     href: '/account',
     icon: 'profile',
-    match: (pathname) => pathname.startsWith('/account'),
+    match: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
   },
 ];
 
@@ -66,6 +66,11 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
   { match: (pathname) => pathname === '/account/wallet/add', titleKey: 'navigation.routes.account', backHref: '/account' },
   { match: (pathname) => pathname === '/account/payouts', titleKey: 'navigation.routes.account', backHref: '/account' },
   { match: (pathname) => pathname === '/account/support', titleKey: 'navigation.routes.support', backHref: '/account' },
+  { match: (pathname) => pathname === '/legal', titleKey: 'navigation.routes.legal', backHref: '/account' },
+  { match: (pathname) => pathname === '/legal/terms', titleKey: 'navigation.routes.terms', backHref: '/legal' },
+  { match: (pathname) => pathname === '/legal/privacy', titleKey: 'navigation.routes.privacy', backHref: '/legal' },
+  { match: (pathname) => pathname === '/legal/safety', titleKey: 'navigation.routes.safety', backHref: '/legal' },
+  { match: (pathname) => pathname === '/legal/refund-dispute', titleKey: 'navigation.routes.refundDispute', backHref: '/legal' },
 ];
 
 export function getRouteHeader(pathname: string) {

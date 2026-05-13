@@ -170,7 +170,18 @@ export function LoginScreen() {
               </View>
             ) : null}
 
-            {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View><AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText></Pressable> : null}
+            {mode === 'register' ? (
+              <View style={styles.termsBlock}>
+                <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}>
+                  <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
+                  <AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText>
+                </Pressable>
+                <View style={styles.policyLinkRow}>
+                  <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy: 'terms' })}><AppText style={[styles.policyLinkText, { color: theme.semantic.proposal.bg }]}>{t('legal.authLinks.viewTerms')}</AppText></Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy: 'privacy' })}><AppText style={[styles.policyLinkText, { color: theme.semantic.proposal.bg }]}>{t('legal.authLinks.viewPrivacy')}</AppText></Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
 
           {mode === 'forgot' ? <InfoNotice tone="info" title={t('auth.reset.badge')} body={t('auth.forgotNotice')} /> : null}
@@ -233,7 +244,10 @@ const styles = StyleSheet.create({
   preferenceHeader: { gap: 4 },
   preferenceTitle: { fontSize: 16, fontWeight: '900' },
   preferenceBody: { lineHeight: 18, fontWeight: '700' },
+  termsBlock: { gap: 8 },
   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  policyLinkRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingLeft: 33 },
+  policyLinkText: { fontWeight: '900', textDecorationLine: 'underline' },
   checkbox: { width: 23, height: 23, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
   termsText: { flex: 1, fontWeight: '700', lineHeight: 19 },

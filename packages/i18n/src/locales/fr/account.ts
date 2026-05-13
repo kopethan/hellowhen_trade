@@ -282,6 +282,12 @@ export const account = {
       bodyNative: 'Notifications, apparence, langue et confidentialité.',
       badge: 'Paramètres',
     },
+    legal: {
+      title: 'Légal et sécurité',
+      body: 'Conditions, confidentialité, règles de sécurité et politique remboursement/litige.',
+      bodyNative: 'Conditions, confidentialité, sécurité et litiges.',
+      badge: 'Politique',
+    },
     support: {
       title: 'Assistance',
       body: 'Créez des tickets d’assistance, joignez des captures et suivez les réponses.',

@@ -1,0 +1,1224 @@
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-12 20:02:59.966851848 +0000
+@@ -20,7 +20,7 @@
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+-type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'SupportCenter' | 'BuyCredits';
++type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'BuyCredits';
+ 
+ type AccountAction = {
+   titleKey: string;
+@@ -37,6 +37,7 @@
+   ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
+   ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
+   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings' },
++  { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning' },
+   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help' },
+ ];
+ 
+@@ -111,6 +112,7 @@
+     else if (route === 'Wallet') navigation.navigate('Wallet');
+     else if (route === 'Payouts') navigation.navigate('Payouts');
+     else if (route === 'Settings') navigation.navigate('Settings');
++    else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
+     else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
+     else navigation.navigate('BuyCredits');
+   }
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/account/SupportCenterScreen.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/account/SupportCenterScreen.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/account/SupportCenterScreen.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/account/SupportCenterScreen.tsx	2026-05-12 19:58:50.250477494 +0000
+@@ -82,6 +82,15 @@
+     <AppHeader title={t('support.title')} onBack={() => navigation.goBack()} />
+     <View style={styles.header}><SemanticBadge label={t('support.title')} tone="instruction" /><AppText style={styles.title}>{t('support.feedbackTitle')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('support.feedbackBody')}</AppText></View>
+     <InfoNotice tone="info" title={t('support.purposeTitle')} body={t('support.purposeBody')} />
++    <AppCard>
++      <SemanticBadge label={t('navigation.routes.legal')} tone="info" size="sm" />
++      <AppText style={styles.sectionTitle}>{t('legal.support.title')}</AppText>
++      <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('legal.support.body')}</AppText>
++      <View style={styles.wrap}>
++        <TouchableOpacity onPress={() => navigation.navigate('LegalPolicy', { policy: 'safety' })}><SemanticBadge label={t('legal.support.viewSafety')} tone="info" /></TouchableOpacity>
++        <TouchableOpacity onPress={() => navigation.navigate('LegalPolicy', { policy: 'refundDispute' })}><SemanticBadge label={t('legal.support.viewDisputes')} tone="warning" /></TouchableOpacity>
++      </View>
++    </AppCard>
+     {error ? <InfoNotice tone="warning" title={t('support.messageTitle')} body={error} /> : null}
+     <AppCard><AppText style={styles.sectionTitle}>{t('support.createTicketShort')}</AppText>
+       <AppText style={styles.label}>{t('support.category')}</AppText><View style={styles.wrap}>{categories.map((item) => <TouchableOpacity key={item} onPress={() => setCategory(item)}><SemanticBadge label={t(`support.categories.${item}`)} tone={category === item ? categoryTone(item) : 'muted'} /></TouchableOpacity>)}</View>
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/auth/LoginScreen.tsx	2026-05-12 19:59:02.502998049 +0000
+@@ -170,7 +170,18 @@
+               </View>
+             ) : null}
+ 
+-            {mode === 'register' ? <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}><View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View><AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText></Pressable> : null}
++            {mode === 'register' ? (
++              <View style={styles.termsBlock}>
++                <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}>
++                  <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
++                  <AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText>
++                </Pressable>
++                <View style={styles.policyLinkRow}>
++                  <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy: 'terms' })}><AppText style={[styles.policyLinkText, { color: theme.semantic.proposal.bg }]}>{t('legal.authLinks.viewTerms')}</AppText></Pressable>
++                  <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy: 'privacy' })}><AppText style={[styles.policyLinkText, { color: theme.semantic.proposal.bg }]}>{t('legal.authLinks.viewPrivacy')}</AppText></Pressable>
++                </View>
++              </View>
++            ) : null}
+           </View>
+ 
+           {mode === 'forgot' ? <InfoNotice tone="info" title={t('auth.reset.badge')} body={t('auth.forgotNotice')} /> : null}
+@@ -233,7 +244,10 @@
+   preferenceHeader: { gap: 4 },
+   preferenceTitle: { fontSize: 16, fontWeight: '900' },
+   preferenceBody: { lineHeight: 18, fontWeight: '700' },
++  termsBlock: { gap: 8 },
+   termsRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
++  policyLinkRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingLeft: 33 },
++  policyLinkText: { fontWeight: '900', textDecorationLine: 'underline' },
+   checkbox: { width: 23, height: 23, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+   checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
+   termsText: { flex: 1, fontWeight: '700', lineHeight: 19 },
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/legal/LegalPolicyScreen.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/legal/LegalPolicyScreen.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/legal/LegalPolicyScreen.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/legal/LegalPolicyScreen.tsx	2026-05-12 20:04:35.448371158 +0000
+@@ -0,0 +1,123 @@
++import React from 'react';
++import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
++import { useNavigation, useRoute } from '@react-navigation/native';
++import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
++import type { RouteProp } from '@react-navigation/native';
++import { legalPolicyKeys, legalPolicySectionKeys, type LegalPolicyKey } from '@hellowhen/i18n';
++import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
++import { AppScreen } from '../../components/AppScreen';
++import { AppText } from '../../components/AppText';
++import { SemanticBadge } from '../../components/SemanticUI';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++
++type LegalRoute = RouteProp<RootStackParamList, 'LegalPolicy'>;
++
++function isLegalPolicyKey(value: unknown): value is LegalPolicyKey {
++  return typeof value === 'string' && legalPolicyKeys.includes(value as LegalPolicyKey);
++}
++
++export function LegalPolicyScreen() {
++  const route = useRoute<LegalRoute>();
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const selectedPolicy = isLegalPolicyKey(route.params?.policy) ? route.params.policy : null;
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
++        <AppHeader title={selectedPolicy ? t(`legal.policies.${selectedPolicy}.shortTitle`) : t('navigation.routes.legal')} onBack={() => navigation.goBack()} />
++
++        {selectedPolicy ? (
++          <>
++            <View style={styles.headerBlock}>
++              <SemanticBadge label={t('legal.overview.eyebrow')} tone="instruction" />
++              <AppText style={styles.title}>{t(`legal.policies.${selectedPolicy}.title`)}</AppText>
++              <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t(`legal.policies.${selectedPolicy}.summary`)}</AppText>
++            </View>
++
++            <AppCard style={styles.updatedCard}>
++              <SemanticBadge label={t('legal.overview.launchBadge')} tone="info" size="sm" />
++              <AppText style={[styles.body, { color: theme.color.muted }]}>{t(`legal.policies.${selectedPolicy}.updated`)}</AppText>
++            </AppCard>
++
++            {legalPolicySectionKeys[selectedPolicy].map((section) => (
++              <AppCard key={section} style={styles.sectionCard}>
++                <AppText style={styles.sectionTitle}>{t(`legal.policies.${selectedPolicy}.sections.${section}.title`)}</AppText>
++                <AppText style={[styles.body, { color: theme.color.muted }]}>{t(`legal.policies.${selectedPolicy}.sections.${section}.body`)}</AppText>
++              </AppCard>
++            ))}
++
++            <AppCard style={styles.sectionCard}>
++              <SemanticBadge label={t('navigation.routes.legal')} tone="info" size="sm" />
++              <AppText style={styles.sectionTitle}>{t('legal.overview.title')}</AppText>
++              <View style={styles.linkWrap}>{legalPolicyKeys.filter((item) => item !== selectedPolicy).map((item) => <PolicyPill key={item} policy={item} />)}</View>
++            </AppCard>
++          </>
++        ) : (
++          <>
++            <View style={styles.headerBlock}>
++              <SemanticBadge label={t('legal.overview.eyebrow')} tone="instruction" />
++              <AppText style={styles.title}>{t('legal.overview.title')}</AppText>
++              <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('legal.overview.body')}</AppText>
++            </View>
++            <AppCard style={styles.sectionCard}>
++              <SemanticBadge label={t('legal.overview.launchBadge')} tone="info" />
++              <AppText style={styles.sectionTitle}>{t('legal.overview.launchTitle')}</AppText>
++              <AppText style={[styles.body, { color: theme.color.muted }]}>{t('legal.overview.launchBody')}</AppText>
++            </AppCard>
++            {legalPolicyKeys.map((policy) => <PolicyRow key={policy} policy={policy} />)}
++          </>
++        )}
++      </ScrollView>
++    </AppScreen>
++  );
++}
++
++function PolicyPill({ policy }: { policy: LegalPolicyKey }) {
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy })} style={({ pressed }) => [styles.policyPill, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <AppText style={[styles.policyPillText, { color: theme.color.text }]}>{t(`legal.policies.${policy}.shortTitle`)}</AppText>
++    </Pressable>
++  );
++}
++
++function PolicyRow({ policy }: { policy: LegalPolicyKey }) {
++  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy })} style={({ pressed }) => [styles.policyRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={styles.policyRowCopy}>
++        <AppText style={styles.policyRowTitle}>{t(`legal.policies.${policy}.title`)}</AppText>
++        <AppText style={[styles.body, { color: theme.color.muted }]}>{t(`legal.policies.${policy}.summary`)}</AppText>
++      </View>
++      <AppText style={[styles.policyOpen, { color: theme.semantic.proposal.bg }]}>{t('legal.overview.openPolicy')}</AppText>
++    </Pressable>
++  );
++}
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 34, gap: 14 },
++  headerBlock: { gap: 8 },
++  title: { fontSize: 34, lineHeight: 38, fontWeight: '900', letterSpacing: -0.8 },
++  subtitle: { lineHeight: 21, fontWeight: '700' },
++  updatedCard: { gap: 8 },
++  sectionCard: { gap: 9 },
++  sectionTitle: { fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: -0.35 },
++  body: { lineHeight: 21, fontWeight: '600' },
++  linkWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
++  policyPill: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9 },
++  policyPillText: { fontWeight: '900' },
++  policyRow: { borderRadius: 22, borderWidth: 1, padding: 15, gap: 10 },
++  policyRowCopy: { gap: 5 },
++  policyRowTitle: { fontSize: 18, fontWeight: '900' },
++  policyOpen: { fontWeight: '900' },
++  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
++});
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/settings/SettingsScreen.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/settings/SettingsScreen.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/features/settings/SettingsScreen.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/features/settings/SettingsScreen.tsx	2026-05-12 20:02:59.967377493 +0000
+@@ -182,6 +182,17 @@
+         </AppCard>
+ 
+         <AppCard>
++          <SemanticBadge label={t('settings.policies.badge')} tone="info" size="sm" />
++          <AppText style={styles.sectionTitle}>{t('settings.policies.title')}</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.policies.bodyNative')}</AppText>
++          <View style={styles.optionRow}>
++            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy')} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++              <AppText style={styles.choiceButtonText}>{t('settings.policies.open')}</AppText>
++            </Pressable>
++          </View>
++        </AppCard>
++
++        <AppCard>
+           <SemanticBadge label={t('settings.privacy.badge')} tone="info" size="sm" />
+           <AppText style={styles.sectionTitle}>{t('settings.privacy.title')}</AppText>
+           <AppText style={[styles.body, { color: theme.color.muted }]}>{t('settings.privacy.body')}</AppText>
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/navigation/RootNavigator.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/navigation/RootNavigator.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/mobile/src/navigation/RootNavigator.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/mobile/src/navigation/RootNavigator.tsx	2026-05-12 19:58:10.653209216 +0000
+@@ -11,6 +11,7 @@
+ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
+ import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
+ import { LoginScreen } from '../features/auth/LoginScreen';
++import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
+ import { ProfileScreen } from '../features/me/MeScreen';
+ import { SettingsScreen } from '../features/settings/SettingsScreen';
+ import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScreen';
+@@ -36,6 +37,7 @@
+ import { AppScreen } from '../components/AppScreen';
+ import { AppText } from '../components/AppText';
+ import { useTranslation } from '../providers/MobileI18nProvider';
++import type { LegalPolicyKey } from '@hellowhen/i18n';
+ 
+ export type RootStackParamList = {
+   TradeTabs: undefined;
+@@ -47,6 +49,7 @@
+   BuyCredits: undefined;
+   SupportCenter: undefined;
+   SupportTicketDetail: { ticketId: string; subject?: string };
++  LegalPolicy: { policy?: LegalPolicyKey } | undefined;
+   CreateNeed: undefined;
+   NeedDetail: { needId: string; title?: string };
+   CreateOffer: undefined;
+@@ -172,6 +175,7 @@
+       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
+       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
+       <Stack.Screen name="Login" component={LoginScreen} />
++      <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
+       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
+       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/account/settings/page.tsx	2026-05-12 19:57:21.363434036 +0000
+@@ -1,5 +1,6 @@
+ 'use client';
+ 
++import Link from 'next/link';
+ import { useState } from 'react';
+ import type { AppSettings } from '@hellowhen/contracts';
+ import type { LanguagePreference } from '@hellowhen/i18n';
+@@ -261,6 +262,15 @@
+       </section>
+ 
+       <section className="mobile-card mobile-card--soft">
++        <span className="semantic-badge info">{t('settings.policies.badge')}</span>
++        <h3>{t('settings.policies.title')}</h3>
++        <p>{t('settings.policies.body')}</p>
++        <div className="cta-row">
++          <Link href="/legal" className="button secondary">{t('settings.policies.open')}</Link>
++        </div>
++      </section>
++
++      <section className="mobile-card mobile-card--soft">
+         <h3>{t('settings.localDisplay.title')}</h3>
+         <p>{t('settings.localDisplay.body')}</p>
+       </section>
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/globals.css /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/globals.css
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/globals.css	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/globals.css	2026-05-12 19:57:44.886147760 +0000
+@@ -1683,3 +1683,13 @@
+ 
+ .report-content-block { display: grid; gap: 10px; }
+ .report-content-form select { min-height: 44px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 0 12px; font-weight: 800; }
++
++.inline-policy-link { color: var(--proposal-text); font-weight: 950; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
++.legal-page { gap: 14px; }
++.legal-launch-note, .legal-policy-section, .legal-related-card { display: grid; gap: 9px; }
++.legal-card-list { gap: 10px; }
++.legal-link-card { align-items: center; }
++.legal-link-card__action { flex: 0 0 auto; color: var(--app-text); font-size: 12px; font-weight: 950; }
++.legal-updated-note { margin: 0; }
++.legal-policy-section-list { display: grid; gap: 12px; }
++.legal-policy-section p, .legal-related-card p, .legal-launch-note p { margin-bottom: 0; }
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/page.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/page.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/page.tsx	2026-05-12 19:56:42.808076542 +0000
+@@ -0,0 +1,5 @@
++import { LegalOverviewClient } from '../../features/legal/LegalOverviewClient';
++
++export default function LegalPage() {
++  return <LegalOverviewClient />;
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/privacy/page.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/privacy/page.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/privacy/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/privacy/page.tsx	2026-05-12 19:56:42.830317740 +0000
+@@ -0,0 +1,5 @@
++import { LegalPolicyClient } from '../../../features/legal/LegalPolicyClient';
++
++export default function PrivacyPage() {
++  return <LegalPolicyClient policy="privacy" />;
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/refund-dispute/page.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/refund-dispute/page.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/refund-dispute/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/refund-dispute/page.tsx	2026-05-12 19:56:42.862905904 +0000
+@@ -0,0 +1,5 @@
++import { LegalPolicyClient } from '../../../features/legal/LegalPolicyClient';
++
++export default function RefundDisputePage() {
++  return <LegalPolicyClient policy="refundDispute" />;
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/safety/page.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/safety/page.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/safety/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/safety/page.tsx	2026-05-12 19:56:42.841023944 +0000
+@@ -0,0 +1,5 @@
++import { LegalPolicyClient } from '../../../features/legal/LegalPolicyClient';
++
++export default function SafetyPage() {
++  return <LegalPolicyClient policy="safety" />;
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/terms/page.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/terms/page.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/app/legal/terms/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/app/legal/terms/page.tsx	2026-05-12 19:56:42.819174619 +0000
+@@ -0,0 +1,5 @@
++import { LegalPolicyClient } from '../../../features/legal/LegalPolicyClient';
++
++export default function TermsPage() {
++  return <LegalPolicyClient policy="terms" />;
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/components/WebAuthPanel.tsx	2026-05-12 19:57:02.593814502 +0000
+@@ -1,5 +1,6 @@
+ 'use client';
+ 
++import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { useEffect, useMemo, useState } from 'react';
+ import { getFriendlyApiErrorMessage } from '../lib/webErrors';
+@@ -181,7 +182,9 @@
+ 
+             <label className="checkbox-row">
+               <input checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} type="checkbox" />
+-              <span>{t('auth.terms')}</span>
++              <span>
++                {t('legal.authLinks.prefix')} <Link className="inline-policy-link" href="/legal/terms">{t('legal.authLinks.terms')}</Link> {t('legal.authLinks.and')} <Link className="inline-policy-link" href="/legal/privacy">{t('legal.authLinks.privacy')}</Link>.
++              </span>
+             </label>
+           </>
+         ) : null}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/account/AccountHubClient.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/account/AccountHubClient.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/account/AccountHubClient.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/account/AccountHubClient.tsx	2026-05-12 20:05:20.928613882 +0000
+@@ -15,6 +15,7 @@
+   titleKey: string;
+   bodyKey: string;
+   icon?: WebIconName;
++  publicAccess?: boolean;
+ };
+ 
+ export function AccountHubClient() {
+@@ -29,6 +30,7 @@
+     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
+     ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),
+     { href: '/account/settings', titleKey: 'account.items.settings.title', bodyKey: 'account.items.settings.body', icon: 'settings' },
++    { href: '/legal', titleKey: 'account.items.legal.title', bodyKey: 'account.items.legal.body', icon: 'warning', publicAccess: true },
+     { href: '/account/support', titleKey: 'account.items.support.title', bodyKey: 'account.items.support.body', icon: 'help' },
+   ], []);
+ 
+@@ -93,7 +95,7 @@
+ 
+       <div className="mobile-list">
+         {accountItems.map((item) => {
+-          const href = auth.hydrated && !auth.isAuthenticated ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
++          const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+           return (
+             <Link key={item.href} href={href} className="mobile-link-card">
+               {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/account/SupportClient.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/account/SupportClient.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/account/SupportClient.tsx	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/account/SupportClient.tsx	2026-05-12 19:57:37.750301752 +0000
+@@ -167,6 +167,16 @@
+       {notice ? <p className="notice-box success">{notice}</p> : null}
+       {error ? <p className="notice-box danger">{error}</p> : null}
+ 
++      <section className="mobile-card mobile-card--soft">
++        <span className="semantic-badge info">{t('navigation.routes.legal')}</span>
++        <h3>{t('legal.support.title')}</h3>
++        <p>{t('legal.support.body')}</p>
++        <div className="cta-row">
++          <Link href="/legal/safety" className="button secondary">{t('legal.support.viewSafety')}</Link>
++          <Link href="/legal/refund-dispute" className="button secondary">{t('legal.support.viewDisputes')}</Link>
++        </div>
++      </section>
++
+       <section className="mobile-card support-compose-card">
+         <div className="trade-section-heading"><div><p className="eyebrow">{t('support.newRequest')}</p><h3>{t('support.createTicket')}</h3></div><span className="semantic-badge instruction">{t('support.attachments')}</span></div>
+         <form className="form-stack" onSubmit={(event) => { void createTicket(event); }}>
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/legal/LegalOverviewClient.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/legal/LegalOverviewClient.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/legal/LegalOverviewClient.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/legal/LegalOverviewClient.tsx	2026-05-12 19:56:42.786803932 +0000
+@@ -0,0 +1,37 @@
++'use client';
++
++import Link from 'next/link';
++import { legalPolicyKeys, legalPolicyRoutes } from '@hellowhen/i18n';
++import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { WebIcon } from '../../components/WebIcon';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++
++export function LegalOverviewClient() {
++  const { t } = useWebTranslation();
++
++  return (
++    <MobilePage className="legal-page">
++      <PageIntro eyebrow={t('legal.overview.eyebrow')} title={t('legal.overview.title')} body={t('legal.overview.body')} />
++
++      <section className="mobile-card mobile-card--soft legal-launch-note">
++        <span className="semantic-badge instruction">{t('legal.overview.launchBadge')}</span>
++        <h3>{t('legal.overview.launchTitle')}</h3>
++        <p>{t('legal.overview.launchBody')}</p>
++      </section>
++
++      <div className="mobile-list legal-card-list">
++        {legalPolicyKeys.map((policy) => (
++          <Link key={policy} href={legalPolicyRoutes[policy]} className="mobile-link-card legal-link-card">
++            <WebIcon name={policy === 'safety' || policy === 'refundDispute' ? 'warning' : 'help'} size={22} decorative className="mobile-link-card__icon" />
++            <span className="mobile-link-card__body">
++              <strong>{t(`legal.policies.${policy}.title`)}</strong>
++              <br />
++              {t(`legal.policies.${policy}.summary`)}
++            </span>
++            <span className="legal-link-card__action">{t('legal.overview.openPolicy')}</span>
++          </Link>
++        ))}
++      </div>
++    </MobilePage>
++  );
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/legal/LegalPolicyClient.tsx /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/legal/LegalPolicyClient.tsx
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/features/legal/LegalPolicyClient.tsx	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/features/legal/LegalPolicyClient.tsx	2026-05-12 19:56:42.797597544 +0000
+@@ -0,0 +1,48 @@
++'use client';
++
++import Link from 'next/link';
++import { legalPolicyKeys, legalPolicyRoutes, legalPolicySectionKeys, type LegalPolicyKey } from '@hellowhen/i18n';
++import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++
++function isLegalPolicyKey(value: string): value is LegalPolicyKey {
++  return legalPolicyKeys.includes(value as LegalPolicyKey);
++}
++
++export function LegalPolicyClient({ policy }: { policy: LegalPolicyKey }) {
++  const { t } = useWebTranslation();
++
++  if (!isLegalPolicyKey(policy)) return null;
++
++  return (
++    <MobilePage className="legal-page">
++      <PageIntro
++        eyebrow={t('legal.overview.eyebrow')}
++        title={t(`legal.policies.${policy}.title`)}
++        body={t(`legal.policies.${policy}.summary`)}
++      />
++
++      <p className="notice-box info legal-updated-note">{t(`legal.policies.${policy}.updated`)}</p>
++
++      <div className="legal-policy-section-list">
++        {legalPolicySectionKeys[policy].map((section) => (
++          <section key={section} className="mobile-card legal-policy-section">
++            <h3>{t(`legal.policies.${policy}.sections.${section}.title`)}</h3>
++            <p>{t(`legal.policies.${policy}.sections.${section}.body`)}</p>
++          </section>
++        ))}
++      </div>
++
++      <section className="mobile-card mobile-card--soft legal-related-card">
++        <span className="semantic-badge info">{t('navigation.routes.legal')}</span>
++        <h3>{t('legal.overview.title')}</h3>
++        <div className="cta-row">
++          <Link href="/legal" className="button secondary">{t('navigation.routes.legal')}</Link>
++          {legalPolicyKeys.filter((item) => item !== policy).map((item) => (
++            <Link key={item} href={legalPolicyRoutes[item]} className="button secondary">{t(`legal.policies.${item}.shortTitle`)}</Link>
++          ))}
++        </div>
++      </section>
++    </MobilePage>
++  );
++}
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/lib/webRoutes.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/lib/webRoutes.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/apps/web/src/lib/webRoutes.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/apps/web/src/lib/webRoutes.ts	2026-05-12 19:56:52.421998724 +0000
+@@ -35,7 +35,7 @@
+     labelKey: 'navigation.tabs.account',
+     href: '/account',
+     icon: 'profile',
+-    match: (pathname) => pathname.startsWith('/account'),
++    match: (pathname) => pathname.startsWith('/account') || pathname.startsWith('/legal'),
+   },
+ ];
+ 
+@@ -66,6 +66,11 @@
+   { match: (pathname) => pathname === '/account/wallet/add', titleKey: 'navigation.routes.account', backHref: '/account' },
+   { match: (pathname) => pathname === '/account/payouts', titleKey: 'navigation.routes.account', backHref: '/account' },
+   { match: (pathname) => pathname === '/account/support', titleKey: 'navigation.routes.support', backHref: '/account' },
++  { match: (pathname) => pathname === '/legal', titleKey: 'navigation.routes.legal', backHref: '/account' },
++  { match: (pathname) => pathname === '/legal/terms', titleKey: 'navigation.routes.terms', backHref: '/legal' },
++  { match: (pathname) => pathname === '/legal/privacy', titleKey: 'navigation.routes.privacy', backHref: '/legal' },
++  { match: (pathname) => pathname === '/legal/safety', titleKey: 'navigation.routes.safety', backHref: '/legal' },
++  { match: (pathname) => pathname === '/legal/refund-dispute', titleKey: 'navigation.routes.refundDispute', backHref: '/legal' },
+ ];
+ 
+ export function getRouteHeader(pathname: string) {
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/moderation-readiness-checklist.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/moderation-readiness-checklist.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/moderation-readiness-checklist.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/moderation-readiness-checklist.md	2026-05-12 19:59:47.937076703 +0000
+@@ -0,0 +1,23 @@
++# Moderation Readiness Checklist
++
++> Documentation note: this checklist is operational readiness guidance, not legal advice.
++
++## Admin readiness
++
++- Admin account exists with strong credentials.
++- Admin two-step requirement is enabled for non-local launch.
++- Default seed admin credentials are rotated or removed.
++- `/admin` dashboard loads.
++- Launch checklist, runtime QA, and moderation smoke checks run.
++- Reports queue is cleared or each pending report has a decision.
++- Urgent/high support tickets are claimed or resolved.
++- Pending/flagged media has been reviewed.
++- Audit log shows recent admin actions.
++
++## Runtime moderation checks
++
++- Restricted users cannot create/update/delete Needs, Offers, Trades, Proposals, or messages.
++- Restricted users’ public content is absent from public discovery/profile routes.
++- Hide/restore/close actions affect public visibility correctly.
++- Report-to-support escalation creates a linked support ticket.
++- Public optional-auth reads degrade to anonymous when stale tokens are sent.
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/native-app-store-release-checklist.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/native-app-store-release-checklist.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/native-app-store-release-checklist.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/native-app-store-release-checklist.md	2026-05-12 19:59:47.924636375 +0000
+@@ -0,0 +1,17 @@
++# Native App Store Release Checklist
++
++> Documentation note: this checklist is operational readiness guidance, not legal advice. App Store and Play Store submissions should be reviewed against current platform rules before launch.
++
++## Before native store submission
++
++- Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
++- Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
++- Verify login/register/reset flows on iOS and Android devices.
++- Verify Terms and Privacy can be opened from registration and Account.
++- Verify Settings includes Legal & Safety links.
++- Verify Support includes safety/dispute links and ticket creation.
++- Verify reports and restricted-user protections on device.
++- Verify language switching and French copy on device.
++- Verify dark/light/system appearance persistence after app restart.
++- Prepare store privacy disclosures that match implemented data collection and safety workflows.
++- Keep payment/wallet/payout claims out of store copy until those features are explicitly enabled and reviewed.
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/privacy-data-readiness-checklist.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/privacy-data-readiness-checklist.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/privacy-data-readiness-checklist.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/privacy-data-readiness-checklist.md	2026-05-12 19:59:47.961453866 +0000
+@@ -0,0 +1,24 @@
++# Privacy & Data Readiness Checklist
++
++> Documentation note: this checklist is operational readiness guidance, not legal advice and must be reviewed with counsel before public launch.
++
++## Data inventory
++
++- Account and session data mapped.
++- Public profile fields mapped.
++- Need/Offer/Trade public visibility mapped.
++- Proposal/message visibility mapped.
++- Support ticket and attachment visibility mapped.
++- Report and moderation data mapped.
++- Admin audit log data mapped.
++- Upload storage and media status behavior mapped.
++
++## Launch checks
++
++- Privacy copy matches implemented behavior.
++- Language and appearance settings are persisted intentionally.
++- Optional-auth public reads can fall back to anonymous access.
++- Restricted-session revocation is checked by authenticated API middleware.
++- Support/report/admin notes are not exposed through public discovery routes.
++- Store privacy disclosures match app behavior.
++- A process exists for user privacy/support requests.
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/safety-policy-readiness-checklist.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/safety-policy-readiness-checklist.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/safety-policy-readiness-checklist.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/safety-policy-readiness-checklist.md	2026-05-12 19:59:47.948914829 +0000
+@@ -0,0 +1,22 @@
++# Safety Policy Readiness Checklist
++
++> Documentation note: this checklist is operational readiness guidance, not legal advice and must be reviewed with counsel before public launch.
++
++## Policy surfaces
++
++- Terms page exists.
++- Privacy page exists.
++- Community & Safety Guidelines page exists.
++- Refund & Dispute Policy page exists.
++- Auth registration links to Terms and Privacy.
++- Account links to Legal & Safety center.
++- Settings links to Legal & Safety center.
++- Support links to Safety and Refund/Dispute pages.
++
++## Policy review
++
++- Confirm all placeholder copy matches actual first-launch behavior.
++- Confirm money-off claims match env flags and UI behavior.
++- Confirm prohibited-content examples are appropriate for launch countries and app stores.
++- Confirm moderation action wording matches admin capabilities.
++- Confirm no user-facing copy promises legal outcomes, payment guarantees, payout availability, or response times that the team cannot support.
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/web-release-checklist.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/web-release-checklist.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/launch/web-release-checklist.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/launch/web-release-checklist.md	2026-05-12 19:59:47.912301344 +0000
+@@ -0,0 +1,16 @@
++# Web Release Checklist
++
++> Documentation note: this checklist is operational readiness guidance, not legal advice.
++
++## Before public web release
++
++- Confirm `.env` keeps `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, and `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`.
++- Run web typecheck/build.
++- Verify `/trades`, `/needs`, `/offers`, `/account`, `/auth`, `/legal`, `/account/support`, and `/admin` load in light and dark mode.
++- Verify French and English labels on auth, account, settings, support, report, and legal pages.
++- Verify auth registration links to Terms and Privacy.
++- Verify public optional-auth reads work with signed-out, signed-in, and revoked/stale-token states.
++- Verify restricted/hidden content is absent from discovery and public profile routes.
++- Verify report buttons and support tickets still work after adding policy links.
++- Verify no old demo/wallet copy appears when money UI flags are off.
++- Verify metadata, favicon, app name, and production URLs are set for the launch domain.
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/phase-25-0-launch-readiness-pass.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/phase-25-0-launch-readiness-pass.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/phase-25-0-launch-readiness-pass.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/phase-25-0-launch-readiness-pass.md	2026-05-12 19:59:47.974125971 +0000
+@@ -0,0 +1,47 @@
++# Phase 25.0 — Launch readiness pass: terms, privacy, safety copy, and release checklist
++
++## Scope completed
++
++Phase 25.0 adds a launch-readiness structure without enabling money features or changing feed/deck/proposal logic.
++
++Implemented surfaces:
++
++- Web Legal & Safety center at `/legal`.
++- Web pages:
++  - `/legal/terms`
++  - `/legal/privacy`
++  - `/legal/safety`
++  - `/legal/refund-dispute`
++- Native Legal & Safety screen with the same Terms, Privacy, Safety, and Refund/Dispute content.
++- Auth registration links to Terms and Privacy.
++- Account links to Legal & Safety.
++- Settings links to Legal & Safety.
++- Support links to Safety and Refund/Dispute policy.
++- English and French localized policy copy.
++- Placeholder policy docs and launch checklists.
++
++## Important constraint
++
++This phase is not legal finalization.
++
++The policy docs in `docs/policies/` are product/legal-readiness drafts only. They are not legal advice and must be reviewed by a qualified lawyer before public launch.
++
++## Non-goals
++
++- No feed/deck behavior changes.
++- No proposal logic changes.
++- No wallet, payout, Stripe, Airwallex, or provider enablement.
++- No legal claims that the product is compliant in a particular country.
++- No production-money refund flow.
++- No changes to admin moderation decisions beyond policy-link visibility.
++
++## QA checklist
++
++1. Open `/legal` and each legal subpage in English and French.
++2. Register screen: confirm Terms and Privacy links are visible and open the correct pages.
++3. Account: confirm Legal & Safety appears as a menu item.
++4. Settings: confirm Legal & Safety link appears.
++5. Support: confirm Safety and Refund/Dispute links appear.
++6. Expo: confirm Account, Settings, Support, and Register expose the native legal screens.
++7. Confirm money feature flags remain off in `.env.example` and runtime env.
++8. Run typecheck/build before merging.
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/community-safety-guidelines-placeholder.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/community-safety-guidelines-placeholder.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/community-safety-guidelines-placeholder.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/community-safety-guidelines-placeholder.md	2026-05-12 19:59:47.886514278 +0000
+@@ -0,0 +1,29 @@
++# Placeholder Community & Safety Guidelines
++
++> Documentation note: this is a product/legal-readiness draft only. It is not legal advice and must be reviewed by a qualified lawyer before public launch.
++
++## Purpose
++
++This starter policy gives users clear behavior expectations and gives admins a first-launch moderation baseline.
++
++## Placeholder coverage
++
++- respectful Needs, Offers, Trades, and Proposals
++- prohibited scams, spam, harassment, fake profiles, unsafe/illegal content, and privacy violations
++- reporting and support escalation
++- admin hiding/restoring/restricting actions
++- safe local-exchange reminders
++
++## Admin-readiness notes
++
++- Report buttons and support escalation are already first-launch safety surfaces.
++- Restricted users should be blocked from create/update/delete/propose/message actions.
++- Restricted users’ public content should not appear in discovery/profile routes.
++- Admin actions should write audit log entries.
++
++## Lawyer-review questions
++
++- Which prohibited categories must be explicit for launch countries and app stores?
++- What user notification and appeal language is required for account/content restrictions?
++- What emergency, law-enforcement, or child-safety escalation process is required?
++- What moderation SLA or response-time language should be avoided or committed to?
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/privacy-placeholder.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/privacy-placeholder.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/privacy-placeholder.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/privacy-placeholder.md	2026-05-12 19:59:47.862328028 +0000
+@@ -0,0 +1,31 @@
++# Placeholder Privacy Policy
++
++> Documentation note: this is a product/legal-readiness draft only. It is not legal advice and must be reviewed by a qualified lawyer before public launch.
++
++## Purpose
++
++This starter Privacy page describes the first-beta data categories and safety workflows that appear in the app.
++
++## Placeholder coverage
++
++- account and profile data
++- public trade/profile content
++- proposal/support/report data
++- uploaded images and screenshots
++- moderation, restriction, and audit records
++- settings such as language, appearance, country, and display currency
++
++## Data-readiness notes
++
++- Public profile and active public content can appear in discovery/profile routes.
++- Proposal messages, support tickets, report escalations, and admin notes are not public discovery content.
++- Uploads may be retained while needed for product function, support, safety review, or audit history.
++- Optional-auth public reads should gracefully fall back to anonymous access when stale tokens are present.
++
++## Lawyer-review questions
++
++- Which GDPR/ePrivacy/UK GDPR/CCPA or other regional obligations apply at launch?
++- What user rights flow is needed for access, export, correction, deletion, and objection?
++- What retention periods should be documented for images, support tickets, reports, audit logs, and sessions?
++- What processor/subprocessor list is needed for hosting, email, analytics, storage, crash reporting, and future payment providers?
++- What App Store / Play Store privacy disclosures must match the implementation?
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/refund-dispute-placeholder.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/refund-dispute-placeholder.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/refund-dispute-placeholder.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/refund-dispute-placeholder.md	2026-05-12 19:59:47.900002099 +0000
+@@ -0,0 +1,41 @@
++# Placeholder Refund & Dispute Policy
++
++> Documentation note: this is a product/legal-readiness draft only. It is not legal advice and must be reviewed by a qualified lawyer before public launch.
++
++## Purpose
++
++This starter policy explains trade issue handling for the first beta while real-money wallet/payout/refund flows stay disabled.
++
++## First-launch scope
++
++- No wallet top-ups.
++- No payouts.
++- No production Stripe/Airwallex money movement.
++- No in-app money refunds.
++- Support tickets, reports, moderation actions, and audit notes are the operational dispute structure.
++
++## Placeholder process
++
++1. User reports content or opens a support ticket.
++2. Admin reviews linked profile/trade/need/offer/proposal context.
++3. Admin may hide or restore content, restrict users, close content, escalate to support, or document a decision.
++4. Support ticket history and audit logs preserve the review trail.
++
++## Future money-launch prerequisites
++
++- separate wallet terms
++- payout rules and fee disclosure
++- refund rules
++- dispute workflow
++- payment-provider review
++- transaction ledger reconciliation
++- low launch limits
++- manual payout review
++- privacy and data-retention updates
++
++## Lawyer-review questions
++
++- What refund, chargeback, and dispute obligations apply if money is later enabled?
++- What seller/provider payout hold periods are allowed and required?
++- What escrow, stored-value, marketplace-payment, or money-transmission rules may apply?
++- What user notices are required before withholding, refunding, reversing, or releasing funds?
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/terms-placeholder.md /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/terms-placeholder.md
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/docs/policies/terms-placeholder.md	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/docs/policies/terms-placeholder.md	2026-05-12 19:59:47.835532918 +0000
+@@ -0,0 +1,31 @@
++# Placeholder Terms
++
++> Documentation note: this is a product/legal-readiness draft only. It is not legal advice and must be reviewed by a qualified lawyer before public launch.
++
++## Purpose
++
++This starter Terms page supports the first Hellowhen Trade beta, where the product focuses on Need + Offer exchanges, support, reporting, and moderation.
++
++## Placeholder coverage
++
++- account use and login safety
++- Need, Offer, Trade, and Proposal expectations
++- public content visibility and moderation
++- support/report handling
++- first-beta money-off constraint
++- future policy change process
++
++## First-launch product assumptions
++
++- Wallet, payouts, provider onboarding, and production money movement remain disabled.
++- Users can report content and create support tickets.
++- Admins can hide/restore content, restrict users, and keep audit notes.
++- Service/goods exchanges are not backed by an in-app payment guarantee.
++
++## Lawyer-review questions
++
++- Which legal entity, country, and governing-law language should be used?
++- Which consumer, marketplace, platform, and content-liability disclosures are required in launch countries?
++- What age minimum and user eligibility rules are required?
++- What limitation-of-liability, termination, and dispute-resolution language is appropriate?
++- What exact user acceptance and versioning records should be stored?
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/index.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/index.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/index.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/index.ts	2026-05-12 19:56:11.538461930 +0000
+@@ -1,3 +1,4 @@
+ export * from './languages';
+ export * from './resources';
+ export * from './format';
++export * from './legalPolicies';
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/legalPolicies.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/legalPolicies.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/legalPolicies.ts	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/legalPolicies.ts	2026-05-12 19:56:03.879275373 +0000
+@@ -0,0 +1,17 @@
++export type LegalPolicyKey = 'terms' | 'privacy' | 'safety' | 'refundDispute';
++
++export const legalPolicyKeys: LegalPolicyKey[] = ['terms', 'privacy', 'safety', 'refundDispute'];
++
++export const legalPolicyRoutes: Record<LegalPolicyKey, string> = {
++  terms: '/legal/terms',
++  privacy: '/legal/privacy',
++  safety: '/legal/safety',
++  refundDispute: '/legal/refund-dispute',
++};
++
++export const legalPolicySectionKeys: Record<LegalPolicyKey, string[]> = {
++  terms: ['starterScope', 'accountUse', 'tradeRules', 'contentModeration', 'moneyDisabled', 'supportChanges'],
++  privacy: ['starterScope', 'accountData', 'publicContent', 'safetySupport', 'mediaRetention', 'choices'],
++  safety: ['starterScope', 'allowedUse', 'notAllowed', 'reportsModeration', 'identityTrust', 'meetSafely'],
++  refundDispute: ['starterScope', 'moneyDisabled', 'tradeIssues', 'adminActions', 'futureMoney', 'supportRecords'],
++};
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/account.ts	2026-05-12 19:56:27.209996746 +0000
+@@ -282,6 +282,12 @@
+       bodyNative: 'Notifications, appearance, language, and privacy.',
+       badge: 'Settings',
+     },
++    legal: {
++      title: 'Legal & safety',
++      body: 'Terms, privacy, safety guidelines, and refund/dispute policy.',
++      bodyNative: 'Terms, privacy, safety, and disputes.',
++      badge: 'Policy',
++    },
+     support: {
+       title: 'Support',
+       body: 'Create support tickets, attach screenshots, and follow replies.',
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/auth.ts	2026-05-12 19:56:27.208622395 +0000
+@@ -37,6 +37,7 @@
+     countryDefaultCurrencyNative: 'Default currency {{currency}}',
+   },
+   terms: 'I agree to the Terms and Privacy Policy.',
++  termsNativeHint: 'Review Terms and Privacy before creating your account.',
+   forgotNotice: 'Enter your account email and we will send a reset link if the account exists.',
+   errors: {
+     signIn: 'Sign-in error',
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/index.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/index.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/index.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/index.ts	2026-05-12 19:56:11.537193631 +0000
+@@ -3,6 +3,7 @@
+ import { common } from './common';
+ import { inventory } from './inventory';
+ import { media } from './media';
++import { legal } from './legal';
+ import { navigation } from './navigation';
+ import { profile } from './profile';
+ import { report } from './report';
+@@ -17,6 +18,7 @@
+   common,
+   inventory,
+   media,
++  legal,
+   navigation,
+   profile,
+   report,
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/legal.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/legal.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/legal.ts	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/legal.ts	2026-05-12 19:56:03.893016223 +0000
+@@ -0,0 +1,87 @@
++export const legal = {
++  overview: {
++    eyebrow: 'Launch readiness',
++    title: 'Legal, privacy, and safety center',
++    body: 'Starter policy pages for the Hellowhen Trade beta. They set clear expectations for service and goods exchanges while money features stay disabled.',
++    launchBadge: 'Beta policy',
++    launchTitle: 'First-launch scope',
++    launchBody: 'This beta focuses on Need + Offer trades, support, reports, and moderation. Wallets, payouts, provider onboarding, and production money movement remain off unless a later launch plan enables them.',
++    openPolicy: 'Open policy',
++  },
++  support: {
++    title: 'Before contacting support',
++    body: 'For urgent safety, content, or trade issues, review the safety and dispute pages, then create a support ticket with screenshots when useful.',
++    viewSafety: 'View safety guidelines',
++    viewDisputes: 'View dispute policy',
++  },
++  settings: {
++    title: 'Policy links',
++    body: 'Review the current beta terms, privacy notes, community/safety guidelines, and refund/dispute process.',
++  },
++  authLinks: {
++    prefix: 'I agree to the',
++    terms: 'Terms',
++    privacy: 'Privacy Policy',
++    and: 'and',
++    viewTerms: 'View Terms',
++    viewPrivacy: 'View Privacy',
++  },
++  policies: {
++    terms: {
++      title: 'Terms',
++      shortTitle: 'Terms',
++      summary: 'Starter terms for using Hellowhen Trade during the first beta.',
++      updated: 'Starter version · May 2026',
++      sections: {
++        starterScope: { title: 'Starter beta scope', body: 'Hellowhen Trade lets members publish Needs, Offers, and Trades, send proposals, and manage support requests. These starter terms are written for the first beta product scope.' },
++        accountUse: { title: 'Account use', body: 'Use accurate account information, keep your login safe, and do not share accounts. Hellowhen may restrict accounts that create safety, spam, fraud, or moderation risk.' },
++        tradeRules: { title: 'Trade expectations', body: 'Post clear Needs and Offers, describe what you can provide, and keep proposal messages respectful. Do not promise services, goods, or timelines that you cannot reasonably deliver.' },
++        contentModeration: { title: 'Content and moderation', body: 'Hellowhen may hide, close, restore, or review public content when reports, support tickets, or admin checks indicate a safety or quality issue.' },
++        moneyDisabled: { title: 'Money features are disabled', body: 'The first beta does not enable wallet top-ups, payouts, provider onboarding, or production money movement. Service-for-service and goods exchanges should not rely on an in-app payment guarantee.' },
++        supportChanges: { title: 'Support and changes', body: 'Policy copy may change before launch as the product, moderation process, and supported countries become clearer. Use support when you need help with an account, trade, report, or safety concern.' },
++      },
++    },
++    privacy: {
++      title: 'Privacy Policy',
++      shortTitle: 'Privacy',
++      summary: 'Starter privacy notes for account, profile, content, support, and safety data.',
++      updated: 'Starter version · May 2026',
++      sections: {
++        starterScope: { title: 'Starter beta scope', body: 'This page explains the data Hellowhen Trade expects to use during the first beta. It is intentionally focused on account, trade, support, reporting, and moderation flows.' },
++        accountData: { title: 'Account and profile data', body: 'The app uses account details such as email, display name, handle, bio, avatar, country, display currency, language, appearance, verification, and session information to operate your account.' },
++        publicContent: { title: 'Public content', body: 'Public profile details, active Trades, and approved Need/Offer media can appear in discovery and public profile routes. Private support tickets, proposal messages, and admin notes are not public discovery content.' },
++        safetySupport: { title: 'Safety, reports, and support', body: 'Reports, support tickets, uploaded screenshots, moderation decisions, restriction status, and audit logs are used to investigate issues and keep the marketplace safer.' },
++        mediaRetention: { title: 'Media and retention', body: 'Images attached to profiles, Needs, Offers, Trades, reports, or support tickets may stay available while they are needed for the product, safety review, support history, or audit records.' },
++        choices: { title: 'Your choices', body: 'You can edit profile details, change language and appearance settings, close your own content where supported, and contact support for account, privacy, or safety questions.' },
++      },
++    },
++    safety: {
++      title: 'Community & Safety Guidelines',
++      shortTitle: 'Safety',
++      summary: 'Starter guidelines for safer Needs, Offers, Trades, proposals, and reports.',
++      updated: 'Starter version · May 2026',
++      sections: {
++        starterScope: { title: 'Starter beta scope', body: 'These guidelines help keep the first Hellowhen Trade beta focused on useful, respectful service and goods exchanges.' },
++        allowedUse: { title: 'Helpful use', body: 'Use clear titles, honest descriptions, appropriate images, and respectful proposal messages. Keep trade discussions inside the product when possible so support can understand issues later.' },
++        notAllowed: { title: 'Not allowed', body: 'Do not post scams, harassment, illegal or unsafe content, fake profiles, sexual content, dangerous goods or services, hate, threats, spam, or content that invades someone else’s privacy.' },
++        reportsModeration: { title: 'Reports and moderation', body: 'Members can report profiles, Trades, Needs, Offers, and messages where available. Admins can review reports, hide content, restrict users, escalate to support, and keep audit notes.' },
++        identityTrust: { title: 'Identity and trust', body: 'Profile pictures, names, bios, trade counts, proposal activity, and future verification signals should help members judge trust, but they are not a guarantee that a trade will succeed.' },
++        meetSafely: { title: 'Meet and trade safely', body: 'Avoid sharing sensitive personal details too early. For local exchanges, choose safe public places where appropriate, trust your judgment, and report suspicious behavior.' },
++      },
++    },
++    refundDispute: {
++      title: 'Refund & Dispute Policy',
++      shortTitle: 'Refunds',
++      summary: 'Starter process for trade issues and future money-policy readiness.',
++      updated: 'Starter version · May 2026',
++      sections: {
++        starterScope: { title: 'Starter beta scope', body: 'This beta policy covers trade issues while in-app money remains disabled. It prepares the structure needed before any future wallet, payout, refund, or dispute flow.' },
++        moneyDisabled: { title: 'No in-app money refunds in beta', body: 'Because wallet top-ups, payouts, and production money movement are disabled, Hellowhen cannot process in-app refunds for the first beta.' },
++        tradeIssues: { title: 'Trade issues', body: 'If a trade, proposal, profile, image, or message creates a problem, report the content or create a support ticket with a clear description and screenshots when useful.' },
++        adminActions: { title: 'Admin review actions', body: 'Admins may review reports and support tickets, hide or restore content, close content, restrict accounts, escalate issues, and record audit notes.' },
++        futureMoney: { title: 'Future money launch', body: 'Before any wallet or payout launch, Hellowhen needs separate money terms, payout rules, refund/dispute handling, provider review, privacy updates, limits, and admin readiness checks.' },
++        supportRecords: { title: 'Support records', body: 'Support tickets, report escalations, and admin notes create a record that helps the team understand what happened and decide the safest next product action.' },
++      },
++    },
++  },
++} as const;
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/navigation.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/navigation.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/navigation.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/navigation.ts	2026-05-12 19:56:27.207536316 +0000
+@@ -24,6 +24,11 @@
+     offer: 'Offer',
+     settings: 'Settings',
+     support: 'Support',
++    legal: 'Legal & safety',
++    terms: 'Terms',
++    privacy: 'Privacy',
++    safety: 'Safety',
++    refundDispute: 'Refunds & disputes',
+     hellowhen: 'Hellowhen',
+   },
+ } as const;
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/en/settings.ts	2026-05-12 19:56:27.211569259 +0000
+@@ -75,5 +75,12 @@
+     title: 'Local display',
+     body: 'Country and display currency now live on Profile so they can be saved with your public account data.',
+   },
++  policies: {
++    badge: 'Policies',
++    title: 'Legal & safety links',
++    body: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
++    bodyNative: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
++    open: 'Open legal & safety center',
++  },
+   signedOutHint: 'You are not logged in. Appearance and language still persist locally on this browser.',
+ } as const;
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/account.ts	2026-05-12 19:56:27.211007923 +0000
+@@ -282,6 +282,12 @@
+       bodyNative: 'Notifications, apparence, langue et confidentialité.',
+       badge: 'Paramètres',
+     },
++    legal: {
++      title: 'Légal et sécurité',
++      body: 'Conditions, confidentialité, règles de sécurité et politique remboursement/litige.',
++      bodyNative: 'Conditions, confidentialité, sécurité et litiges.',
++      badge: 'Politique',
++    },
+     support: {
+       title: 'Assistance',
+       body: 'Créez des tickets d’assistance, joignez des captures et suivez les réponses.',
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/auth.ts	2026-05-12 19:56:27.209091025 +0000
+@@ -37,6 +37,7 @@
+     countryDefaultCurrencyNative: 'Devise par défaut {{currency}}',
+   },
+   terms: 'J’accepte les Conditions et la Politique de confidentialité.',
++  termsNativeHint: 'Consultez les Conditions et la Confidentialité avant de créer votre compte.',
+   forgotNotice: 'Saisissez l’e-mail de votre compte et nous enverrons un lien de réinitialisation si le compte existe.',
+   errors: {
+     signIn: 'Erreur de connexion',
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/index.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/index.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/index.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/index.ts	2026-05-12 19:56:11.537864912 +0000
+@@ -3,6 +3,7 @@
+ import { common } from './common';
+ import { inventory } from './inventory';
+ import { media } from './media';
++import { legal } from './legal';
+ import { navigation } from './navigation';
+ import { profile } from './profile';
+ import { report } from './report';
+@@ -17,6 +18,7 @@
+   common,
+   inventory,
+   media,
++  legal,
+   navigation,
+   profile,
+   report,
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/legal.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/legal.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/legal.ts	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/legal.ts	2026-05-12 19:56:03.906611134 +0000
+@@ -0,0 +1,87 @@
++export const legal = {
++  overview: {
++    eyebrow: 'Préparation au lancement',
++    title: 'Centre légal, confidentialité et sécurité',
++    body: 'Pages de politique de départ pour la bêta Hellowhen Trade. Elles clarifient les attentes pour les échanges de services et de biens pendant que les fonctions d’argent restent désactivées.',
++    launchBadge: 'Politique bêta',
++    launchTitle: 'Périmètre du premier lancement',
++    launchBody: 'Cette bêta se concentre sur les échanges Besoin + Offre, l’assistance, les signalements et la modération. Les portefeuilles, versements, intégrations de prestataires et mouvements d’argent en production restent désactivés sauf si un plan de lancement ultérieur les active.',
++    openPolicy: 'Ouvrir la politique',
++  },
++  support: {
++    title: 'Avant de contacter l’assistance',
++    body: 'Pour les problèmes urgents de sécurité, de contenu ou d’échange, consultez les pages sécurité et litiges, puis créez un ticket avec des captures si utile.',
++    viewSafety: 'Voir les règles de sécurité',
++    viewDisputes: 'Voir la politique de litige',
++  },
++  settings: {
++    title: 'Liens de politique',
++    body: 'Consultez les conditions bêta actuelles, les notes de confidentialité, les règles communauté/sécurité et le processus remboursement/litige.',
++  },
++  authLinks: {
++    prefix: 'J’accepte les',
++    terms: 'Conditions',
++    privacy: 'Politique de confidentialité',
++    and: 'et la',
++    viewTerms: 'Voir les Conditions',
++    viewPrivacy: 'Voir la Confidentialité',
++  },
++  policies: {
++    terms: {
++      title: 'Conditions',
++      shortTitle: 'Conditions',
++      summary: 'Conditions de départ pour utiliser Hellowhen Trade pendant la première bêta.',
++      updated: 'Version de départ · mai 2026',
++      sections: {
++        starterScope: { title: 'Périmètre bêta de départ', body: 'Hellowhen Trade permet aux membres de publier des Besoins, Offres et Échanges, d’envoyer des propositions et de gérer des demandes d’assistance. Ces conditions de départ sont écrites pour le périmètre de la première bêta.' },
++        accountUse: { title: 'Utilisation du compte', body: 'Utilisez des informations de compte exactes, protégez votre connexion et ne partagez pas votre compte. Hellowhen peut restreindre les comptes qui créent un risque de sécurité, spam, fraude ou modération.' },
++        tradeRules: { title: 'Attentes d’échange', body: 'Publiez des Besoins et Offres clairs, décrivez ce que vous pouvez fournir et gardez des messages de proposition respectueux. Ne promettez pas des services, biens ou délais que vous ne pouvez pas raisonnablement tenir.' },
++        contentModeration: { title: 'Contenu et modération', body: 'Hellowhen peut masquer, fermer, restaurer ou examiner du contenu public lorsque des signalements, tickets d’assistance ou contrôles admin indiquent un problème de sécurité ou de qualité.' },
++        moneyDisabled: { title: 'Fonctions d’argent désactivées', body: 'La première bêta n’active pas les recharges de portefeuille, versements, intégrations de prestataires ni mouvements d’argent en production. Les échanges service-contre-service et de biens ne doivent pas dépendre d’une garantie de paiement intégrée.' },
++        supportChanges: { title: 'Assistance et changements', body: 'Le texte des politiques peut changer avant le lancement à mesure que le produit, la modération et les pays pris en charge deviennent plus clairs. Utilisez l’assistance pour toute question de compte, échange, signalement ou sécurité.' },
++      },
++    },
++    privacy: {
++      title: 'Politique de confidentialité',
++      shortTitle: 'Confidentialité',
++      summary: 'Notes de confidentialité de départ pour les données de compte, profil, contenu, assistance et sécurité.',
++      updated: 'Version de départ · mai 2026',
++      sections: {
++        starterScope: { title: 'Périmètre bêta de départ', body: 'Cette page explique les données que Hellowhen Trade prévoit d’utiliser pendant la première bêta. Elle se concentre volontairement sur les flux compte, échange, assistance, signalement et modération.' },
++        accountData: { title: 'Données de compte et profil', body: 'L’app utilise des informations comme l’e-mail, le nom affiché, l’identifiant, la bio, l’avatar, le pays, la devise d’affichage, la langue, l’apparence, la vérification et les sessions pour faire fonctionner votre compte.' },
++        publicContent: { title: 'Contenu public', body: 'Les détails du profil public, les Échanges actifs et les médias Besoin/Offre approuvés peuvent apparaître dans la découverte et les profils publics. Les tickets d’assistance privés, messages de proposition et notes admin ne sont pas du contenu public de découverte.' },
++        safetySupport: { title: 'Sécurité, signalements et assistance', body: 'Les signalements, tickets d’assistance, captures importées, décisions de modération, statuts de restriction et journaux d’audit servent à examiner les problèmes et rendre la marketplace plus sûre.' },
++        mediaRetention: { title: 'Médias et conservation', body: 'Les images liées aux profils, Besoins, Offres, Échanges, signalements ou tickets peuvent rester disponibles tant qu’elles sont nécessaires au produit, à la revue sécurité, à l’historique d’assistance ou aux audits.' },
++        choices: { title: 'Vos choix', body: 'Vous pouvez modifier les détails du profil, changer la langue et l’apparence, fermer vos contenus quand c’est pris en charge et contacter l’assistance pour les questions de compte, confidentialité ou sécurité.' },
++      },
++    },
++    safety: {
++      title: 'Règles communauté et sécurité',
++      shortTitle: 'Sécurité',
++      summary: 'Règles de départ pour des Besoins, Offres, Échanges, propositions et signalements plus sûrs.',
++      updated: 'Version de départ · mai 2026',
++      sections: {
++        starterScope: { title: 'Périmètre bêta de départ', body: 'Ces règles aident à garder la première bêta Hellowhen Trade centrée sur des échanges utiles et respectueux de services et de biens.' },
++        allowedUse: { title: 'Utilisation utile', body: 'Utilisez des titres clairs, descriptions honnêtes, images appropriées et messages de proposition respectueux. Gardez autant que possible les discussions d’échange dans le produit pour aider l’assistance à comprendre les problèmes.' },
++        notAllowed: { title: 'Interdit', body: 'Ne publiez pas d’arnaques, harcèlement, contenu illégal ou dangereux, faux profils, contenu sexuel, biens ou services dangereux, haine, menaces, spam ou contenu qui viole la vie privée d’autrui.' },
++        reportsModeration: { title: 'Signalements et modération', body: 'Les membres peuvent signaler les profils, Échanges, Besoins, Offres et messages lorsque disponible. Les admins peuvent examiner les signalements, masquer du contenu, restreindre des utilisateurs, escalader vers l’assistance et garder des notes d’audit.' },
++        identityTrust: { title: 'Identité et confiance', body: 'Les photos de profil, noms, bios, nombres d’échanges, activité de propositions et futurs signaux de vérification peuvent aider à évaluer la confiance, mais ne garantissent pas la réussite d’un échange.' },
++        meetSafely: { title: 'Rencontres et échanges sûrs', body: 'Évitez de partager trop tôt des informations personnelles sensibles. Pour les échanges locaux, choisissez des lieux publics sûrs lorsque c’est approprié, faites confiance à votre jugement et signalez les comportements suspects.' },
++      },
++    },
++    refundDispute: {
++      title: 'Politique remboursement et litige',
++      shortTitle: 'Remboursements',
++      summary: 'Processus de départ pour les problèmes d’échange et la préparation de futures politiques d’argent.',
++      updated: 'Version de départ · mai 2026',
++      sections: {
++        starterScope: { title: 'Périmètre bêta de départ', body: 'Cette politique bêta couvre les problèmes d’échange pendant que l’argent intégré reste désactivé. Elle prépare la structure nécessaire avant tout futur portefeuille, versement, remboursement ou litige.' },
++        moneyDisabled: { title: 'Aucun remboursement intégré en bêta', body: 'Comme les recharges de portefeuille, versements et mouvements d’argent en production sont désactivés, Hellowhen ne peut pas traiter de remboursements intégrés pendant la première bêta.' },
++        tradeIssues: { title: 'Problèmes d’échange', body: 'Si un échange, une proposition, un profil, une image ou un message pose problème, signalez le contenu ou créez un ticket d’assistance avec une description claire et des captures si utile.' },
++        adminActions: { title: 'Actions de revue admin', body: 'Les admins peuvent examiner les signalements et tickets, masquer ou restaurer du contenu, fermer du contenu, restreindre des comptes, escalader des problèmes et enregistrer des notes d’audit.' },
++        futureMoney: { title: 'Futur lancement avec argent', body: 'Avant tout lancement de portefeuille ou versement, Hellowhen devra avoir des conditions d’argent séparées, règles de versement, gestion remboursement/litige, revue fournisseur, mises à jour confidentialité, limites et contrôles admin.' },
++        supportRecords: { title: 'Historique d’assistance', body: 'Les tickets, escalades de signalement et notes admin créent un historique qui aide l’équipe à comprendre ce qui s’est passé et choisir l’action produit la plus sûre.' },
++      },
++    },
++  },
++} as const;
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/navigation.ts	2026-05-12 19:56:27.208140427 +0000
+@@ -24,6 +24,11 @@
+     offer: 'Offre',
+     settings: 'Paramètres',
+     support: 'Assistance',
++    legal: 'Légal et sécurité',
++    terms: 'Conditions',
++    privacy: 'Confidentialité',
++    safety: 'Sécurité',
++    refundDispute: 'Remboursements et litiges',
+     hellowhen: 'Hellowhen',
+   },
+ } as const;
+diff -ruN --exclude node_modules --exclude .git --exclude '*.tsbuildinfo' /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts
+--- /mnt/data/hellowhen_trade_original/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts	2026-05-12 19:51:07.000000000 +0000
++++ /mnt/data/hellowhen_trade_audit/hellowhen_trade-dev/packages/i18n/src/locales/fr/settings.ts	2026-05-12 19:56:27.212160597 +0000
+@@ -75,5 +75,12 @@
+     title: 'Affichage local',
+     body: 'Le pays et la devise d’affichage vivent maintenant dans le Profil afin d’être enregistrés avec les données publiques de votre compte.',
+   },
++  policies: {
++    badge: 'Politiques',
++    title: 'Liens légal et sécurité',
++    body: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
++    bodyNative: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
++    open: 'Ouvrir le centre légal et sécurité',
++  },
+   signedOutHint: 'Vous n’êtes pas connecté. L’apparence et la langue restent enregistrées localement sur ce navigateur.',
+ } as const;

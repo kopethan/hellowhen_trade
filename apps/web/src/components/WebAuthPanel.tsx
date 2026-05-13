@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { getFriendlyApiErrorMessage } from '../lib/webErrors';
@@ -181,7 +182,9 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
             <label className="checkbox-row">
               <input checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} type="checkbox" />
-              <span>{t('auth.terms')}</span>
+              <span>
+                {t('legal.authLinks.prefix')} <Link className="inline-policy-link" href="/legal/terms">{t('legal.authLinks.terms')}</Link> {t('legal.authLinks.and')} <Link className="inline-policy-link" href="/legal/privacy">{t('legal.authLinks.privacy')}</Link>.
+              </span>
             </label>
           </>
         ) : null}

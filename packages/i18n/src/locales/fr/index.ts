@@ -3,6 +3,7 @@ import { auth } from './auth';
 import { common } from './common';
 import { inventory } from './inventory';
 import { media } from './media';
+import { legal } from './legal';
 import { navigation } from './navigation';
 import { profile } from './profile';
 import { report } from './report';
@@ -17,6 +18,7 @@ export const fr = {
   common,
   inventory,
   media,
+  legal,
   navigation,
   profile,
   report,

@@ -75,5 +75,12 @@ export const settings = {
     title: 'Local display',
     body: 'Country and display currency now live on Profile so they can be saved with your public account data.',
   },
+  policies: {
+    badge: 'Policies',
+    title: 'Legal & safety links',
+    body: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
+    bodyNative: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
+    open: 'Open legal & safety center',
+  },
   signedOutHint: 'You are not logged in. Appearance and language still persist locally on this browser.',
 } as const;

@@ -15,6 +15,7 @@ type AccountHubItem = {
   titleKey: string;
   bodyKey: string;
   icon?: WebIconName;
+  publicAccess?: boolean;
 };
 
 export function AccountHubClient() {
@@ -29,6 +30,7 @@ export function AccountHubClient() {
     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
     ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),
     { href: '/account/settings', titleKey: 'account.items.settings.title', bodyKey: 'account.items.settings.body', icon: 'settings' },
+    { href: '/legal', titleKey: 'account.items.legal.title', bodyKey: 'account.items.legal.body', icon: 'warning', publicAccess: true },
     { href: '/account/support', titleKey: 'account.items.support.title', bodyKey: 'account.items.support.body', icon: 'help' },
   ], []);
 
@@ -93,7 +95,7 @@ export function AccountHubClient() {
 
       <div className="mobile-list">
         {accountItems.map((item) => {
-          const href = auth.hydrated && !auth.isAuthenticated ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+          const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
           return (
             <Link key={item.href} href={href} className="mobile-link-card">
               {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}

@@ -24,6 +24,11 @@ export const navigation = {
     offer: 'Offre',
     settings: 'Paramètres',
     support: 'Assistance',
+    legal: 'Légal et sécurité',
+    terms: 'Conditions',
+    privacy: 'Confidentialité',
+    safety: 'Sécurité',
+    refundDispute: 'Remboursements et litiges',
     hellowhen: 'Hellowhen',
   },
 } as const;
