@@ -9,6 +9,7 @@ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitt
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
+export const discoveryLanguageSchema = z.enum(['en', 'fr']);
 export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
 export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
 export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
@@ -140,18 +141,30 @@ export const listInventoryTemplatesQuerySchema = z.object({
   sourceType: inventoryTemplateSourceTypeSchema.optional(),
   businessProfileId: z.string().trim().min(1).optional(),
   q: z.string().trim().min(1).max(120).optional(),
+  language: discoveryLanguageSchema.optional(),
+  countryCode: z.string().trim().min(2).max(2).transform((value) => value.toUpperCase()).optional(),
   take: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const cloneInventoryTemplateRequestSchema = z.object({
   status: cloneInventoryTemplateStatusSchema.optional().default('active'),
 });
+const feedSeenTradeIdsSchema = z.preprocess((value: unknown) => {
+  if (Array.isArray(value)) return value.flatMap((item) => String(item).split(','));
+  if (typeof value === 'string') return value.split(',');
+  return value;
+}, z.array(z.string().trim().min(1).max(120)).max(100).optional().transform((ids: string[] | undefined) => ids?.map((id: string) => id.trim()).filter(Boolean)));
+
 export const listTradesFeedQuerySchema = z.object({
   q: z.string().trim().min(1).max(120).optional(),
+  language: discoveryLanguageSchema.optional(),
+  countryCode: z.string().trim().min(2).max(2).transform((value) => value.toUpperCase()).optional(),
   mode: tradeExchangeModeSchema.optional(),
   category: z.string().trim().min(1).max(80).optional(),
   hasImages: z.coerce.boolean().optional(),
   hasMoney: z.coerce.boolean().optional(),
   postType: tradePostTypeSchema.optional(),
+  refreshSeed: z.string().trim().min(1).max(80).optional(),
+  seenTradeIds: feedSeenTradeIdsSchema,
   take: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
@@ -164,7 +177,7 @@ export const createTradeProposalRequestSchema = z.object({
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
 
-export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional() }).nullable().optional();
+export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional(), countryCode: z.string().nullable().optional() }).nullable().optional();
 export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
 
 export const needSchema = z.object({
@@ -220,6 +233,8 @@ export const inventoryTemplateSchema = z.object({
   kind: inventoryTemplateKindSchema,
   sourceType: inventoryTemplateSourceTypeSchema,
   businessProfileId: z.string().nullable().optional(),
+  languageCode: discoveryLanguageSchema.optional().default('en'),
+  countryCode: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),
   itemType: inventoryItemTypeSchema.optional().default('service'),
@@ -329,6 +344,7 @@ export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;
 export type InventoryItemType = z.infer<typeof inventoryItemTypeSchema>;
 export type InventoryTemplateKind = z.infer<typeof inventoryTemplateKindSchema>;
 export type InventoryTemplateSourceType = z.infer<typeof inventoryTemplateSourceTypeSchema>;

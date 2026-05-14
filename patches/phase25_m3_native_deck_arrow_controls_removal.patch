@@ -1,0 +1,211 @@
+diff --git a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+index 23d403d..971aa0e 100644
+--- a/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
++++ b/apps/mobile/src/features/trade/deck/components/ContinuousSquareStackDeck.tsx
+@@ -1,13 +1,10 @@
+ import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
++import { StyleSheet, useWindowDimensions, View } from 'react-native';
+ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+ import Animated, { Easing, runOnJS, type SharedValue, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+-import { clamp, getCommitDuration, getSquareStackLayoutMetrics, getSquareStackShadowStyle, getSquareStackTransform, getSquareStackZIndex, getVisibleSquareStackIndexes, SQUARE_STACK_COMMIT_THRESHOLD, SQUARE_STACK_VELOCITY_THRESHOLD, SQUARE_STACK_VISIBLE_AFTER } from '../squareStackDeck.model';
++import { clamp, getCommitDuration, getSquareStackLayoutMetrics, getSquareStackShadowStyle, getSquareStackTransform, getSquareStackZIndex, getVisibleSquareStackIndexes, SQUARE_STACK_COMMIT_THRESHOLD, SQUARE_STACK_VELOCITY_THRESHOLD } from '../squareStackDeck.model';
+ import type { SquareStackDeckCard, SquareStackDeckProps } from '../squareStackDeck.types';
+ import { classifySquareStackPanIntent, type SquareStackGestureIntent } from '../squareStackGestureIntent';
+-import { MobileIcon } from '../../../../components/MobileIcon';
+-import { useThemeTokens } from '../../../../providers/ThemeProvider';
+-import { useTranslation } from '../../../../providers/MobileI18nProvider';
+ import { SquareStackCardShell } from './SquareStackCardShell';
+ 
+ type LayerProps<TCard extends SquareStackDeckCard> = {
+@@ -81,8 +78,6 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+   depthEffect = 'motionOnly',
+ }: SquareStackDeckProps<TCard>) {
+   const { width, height } = useWindowDimensions();
+-  const theme = useThemeTokens();
+-  const { t } = useTranslation();
+   const layoutMetrics = useMemo(() => getSquareStackLayoutMetrics({
+     availableWidth: availableWidth && availableWidth > 0 ? availableWidth : width - 36,
+     availableHeight: availableHeight && availableHeight > 0 ? availableHeight : height * 0.54,
+@@ -93,9 +88,6 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+   const { cardSize, stageHeight, stageWidth } = layoutMetrics;
+   const safeInitialIndex = Math.min(Math.max(initialIndex, 0), Math.max(cards.length - 1, 0));
+   const [committedIndex, setCommittedIndex] = useState(safeInitialIndex);
+-  const [programmaticAnimating, setProgrammaticAnimating] = useState(false);
+-  const [controlsVisible, setControlsVisible] = useState(false);
+-  const controlsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+   const lastNotifiedIndexRef = useRef(safeInitialIndex);
+   const baseIndex = useSharedValue(safeInitialIndex);
+   const progress = useSharedValue(0);
+@@ -103,16 +95,6 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+   const gestureStartAbsX = useSharedValue(0);
+   const gestureStartAbsY = useSharedValue(0);
+ 
+-  useEffect(() => () => {
+-    if (controlsHideTimerRef.current) clearTimeout(controlsHideTimerRef.current);
+-  }, []);
+-
+-  const showControlsTemporarily = useCallback(() => {
+-    setControlsVisible(true);
+-    if (controlsHideTimerRef.current) clearTimeout(controlsHideTimerRef.current);
+-    controlsHideTimerRef.current = setTimeout(() => setControlsVisible(false), 1500);
+-  }, []);
+-
+   useEffect(() => {
+     const nextIndex = Math.min(committedIndex, Math.max(cards.length - 1, 0));
+     if (nextIndex !== committedIndex) setCommittedIndex(nextIndex);
+@@ -136,43 +118,6 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+     setCommittedIndex((current) => Math.min(Math.max(current + direction, 0), Math.max(cards.length - 1, 0)));
+   }, [cards.length]);
+ 
+-  const finishProgrammaticCommit = useCallback((direction: -1 | 1) => {
+-    commitIndex(direction);
+-    setProgrammaticAnimating(false);
+-  }, [commitIndex]);
+-
+-  const finishCancelledProgrammaticCommit = useCallback(() => {
+-    setProgrammaticAnimating(false);
+-  }, []);
+-
+-  const commitFromControl = useCallback((direction: -1 | 1) => {
+-    showControlsTemporarily();
+-    if (programmaticAnimating) return;
+-    if (direction === -1 && committedIndex <= 0) return;
+-    if (direction === 1 && committedIndex >= cards.length - 1) return;
+-    setProgrammaticAnimating(true);
+-    progress.value = withTiming(direction, { duration: 220, easing: Easing.out(Easing.cubic) }, (finished) => {
+-      if (!finished) {
+-        progress.value = 0;
+-        runOnJS(finishCancelledProgrammaticCommit)();
+-        return;
+-      }
+-      baseIndex.value = baseIndex.value + direction;
+-      progress.value = 0;
+-      runOnJS(finishProgrammaticCommit)(direction);
+-    });
+-  }, [baseIndex, cards.length, committedIndex, finishCancelledProgrammaticCommit, finishProgrammaticCommit, programmaticAnimating, progress, showControlsTemporarily]);
+-
+-  const canGoPrevious = cards.length > 1 && committedIndex > 0;
+-  const canGoNext = cards.length > 1 && committedIndex < cards.length - 1;
+-  const cardInsetX = Math.max(0, Math.round((stageWidth - cardSize) / 2));
+-  const cardInsetY = Math.max(0, Math.round((stageHeight - cardSize) / 2));
+-  const maxVisibleBackLayers = Math.max(1, Math.min(3, SQUARE_STACK_VISIBLE_AFTER - 1));
+-  const visibleBackLayers = Math.min(Math.max(cards.length - committedIndex - 1, 0), maxVisibleBackLayers);
+-  const depthRatio = visibleBackLayers / maxVisibleBackLayers;
+-  const advanceControlOutset = 18 + Math.round(16 * depthRatio);
+-  const controlsAreVisible = controlsVisible || programmaticAnimating;
+-
+   const gesture = useMemo(() => Gesture.Pan()
+     .manualActivation(true)
+     .onTouchesDown((event: any) => {
+@@ -181,7 +126,6 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+       gestureStartAbsX.value = touch.absoluteX;
+       gestureStartAbsY.value = touch.absoluteY;
+       gestureIntent.value = 'UNDECIDED';
+-      runOnJS(showControlsTemporarily)();
+     })
+     .onTouchesMove((event: any, state: any) => {
+       if (gestureIntent.value !== 'UNDECIDED') return;
+@@ -236,7 +180,7 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+     })
+     .onFinalize(() => {
+       gestureIntent.value = 'UNDECIDED';
+-    }), [baseIndex, cardSize, cards.length, commitIndex, gestureIntent, gestureStartAbsX, gestureStartAbsY, progress, showControlsTemporarily]);
++    }), [baseIndex, cardSize, cards.length, commitIndex, gestureIntent, gestureStartAbsX, gestureStartAbsY, progress]);
+ 
+   if (cards.length === 0) {
+     return <View style={[styles.stage, { width: stageWidth, height: stageHeight }]} />;
+@@ -245,30 +189,6 @@ export function ContinuousSquareStackDeck<TCard extends SquareStackDeckCard>({
+   return (
+     <GestureDetector gesture={gesture}>
+       <View style={[styles.stage, { width: stageWidth, height: stageHeight }]}>
+-        {canGoPrevious ? (
+-          <Pressable
+-            accessibilityRole="button"
+-            accessibilityLabel={t('common.actions.previousCard')}
+-            hitSlop={12}
+-            disabled={programmaticAnimating}
+-            onPress={() => commitFromControl(-1)}
+-            style={({ pressed }) => [styles.deckControl, { top: cardInsetY - 18, left: cardInsetX - 18, opacity: controlsAreVisible ? 1 : 0 }, pressed && styles.pressedControl, programmaticAnimating && styles.disabledControl]}
+-          >
+-            <MobileIcon name="deck-back" size={26} color={theme.color.muted} decorative />
+-          </Pressable>
+-        ) : null}
+-        {canGoNext ? (
+-          <Pressable
+-            accessibilityRole="button"
+-            accessibilityLabel={t('common.actions.nextCard')}
+-            hitSlop={12}
+-            disabled={programmaticAnimating}
+-            onPress={() => commitFromControl(1)}
+-            style={({ pressed }) => [styles.deckControl, { right: cardInsetX - advanceControlOutset, bottom: cardInsetY - advanceControlOutset, opacity: controlsAreVisible ? 1 : 0 }, pressed && styles.pressedControl, programmaticAnimating && styles.disabledControl]}
+-          >
+-            <MobileIcon name="deck-advance" size={26} color={theme.color.muted} decorative />
+-          </Pressable>
+-        ) : null}
+         {visibleIndexes.map((cardIndex) => {
+           const card = cards[cardIndex];
+           if (!card) return null;
+@@ -295,21 +215,6 @@ const styles = StyleSheet.create({
+     shadowColor: '#000000',
+     shadowOffset: { width: 0, height: 10 },
+   },
+-  deckControl: {
+-    position: 'absolute',
+-    zIndex: 1200,
+-    width: 48,
+-    height: 48,
+-    alignItems: 'center',
+-    justifyContent: 'center',
+-  },
+-  pressedControl: {
+-    opacity: 0.72,
+-    transform: [{ scale: 0.96 }],
+-  },
+-  disabledControl: {
+-    opacity: 0.34,
+-  },
+   debugBadge: {
+     position: 'absolute',
+     top: 8,
+diff --git a/docs/phase-25-m3-native-deck-arrow-controls-removal.md b/docs/phase-25-m3-native-deck-arrow-controls-removal.md
+new file mode 100644
+index 0000000..f62aa7b
+--- /dev/null
++++ b/docs/phase-25-m3-native-deck-arrow-controls-removal.md
+@@ -0,0 +1,35 @@
++# Phase 25.M3 — Native deck arrow controls removal
++
++## Goal
++
++Remove desktop-style previous/next arrow helper buttons from the native mobile deck so mobile feed and create-trade preview feel touch-native.
++
++## Changes
++
++- Removed the previous-card and next-card overlay buttons from the shared native `ContinuousSquareStackDeck`.
++- Kept swipe gesture behavior unchanged.
++- Kept the shared `TradeSquareDeck` surface used by native feed and native create-trade preview.
++- Kept web desktop behavior untouched.
++
++## Affected native surfaces
++
++- Trades feed deck.
++- Create Trade deck preview.
++- Any native surface that uses the shared square deck component.
++
++## Non-goals
++
++- No web deck changes.
++- No feed ranking changes.
++- No proposal logic changes.
++- No create-trade API changes.
++- No wallet, payout, Stripe, or Airwallex changes.
++
++## Smoke test checklist
++
++- Open native Trades feed and confirm no arrow buttons appear on the deck.
++- Swipe forward/backward between summary and image cards.
++- Open native Create Trade and confirm the deck preview has no arrow buttons.
++- Swipe preview cards inside the deck.
++- Scroll the create-trade form outside the deck.
++- Confirm Publish Trade still works.

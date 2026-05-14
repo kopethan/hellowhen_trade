@@ -1,49 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { getWebApiBaseUrl } from '../../../lib/api';
+import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
 import { formatWebDateTime } from '../../../lib/webFormat';
 
-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
 type DisputeTrade = { id: string; title: string; status: string; amountCents?: number; currency?: string; ownerId: string; providerId?: string | null; disputedAt?: string | null; disputedById?: string | null; disputeTicketId?: string | null; payment?: { buyerId: string; sellerId?: string | null; amountCents?: number; currency?: string; status: string } | null; owner?: { email?: string; profile?: { displayName?: string | null } | null }; provider?: { email?: string; profile?: { displayName?: string | null } | null } | null };
 type SupportTicket = { id: string; relatedTradeId?: string | null; subject: string; status: string; priority: string; category: string; updatedAt: string; user?: { email?: string; profile?: { displayName?: string | null } | null } | null };
 type DisputesResponse = { trades: DisputeTrade[]; supportTickets: SupportTicket[] };
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-
-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
-}
 
 function personLabel(user?: { email?: string; profile?: { displayName?: string | null } | null } | null) {
   return user?.profile?.displayName || user?.email || 'Unknown member';
 }
 
 export default function AdminDisputesPage() {
-  const [email, setEmail] = useState('admin@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [token, setToken] = useState('');
+  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+  const { token, headers } = useAdminSessionToken();
   const [trades, setTrades] = useState<DisputeTrade[]>([]);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [note, setNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
-  async function login() {
-    setLoading(true); setMessage(null);
-    try {
-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed');
-      const data = await response.json() as LoginResponse;
-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification.');
-      setToken(data.accessToken);
-      setMessage('Admin logged in. Load disputed trades to review open issues.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
-    finally { setLoading(false); }
-  }
-
   async function loadDisputes() {
-    if (!token) { setMessage('Log in as admin first.'); return; }
+    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
     setLoading(true); setMessage(null);
     try {
       const response = await fetch(`${apiBase}/admin/trades/disputes`, { headers });
@@ -80,9 +60,7 @@ export default function AdminDisputesPage() {
           <p>Review reported trades, linked support tickets, and admin notes.</p>
         </div>
         <div className="admin-console__login-grid">
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
-          <button type="button" onClick={login} disabled={loading}>Log in</button>
+          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
           <button type="button" onClick={loadDisputes} disabled={loading || !token}>Load disputes</button>
         </div>
         {message ? <p className="notice-box info">{message}</p> : null}

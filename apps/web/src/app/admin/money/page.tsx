@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { getWebApiBaseUrl } from '../../../lib/api';
+import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
 import { formatWebDateTime } from '../../../lib/webFormat';
 
-type LoginResponse = { accessToken: string };
 type ProviderSummary = { provider?: string; environment?: string; configured?: boolean; sandboxOnly?: boolean; capabilities?: string[] };
 type ProviderAccount = {
   id?: string;
@@ -66,8 +67,6 @@ type EventsResponse = { provider: ProviderSummary; events: ProviderEvent[] };
 type BalancesResponse = { provider: ProviderSummary; balances: ProviderBalance[] };
 type TransactionsResponse = { provider: ProviderSummary; transactions: ProviderTransaction[] };
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
-
 function statusTone(status?: string) {
   if (status === 'active' || status === 'enabled' || status === 'connected' || status === 'processed' || status === 'succeeded' || status === 'settled' || status === 'recorded') return 'success';
   if (status === 'pending' || status === 'onboarding' || status === 'received' || status === 'skipped') return 'warning';
@@ -92,9 +91,8 @@ function formatMoney(cents: number, currency: string) {
 }
 
 export default function AdminMoneyProviderPage() {
-  const [email, setEmail] = useState('admin@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [token, setToken] = useState('');
+  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+  const { token, headers } = useAdminSessionToken();
   const [provider, setProvider] = useState<ProviderSummary | null>(null);
   const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
   const [events, setEvents] = useState<ProviderEvent[]>([]);
@@ -102,22 +100,8 @@ export default function AdminMoneyProviderPage() {
   const [transactions, setTransactions] = useState<ProviderTransaction[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
-
-  async function login() {
-    setLoading(true); setMessage(null);
-    try {
-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed');
-      const data = await response.json() as LoginResponse;
-      setToken(data.accessToken);
-      setMessage('Admin logged in. Load provider accounts and events to inspect sandbox money setup.');
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
-    finally { setLoading(false); }
-  }
-
   async function loadMoneyProviderData() {
-    if (!token) { setMessage('Log in as admin first.'); return; }
+    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
     setLoading(true); setMessage(null);
     try {
       const [accountsResponse, eventsResponse, balancesResponse, transactionsResponse] = await Promise.all([
@@ -143,7 +127,7 @@ export default function AdminMoneyProviderPage() {
 
 
   async function syncBalances(accountId?: string) {
-    if (!token) { setMessage('Log in as admin first.'); return; }
+    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
     if (!accountId) { setMessage('Only provider-neutral accounts can sync balances. Legacy Stripe rows are read-only here.'); return; }
     setLoading(true); setMessage(null);
     try {
@@ -164,13 +148,7 @@ export default function AdminMoneyProviderPage() {
         <span className="semantic-badge admin">Money provider admin</span>
         <h1>Provider accounts</h1>
         <p className="notice-box warning">Phase 21.5 adds sandbox payout transfer records on top of connected accounts, wallet balances, and trade-money mirroring. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
-        <div className="form-row">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
-          </div>
-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
-        </div>
+        <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
         <div className="form-row" style={{ marginTop: 12 }}>
           <button className="secondary" onClick={() => { void loadMoneyProviderData(); }} disabled={loading}>Load provider data</button>
         </div>

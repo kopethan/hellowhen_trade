@@ -543,6 +543,8 @@ model InventoryTemplate {
   kind              InventoryTemplateKind
   sourceType        InventoryTemplateSourceType @default(hellowhen)
   businessProfileId String?
+  languageCode      String                      @default("en")
+  countryCode       String?
   title             String
   description       String
   itemType          InventoryItemType           @default(service)
@@ -565,6 +567,8 @@ model InventoryTemplate {
   @@index([kind, status, itemType, sortOrder])
   @@index([sourceType, status])
   @@index([businessProfileId, status])
+  @@index([languageCode, status, sortOrder])
+  @@index([countryCode, status])
   @@index([category])
 }
 

@@ -23,11 +23,39 @@ type FeedFilters = {
 
 const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false, postType: '' };
 
+
+function createFeedRefreshSeed() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function compactSeenTradeIds(ids: string[]) {
+  return Array.from(new Set(ids)).slice(-80);
+}
+
 function normalizeFeedResponse(value: unknown): TradeDto[] {
   if (Array.isArray(value)) return value as TradeDto[];
   if (value && typeof value === 'object' && Array.isArray((value as { trades?: unknown[] }).trades)) return (value as { trades: TradeDto[] }).trades;
   if (value && typeof value === 'object' && Array.isArray((value as { items?: unknown[] }).items)) return (value as { items: TradeDto[] }).items;
   return [];
+}
+
+
+function hashFeedValue(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function localDiscoverySort(trades: TradeDto[], refreshSeed: string, seenTradeIds: string[]) {
+  const seen = new Set(seenTradeIds);
+  return [...trades].sort((left, right) => {
+    const leftSeenPenalty = seen.has(left.id) ? 1_000_000_000 : 0;
+    const rightSeenPenalty = seen.has(right.id) ? 1_000_000_000 : 0;
+    return (hashFeedValue(`${refreshSeed}:${left.id}`) + leftSeenPenalty) - (hashFeedValue(`${refreshSeed}:${right.id}`) + rightSeenPenalty);
+  });
 }
 
 function localFilter(trades: TradeDto[], filters: FeedFilters) {
@@ -54,7 +82,9 @@ export function TradeFeedClient() {
   const [usingFallback, setUsingFallback] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const { t } = useWebTranslation();
+  const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
+  const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
+  const { t, language } = useWebTranslation();
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
@@ -70,6 +100,10 @@ export function TradeFeedClient() {
           hasImages: appliedFilters.hasImages || undefined,
           hasMoney: betaFeatures.moneyTradesEnabled ? (appliedFilters.hasMoney || undefined) : undefined,
           postType: appliedFilters.postType || undefined,
+          language,
+          countryCode: auth.user?.profile?.countryCode ?? undefined,
+          refreshSeed,
+          seenTradeIds: seenTradeIds.length ? seenTradeIds.join(',') : undefined,
           take: 30,
         });
         const nextTrades = normalizeFeedResponse(response);
@@ -80,7 +114,7 @@ export function TradeFeedClient() {
       } catch {
         if (!mounted) return;
         if (demoDataEnabled) {
-          setTrades(localFilter(mockTrades, appliedFilters));
+          setTrades(localDiscoverySort(localFilter(mockTrades, appliedFilters), refreshSeed, seenTradeIds));
           setUsingFallback(true);
           setLoadError('');
         } else {
@@ -94,18 +128,27 @@ export function TradeFeedClient() {
     }
     void loadTrades();
     return () => { mounted = false; };
-  }, [appliedFilters, demoDataEnabled]);
+  }, [appliedFilters, auth.user?.profile?.countryCode, demoDataEnabled, language, refreshSeed, seenTradeIds]);
 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
 
+  function refreshDiscoveryOrder() {
+    setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
+    setRefreshSeed(createFeedRefreshSeed());
+  }
+
   function applySearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
     setAppliedFilters(filters);
   }
 
   function resetFilters() {
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
   }
 
   return (
@@ -168,7 +211,10 @@ export function TradeFeedClient() {
 
       <section className="feed-status-row" aria-live="polite">
         <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
-        {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.demoFeed')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
+        <div className="feed-status-actions">
+          {!loading && !loadError ? <button type="button" className="semantic-badge instruction feed-refresh-button" onClick={refreshDiscoveryOrder}>{t('trade.filters.refresh')}</button> : null}
+          {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.demoFeed')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
+        </div>
       </section>
 
       {loadError ? (

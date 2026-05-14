@@ -10,6 +10,7 @@ export const auth = {
   modes: {
     label: 'Mode d’authentification',
     login: 'Connexion',
+    verifyCode: 'Vérifier le code',
     register: 'Inscription',
     reset: 'Réinitialiser',
   },
@@ -22,12 +23,14 @@ export const auth = {
     confirmNewPassword: 'Confirmer le nouveau mot de passe',
     country: 'Pays',
     displayCurrency: 'Devise d’affichage',
+    twoFactorCode: 'Code d’authentification',
   },
   placeholders: {
     email: 'vous@exemple.com',
     fullName: 'Mina Chen',
     passwordMin: 'Au moins 8 caractères',
     repeatPassword: 'Répétez le mot de passe',
+    twoFactorCode: 'Code à 6 chiffres',
   },
   localDisplay: {
     title: 'Affichage local',
@@ -39,6 +42,7 @@ export const auth = {
   terms: 'J’accepte les Conditions et la Politique de confidentialité.',
   termsNativeHint: 'Consultez les Conditions et la Confidentialité avant de créer votre compte.',
   forgotNotice: 'Saisissez l’e-mail de votre compte et nous enverrons un lien de réinitialisation si le compte existe.',
+  twoFactorNotice: 'Saisissez le code de votre application d’authentification pour terminer la connexion.',
   errors: {
     signIn: 'Erreur de connexion',
     emailRequired: 'Saisissez votre e-mail.',
@@ -48,6 +52,7 @@ export const auth = {
     countryRequired: 'Choisissez votre pays.',
     currencyRequired: 'Choisissez votre devise d’affichage.',
     termsRequired: 'Veuillez accepter les conditions pour continuer.',
+    twoFactorCodeRequired: 'Saisissez votre code d’authentification.',
     googleUnavailable: 'La connexion Google n’est pas disponible dans cette version.',
     googleIncomplete: 'La connexion Google n’a pas pu être terminée.',
     googleFailed: 'La connexion Google a échoué.',
@@ -56,6 +61,7 @@ export const auth = {
     googleUnavailableWeb: 'La connexion Google n’est pas encore connectée sur le web.',
     signIn: 'Se connecter',
     login: 'Connexion',
+    verifyCode: 'Vérifier le code',
     createAccount: 'Créer un compte',
     sendResetLink: 'Envoyer le lien',
     continueWithGoogle: 'Continuer avec Google',

@@ -1,7 +1,7 @@
 // apps/mobile/src/features/trade/CreateTradeScreen.tsx
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TradeExchangeMode, TradePostType } from '@hellowhen/contracts';
@@ -18,8 +18,8 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
-import { buildTradeSquareDeckCards, renderTradeSquareDeckCard, type TradeSquareDeckCard } from './components/TradeSquareDeckCards';
-import { ContinuousSquareStackDeck } from './deck';
+import { TradeSquareDeck } from './components/TradeSquareDeck';
+import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
 
 export type TradeCreateSide = 'need' | 'offer';
@@ -28,7 +28,14 @@ export type TradeCreateSideSelection =
   | { side: 'need'; kind: 'money'; amountCents: number; currency: string }
   | { side: 'offer'; kind: 'offer'; id: string }
   | { side: 'offer'; kind: 'money'; amountCents: number; currency: string };
-export type TradeSidePickerParams = { side: TradeCreateSide; selection?: TradeCreateSideSelection | null; postType?: TradePostType };
+export type TradeSidePickerParams = {
+  side: TradeCreateSide;
+  selection?: TradeCreateSideSelection | null;
+  postType?: TradePostType;
+  returnTo?: 'createTrade' | 'tradeProposal';
+  tradeId?: string;
+  tradeTitle?: string;
+};
 export type TradeCreateReturnParams = { selectedTradeSide?: TradeCreateSideSelection } | undefined;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateTrade'>;
@@ -104,7 +111,6 @@ function buildPreviewTrade({ postType, needSelection, offerSelection, need, offe
 export function CreateTradeScreen({ route, navigation }: Props) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
-  const { width } = useWindowDimensions();
   const [postType, setPostType] = useState<TradePostType | null>(null);
   const [needs, setNeeds] = useState<NeedItem[]>([]);
   const [offers, setOffers] = useState<OfferItem[]>([]);
@@ -121,9 +127,8 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const selectedOffer = useMemo(() => offerSelection?.kind === 'offer' ? usableOffers.find((offer) => offer.id === offerSelection.id) ?? null : null, [offerSelection, usableOffers]);
   const amountCents = amountFor(needSelection, offerSelection);
   const currency = currencyFor(needSelection, offerSelection);
-  const previewDeckWidth = Math.min(320, Math.max(260, width - 72));
   const previewTrade = useMemo(() => buildPreviewTrade({ postType, needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays, t }), [amountCents, currency, expiryDays, needSelection, offerSelection, postType, selectedNeed, selectedOffer, t]);
-  const previewCards = useMemo(() => buildTradeSquareDeckCards(previewTrade, 0, 1), [previewTrade]);
+  const previewCardCount = useMemo(() => buildTradeSquareDeckCards(previewTrade).length, [previewTrade]);
 
   useEffect(() => {
     const selection = route.params?.selectedTradeSide;
@@ -165,7 +170,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   }
 
   function openSidePicker(side: TradeCreateSide) {
-    navigation.navigate('TradeSidePicker', { side, selection: side === 'need' ? needSelection : offerSelection, postType: postType ?? undefined });
+    navigation.navigate('TradeSidePicker', { side, selection: side === 'need' ? needSelection : offerSelection, postType: postType ?? undefined, returnTo: 'createTrade' });
   }
 
   async function handlePublish() {
@@ -229,24 +234,13 @@ export function CreateTradeScreen({ route, navigation }: Props) {
           })}</View>
           <View style={[styles.expiryCallout, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}><View style={[styles.expiryCalloutIcon, { backgroundColor: theme.semantic.danger.text }]}><AppText style={styles.expiryCalloutIconText}>!</AppText></View><AppText style={[styles.expiryCalloutText, { color: theme.semantic.danger.text }]}>{t('trade.create.expiryUrgencyBody')}</AppText></View>
         </AppCard>
-        <AppCard>
+        <AppCard style={styles.deckPreviewCard}>
           <View style={styles.deckPreviewHeader}>
             <AppText style={styles.sectionTitle}>{t('trade.create.deckPreview')}</AppText>
-            {previewCards.length > 1 ? <AppText style={[styles.deckPreviewCount, { color: theme.color.muted }]}>{t('trade.create.previewCards', { count: previewCards.length })}</AppText> : null}
+            {previewCardCount > 1 ? <AppText style={[styles.deckPreviewCount, { color: theme.color.muted }]}>{t('trade.create.previewCards', { count: previewCardCount })}</AppText> : null}
           </View>
-          <View style={styles.previewDeckStage}>
-            <ContinuousSquareStackDeck<TradeSquareDeckCard>
-              cards={previewCards}
-              renderCard={({ card, index, total }) => renderTradeSquareDeckCard(card, index, total, () => {})}
-              availableWidth={previewDeckWidth}
-              availableHeight={previewDeckWidth}
-              minCardSize={260}
-              maxCardSize={320}
-              renderWindow="all"
-              depthEffect="motionOnly"
-            />
-          </View>
-          {previewCards.length > 1 ? <AppText style={[styles.previewHint, { color: theme.color.muted }]}>{t('trade.create.previewHint')}</AppText> : null}
+          <TradeSquareDeck trade={previewTrade} />
+          {previewCardCount > 1 ? <AppText style={[styles.previewHint, { color: theme.color.muted }]}>{t('trade.create.previewHint')}</AppText> : null}
         </AppCard>
         <View style={styles.actions}>
           <Pressable disabled={submitting || loading} onPress={handlePublish} style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.semantic.proposal.bg }, (submitting || loading) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{submitting ? t('trade.create.publishing') : publishButtonLabel}</AppText></Pressable>
@@ -271,4 +265,4 @@ function SideSelectionCard({ theme, side, title, emptyTitle, emptyBody, selectio
   return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><View style={styles.changePill}><AppText style={[styles.changeText, { color: theme.semantic.proposal.bg }]}>{isSelected ? t('common.actions.edit') : t('inventory.labels.selected')}</AppText><MobileIcon name="chevron-right" size={17} color={theme.semantic.proposal.bg} /></View></View>{item ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer')} tone={side === 'need' ? 'need' : 'offer'} size="sm" /><AppText style={styles.selectedTitle}>{item.title}</AppText>{meta ? <AppText style={[styles.selectedMeta, { color: theme.color.muted }]}>{meta}</AppText> : null}<AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText></View> : <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>{emptyTitle}</AppText><AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody}</AppText></View>}</Pressable>;
 }
 
-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, postTypeHeader: { gap: 6, marginBottom: 12 }, selectedPostTypeLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }, postTypeList: { gap: 10 }, postTypeCard: { borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }, postTypeIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, postTypeCopy: { flex: 1, gap: 5 }, postTypeTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.25 }, postTypeBody: { lineHeight: 20, fontWeight: '700' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, expiryCallout: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 2 }, expiryCalloutIcon: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 1 }, expiryCalloutIconText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', lineHeight: 14 }, expiryCalloutText: { flex: 1, fontSize: 13, fontWeight: '800', lineHeight: 19 }, deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 }, previewDeckStage: { alignItems: 'center', justifyContent: 'center', marginTop: 2 }, previewHint: { fontSize: 12, fontWeight: '800', lineHeight: 18, textAlign: 'center' }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, postTypeHeader: { gap: 6, marginBottom: 12 }, selectedPostTypeLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }, postTypeList: { gap: 10 }, postTypeCard: { borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }, postTypeIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, postTypeCopy: { flex: 1, gap: 5 }, postTypeTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.25 }, postTypeBody: { lineHeight: 20, fontWeight: '700' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, expiryCallout: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 2 }, expiryCalloutIcon: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 1 }, expiryCalloutIconText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', lineHeight: 14 }, expiryCalloutText: { flex: 1, fontSize: 13, fontWeight: '800', lineHeight: 19 }, deckPreviewCard: { paddingHorizontal: 0, overflow: 'visible' }, deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18 }, deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 }, previewHint: { fontSize: 12, fontWeight: '800', lineHeight: 18, textAlign: 'center', paddingHorizontal: 18 }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });

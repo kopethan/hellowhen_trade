@@ -10,6 +10,7 @@ export const auth = {
   modes: {
     label: 'Auth mode',
     login: 'Login',
+    verifyCode: 'Verify code',
     register: 'Register',
     reset: 'Reset',
   },
@@ -22,12 +23,14 @@ export const auth = {
     confirmNewPassword: 'Confirm new password',
     country: 'Country',
     displayCurrency: 'Display currency',
+    twoFactorCode: 'Authenticator code',
   },
   placeholders: {
     email: 'you@example.com',
     fullName: 'Mina Chen',
     passwordMin: 'At least 8 characters',
     repeatPassword: 'Repeat password',
+    twoFactorCode: '6-digit code',
   },
   localDisplay: {
     title: 'Local display',
@@ -39,6 +42,7 @@ export const auth = {
   terms: 'I agree to the Terms and Privacy Policy.',
   termsNativeHint: 'Review Terms and Privacy before creating your account.',
   forgotNotice: 'Enter your account email and we will send a reset link if the account exists.',
+  twoFactorNotice: 'Enter the code from your authenticator app to finish signing in.',
   errors: {
     signIn: 'Sign-in error',
     emailRequired: 'Enter your email.',
@@ -48,6 +52,7 @@ export const auth = {
     countryRequired: 'Choose your country.',
     currencyRequired: 'Choose your display currency.',
     termsRequired: 'Please agree to the terms to continue.',
+    twoFactorCodeRequired: 'Enter your authenticator code.',
     googleUnavailable: 'Google sign-in is not available in this build.',
     googleIncomplete: 'Google sign-in could not be completed.',
     googleFailed: 'Google sign-in failed.',
@@ -56,6 +61,7 @@ export const auth = {
     googleUnavailableWeb: 'Google sign-in is not wired for web yet',
     signIn: 'Sign in',
     login: 'Login',
+    verifyCode: 'Verify code',
     createAccount: 'Create account',
     sendResetLink: 'Send reset link',
     continueWithGoogle: 'Continue with Google',

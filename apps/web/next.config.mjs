@@ -7,6 +7,17 @@ const nextConfig = {
   turbopack: {
     root: repoRoot,
   },
+  async headers() {
+    return [
+      {
+        source: '/admin/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+        ],
+      },
+    ];
+  },
   transpilePackages: [
     '@hellowhen/api-client',
     '@hellowhen/contracts',

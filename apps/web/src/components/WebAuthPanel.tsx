@@ -9,6 +9,7 @@ import { useWebAuth } from '../providers/WebAuthProvider';
 import { useWebTranslation } from '../providers/WebI18nProvider';
 
 type AuthMode = 'login' | 'register' | 'forgot';
+type TwoFactorChallenge = { challengeToken: string; message?: string };
 
 function subtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
@@ -25,6 +26,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [countryCode, setCountryCode] = useState('FR');
   const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
@@ -35,10 +38,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
   const primaryLabel = useMemo(() => {
     if (submitting) return t('common.states.working');
+    if (twoFactorChallenge) return t('auth.actions.verifyCode');
     if (mode === 'register') return t('auth.actions.createAccount');
     if (mode === 'forgot') return t('auth.actions.sendResetLink');
     return t('auth.actions.login');
-  }, [mode, submitting, t]);
+  }, [mode, submitting, t, twoFactorChallenge]);
 
   useEffect(() => {
     if (!auth.hydrated || !auth.isAuthenticated) return;
@@ -50,10 +54,13 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     setMode(nextMode);
     setError(null);
     setMessage(null);
+    setTwoFactorChallenge(null);
+    setTwoFactorCode('');
   }
 
   function validateLocalForm() {
     if (!email.trim()) return t('auth.errors.emailRequired');
+    if (twoFactorChallenge && twoFactorCode.trim().length < 6) return t('auth.errors.twoFactorCodeRequired');
     if (mode !== 'forgot' && password.length < 8) return t('auth.errors.passwordMin');
     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
     if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
@@ -75,7 +82,18 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     setMessage(null);
     try {
       if (mode === 'login') {
-        await auth.login(email.trim(), password);
+        if (twoFactorChallenge) {
+          await auth.completeTwoFactorLogin({ challengeToken: twoFactorChallenge.challengeToken, code: twoFactorCode.trim() });
+          router.replace(redirectTo);
+          router.refresh();
+          return;
+        }
+        const twoFactor = await auth.login(email.trim(), password);
+        if (twoFactor) {
+          setTwoFactorChallenge({ challengeToken: twoFactor.challengeToken, message: twoFactor.message });
+          setMessage(twoFactor.message || t('auth.twoFactorNotice'));
+          return;
+        }
         router.replace(redirectTo);
         router.refresh();
       } else if (mode === 'register') {
@@ -189,6 +207,16 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
           </>
         ) : null}
       </div>
+
+      {twoFactorChallenge ? (
+        <div className="form-stack">
+          <p className="notice-box info">{twoFactorChallenge.message || t('auth.twoFactorNotice')}</p>
+          <label className="field-label">
+            {t('auth.fields.twoFactorCode')}
+            <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} placeholder={t('auth.placeholders.twoFactorCode')} inputMode="numeric" autoComplete="one-time-code" />
+          </label>
+        </div>
+      ) : null}
 
       {mode === 'forgot' ? <p className="notice-box info">{t('auth.forgotNotice')}</p> : null}
       {message ? <p className="notice-box success">{message}</p> : null}

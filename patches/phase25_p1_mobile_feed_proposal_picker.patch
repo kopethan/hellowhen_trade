@@ -1,0 +1,596 @@
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index c3a55ac..dd6c715 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -22,7 +22,7 @@ type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'off
+   need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
+   offer: (NonNullable<T['offer']> & { media: MediaAsset[] }) | null;
+ };
+-type ProposalWithTrade = { trade?: TradeWithDeckRelations | null };
++type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity };
+ 
+ export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trades: T[], visibility: MediaVisibility = 'owner'): Promise<Array<TradeDeckHydrated<T>>> {
+   const tradeIds = trades.map((trade) => trade.id);
+@@ -63,9 +63,20 @@ export async function withTradeDeckMediaForActor<T extends TradeWithDeckRelation
+ 
+ export async function withProposalTradeMedia<T extends ProposalWithTrade>(proposals: T[], visibility: MediaVisibility = 'owner'): Promise<T[]> {
+   const trades = proposals.map((proposal) => proposal.trade).filter((trade): trade is TradeWithDeckRelations => Boolean(trade));
+-  const hydratedTrades = await withTradeDeckMedia(trades, visibility);
++  const proposedNeedIds = proposals.map((proposal) => proposal.proposedNeed?.id).filter((id): id is string => Boolean(id));
++  const proposedOfferIds = proposals.map((proposal) => proposal.proposedOffer?.id).filter((id): id is string => Boolean(id));
++  const [hydratedTrades, proposedNeedMedia, proposedOfferMedia] = await Promise.all([
++    withTradeDeckMedia(trades, visibility),
++    loadMediaByEntityIds('need', proposedNeedIds, visibility),
++    loadMediaByEntityIds('offer', proposedOfferIds, visibility)
++  ]);
+   const byTradeId = new Map(hydratedTrades.map((trade) => [trade.id, trade]));
+-  return proposals.map((proposal) => proposal.trade ? { ...proposal, trade: byTradeId.get(proposal.trade.id) ?? proposal.trade } : proposal) as T[];
++  return proposals.map((proposal) => ({
++    ...proposal,
++    trade: proposal.trade ? byTradeId.get(proposal.trade.id) ?? proposal.trade : proposal.trade,
++    proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
++    proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
++  })) as T[];
+ }
+ 
+ function containsText(value: string) {
+@@ -103,7 +114,7 @@ function proposalSideRequirement(postType?: string | null) {
+ }
+ 
+ function inventoryUnavailable(status?: string | null) {
+-  return Boolean(status && ['fulfilled', 'accepted', 'closed', 'expired'].includes(status));
++  return status !== 'active';
+ }
+ 
+ 
+@@ -492,20 +503,28 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
+   let proposedNeedId: string | null = null;
+   let proposedOfferId: string | null = null;
+ 
++  if (input.proposedNeedId && input.proposedOfferId) {
++    return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Choose either one Need or one Offer for this proposal, not both.' });
++  }
++
+   if (requiredSide === 'offer') {
+     if (!input.proposedOfferId) return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
+-    if (input.proposedNeedId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Need proposals must include an Offer, not a Need.' });
+     const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
+     if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+     proposedOfferId = offer.id;
+   } else if (requiredSide === 'need') {
+     if (!input.proposedNeedId) return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
+-    if (input.proposedOfferId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Offer proposals must include a Need, not an Offer.' });
+     const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
+     if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+     proposedNeedId = need.id;
+-  } else if (input.proposedNeedId || input.proposedOfferId) {
+-    return res.status(400).json({ error: 'proposal_side_not_supported', message: 'This trade already has a Need and Offer. Send a message proposal instead.' });
++  } else if (input.proposedOfferId) {
++    const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
++    if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
++    proposedOfferId = offer.id;
++  } else if (input.proposedNeedId) {
++    const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
++    if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
++    proposedNeedId = need.id;
+   }
+ 
+   const existing = await prisma.tradeProposal.findUnique({ where: { tradeId_applicantId: { tradeId: trade.id, applicantId: actorId } }, include: proposalInclude });
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 2db4a4e..98780d2 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -59,8 +59,8 @@ function canShowConversation(proposal: TradeProposalItem, role: DetailRole, user
+ function isOpeningProposalMessage(proposal: TradeProposalItem, message: ProposalMessageItem) { return message.senderId === proposal.applicantId && message.body.trim() === proposal.message.trim(); }
+ function visibleConversationMessages(proposal: TradeProposalItem) { const messages = proposal.messages ?? []; const openingIndex = messages.findIndex((message) => isOpeningProposalMessage(proposal, message)); return openingIndex >= 0 ? messages.filter((_, index) => index !== openingIndex) : messages; }
+ function upsertProposal(proposals: TradeProposalItem[], next: TradeProposalItem) { return proposals.some((proposal) => proposal.id === next.id) ? proposals.map((proposal) => proposal.id === next.id ? { ...proposal, ...next } : proposal) : [next, ...proposals]; }
+-function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expired'].includes(need.status); }
+-function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
++function isNeedAvailable(need: NeedItem) { return need.status === 'active'; }
++function isOfferAvailable(offer: OfferItem) { return offer.status === 'active'; }
+ function proposalInventoryMeta(kind: 'need' | 'offer', item: NeedItem | OfferItem, t: TFunction) { return kind === 'need' ? needMeta(item as NeedItem, t) : offerMeta(item as OfferItem, t); }
+ function proposalInventoryDescription(item: NeedItem | OfferItem, t: TFunction) { return item.description?.trim() || t('trade.labels.noDescription'); }
+ 
+@@ -123,7 +123,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   useEffect(() => { void loadTrade(); }, [loadTrade, t]);
+ 
+   useEffect(() => {
+-    if (!auth.isAuthenticated || role === 'owner' || myProposal || !requiredSide || trade.status !== 'active') return;
++    if (!auth.isAuthenticated || role === 'owner' || myProposal || trade.status !== 'active') return;
+     let mounted = true;
+     async function loadProposalInventory() {
+       setSideLoading(true);
+@@ -132,17 +132,30 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+           const result = await api.offers.mine() as OffersResponse;
+           const offers = Array.isArray(result.offers) ? result.offers : [];
+           if (!mounted) return;
++          setProposalNeeds([]);
++          setSelectedProposalNeedId('');
+           setProposalOffers(offers);
+-          setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current) ? current : offers.find(isOfferAvailable)?.id ?? '');
+-        } else {
++          setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current && isOfferAvailable(offer)) ? current : offers.find(isOfferAvailable)?.id ?? '');
++        } else if (requiredSide === 'need') {
+           const result = await api.needs.mine() as NeedsResponse;
+           const needs = Array.isArray(result.needs) ? result.needs : [];
+           if (!mounted) return;
++          setProposalOffers([]);
++          setSelectedProposalOfferId('');
+           setProposalNeeds(needs);
+-          setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current) ? current : needs.find(isNeedAvailable)?.id ?? '');
++          setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current && isNeedAvailable(need)) ? current : needs.find(isNeedAvailable)?.id ?? '');
++        } else {
++          const [needsResult, offersResult] = await Promise.all([api.needs.mine() as Promise<NeedsResponse>, api.offers.mine() as Promise<OffersResponse>]);
++          const needs = Array.isArray(needsResult.needs) ? needsResult.needs : [];
++          const offers = Array.isArray(offersResult.offers) ? offersResult.offers : [];
++          if (!mounted) return;
++          setProposalNeeds(needs);
++          setProposalOffers(offers);
++          setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current && isNeedAvailable(need)) ? current : '');
++          setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current && isOfferAvailable(offer)) ? current : '');
+         }
+       } catch (caughtError) {
+-        if (mounted) setError(getFriendlyApiErrorMessage(caughtError, requiredSide === 'offer' ? t('trade.errors.couldNotLoadOffers') : t('trade.errors.couldNotLoadNeeds')));
++        if (mounted) setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotLoadInventory')));
+       } finally { if (mounted) setSideLoading(false); }
+     }
+     void loadProposalInventory();
+@@ -192,8 +205,8 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     try {
+       const result = await api.trades.createProposal(trade.id, {
+         message: trimmed,
+-        ...(requiredSide === 'offer' ? { proposedOfferId: selectedProposalOffer?.id } : {}),
+-        ...(requiredSide === 'need' ? { proposedNeedId: selectedProposalNeed?.id } : {}),
++        ...((requiredSide === 'offer' || !requiredSide) && selectedProposalOffer ? { proposedOfferId: selectedProposalOffer.id } : {}),
++        ...((requiredSide === 'need' || !requiredSide) && selectedProposalNeed ? { proposedNeedId: selectedProposalNeed.id } : {}),
+       }) as ProposalResponse;
+       setProposals((current) => upsertProposal(current, result.proposal));
+       setProposalDraft('');
+@@ -244,7 +257,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{t('trade.labels.tradeDetails')}</AppText><View style={styles.detailRows}><DetailRow label={t('trade.labels.type')} value={postTypeLabel(trade, t)} theme={theme} /><DetailRow label={t('trade.labels.status')} value={formatStatus(trade.status, t)} theme={theme} /><DetailRow label={t('trade.labels.expiry')} value={expiryLabel(trade.expiresAt, t, language)} theme={theme} /><DetailRow label={t('trade.labels.exchange')} value={paymentLabel} theme={theme} />{createdLabel ? <DetailRow label={t('trade.labels.created')} value={createdLabel} theme={theme} /> : null}<DetailIdentityRow label={t('trade.labels.owner')} user={trade.owner} userId={trade.ownerId} theme={theme} />{trade.provider ? <DetailIdentityRow label={t('trade.labels.provider')} user={trade.provider} userId={trade.providerId} theme={theme} /> : null}</View><InfoNotice tone="info" title={t('trade.labels.nextStep')} body={statusHint(trade, role, t)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? t('trade.detail.updated') : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
+ 
+     <Separator theme={theme} />
+-    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? t('trade.proposals.title') : myProposal ? t('trade.proposals.yourProposal') : proposalActionTitle(trade, t)}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}{message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.detail.refreshing')}</AppText> : null}{!auth.isAuthenticated ? <SignedOutProposalBox trade={trade} onLogin={() => navigation.navigate('Login')} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer trade={trade} requiredSide={requiredSide} value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} sideLoading={sideLoading} needs={activeProposalNeeds} offers={activeProposalOffers} selectedNeedId={selectedProposalNeedId} selectedOfferId={selectedProposalOfferId} onSelectNeed={setSelectedProposalNeedId} onSelectOffer={setSelectedProposalOfferId} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.notAccepting')}</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noProposalsOwner')}</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title={t('trade.proposals.acceptedConversation')} body={t('trade.proposals.acceptedConversationBody')} /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} t={t} />)}</View></View>
++    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? t('trade.proposals.title') : myProposal ? t('trade.proposals.yourProposal') : proposalActionTitle(trade, t)}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}{message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.detail.refreshing')}</AppText> : null}{!auth.isAuthenticated ? <SignedOutProposalBox trade={trade} onLogin={() => navigation.navigate('Login')} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer trade={trade} requiredSide={requiredSide} value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} sideLoading={sideLoading} needs={activeProposalNeeds} offers={activeProposalOffers} selectedNeedId={selectedProposalNeedId} selectedOfferId={selectedProposalOfferId} onSelectNeed={(id) => { setSelectedProposalNeedId((current) => current === id ? '' : id); setSelectedProposalOfferId(''); }} onSelectOffer={(id) => { setSelectedProposalOfferId((current) => current === id ? '' : id); setSelectedProposalNeedId(''); }} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.notAccepting')}</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noProposalsOwner')}</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title={t('trade.proposals.acceptedConversation')} body={t('trade.proposals.acceptedConversationBody')} /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} t={t} />)}</View></View>
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+ 
+@@ -257,8 +270,8 @@ function DetailIdentityRow({ label, user, userId, theme }: { label: string; user
+ 
+ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeedId, selectedOfferId, onSelectNeed, onSelectOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeedId: string; selectedOfferId: string; onSelectNeed: (id: string) => void; onSelectOffer: (id: string) => void; theme: ThemeTokens; t: TFunction }) {
+   const missingInventory = requiredSide === 'need' ? needs.length === 0 : requiredSide === 'offer' ? offers.length === 0 : false;
+-  const selectedNeed = requiredSide === 'need' ? needs.find((need) => need.id === selectedNeedId) ?? null : null;
+-  const selectedOffer = requiredSide === 'offer' ? offers.find((offer) => offer.id === selectedOfferId) ?? null : null;
++  const selectedNeed = requiredSide !== 'offer' ? needs.find((need) => need.id === selectedNeedId) ?? null : null;
++  const selectedOffer = requiredSide !== 'need' ? offers.find((offer) => offer.id === selectedOfferId) ?? null : null;
+   const disabled = loading || sideLoading || value.trim().length < 3 || (requiredSide === 'need' && !selectedNeed) || (requiredSide === 'offer' && !selectedOffer);
+   const placeholder = requiredSide === 'offer'
+     ? t('trade.proposals.placeholderOffer')
+@@ -282,8 +295,9 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+ 
+       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
+ 
+-      {requiredSide === 'offer' ? <InventoryChoiceList title={t('trade.proposals.chooseOfferToPropose')} emptyText={t('trade.proposals.createOfferFirst')} items={offers} selectedId={selectedOfferId} onSelect={onSelectOffer} kind="offer" theme={theme} t={t} /> : null}
+-      {requiredSide === 'need' ? <InventoryChoiceList title={t('trade.proposals.chooseNeedToPropose')} emptyText={t('trade.proposals.createNeedFirst')} items={needs} selectedId={selectedNeedId} onSelect={onSelectNeed} kind="need" theme={theme} t={t} /> : null}
++      {!requiredSide ? <InfoNotice tone="info" title={t('trade.proposals.attachSavedItemOptional')} body={t('trade.proposals.attachSavedItemOptionalBody')} /> : null}
++      {requiredSide !== 'need' ? <InventoryChoiceList title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} items={offers} selectedId={selectedOfferId} onSelect={onSelectOffer} kind="offer" theme={theme} t={t} /> : null}
++      {requiredSide !== 'offer' ? <InventoryChoiceList title={requiredSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')} emptyText={requiredSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')} items={needs} selectedId={selectedNeedId} onSelect={onSelectNeed} kind="need" theme={theme} t={t} /> : null}
+ 
+       {selectedOffer ? <InventoryPreviewCard item={selectedOffer} kind="offer" label={t('trade.labels.selectedOffer')} theme={theme} t={t} /> : null}
+       {selectedNeed ? <InventoryPreviewCard item={selectedNeed} kind="need" label={t('trade.labels.selectedNeed')} theme={theme} t={t} /> : null}
+diff --git a/apps/mobile/src/features/trade/components/TradeDeckCard.tsx b/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+index 7115f31..c537e9a 100644
+--- a/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
++++ b/apps/mobile/src/features/trade/components/TradeDeckCard.tsx
+@@ -5,7 +5,6 @@ import { formatLocalizedTimeUntil, type SupportedLanguage } from '@hellowhen/i18
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { AppText } from '../../../components/AppText';
+ import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
+-import { UserIdentityPressable } from '../../users/UserIdentityPressable';
+ import type { TradeDeckItem } from '../types';
+ import { resolveMediaUrl } from '../mediaUrls';
+ 
+@@ -27,11 +26,6 @@ function getTradeKind(trade: TradeDeckItem, t: TFunction): { label: string; tone
+   return { label: t('trade.labels.publicTrade'), tone: 'trade' };
+ }
+ 
+-function getPublicOwnerId(ownerId?: string | null) {
+-  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
+-  return ownerId;
+-}
+-
+ function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction, language: SupportedLanguage) {
+   return formatLocalizedTimeUntil(expiresAt, language, {
+     noValue: t('trade.labels.openExpiry'),
+@@ -57,14 +51,6 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
+       </View>
+       <View style={styles.creditPanel}>
+         {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={t('trade.labels.optionalMoney').toLowerCase()} /> : <SemanticBadge label={t('trade.labels.serviceForService')} tone="trade" />}
+-        <UserIdentityPressable
+-          user={trade.owner}
+-          userId={trade.owner?.id ?? getPublicOwnerId(trade.ownerId)}
+-          variant="compact"
+-          avatarSize="sm"
+-          subtitle={t('trade.labels.owner')}
+-          style={styles.ownerIdentity}
+-        />
+       </View>
+       <View style={styles.metaRow}>
+         <SemanticBadge label={getExpiryLabel(trade.expiresAt, t, language)} tone="time" size="sm" />
+@@ -88,7 +74,6 @@ const styles = StyleSheet.create({
+   title: { fontSize: 32, lineHeight: 36, fontWeight: '900', letterSpacing: -0.8 },
+   description: { color: '#475569', fontSize: 16, lineHeight: 23, fontWeight: '600' },
+   creditPanel: { borderRadius: 24, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 16, gap: 14 },
+-  ownerIdentity: { alignSelf: 'stretch' },
+   metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
+   actionsRow: { flexDirection: 'row', gap: 10 },
+   primaryButton: { flex: 1.35, minHeight: 48, borderRadius: 16, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+diff --git a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+index 06aca45..81ca87c 100644
+--- a/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
++++ b/apps/mobile/src/features/trade/components/TradeSquareDeckCards.tsx
+@@ -9,7 +9,6 @@ import { TradeExchangeIcon } from './TradeExchangeIcon';
+ import { resolveMediaUrl } from '../mediaUrls';
+ import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
+ import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
+-import { UserIdentityPressable } from '../../users/UserIdentityPressable';
+ 
+ export type TradeSquareDeckCard = {
+   id: string;
+@@ -50,33 +49,6 @@ export function renderTradeSquareDeckCard(card: TradeSquareDeckCard, _index: num
+   return <TradeImageCard trade={card.trade} kind={card.kind} media={card.media} onOpen={onOpen} />;
+ }
+ 
+-function getPublicOwnerId(ownerId?: string | null) {
+-  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
+-  return ownerId;
+-}
+-
+-function hasOwnerIdentity(trade: TradeDeckItem) {
+-  return Boolean(trade.owner || getPublicOwnerId(trade.ownerId));
+-}
+-
+-function OwnerIdentityChip({ trade, compact = false }: { trade: TradeDeckItem; compact?: boolean }) {
+-  const { t } = useTranslation();
+-  const userId = trade.owner?.id ?? getPublicOwnerId(trade.ownerId);
+-  if (!trade.owner && !userId) return null;
+-
+-  return (
+-    <UserIdentityPressable
+-      user={trade.owner}
+-      userId={userId}
+-      variant={compact ? 'compact' : 'chip'}
+-      avatarSize="xs"
+-      showHandle={false}
+-      subtitle={compact ? t('trade.labels.owner') : undefined}
+-      style={compact ? styles.summaryOwnerIdentity : styles.posterOwnerIdentity}
+-    />
+-  );
+-}
+-
+ function getTradeCounter(index: number, total: number) { return `${String(index + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`; }
+ function getStatusLabel(status: string, t: TFunction) {
+   if (status === 'active') return t('trade.statuses.active').toUpperCase();
+@@ -170,7 +142,6 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
+         <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status, t)}</AppText>
+       </View>
+ 
+-      {hasOwnerIdentity(trade) ? <View style={styles.summaryOwnerRow}><OwnerIdentityChip trade={trade} compact /></View> : null}
+ 
+       <View style={styles.summaryBody}>
+         <View style={styles.tradeSideBlock}>
+@@ -215,7 +186,6 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
+       subtitle={summarySubtitle}
+       status={countdown}
+       chips={starterChips(trade)}
+-      identity={hasOwnerIdentity(trade) ? <OwnerIdentityChip trade={trade} /> : undefined}
+       variant={postType === 'open_need' ? 'need' : 'offer'}
+       onPress={onOpen}
+     />
+@@ -278,9 +248,6 @@ const styles = StyleSheet.create({
+   },
+   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
+   summaryHeader: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
+-  summaryOwnerRow: { alignItems: 'center', minHeight: 24 },
+-  summaryOwnerIdentity: { alignSelf: 'center' },
+-  posterOwnerIdentity: { minHeight: 30, paddingVertical: 3, paddingLeft: 4, paddingRight: 8, maxWidth: 142 },
+   summaryStatus: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
+   summaryBody: { flex: 1, justifyContent: 'center', gap: 18, minHeight: 0 },
+   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index f320bc9..6b39c52 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -178,8 +178,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+ 
+   const selectedProposal = useMemo(() => proposals.find((proposal) => proposal.id === selectedProposalId) ?? proposals.find((proposal) => proposal.status === 'accepted') ?? proposals[0] ?? null, [proposals, selectedProposalId]);
+   const ownProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id), [auth.user?.id, proposals]);
+-  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => !['fulfilled', 'closed', 'expired'].includes(need.status)), [proposalNeeds]);
+-  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => !['accepted', 'closed', 'expired'].includes(offer.status)), [proposalOffers]);
++  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => need.status === 'active'), [proposalNeeds]);
++  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => offer.status === 'active'), [proposalOffers]);
+   const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
+   const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
+   const hasRequiredSide = requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
+@@ -210,7 +210,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+ 
+ 
+   useEffect(() => {
+-    if (!auth.isAuthenticated || isOwner || ownProposal || !requiredProposalSide) return;
++    if (!auth.isAuthenticated || isOwner || ownProposal || trade.status !== 'active') return;
+     let mounted = true;
+     async function loadProposalInventory() {
+       setSideLoading(true);
+@@ -219,24 +219,37 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+           const response = await api.offers.mine();
+           const offers = normalizeOffers(response);
+           if (!mounted) return;
++          setProposalNeeds([]);
++          setProposedNeedId('');
+           setProposalOffers(offers);
+-          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current) ? current : offers.find((offer) => !['accepted', 'closed', 'expired'].includes(offer.status))?.id ?? '');
+-        } else {
++          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : offers.find((offer) => offer.status === 'active')?.id ?? '');
++        } else if (requiredProposalSide === 'need') {
+           const response = await api.needs.mine();
+           const needs = normalizeNeeds(response);
+           if (!mounted) return;
++          setProposalOffers([]);
++          setProposedOfferId('');
+           setProposalNeeds(needs);
+-          setProposedNeedId((current) => current && needs.some((need) => need.id === current) ? current : needs.find((need) => !['fulfilled', 'closed', 'expired'].includes(need.status))?.id ?? '');
++          setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : needs.find((need) => need.status === 'active')?.id ?? '');
++        } else {
++          const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
++          const needs = normalizeNeeds(needsResponse);
++          const offers = normalizeOffers(offersResponse);
++          if (!mounted) return;
++          setProposalNeeds(needs);
++          setProposalOffers(offers);
++          setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : '');
++          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : '');
+         }
+       } catch {
+-        if (mounted) setNotice(requiredProposalSide === 'offer' ? t('trade.errors.couldNotLoadOffers') : t('trade.errors.couldNotLoadNeeds'));
++        if (mounted) setNotice(t('trade.errors.couldNotLoadInventory'));
+       } finally {
+         if (mounted) setSideLoading(false);
+       }
+     }
+     void loadProposalInventory();
+     return () => { mounted = false; };
+-  }, [auth.isAuthenticated, isOwner, ownProposal, requiredProposalSide]);
++  }, [auth.isAuthenticated, isOwner, ownProposal, requiredProposalSide, trade.status]);
+ 
+   useEffect(() => {
+     if (!selectedProposal || !auth.isAuthenticated || !canShowConversation) {
+@@ -268,8 +281,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+     try {
+       const response = await api.trades.createProposal(trade.id, {
+         message,
+-        ...(requiredProposalSide === 'need' ? { proposedNeedId: selectedNeed?.id } : {}),
+-        ...(requiredProposalSide === 'offer' ? { proposedOfferId: selectedOffer?.id } : {})
++        ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed ? { proposedNeedId: selectedNeed.id } : {}),
++        ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer ? { proposedOfferId: selectedOffer.id } : {})
+       });
+       const proposal = normalizeProposal(response);
+       if (!proposal) throw new Error('missing_proposal_response');
+@@ -370,7 +383,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+       {notice ? <p className="notice-box info">{notice}</p> : null}
+ 
+       {!isOwner && !ownProposal ? (
+-        <form className={requiredProposalSide ? 'proposal-composer proposal-composer--with-side' : 'proposal-composer'} onSubmit={submitProposal}>
++        <form className="proposal-composer proposal-composer--with-side" onSubmit={submitProposal}>
+           {requiredProposalSide ? (
+             <p className="proposal-side-callout">
+               <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
+@@ -379,12 +392,19 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+                 : t('trade.proposals.chooseNeedFirst')}
+             </p>
+           ) : null}
+-          {requiredProposalSide === 'offer' ? (
++          {!requiredProposalSide ? (
++            <p className="proposal-side-callout">
++              <WebIcon name="proposal" size={17} decorative />
++              {t('trade.proposals.attachSavedItemOptionalBody')}
++            </p>
++          ) : null}
++
++          {requiredProposalSide !== 'need' ? (
+             <div className="proposal-side-picker">
+               <div className="trade-section-heading compact">
+                 <div>
+                   <p className="eyebrow">{t('trade.labels.yourOffer')}</p>
+-                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> {t('trade.proposals.chooseOfferToPropose')}</h3>
++                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> {requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}</h3>
+                 </div>
+                 {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
+               </div>
+@@ -393,7 +413,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+                   {activeProposalOffers.map((offer) => {
+                     const mediaUrl = firstMediaUrl(offer);
+                     return (
+-                      <button key={offer.id} type="button" className={offer.id === proposedOfferId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedOfferId(offer.id)}>
++                      <button key={offer.id} type="button" className={offer.id === proposedOfferId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => { setProposedOfferId((current) => current === offer.id ? '' : offer.id); setProposedNeedId(''); }}>
+                         <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'O'}</span>
+                         <span className="trade-side-option__body">
+                           <span className="trade-side-option__top"><strong>{offer.title}</strong><em>{t('inventory.labels.offer')}</em></span>
+@@ -407,19 +427,19 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+                 <div className="proposal-empty-state proposal-empty-state--compact">
+                   <WebIcon name="offer" size={28} decorative />
+                   <strong>{t('trade.proposals.noActiveOffers')}</strong>
+-                  <span>{t('trade.proposals.createOfferFirst')}</span>
++                  <span>{requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}</span>
+                   <Link href="/offers" className="button secondary full">{t('trade.proposals.goToOffers')}</Link>
+                 </div>
+               )}
+             </div>
+           ) : null}
+ 
+-          {requiredProposalSide === 'need' ? (
++          {requiredProposalSide !== 'offer' ? (
+             <div className="proposal-side-picker">
+               <div className="trade-section-heading compact">
+                 <div>
+                   <p className="eyebrow">{t('trade.labels.yourNeed')}</p>
+-                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> {t('trade.proposals.chooseNeedToPropose')}</h3>
++                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> {requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}</h3>
+                 </div>
+                 {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
+               </div>
+@@ -428,7 +448,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+                   {activeProposalNeeds.map((need) => {
+                     const mediaUrl = firstMediaUrl(need);
+                     return (
+-                      <button key={need.id} type="button" className={need.id === proposedNeedId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedNeedId(need.id)}>
++                      <button key={need.id} type="button" className={need.id === proposedNeedId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => { setProposedNeedId((current) => current === need.id ? '' : need.id); setProposedOfferId(''); }}>
+                         <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'N'}</span>
+                         <span className="trade-side-option__body">
+                           <span className="trade-side-option__top"><strong>{need.title}</strong><em>{t('inventory.labels.need')}</em></span>
+@@ -442,18 +462,18 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+                 <div className="proposal-empty-state proposal-empty-state--compact">
+                   <WebIcon name="need" size={28} decorative />
+                   <strong>{t('trade.proposals.noActiveNeeds')}</strong>
+-                  <span>{t('trade.proposals.createNeedFirst')}</span>
++                  <span>{requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}</span>
+                   <Link href="/needs" className="button secondary full">{t('trade.proposals.goToNeeds')}</Link>
+                 </div>
+               )}
+             </div>
+           ) : null}
+ 
+-          {requiredProposalSide === 'offer' && selectedOffer ? (
++          {selectedOffer ? (
+             <ProposalSidePreview kind="offer" item={selectedOffer} label={t('trade.labels.selectedOffer')} i18n={i18n} />
+           ) : null}
+ 
+-          {requiredProposalSide === 'need' && selectedNeed ? (
++          {selectedNeed ? (
+             <ProposalSidePreview kind="need" item={selectedNeed} label={t('trade.labels.selectedNeed')} i18n={i18n} />
+           ) : null}
+ 
+diff --git a/docs/phase-25-p1-mobile-feed-proposal-picker.md b/docs/phase-25-p1-mobile-feed-proposal-picker.md
+new file mode 100644
+index 0000000..80a60c6
+--- /dev/null
++++ b/docs/phase-25-p1-mobile-feed-proposal-picker.md
+@@ -0,0 +1,61 @@
++# Phase 25.P1 — Mobile feed compactness and proposal Need/Offer picker
++
++## Goal
++
++Polish the core trade experience before continuing the broader launch-readiness pass:
++
++- Keep mobile feed/deck cards compact by removing owner identity chips from the card surface.
++- Let users attach one active saved Need or Offer when proposing on a complete Need + Offer trade.
++- Preserve the existing required proposal-side behavior for Open Need and Open Offer posts.
++
++## Audit findings
++
++- Proposal-side fields already existed in the data model and API contracts: `proposedNeedId` and `proposedOfferId`.
++- Web and native proposal composers already supported required inventory selection for Open Need/Open Offer posts.
++- The backend previously rejected proposed inventory attachments for complete Need + Offer trades.
++- Mobile feed/deck cards still showed owner identity/profile chips, while the web feed did not.
++
++## Implemented changes
++
++### Mobile feed compactness
++
++- Removed owner username/avatar/profile chips from mobile trade feed/deck card components.
++- Kept identity/profile surfaces in trade detail, proposal lists, public profiles, account, and admin areas.
++- Did not change swipe/deck behavior, timers, card ordering, or card actions.
++
++### Proposal Need/Offer picker
++
++- Complete Need + Offer trades now allow an optional attached active Need or Offer in proposals.
++- Open Need posts still require one active Offer from the proposing user.
++- Open Offer posts still require one active Need from the proposing user.
++- A proposal can attach at most one side: either one Need or one Offer, not both.
++- Attached inventory must belong to the proposing user and must be active.
++- Restricted-account posting safeguards remain handled by the existing authenticated active-account middleware and visibility rules.
++
++### Web and native UI
++
++- Proposal composers now load active saved Needs and Offers for complete trades.
++- Users can select or deselect one attached Need/Offer before sending the proposal.
++- Selecting a Need clears the selected Offer, and selecting an Offer clears the selected Need.
++- Existing proposal preview cards are reused so the owner can see the attached item with the proposal.
++- Added English and French strings for optional proposal attachments and inventory-loading errors.
++
++## Non-goals
++
++- No wallet, payout, Stripe, Airwallex, or money-provider behavior was enabled.
++- No feed/deck interaction behavior was changed beyond removing identity chips from mobile cards.
++- No proposal acceptance or trade-status business logic was changed for complete Need + Offer trades.
++- No legal/policy user-facing copy was changed in this phase.
++
++## Manual QA checklist
++
++1. Mobile Trades feed: verify cards no longer show owner username/avatar/profile chips.
++2. Mobile Trade Detail: verify owner identity still appears on the detail page.
++3. Web Trade Detail on a complete Need + Offer trade: send a proposal with no attachment.
++4. Web Trade Detail on a complete Need + Offer trade: attach one active Offer and send.
++5. Web Trade Detail on a complete Need + Offer trade: attach one active Need and send.
++6. Native Trade Detail: repeat the same complete-trade proposal checks.
++7. Open Need: verify proposing still requires an active Offer.
++8. Open Offer: verify proposing still requires an active Need.
++9. Restricted user: verify proposal creation is still blocked by account-status middleware.
++10. Owner view: verify attached proposal Need/Offer previews are visible in the proposal list.
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 76ce50e..dedbbd2 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -153,10 +153,16 @@ export const trade = {
+     chooseNeedFirst: 'Choose one of your active Needs first. This is what you are proposing for the creator’s Open Offer.',
+     chooseOfferToPropose: 'Choose existing Offer to propose',
+     chooseNeedToPropose: 'Choose existing Need to propose',
++    attachSavedItemOptional: 'Attach a saved Need or Offer',
++    attachSavedItemOptionalBody: 'Optional: attach one active Need or Offer so the owner can understand what you are proposing.',
++    attachOfferToProposal: 'Attach one of your Offers',
++    attachNeedToProposal: 'Attach one of your Needs',
+     noActiveOffers: 'No active Offers yet',
+     noActiveNeeds: 'No active Needs yet',
+     createOfferFirst: 'Create or save an Offer first, then come back to propose it for this Open Need.',
+     createNeedFirst: 'Create or save a Need first, then come back to propose it for this Open Offer.',
++    createOfferOptional: 'No active Offers yet. You can still send a message, or create an Offer first.',
++    createNeedOptional: 'No active Needs yet. You can still send a message, or create a Need first.',
+     goToOffers: 'Go to Offers',
+     goToNeeds: 'Go to Needs',
+     savedInventoryNeeded: 'Saved inventory needed',
+@@ -408,6 +414,7 @@ export const trade = {
+     couldNotLoadProposal: 'Could not load this proposal.',
+     couldNotLoadOffers: 'Could not load your saved Offers yet.',
+     couldNotLoadNeeds: 'Could not load your saved Needs yet.',
++    couldNotLoadInventory: 'Could not load your saved Needs and Offers yet.',
+     couldNotSendProposal: 'Could not send the proposal yet. Check that you are signed in and the API is running.',
+     couldNotUpdateProposal: 'Could not update the proposal status yet.',
+     couldNotSendMessage: 'Could not send this message yet.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 0e219e8..981dac8 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -153,10 +153,16 @@ export const trade = {
+     chooseNeedFirst: 'Choisissez d’abord un de vos besoins actifs. C’est ce que vous proposez pour l’offre ouverte du créateur.',
+     chooseOfferToPropose: 'Choisir une offre existante à proposer',
+     chooseNeedToPropose: 'Choisir un besoin existant à proposer',
++    attachSavedItemOptional: 'Joindre un besoin ou une offre enregistré',
++    attachSavedItemOptionalBody: 'Optionnel : joignez un besoin ou une offre active pour aider le propriétaire à comprendre votre proposition.',
++    attachOfferToProposal: 'Joindre une de vos offres',
++    attachNeedToProposal: 'Joindre un de vos besoins',
+     noActiveOffers: 'Aucune offre active pour le moment',
+     noActiveNeeds: 'Aucun besoin actif pour le moment',
+     createOfferFirst: 'Créez ou enregistrez d’abord une offre, puis revenez la proposer pour ce besoin ouvert.',
+     createNeedFirst: 'Créez ou enregistrez d’abord un besoin, puis revenez le proposer pour cette offre ouverte.',
++    createOfferOptional: 'Aucune offre active pour le moment. Vous pouvez quand même envoyer un message, ou créer une offre d’abord.',
++    createNeedOptional: 'Aucun besoin actif pour le moment. Vous pouvez quand même envoyer un message, ou créer un besoin d’abord.',
+     goToOffers: 'Aller aux offres',
+     goToNeeds: 'Aller aux besoins',
+     savedInventoryNeeded: 'Inventaire enregistré requis',
+@@ -408,6 +414,7 @@ export const trade = {
+     couldNotLoadProposal: 'Impossible de charger cette proposition.',
+     couldNotLoadOffers: 'Impossible de charger vos offres enregistrées pour le moment.',
+     couldNotLoadNeeds: 'Impossible de charger vos besoins enregistrés pour le moment.',
++    couldNotLoadInventory: 'Impossible de charger vos besoins et offres enregistrés pour le moment.',
+     couldNotSendProposal: 'Impossible d’envoyer la proposition pour le moment. Vérifiez que vous êtes connecté et que l’API fonctionne.',
+     couldNotUpdateProposal: 'Impossible de mettre à jour le statut de la proposition pour le moment.',
+     couldNotSendMessage: 'Impossible d’envoyer ce message pour le moment.',

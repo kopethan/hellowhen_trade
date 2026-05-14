@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import type { AdminPayoutAction, AdminPayoutStatusFilter, PayoutRequestDto, PayoutRequestStatus, UserTrustTier } from '@hellowhen/contracts';
+import { getWebApiBaseUrl } from '../../../lib/api';
+import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
 import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
 
-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
 type AdminUser = {
   id: string;
   email: string;
@@ -76,7 +77,6 @@ type PayoutsResponse = { payouts: AdminPayout[]; summary?: { byStatus?: Array<{ 
 type DetailResponse = { payout: AdminPayout; ledgerEntries: LedgerEntry[]; supportTickets: SupportTicket[]; stripeEvents: StripeEvent[]; providerEvents?: ProviderEvent[]; providerTransactions?: ProviderTransaction[]; userLimits?: Limits };
 type MoneySafetyAdmin = { config: { launchMode: string; moneyProvider?: string; moneyProviderEnvironment?: string; moneyProviderSandboxOnly?: boolean; policyVersion: string; realMoneyEnabled: boolean; providerTransfersEnabled?: boolean; stripeTransfersEnabled: boolean; requiresManualPayoutReview: boolean; productionSwitchEnabled: boolean; privateBetaAllowlistCount: number }; metrics?: { acknowledgementCount?: number; walletCount?: number; walletAggregate?: { _sum?: { availableBalanceCents?: number | null; heldBalanceCents?: number | null; pendingPayoutCents?: number | null } }; payoutsByStatus?: Array<{ status: string; _count: { _all: number } }> } };
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const statuses: AdminPayoutStatusFilter[] = ['all', 'requested', 'approved', 'paid', 'rejected', 'cancelled', 'draft'];
 const trustTiers: UserTrustTier[] = ['new', 'email_verified', 'stripe_verified', 'trusted', 'restricted'];
 const actions: Array<{ action: AdminPayoutAction; label: string; tone: string; hint: string }> = [
@@ -87,10 +87,6 @@ const actions: Array<{ action: AdminPayoutAction; label: string; tone: string; h
   { action: 'reject', label: 'Reject + return balance', tone: 'danger', hint: 'Reject and return gross payout-eligible earnings to the wallet.' },
   { action: 'cancel', label: 'Cancel + return balance', tone: 'admin', hint: 'Cancel and return gross payout-eligible earnings to the wallet.' },
 ];
-
-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
-}
 
 function statusTone(status: string) {
   if (status === 'paid') return 'success';
@@ -109,9 +105,8 @@ function gross(payout: AdminPayout) {
 }
 
 export default function AdminPayoutsPage() {
-  const [email, setEmail] = useState('admin@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [token, setToken] = useState('');
+  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+  const { token, headers } = useAdminSessionToken();
   const [status, setStatus] = useState<AdminPayoutStatusFilter>('requested');
   const [items, setItems] = useState<AdminPayout[]>([]);
   const [summary, setSummary] = useState<PayoutsResponse['summary'] | null>(null);
@@ -124,29 +119,11 @@ export default function AdminPayoutsPage() {
   const [trustNote, setTrustNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
   const selectedPayout = detail?.payout ?? items.find((item) => item.id === selectedId) ?? null;
 
 
-  async function login() {
-    setLoading(true);
-    setMessage(null);
-    try {
-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed');
-      const data = await response.json() as LoginResponse;
-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Log in through the app first or use a dev admin without 2FA for local testing.');
-      setToken(data.accessToken);
-      setMessage('Admin logged in. Load payout requests to review money movement.');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function loadPayouts(nextStatus = status) {
-    if (!token) { setMessage('Log in as admin first.'); return; }
+    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
     setLoading(true);
     setMessage(null);
     try {
@@ -166,7 +143,7 @@ export default function AdminPayoutsPage() {
   }
 
   async function loadDetail(payoutId: string) {
-    if (!token) { setMessage('Log in as admin first.'); return; }
+    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
     setSelectedId(payoutId);
     setLoading(true);
     setMessage(null);
@@ -251,13 +228,7 @@ export default function AdminPayoutsPage() {
           <h1>Payout console</h1>
           <p className="notice-box admin">Review payout requests, provider sandbox status, related support tickets, ledger entries, and admin audit notes before real-money launch.</p>
         </div>
-        <div className="form-row">
-          <div className="admin-console__login-grid">
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
-          </div>
-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
-        </div>
+        <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
         <div className="form-row">
           <select value={status} onChange={(event) => { const next = event.target.value as AdminPayoutStatusFilter; setStatus(next); void loadPayouts(next); }}>
             {statuses.map((item) => <option key={item} value={item}>{item}</option>)}

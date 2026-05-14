@@ -1,16 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AdminLaunchChecklistResponse, AdminModerationSmokeResponse, AdminOverviewResponse, AdminRuntimeQaResponse, AdminUserSummaryDto, AdminUsersResponse, UserTrustTier } from '@hellowhen/contracts';
 import { getWebApiBaseUrl } from '../../lib/api';
 import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
-
-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
+import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../features/admin/adminSession';
 
 type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
 
-const adminTokenKey = 'hellowhen:admin_access_token';
 const trustTiers: Array<UserTrustTier | 'all'> = ['all', 'new', 'email_verified', 'stripe_verified', 'trusted', 'restricted'];
 const roleFilters = ['all', 'user', 'admin'] as const;
 
@@ -30,10 +28,6 @@ const adminSections = [
   { href: '/admin/money', title: 'Money provider', body: 'Sandbox/provider account diagnostics for future money launch.', tone: 'admin' },
   { href: '/admin/credits', title: 'Credit purchases', body: 'Legacy/demo credit purchase history while money features remain gated.', tone: 'admin' },
 ];
-
-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
-}
 
 function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
@@ -70,9 +64,7 @@ function userCounts(user: AdminUserSummaryDto) {
 
 export default function AdminHomePage() {
   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
-  const [email, setEmail] = useState('admin@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [token, setToken] = useState('');
+  const { token, headers } = useAdminSessionToken();
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
   const [moderationSmoke, setModerationSmoke] = useState<AdminModerationSmokeResponse | null>(null);
   const [launchChecklist, setLaunchChecklist] = useState<AdminLaunchChecklistResponse | null>(null);
@@ -86,49 +78,19 @@ export default function AdminHomePage() {
   const [note, setNote] = useState('');
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem(adminTokenKey);
-    if (saved) setToken(saved);
-  }, []);
-
-  useEffect(() => {
-    if (!token) return;
-    window.localStorage.setItem(adminTokenKey, token);
-  }, [token]);
-
-  async function login() {
-    setLoading(true);
-    setNotice(null);
-    try {
-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
-      const data = await response.json() as LoginResponse;
-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
-      setToken(data.accessToken);
-      setNotice({ tone: 'success', body: 'Admin logged in. Load the launch dashboard to review users, reports, and safety queues.' });
-    } catch (error) {
-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function logout() {
-    setToken('');
+  function clearLocalSession() {
+    clearAdminBrowserSession();
     setOverview(null);
     setModerationSmoke(null);
     setLaunchChecklist(null);
     setRuntimeQa(null);
     setUsers([]);
     setSelectedUser(null);
-    window.localStorage.removeItem(adminTokenKey);
-    setNotice({ tone: 'info', body: 'Admin token cleared from this browser.' });
+    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
   }
 
   async function loadOverview() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -144,7 +106,7 @@ export default function AdminHomePage() {
   }
 
   async function loadModerationSmoke() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -160,7 +122,7 @@ export default function AdminHomePage() {
   }
 
   async function loadLaunchChecklist() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -177,7 +139,7 @@ export default function AdminHomePage() {
 
 
   async function loadRuntimeQa() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -193,7 +155,7 @@ export default function AdminHomePage() {
   }
 
   async function loadUsers() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -296,10 +258,8 @@ export default function AdminHomePage() {
           <p>One safe entry point for launch health, runtime QA, user limits, support queues, content moderation, and audit history. Keep money tools gated until the launch mode explicitly enables them.</p>
         </div>
         <div className="admin-console__login-grid">
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
-          <button type="button" onClick={login} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
-          <button type="button" className="secondary" onClick={logout} disabled={!token}>Clear token</button>
+          <p className="notice-box info">Internal tools use your signed-in admin app session. No standalone admin login is shown on public pages.</p>
+          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
         </div>
         <div className="cta-row">
           <button type="button" onClick={() => { void loadOverview(); void loadUsers(); void loadModerationSmoke(); void loadLaunchChecklist(); void loadRuntimeQa(); }} disabled={loading || !token}>Load dashboard</button>

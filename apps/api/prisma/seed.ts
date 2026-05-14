@@ -6,6 +6,9 @@ const prisma = new PrismaClient();
 const demoPassword = process.env.SEED_DEMO_PASSWORD?.trim() || 'password123';
 const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim() || 'admin@hellowhen.app';
 const adminPassword = process.env.SEED_ADMIN_PASSWORD?.trim() || demoPassword;
+if (process.env.NODE_ENV === 'production' && adminPassword === demoPassword) {
+  throw new Error('Set a unique SEED_ADMIN_PASSWORD before seeding production admin users.');
+}
 const adminDisplayName = process.env.SEED_ADMIN_DISPLAY_NAME?.trim() || 'Admin Reviewer';
 const adminHandle = process.env.SEED_ADMIN_HANDLE?.trim() || 'admin';
 const passwordHashCache = new Map<string, Promise<string>>();
@@ -488,9 +491,187 @@ const starterInventoryTemplates: SeedInventoryTemplateData[] = [
   },
 ];
 
+const frenchStarterInventoryTemplates: SeedInventoryTemplateData[] = [
+  {
+    key: 'starter-fr-need-landing-page-design',
+    kind: 'need',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Design de landing page',
+    description: 'Utilisez ce modèle si vous avez besoin d’une landing page simple avec une section d’accueil, une structure claire et un appel à l’action.',
+    itemType: 'service',
+    category: 'Design',
+    timing: 'Cette semaine',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    tags: ['design', 'landing', 'web'],
+    status: 'active',
+    sortOrder: 10,
+  },
+  {
+    key: 'starter-fr-need-homepage-copy-cleanup',
+    kind: 'need',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Amélioration du texte d’accueil',
+    description: 'Utilisez ce modèle si le texte de votre page d’accueil doit devenir plus clair, plus court et plus facile à comprendre.',
+    itemType: 'service',
+    category: 'Rédaction',
+    timing: 'Dans les prochains jours',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    tags: ['rédaction', 'homepage', 'écriture'],
+    status: 'active',
+    sortOrder: 20,
+  },
+  {
+    key: 'starter-fr-need-short-form-video-edit',
+    kind: 'need',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Montage vidéo courte',
+    description: 'Utilisez ce modèle si vous avez besoin de nettoyer une vidéo verticale courte avec un meilleur début, des coupes, des sous-titres ou un export.',
+    itemType: 'service',
+    category: 'Vidéo',
+    timing: '48 heures',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    tags: ['vidéo', 'montage', 'social'],
+    status: 'active',
+    sortOrder: 30,
+  },
+  {
+    key: 'starter-fr-need-mobile-web-beta-test',
+    kind: 'need',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Test bêta mobile web',
+    description: 'Utilisez ce modèle si vous voulez qu’une personne teste un parcours mobile web et vous envoie des notes claires sur les bugs ou étapes confuses.',
+    itemType: 'service',
+    category: 'Test',
+    timing: 'Aujourd’hui ou demain',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    tags: ['test', 'mobile', 'qa'],
+    status: 'active',
+    sortOrder: 50,
+  },
+  {
+    key: 'starter-fr-need-local-pickup-help',
+    kind: 'need',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: 'FR',
+    title: 'Aide pour retrait local',
+    description: 'Utilisez ce modèle si vous avez besoin d’une personne proche pour récupérer un petit objet, un colis ou du matériel.',
+    itemType: 'other',
+    category: 'Course',
+    timing: 'Flexible',
+    mode: 'local',
+    locationLabel: 'France · zone locale',
+    tags: ['local', 'retrait', 'course'],
+    status: 'active',
+    sortOrder: 210,
+  },
+  {
+    key: 'starter-fr-offer-ui-polish-review',
+    kind: 'offer',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Revue de finition UI',
+    description: 'Utilisez ce modèle si vous pouvez relire un écran et donner des notes claires sur la mise en page, l’espacement, la hiérarchie et la finition visuelle.',
+    itemType: 'service',
+    category: 'Design',
+    availability: 'Cette semaine',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    includes: ['Notes UI', 'Revue des espacements', 'Priorités de correction'],
+    tags: ['ui', 'design', 'revue'],
+    status: 'active',
+    sortOrder: 10,
+  },
+  {
+    key: 'starter-fr-offer-product-photography',
+    kind: 'offer',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Photographie produit',
+    description: 'Utilisez ce modèle si vous pouvez prendre ou améliorer des photos produit propres pour une page de lancement, une boutique ou un post social.',
+    itemType: 'service',
+    category: 'Photographie',
+    availability: 'Week-end',
+    mode: 'hybrid',
+    locationLabel: 'Brief local ou à distance',
+    includes: ['Liste de prises de vue', 'Photos retouchées'],
+    tags: ['photo', 'produit', 'contenu'],
+    status: 'active',
+    sortOrder: 20,
+  },
+  {
+    key: 'starter-fr-offer-seo-quick-audit',
+    kind: 'offer',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Audit SEO rapide',
+    description: 'Utilisez ce modèle si vous pouvez vérifier les titres, descriptions, en-têtes ou problèmes SEO simples d’un petit site.',
+    itemType: 'service',
+    category: 'Marketing',
+    availability: 'Dans les prochains jours',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    includes: ['Notes SEO', 'Corrections prioritaires'],
+    tags: ['seo', 'marketing', 'audit'],
+    status: 'active',
+    sortOrder: 40,
+  },
+  {
+    key: 'starter-fr-offer-profile-bio-rewrite',
+    kind: 'offer',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: null,
+    title: 'Réécriture de bio de profil',
+    description: 'Utilisez ce modèle si vous pouvez réécrire une courte bio de créateur, freelance ou entreprise.',
+    itemType: 'service',
+    category: 'Rédaction',
+    availability: 'Cette semaine',
+    mode: 'remote',
+    locationLabel: 'À distance',
+    includes: ['Bio réécrite', 'Une révision'],
+    tags: ['bio', 'rédaction', 'profil'],
+    status: 'active',
+    sortOrder: 60,
+  },
+  {
+    key: 'starter-fr-offer-local-delivery-run',
+    kind: 'offer',
+    sourceType: 'hellowhen',
+    languageCode: 'fr',
+    countryCode: 'FR',
+    title: 'Petite livraison locale',
+    description: 'Utilisez ce modèle si vous pouvez aider avec une petite livraison locale, un retrait ou un dépôt.',
+    itemType: 'other',
+    category: 'Course',
+    availability: 'Flexible',
+    mode: 'local',
+    locationLabel: 'France · zone locale',
+    includes: ['Retrait', 'Dépôt'],
+    tags: ['livraison', 'local', 'course'],
+    status: 'active',
+    sortOrder: 210,
+  },
+];
+
 async function seedStarterInventoryTemplates() {
-  for (const template of starterInventoryTemplates) {
-    await upsertInventoryTemplate(template);
+  for (const template of [...starterInventoryTemplates, ...frenchStarterInventoryTemplates]) {
+    await upsertInventoryTemplate({ languageCode: 'en', countryCode: null, ...template });
   }
 }
 
@@ -895,7 +1076,7 @@ async function main() {
   console.log('Seeded beta-safe demo accounts, starter Need/Offer templates, expanded inventory, stress-test trades, proposal flow, and support ticket flow.');
   console.log(`Owner:  demo@hellowhen.app / ${demoPassword}`);
   console.log(`Helper: helper@hellowhen.app / ${demoPassword}`);
-  console.log(`Admin:  ${adminEmail} / ${adminPassword}`);
+  console.log(`Admin:  ${adminEmail} / [hidden]`);
   if (adminPassword === 'password123') {
     console.log('Admin setup warning: SEED_ADMIN_PASSWORD is using the default local demo password. Change it outside local development.');
   }

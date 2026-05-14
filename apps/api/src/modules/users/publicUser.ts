@@ -2,6 +2,7 @@ export const publicProfilePreviewSelect = {
   displayName: true,
   handle: true,
   avatarUrl: true,
+  countryCode: true,
 } as const;
 
 export const publicProfileSelect = {

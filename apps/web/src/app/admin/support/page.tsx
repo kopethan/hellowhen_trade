@@ -2,26 +2,22 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { AuthResponse, SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
+import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
 import { getWebApiBaseUrl } from '../../../lib/api';
+import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
+import { useWebAuth } from '../../../providers/WebAuthProvider';
 import { formatWebDateTime } from '../../../lib/webFormat';
 
-type LoginResponse = AuthResponse | { requiresTwoFactor: true; challengeToken: string; message?: string };
 type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; _count?: { messages: number } };
 type TicketsResponse = { tickets: AdminTicketItem[] };
 type TicketResponse = { ticket: AdminTicketItem };
 type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
 type AssignedFilter = 'all' | 'unassigned' | 'mine';
 
-const adminTokenKey = 'hellowhen:admin_access_token';
 const statuses: Array<SupportTicketStatus | 'all'> = ['all', 'open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
 const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
 const priorities: Array<SupportTicketPriority | 'all'> = ['all', 'low', 'normal', 'high', 'urgent'];
 const assignedFilters: AssignedFilter[] = ['all', 'unassigned', 'mine'];
-
-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
-}
 
 function labelize(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'unknown'; }
 function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
@@ -52,10 +48,9 @@ function categoryTone(category: SupportTicketCategory | 'all') {
 
 export default function AdminSupportPage() {
   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
-  const [email, setEmail] = useState('admin@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [token, setToken] = useState('');
-  const [currentAdminId, setCurrentAdminId] = useState<string | null>(null);
+  const auth = useWebAuth();
+  const { token, headers } = useAdminSessionToken();
+  const currentAdminId = auth.user?.id ?? null;
   const [status, setStatus] = useState<SupportTicketStatus | 'all'>('open');
   const [category, setCategory] = useState<SupportTicketCategory | 'all'>('all');
   const [priority, setPriority] = useState<SupportTicketPriority | 'all'>('all');
@@ -68,18 +63,10 @@ export default function AdminSupportPage() {
   const [internal, setInternal] = useState(false);
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
-
   useEffect(() => {
-    const saved = window.localStorage.getItem(adminTokenKey);
-    if (saved) setToken(saved);
     const ticketId = new URLSearchParams(window.location.search).get('ticketId');
     if (ticketId) setDeepLinkTicketId(ticketId);
   }, []);
-
-  useEffect(() => {
-    if (token) window.localStorage.setItem(adminTokenKey, token);
-  }, [token]);
 
   useEffect(() => {
     if (!token || !deepLinkTicketId) return;
@@ -88,32 +75,11 @@ export default function AdminSupportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, deepLinkTicketId]);
 
-  async function login() {
-    setLoading(true);
-    setNotice(null);
-    try {
-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
-      const data = await response.json() as LoginResponse;
-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
-      setToken(data.accessToken);
-      setCurrentAdminId(data.user.id);
-      window.localStorage.setItem(adminTokenKey, data.accessToken);
-      setNotice({ tone: 'success', body: 'Admin logged in. Load support tickets or open the escalated ticket from the report queue.' });
-    } catch (error) {
-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function logout() {
-    setToken('');
-    setCurrentAdminId(null);
+  function clearLocalSession() {
+    clearAdminBrowserSession();
     setTickets([]);
     setSelectedTicket(null);
-    window.localStorage.removeItem(adminTokenKey);
-    setNotice({ tone: 'info', body: 'Admin token cleared from this browser.' });
+    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
   }
 
   function queryString() {
@@ -128,7 +94,7 @@ export default function AdminSupportPage() {
   }
 
   async function loadTickets() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -215,10 +181,8 @@ export default function AdminSupportPage() {
           <p>Handle user tickets, internal notes, report escalations, and safety follow-up without exposing internal moderation details to users.</p>
         </div>
         <div className="admin-console__login-grid">
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
-          <button type="button" onClick={() => { void login(); }} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
-          <button type="button" className="secondary" onClick={logout} disabled={!token}>Clear token</button>
+          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
         </div>
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
       </section>

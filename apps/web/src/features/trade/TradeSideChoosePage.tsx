@@ -27,6 +27,8 @@ type TradeSideChoosePageProps = {
   currentOfferId?: string;
   initialSource?: InitialSourceMode;
   postType?: TradePostType | '';
+  mode?: 'createTrade' | 'proposal';
+  tradeId?: string;
 };
 
 type TemplateSection = {
@@ -61,8 +63,23 @@ function createTradeHref(next: { postType?: TradePostType | ''; needId?: string;
   return `/trades/create${query ? `?${query}` : ''}`;
 }
 
-function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode) {
+function tradeProposalHref(tradeId: string, next: { needId?: string; offerId?: string }) {
   const params = new URLSearchParams();
+  if (next.needId) params.set('proposalNeedId', next.needId);
+  if (next.offerId) params.set('proposalOfferId', next.offerId);
+  const query = params.toString();
+  return `/trades/${tradeId}${query ? `?${query}` : ''}`;
+}
+
+function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
+  const params = new URLSearchParams();
+  if (context?.mode === 'proposal' && context.tradeId) {
+    if (next.needId) params.set('proposalNeedId', next.needId);
+    if (next.offerId) params.set('proposalOfferId', next.offerId);
+    if (source) params.set('source', source);
+    const query = params.toString();
+    return `/trades/${context.tradeId}/propose/choose-${side}${query ? `?${query}` : ''}`;
+  }
   if (next.postType) params.set('postType', next.postType);
   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
@@ -71,8 +88,14 @@ function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needI
   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
 }
 
-function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }) {
+function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
   const params = new URLSearchParams();
+  if (context?.mode === 'proposal' && context.tradeId) {
+    if (next.needId) params.set('proposalNeedId', next.needId);
+    if (next.offerId) params.set('proposalOfferId', next.offerId);
+    const query = params.toString();
+    return `/trades/${context.tradeId}/propose/choose-${side}/new${query ? `?${query}` : ''}`;
+  }
   if (next.postType) params.set('postType', next.postType);
   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
@@ -80,7 +103,12 @@ function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?:
   return `/trades/create/choose-${side}/new${query ? `?${query}` : ''}`;
 }
 
-function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '') {
+function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '', context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
+  if (context?.mode === 'proposal' && context.tradeId) {
+    return side === 'need'
+      ? tradeProposalHref(context.tradeId, { needId: itemId, offerId: '' })
+      : tradeProposalHref(context.tradeId, { needId: '', offerId: itemId });
+  }
   return side === 'need'
     ? createTradeHref({ postType, needId: itemId, offerId: currentOfferId })
     : createTradeHref({ postType, needId: currentNeedId, offerId: itemId });
@@ -201,10 +229,10 @@ function StarterTemplateOption({
   );
 }
 
-export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer' }: TradeSideChoosePageProps) {
+export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer', mode = 'createTrade', tradeId }: TradeSideChoosePageProps) {
   const router = useRouter();
   const auth = useWebAuth();
-  const { t } = useWebTranslation();
+  const { t, language } = useWebTranslation();
   const demoDataEnabled = isWebDemoDataEnabled();
   const [sourceMode, setSourceMode] = useState<InitialSourceMode>(initialSource);
   const [items, setItems] = useState<Inventory[]>(() => demoDataEnabled ? (side === 'need' ? mockNeeds : mockOffers) : []);
@@ -220,9 +248,10 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
   const lowerLabel = label.toLowerCase();
   const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
-  const backHref = createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
-  const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
-  const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
+  const context = { mode, tradeId };
+  const backHref = mode === 'proposal' && tradeId ? tradeProposalHref(tradeId, { needId: currentNeedId, offerId: currentOfferId }) : createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
+  const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, undefined, context);
+  const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, context);
 
   useEffect(() => {
     setSourceMode(initialSource);
@@ -263,7 +292,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
     async function loadTemplates() {
       setTemplateLoading(true);
       try {
-        const response = await api.inventoryTemplates.list({ kind: side, take: 100 });
+        const response = await api.inventoryTemplates.list({ kind: side, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 100 });
         if (!mounted) return;
         setTemplates(normalizeTemplateList(response));
         setTemplateError('');
@@ -277,7 +306,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
     }
     void loadTemplates();
     return () => { mounted = false; };
-  }, [side, sourceMode]);
+  }, [auth.user?.profile?.countryCode, language, side, sourceMode]);
 
   const selectableItems = useMemo(() => items.filter(isSelectable), [items]);
   const filteredItems = useMemo(() => {
@@ -311,7 +340,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
       const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
       const created = createdItemFromCloneResponse(response, side);
       if (!created) throw new Error(t('trade.sidePicker.starterSavedUnreadable', { item: label }));
-      const href = selectHref(side, created.id, currentNeedId, currentOfferId, postType);
+      const href = selectHref(side, created.id, currentNeedId, currentOfferId, postType, context);
       router.push(href);
     } catch (cloneError) {
       setTemplateError(getFriendlyApiErrorMessage(cloneError, t('trade.sidePicker.couldNotSaveStarter', { item: label })));
@@ -324,7 +353,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
   return (
     <MobilePage className="trade-side-choose-page">
       <PageIntro
-        eyebrow={t('trade.create.title')}
+        eyebrow={mode === 'proposal' ? t('trade.proposals.askToTrade') : t('trade.create.title')}
         title={showSourceChoice ? t('trade.sidePicker.chooseSourceTitle', { item: lowerLabel }) : sourceMode === 'starter' ? t('trade.sidePicker.chooseStarterTitle', { item: lowerLabel }) : t('trade.sidePicker.chooseMineTitle', { items: pluralLabel })}
         body={showSourceChoice
           ? t('trade.sidePicker.chooseSourceBody', { items: pluralLabel, item: lowerLabel })
@@ -344,7 +373,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
           <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
           <h3>{t('trade.create.signInChoose', { items: pluralLabel })}</h3>
           <p>{t('trade.create.signInChooseBody')}</p>
-          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined))}`} className="button">{t('auth.actions.signIn')}</Link>
+          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined, context))}`} className="button">{t('auth.actions.signIn')}</Link>
         </section>
       ) : null}
 
@@ -355,12 +384,12 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
             <span className="semantic-badge instruction">{t('trade.create.stepOneOfTwo')}</span>
           </div>
           <div className="trade-side-source-grid">
-            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
+            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine', context)} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
               <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={22} decorative /></span>
               <strong>{t('trade.sidePicker.useMine')}</strong>
               <small>{t('trade.sidePicker.useMineBody', { items: pluralLabel })}</small>
             </Link>
-            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
+            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter', context)} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
               <span><WebIcon name="trade" size={22} decorative /></span>
               <strong>{t('trade.sidePicker.useStarter')}</strong>
               <small>{t('trade.sidePicker.useStarterBody')}</small>
@@ -399,7 +428,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
                   item={item}
                   side={side}
                   active={item.id === selectedId}
-                  href={selectHref(side, item.id, currentNeedId, currentOfferId, postType)}
+                  href={selectHref(side, item.id, currentNeedId, currentOfferId, postType, context)}
                 />
               ))}
             </div>
@@ -409,7 +438,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
               <span>{query.trim() ? t('trade.sidePicker.noMatchesBody') : t('trade.sidePicker.noSavedBody', { item: lowerLabel })}</span>
               <div className="trade-side-empty-actions">
                 <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> {t('common.actions.create')} {label}</Link>
-                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="button secondary">{t('trade.sidePicker.useStarter')}</Link>
+                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter', context)} className="button secondary">{t('trade.sidePicker.useStarter')}</Link>
               </div>
             </div>
           )}
@@ -476,7 +505,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
               <span>{query.trim() ? t('inventory.empty.searchOrFilterBody') : t('inventory.empty.starterSeedBody', { items: pluralLabel })}</span>
               <div className="trade-side-empty-actions">
                 <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> {t('common.actions.create')} {label}</Link>
-                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="button secondary">{t('trade.sidePicker.useMine')}</Link>
+                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine', context)} className="button secondary">{t('trade.sidePicker.useMine')}</Link>
               </div>
             </div>
           )}

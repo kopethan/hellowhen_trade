@@ -16,6 +16,7 @@ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import type { NeedItem } from './types';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import { useAuth } from '../../providers/AuthProvider';
 
 type ApiResponse = { needs: NeedItem[] };
 type TemplatesResponse = { templates: InventoryTemplateDto[] };
@@ -24,7 +25,8 @@ type SourceTab = 'mine' | 'starter';
 
 export function MyNeedsScreen() {
   const theme = useThemeTokens();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const auth = useAuth();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
   const [items, setItems] = useState<NeedItem[]>([]);
@@ -55,7 +57,7 @@ export function MyNeedsScreen() {
     setTemplateLoading(true);
     setTemplateError(null);
     try {
-      const result = await api.inventoryTemplates.list({ kind: 'need', take: 100 }) as TemplatesResponse;
+      const result = await api.inventoryTemplates.list({ kind: 'need', language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 100 }) as TemplatesResponse;
       setTemplates(Array.isArray(result.templates) ? result.templates : []);
     } catch (caughtError) {
       setTemplates([]);
@@ -63,7 +65,7 @@ export function MyNeedsScreen() {
     } finally {
       setTemplateLoading(false);
     }
-  }, [t]);
+  }, [auth.user?.profile?.countryCode, language, t]);
 
   useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); }, [loadItems, loadTemplates]));
 

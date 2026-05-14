@@ -17,10 +17,11 @@ type AuthContextValue = {
   user: AuthUser | null;
   hydrated: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<TwoFactorRequired | void>;
   register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; countryCode: string; preferredCurrency: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
   resetPassword: (token: string, password: string, confirmPassword: string) => Promise<ResetPasswordResponse>;
+  completeTwoFactorLogin: (input: { challengeToken: string; code: string }) => Promise<void>;
   reauthenticate: (input: { password?: string; code?: string }) => Promise<void>;
   updateLocalProfile: (profile: AuthProfilePatch) => void;
   logout: () => Promise<void>;
@@ -134,8 +135,9 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: Boolean(user),
     async login(email, password) {
       const result = await api.auth.login({ email, password });
-      if (isTwoFactorRequired(result)) throw new Error(result.message || 'Two-step verification is required. Finish login from a client with 2FA enabled.');
+      if (isTwoFactorRequired(result)) return result;
       await applyAuthResult(result as AuthMeResponse);
+      return undefined;
     },
     async register(input) {
       const result = await api.auth.register(input);
@@ -146,6 +148,10 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
     },
     resetPassword(token, password, confirmPassword) {
       return api.auth.resetPassword({ token, password, confirmPassword });
+    },
+    async completeTwoFactorLogin(input) {
+      const result = await api.auth.loginTwoFactor(input);
+      await applyAuthResult(result as AuthMeResponse);
     },
     async reauthenticate(input) {
       await api.auth.reauthenticate(input);

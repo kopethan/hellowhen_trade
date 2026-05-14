@@ -34,7 +34,7 @@ import {
 
 type InventoryCreateRedirect = {
   pathname: string;
-  selectedParam: 'needId' | 'offerId';
+  selectedParam: 'needId' | 'offerId' | 'proposalNeedId' | 'proposalOfferId';
   preservedParams?: Record<string, string | undefined>;
 };
 

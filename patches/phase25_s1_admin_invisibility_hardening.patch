@@ -1,0 +1,1407 @@
+diff --git a/.env.example b/.env.example
+index 05bd3bd..c3e55d7 100644
+--- a/.env.example
++++ b/.env.example
+@@ -70,7 +70,7 @@ PAYOUT_PLATFORM_FEE_RATE_BPS=1000
+ # Seed/admin setup. Override before running npm run prisma:seed outside local demos.
+ SEED_DEMO_PASSWORD=password123
+ SEED_ADMIN_EMAIL=admin@hellowhen.app
+-SEED_ADMIN_PASSWORD=password123
++SEED_ADMIN_PASSWORD=change-me-admin-password
+ SEED_ADMIN_DISPLAY_NAME=Admin Reviewer
+ SEED_ADMIN_HANDLE=admin
+ 
+diff --git a/apps/api/prisma/seed.ts b/apps/api/prisma/seed.ts
+index 57bbf7b..07fd909 100644
+--- a/apps/api/prisma/seed.ts
++++ b/apps/api/prisma/seed.ts
+@@ -6,6 +6,9 @@ const prisma = new PrismaClient();
+ const demoPassword = process.env.SEED_DEMO_PASSWORD?.trim() || 'password123';
+ const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim() || 'admin@hellowhen.app';
+ const adminPassword = process.env.SEED_ADMIN_PASSWORD?.trim() || demoPassword;
++if (process.env.NODE_ENV === 'production' && adminPassword === demoPassword) {
++  throw new Error('Set a unique SEED_ADMIN_PASSWORD before seeding production admin users.');
++}
+ const adminDisplayName = process.env.SEED_ADMIN_DISPLAY_NAME?.trim() || 'Admin Reviewer';
+ const adminHandle = process.env.SEED_ADMIN_HANDLE?.trim() || 'admin';
+ const passwordHashCache = new Map<string, Promise<string>>();
+@@ -895,7 +898,7 @@ async function main() {
+   console.log('Seeded beta-safe demo accounts, starter Need/Offer templates, expanded inventory, stress-test trades, proposal flow, and support ticket flow.');
+   console.log(`Owner:  demo@hellowhen.app / ${demoPassword}`);
+   console.log(`Helper: helper@hellowhen.app / ${demoPassword}`);
+-  console.log(`Admin:  ${adminEmail} / ${adminPassword}`);
++  console.log(`Admin:  ${adminEmail} / [hidden]`);
+   if (adminPassword === 'password123') {
+     console.log('Admin setup warning: SEED_ADMIN_PASSWORD is using the default local demo password. Change it outside local development.');
+   }
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index cc362f2..1ee7ff2 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -92,11 +92,17 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
+   });
+ }
+ 
++adminRoutes.use((_req, res, next) => {
++  res.setHeader('Cache-Control', 'no-store');
++  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
++  return next();
++});
++
+ adminRoutes.use(requireAuth);
+ 
+ adminRoutes.use(asyncRoute(async (req, res, next) => {
+   const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { role: true, twoFactorEnabled: true } });
+-  if (user?.role !== 'admin') return res.status(403).json({ error: 'admin_required', message: 'Admin access is required.' });
++  if (user?.role !== 'admin') return res.status(404).json({ error: 'not_found' });
+   if (env.adminRequireTwoFactor && !user.twoFactorEnabled) return res.status(403).json({ error: 'admin_two_factor_required', message: 'Admin accounts must enable authenticator app two-step verification before using admin tools.' });
+   return next();
+ }));
+diff --git a/apps/web/next.config.mjs b/apps/web/next.config.mjs
+index 0cf8e82..6455221 100644
+--- a/apps/web/next.config.mjs
++++ b/apps/web/next.config.mjs
+@@ -7,6 +7,17 @@ const nextConfig = {
+   turbopack: {
+     root: repoRoot,
+   },
++  async headers() {
++    return [
++      {
++        source: '/admin/:path*',
++        headers: [
++          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive' },
++          { key: 'Referrer-Policy', value: 'no-referrer' },
++        ],
++      },
++    ];
++  },
+   transpilePackages: [
+     '@hellowhen/api-client',
+     '@hellowhen/contracts',
+diff --git a/apps/web/src/app/admin/content/page.tsx b/apps/web/src/app/admin/content/page.tsx
+index 99aadc2..a56457a 100644
+--- a/apps/web/src/app/admin/content/page.tsx
++++ b/apps/web/src/app/admin/content/page.tsx
+@@ -1,25 +1,20 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useEffect, useMemo, useState } from 'react';
++import { useMemo, useState } from 'react';
+ import type { AdminContentActionResponse, AdminContentItemDto, AdminContentResponse } from '@hellowhen/contracts';
+ import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
+ type ContentTypeFilter = 'all' | 'trade' | 'need' | 'offer';
+ type ContentAction = 'hide' | 'restore' | 'close' | 'mark_reviewed';
+ 
+ type Notice = { tone: 'info' | 'warning' | 'danger' | 'success'; body: string };
+ 
+-const adminTokenKey = 'hellowhen:admin_access_token';
+ const contentTypes: ContentTypeFilter[] = ['all', 'trade', 'need', 'offer'];
+ const statusOptions = ['all', 'active', 'draft', 'closed', 'expired', 'funded', 'in_progress', 'submitted', 'disputed', 'completed', 'cancelled', 'fulfilled', 'accepted'];
+ 
+-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+-}
+-
+ function labelize(value?: string | null) {
+   return value ? value.replaceAll('_', ' ') : 'unknown';
+ }
+@@ -63,9 +58,7 @@ function actionDescription(action: ContentAction, item: AdminContentItemDto) {
+ 
+ export default function AdminContentModerationPage() {
+   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const { token, headers } = useAdminSessionToken();
+   const [type, setType] = useState<ContentTypeFilter>('all');
+   const [status, setStatus] = useState('active');
+   const [query, setQuery] = useState('');
+@@ -75,33 +68,11 @@ export default function AdminContentModerationPage() {
+   const [note, setNote] = useState('');
+   const [notice, setNotice] = useState<Notice | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+-  useEffect(() => {
+-    const saved = window.localStorage.getItem(adminTokenKey);
+-    if (saved) setToken(saved);
+-  }, []);
+-
+-  useEffect(() => {
+-    if (token) window.localStorage.setItem(adminTokenKey, token);
+-  }, [token]);
+-
+-  async function login() {
+-    setLoading(true);
+-    setNotice(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
+-      const data = await response.json() as LoginResponse;
+-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
+-      setToken(data.accessToken);
+-      window.localStorage.setItem(adminTokenKey, data.accessToken);
+-      setNotice({ tone: 'success', body: 'Admin logged in. Load content to moderate trades, needs, and offers.' });
+-    } catch (error) {
+-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
+-    } finally {
+-      setLoading(false);
+-    }
++  function clearLocalSession() {
++    clearAdminBrowserSession();
++    setItems([]);
++    setSelectedItem(null);
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
+   }
+ 
+   function queryString() {
+@@ -115,7 +86,7 @@ export default function AdminContentModerationPage() {
+   }
+ 
+   async function loadContent() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -175,10 +146,8 @@ export default function AdminContentModerationPage() {
+           <p>Hide, restore, close, or mark reviewed content without deleting user data. Every action writes to the admin audit log.</p>
+         </div>
+         <div className="admin-console__login-grid">
+-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
+-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
+-          <button type="button" onClick={() => { void login(); }} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
+-          <button type="button" className="secondary" onClick={() => { setToken(''); window.localStorage.removeItem(adminTokenKey); }} disabled={!token}>Clear token</button>
++          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
+         </div>
+         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+       </section>
+diff --git a/apps/web/src/app/admin/credits/page.tsx b/apps/web/src/app/admin/credits/page.tsx
+index 588d9d9..df52269 100644
+--- a/apps/web/src/app/admin/credits/page.tsx
++++ b/apps/web/src/app/admin/credits/page.tsx
+@@ -2,13 +2,13 @@
+ 
+ import { useMemo, useState } from 'react';
+ import type { CreditPurchaseDto, CreditPurchaseStatus } from '@hellowhen/contracts';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
+ import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
+ 
+-type LoginResponse = { accessToken: string };
+ type AdminPurchaseItem = CreditPurchaseDto & { user?: { email?: string; profile?: { displayName?: string | null } | null } };
+ type PurchasesResponse = { purchases: AdminPurchaseItem[] };
+ 
+-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+ const statuses: Array<CreditPurchaseStatus | 'all'> = ['all', 'pending', 'paid', 'failed', 'expired'];
+ 
+ function statusTone(status: CreditPurchaseStatus | 'all') {
+@@ -24,29 +24,15 @@ function money(amountCents: number, currency: string) {
+ }
+ 
+ export default function AdminCreditsPage() {
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
+   const [status, setStatus] = useState<CreditPurchaseStatus | 'all'>('all');
+   const [items, setItems] = useState<AdminPurchaseItem[]>([]);
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+-  async function login() {
+-    setLoading(true); setMessage(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed');
+-      const data = await response.json() as LoginResponse;
+-      setToken(data.accessToken);
+-      setMessage('Admin logged in. Load credit purchases to review Stripe test sessions.');
+-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
+-    finally { setLoading(false); }
+-  }
+ 
+   async function loadPurchases() {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     setLoading(true); setMessage(null);
+     try {
+       const query = status === 'all' ? '' : `?status=${status}`;
+@@ -64,13 +50,7 @@ export default function AdminCreditsPage() {
+         <span className="semantic-badge credits">Stripe Test Credits</span>
+         <h1>Credit purchases</h1>
+         <p className="notice-box info">Debug view for Stripe test-mode credit purchases. Paid purchases should create credit_purchase ledger entries and increase non-withdrawable purchased credits.</p>
+-        <div className="form-row">
+-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
+-          </div>
+-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
+-        </div>
++        <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+         <div className="form-row" style={{ marginTop: 12 }}>
+           <select value={status} onChange={(event) => setStatus(event.target.value as CreditPurchaseStatus | 'all')}>
+             {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+diff --git a/apps/web/src/app/admin/disputes/page.tsx b/apps/web/src/app/admin/disputes/page.tsx
+index 3203e23..ff068ff 100644
+--- a/apps/web/src/app/admin/disputes/page.tsx
++++ b/apps/web/src/app/admin/disputes/page.tsx
+@@ -1,49 +1,29 @@
+ 'use client';
+ 
+-import { useState } from 'react';
++import { useMemo, useState } from 'react';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
+ type DisputeTrade = { id: string; title: string; status: string; amountCents?: number; currency?: string; ownerId: string; providerId?: string | null; disputedAt?: string | null; disputedById?: string | null; disputeTicketId?: string | null; payment?: { buyerId: string; sellerId?: string | null; amountCents?: number; currency?: string; status: string } | null; owner?: { email?: string; profile?: { displayName?: string | null } | null }; provider?: { email?: string; profile?: { displayName?: string | null } | null } | null };
+ type SupportTicket = { id: string; relatedTradeId?: string | null; subject: string; status: string; priority: string; category: string; updatedAt: string; user?: { email?: string; profile?: { displayName?: string | null } | null } | null };
+ type DisputesResponse = { trades: DisputeTrade[]; supportTickets: SupportTicket[] };
+ 
+-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+-
+-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+-}
+ 
+ function personLabel(user?: { email?: string; profile?: { displayName?: string | null } | null } | null) {
+   return user?.profile?.displayName || user?.email || 'Unknown member';
+ }
+ 
+ export default function AdminDisputesPage() {
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
+   const [trades, setTrades] = useState<DisputeTrade[]>([]);
+   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+   const [note, setNote] = useState('');
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+-
+-  async function login() {
+-    setLoading(true); setMessage(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed');
+-      const data = await response.json() as LoginResponse;
+-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification.');
+-      setToken(data.accessToken);
+-      setMessage('Admin logged in. Load disputed trades to review open issues.');
+-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
+-    finally { setLoading(false); }
+-  }
+-
+   async function loadDisputes() {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     setLoading(true); setMessage(null);
+     try {
+       const response = await fetch(`${apiBase}/admin/trades/disputes`, { headers });
+@@ -80,9 +60,7 @@ export default function AdminDisputesPage() {
+           <p>Review reported trades, linked support tickets, and admin notes.</p>
+         </div>
+         <div className="admin-console__login-grid">
+-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
+-          <button type="button" onClick={login} disabled={loading}>Log in</button>
++          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+           <button type="button" onClick={loadDisputes} disabled={loading || !token}>Load disputes</button>
+         </div>
+         {message ? <p className="notice-box info">{message}</p> : null}
+diff --git a/apps/web/src/app/admin/layout.tsx b/apps/web/src/app/admin/layout.tsx
+new file mode 100644
+index 0000000..fd3b919
+--- /dev/null
++++ b/apps/web/src/app/admin/layout.tsx
+@@ -0,0 +1,16 @@
++import type { Metadata } from 'next';
++import type { ReactNode } from 'react';
++import { AdminAccessGate } from '../../features/admin/AdminAccessGate';
++
++export const metadata: Metadata = {
++  title: 'Page not found',
++  robots: {
++    index: false,
++    follow: false,
++    googleBot: { index: false, follow: false },
++  },
++};
++
++export default function AdminLayout({ children }: { children: ReactNode }) {
++  return <AdminAccessGate>{children}</AdminAccessGate>;
++}
+diff --git a/apps/web/src/app/admin/media/page.tsx b/apps/web/src/app/admin/media/page.tsx
+index da53a77..2dc976c 100644
+--- a/apps/web/src/app/admin/media/page.tsx
++++ b/apps/web/src/app/admin/media/page.tsx
+@@ -2,12 +2,12 @@
+ 
+ import { useMemo, useState } from 'react';
+ import type { MediaAssetDto, MediaAssetStatus } from '@hellowhen/contracts';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
+ 
+-type LoginResponse = { accessToken: string };
+ type AdminMediaItem = MediaAssetDto & { owner?: { email?: string; profile?: { displayName?: string | null } | null } };
+ type MediaResponse = { media: AdminMediaItem[] };
+ 
+-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+ const statuses: Array<MediaAssetStatus | 'all'> = ['all', 'active', 'flagged', 'removed', 'pending_review'];
+ function statusTone(status: MediaAssetStatus | 'all') {
+   if (status === 'active') return 'success';
+@@ -17,7 +17,7 @@ function statusTone(status: MediaAssetStatus | 'all') {
+   return 'info';
+ }
+ 
+-function imageUrl(url: string) {
++function imageUrl(url: string, apiBase: string) {
+   return url.startsWith('http') ? url : `${apiBase.replace(/\/$/, '')}${url.startsWith('/') ? url : `/${url}`}`;
+ }
+ 
+@@ -27,29 +27,15 @@ function entityLabel(item: AdminMediaItem) {
+ }
+ 
+ export default function AdminMediaPage() {
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
+   const [status, setStatus] = useState<MediaAssetStatus | 'all'>('active');
+   const [items, setItems] = useState<AdminMediaItem[]>([]);
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+-  async function login() {
+-    setLoading(true); setMessage(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed');
+-      const data = await response.json() as LoginResponse;
+-      setToken(data.accessToken);
+-      setMessage('Admin logged in. Load media to moderate uploads.');
+-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
+-    finally { setLoading(false); }
+-  }
+ 
+   async function loadMedia() {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     setLoading(true); setMessage(null);
+     try {
+       const query = status === 'all' ? '' : `?status=${status}`;
+@@ -83,13 +69,7 @@ export default function AdminMediaPage() {
+         <span className="semantic-badge admin">Admin moderation</span>
+         <h1>Uploaded images</h1>
+         <p className="notice-box admin">Basic dev admin space for moderating uploaded need, offer, profile, and support images. First-beta uploads are active immediately; use flag or remove only after reports or a manual check.</p>
+-        <div className="form-row">
+-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
+-          </div>
+-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
+-        </div>
++        <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+         <div className="form-row" style={{ marginTop: 12 }}>
+           <select value={status} onChange={(event) => setStatus(event.target.value as MediaAssetStatus | 'all')}>
+             {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+@@ -101,7 +81,7 @@ export default function AdminMediaPage() {
+       <div className="media-grid">
+         {items.map((item) => (
+           <article className="card media-card" key={item.id}>
+-            <img src={imageUrl(item.url)} alt={item.filename} />
++            <img src={imageUrl(item.url, apiBase)} alt={item.filename} />
+             <div className="status-row"><span className={`semantic-badge ${statusTone(item.status)}`}>{item.status.replace('_', ' ')}</span><span className="semantic-badge admin">{item.entityType ?? 'unattached'}</span></div>
+             <h2>{item.filename}</h2>
+             <p className="meta">Owner: {item.owner?.profile?.displayName ?? item.owner?.email ?? item.ownerId}</p>
+diff --git a/apps/web/src/app/admin/money/page.tsx b/apps/web/src/app/admin/money/page.tsx
+index 970913e..9e084cb 100644
+--- a/apps/web/src/app/admin/money/page.tsx
++++ b/apps/web/src/app/admin/money/page.tsx
+@@ -1,9 +1,10 @@
+ 'use client';
+ 
+ import { useMemo, useState } from 'react';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+-type LoginResponse = { accessToken: string };
+ type ProviderSummary = { provider?: string; environment?: string; configured?: boolean; sandboxOnly?: boolean; capabilities?: string[] };
+ type ProviderAccount = {
+   id?: string;
+@@ -66,8 +67,6 @@ type EventsResponse = { provider: ProviderSummary; events: ProviderEvent[] };
+ type BalancesResponse = { provider: ProviderSummary; balances: ProviderBalance[] };
+ type TransactionsResponse = { provider: ProviderSummary; transactions: ProviderTransaction[] };
+ 
+-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+-
+ function statusTone(status?: string) {
+   if (status === 'active' || status === 'enabled' || status === 'connected' || status === 'processed' || status === 'succeeded' || status === 'settled' || status === 'recorded') return 'success';
+   if (status === 'pending' || status === 'onboarding' || status === 'received' || status === 'skipped') return 'warning';
+@@ -92,9 +91,8 @@ function formatMoney(cents: number, currency: string) {
+ }
+ 
+ export default function AdminMoneyProviderPage() {
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
+   const [provider, setProvider] = useState<ProviderSummary | null>(null);
+   const [accounts, setAccounts] = useState<ProviderAccount[]>([]);
+   const [events, setEvents] = useState<ProviderEvent[]>([]);
+@@ -102,22 +100,8 @@ export default function AdminMoneyProviderPage() {
+   const [transactions, setTransactions] = useState<ProviderTransaction[]>([]);
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+-  async function login() {
+-    setLoading(true); setMessage(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed');
+-      const data = await response.json() as LoginResponse;
+-      setToken(data.accessToken);
+-      setMessage('Admin logged in. Load provider accounts and events to inspect sandbox money setup.');
+-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Login failed'); }
+-    finally { setLoading(false); }
+-  }
+-
+   async function loadMoneyProviderData() {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     setLoading(true); setMessage(null);
+     try {
+       const [accountsResponse, eventsResponse, balancesResponse, transactionsResponse] = await Promise.all([
+@@ -143,7 +127,7 @@ export default function AdminMoneyProviderPage() {
+ 
+ 
+   async function syncBalances(accountId?: string) {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     if (!accountId) { setMessage('Only provider-neutral accounts can sync balances. Legacy Stripe rows are read-only here.'); return; }
+     setLoading(true); setMessage(null);
+     try {
+@@ -164,13 +148,7 @@ export default function AdminMoneyProviderPage() {
+         <span className="semantic-badge admin">Money provider admin</span>
+         <h1>Provider accounts</h1>
+         <p className="notice-box warning">Phase 21.5 adds sandbox payout transfer records on top of connected accounts, wallet balances, and trade-money mirroring. Keep first-beta money features hidden and disabled unless you are testing Airwallex demo credentials locally.</p>
+-        <div className="form-row">
+-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
+-          </div>
+-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
+-        </div>
++        <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+         <div className="form-row" style={{ marginTop: 12 }}>
+           <button className="secondary" onClick={() => { void loadMoneyProviderData(); }} disabled={loading}>Load provider data</button>
+         </div>
+diff --git a/apps/web/src/app/admin/page.tsx b/apps/web/src/app/admin/page.tsx
+index 15e3e6c..13ebcc0 100644
+--- a/apps/web/src/app/admin/page.tsx
++++ b/apps/web/src/app/admin/page.tsx
+@@ -1,16 +1,14 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useEffect, useMemo, useState } from 'react';
++import { useMemo, useState } from 'react';
+ import type { AdminLaunchChecklistResponse, AdminModerationSmokeResponse, AdminOverviewResponse, AdminRuntimeQaResponse, AdminUserSummaryDto, AdminUsersResponse, UserTrustTier } from '@hellowhen/contracts';
+ import { getWebApiBaseUrl } from '../../lib/api';
+ import { formatWebDateTime, formatWebMoney } from '../../lib/webFormat';
+-
+-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../features/admin/adminSession';
+ 
+ type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
+ 
+-const adminTokenKey = 'hellowhen:admin_access_token';
+ const trustTiers: Array<UserTrustTier | 'all'> = ['all', 'new', 'email_verified', 'stripe_verified', 'trusted', 'restricted'];
+ const roleFilters = ['all', 'user', 'admin'] as const;
+ 
+@@ -31,10 +29,6 @@ const adminSections = [
+   { href: '/admin/credits', title: 'Credit purchases', body: 'Legacy/demo credit purchase history while money features remain gated.', tone: 'admin' },
+ ];
+ 
+-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+-}
+-
+ function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
+   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
+ }
+@@ -70,9 +64,7 @@ function userCounts(user: AdminUserSummaryDto) {
+ 
+ export default function AdminHomePage() {
+   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const { token, headers } = useAdminSessionToken();
+   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
+   const [moderationSmoke, setModerationSmoke] = useState<AdminModerationSmokeResponse | null>(null);
+   const [launchChecklist, setLaunchChecklist] = useState<AdminLaunchChecklistResponse | null>(null);
+@@ -86,49 +78,19 @@ export default function AdminHomePage() {
+   const [note, setNote] = useState('');
+   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+-  useEffect(() => {
+-    const saved = window.localStorage.getItem(adminTokenKey);
+-    if (saved) setToken(saved);
+-  }, []);
+-
+-  useEffect(() => {
+-    if (!token) return;
+-    window.localStorage.setItem(adminTokenKey, token);
+-  }, [token]);
+-
+-  async function login() {
+-    setLoading(true);
+-    setNotice(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
+-      const data = await response.json() as LoginResponse;
+-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
+-      setToken(data.accessToken);
+-      setNotice({ tone: 'success', body: 'Admin logged in. Load the launch dashboard to review users, reports, and safety queues.' });
+-    } catch (error) {
+-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
+-    } finally {
+-      setLoading(false);
+-    }
+-  }
+-
+-  function logout() {
+-    setToken('');
++  function clearLocalSession() {
++    clearAdminBrowserSession();
+     setOverview(null);
+     setModerationSmoke(null);
+     setLaunchChecklist(null);
+     setRuntimeQa(null);
+     setUsers([]);
+     setSelectedUser(null);
+-    window.localStorage.removeItem(adminTokenKey);
+-    setNotice({ tone: 'info', body: 'Admin token cleared from this browser.' });
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
+   }
+ 
+   async function loadOverview() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -144,7 +106,7 @@ export default function AdminHomePage() {
+   }
+ 
+   async function loadModerationSmoke() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -160,7 +122,7 @@ export default function AdminHomePage() {
+   }
+ 
+   async function loadLaunchChecklist() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -177,7 +139,7 @@ export default function AdminHomePage() {
+ 
+ 
+   async function loadRuntimeQa() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -193,7 +155,7 @@ export default function AdminHomePage() {
+   }
+ 
+   async function loadUsers() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -296,10 +258,8 @@ export default function AdminHomePage() {
+           <p>One safe entry point for launch health, runtime QA, user limits, support queues, content moderation, and audit history. Keep money tools gated until the launch mode explicitly enables them.</p>
+         </div>
+         <div className="admin-console__login-grid">
+-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
+-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
+-          <button type="button" onClick={login} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
+-          <button type="button" className="secondary" onClick={logout} disabled={!token}>Clear token</button>
++          <p className="notice-box info">Internal tools use your signed-in admin app session. No standalone admin login is shown on public pages.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
+         </div>
+         <div className="cta-row">
+           <button type="button" onClick={() => { void loadOverview(); void loadUsers(); void loadModerationSmoke(); void loadLaunchChecklist(); void loadRuntimeQa(); }} disabled={loading || !token}>Load dashboard</button>
+diff --git a/apps/web/src/app/admin/payouts/page.tsx b/apps/web/src/app/admin/payouts/page.tsx
+index 2a27285..a7e5940 100644
+--- a/apps/web/src/app/admin/payouts/page.tsx
++++ b/apps/web/src/app/admin/payouts/page.tsx
+@@ -2,9 +2,10 @@
+ 
+ import { useMemo, useState } from 'react';
+ import type { AdminPayoutAction, AdminPayoutStatusFilter, PayoutRequestDto, PayoutRequestStatus, UserTrustTier } from '@hellowhen/contracts';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, useAdminSessionToken } from '../../../features/admin/adminSession';
+ import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
+ 
+-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
+ type AdminUser = {
+   id: string;
+   email: string;
+@@ -76,7 +77,6 @@ type PayoutsResponse = { payouts: AdminPayout[]; summary?: { byStatus?: Array<{
+ type DetailResponse = { payout: AdminPayout; ledgerEntries: LedgerEntry[]; supportTickets: SupportTicket[]; stripeEvents: StripeEvent[]; providerEvents?: ProviderEvent[]; providerTransactions?: ProviderTransaction[]; userLimits?: Limits };
+ type MoneySafetyAdmin = { config: { launchMode: string; moneyProvider?: string; moneyProviderEnvironment?: string; moneyProviderSandboxOnly?: boolean; policyVersion: string; realMoneyEnabled: boolean; providerTransfersEnabled?: boolean; stripeTransfersEnabled: boolean; requiresManualPayoutReview: boolean; productionSwitchEnabled: boolean; privateBetaAllowlistCount: number }; metrics?: { acknowledgementCount?: number; walletCount?: number; walletAggregate?: { _sum?: { availableBalanceCents?: number | null; heldBalanceCents?: number | null; pendingPayoutCents?: number | null } }; payoutsByStatus?: Array<{ status: string; _count: { _all: number } }> } };
+ 
+-const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+ const statuses: AdminPayoutStatusFilter[] = ['all', 'requested', 'approved', 'paid', 'rejected', 'cancelled', 'draft'];
+ const trustTiers: UserTrustTier[] = ['new', 'email_verified', 'stripe_verified', 'trusted', 'restricted'];
+ const actions: Array<{ action: AdminPayoutAction; label: string; tone: string; hint: string }> = [
+@@ -88,10 +88,6 @@ const actions: Array<{ action: AdminPayoutAction; label: string; tone: string; h
+   { action: 'cancel', label: 'Cancel + return balance', tone: 'admin', hint: 'Cancel and return gross payout-eligible earnings to the wallet.' },
+ ];
+ 
+-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+-}
+-
+ function statusTone(status: string) {
+   if (status === 'paid') return 'success';
+   if (status === 'approved') return 'info';
+@@ -109,9 +105,8 @@ function gross(payout: AdminPayout) {
+ }
+ 
+ export default function AdminPayoutsPage() {
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
+   const [status, setStatus] = useState<AdminPayoutStatusFilter>('requested');
+   const [items, setItems] = useState<AdminPayout[]>([]);
+   const [summary, setSummary] = useState<PayoutsResponse['summary'] | null>(null);
+@@ -124,29 +119,11 @@ export default function AdminPayoutsPage() {
+   const [trustNote, setTrustNote] = useState('');
+   const [message, setMessage] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+   const selectedPayout = detail?.payout ?? items.find((item) => item.id === selectedId) ?? null;
+ 
+ 
+-  async function login() {
+-    setLoading(true);
+-    setMessage(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed');
+-      const data = await response.json() as LoginResponse;
+-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Log in through the app first or use a dev admin without 2FA for local testing.');
+-      setToken(data.accessToken);
+-      setMessage('Admin logged in. Load payout requests to review money movement.');
+-    } catch (error) {
+-      setMessage(error instanceof Error ? error.message : 'Login failed');
+-    } finally {
+-      setLoading(false);
+-    }
+-  }
+-
+   async function loadPayouts(nextStatus = status) {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     setLoading(true);
+     setMessage(null);
+     try {
+@@ -166,7 +143,7 @@ export default function AdminPayoutsPage() {
+   }
+ 
+   async function loadDetail(payoutId: string) {
+-    if (!token) { setMessage('Log in as admin first.'); return; }
++    if (!token) { setMessage(adminSessionRequiredMessage()); return; }
+     setSelectedId(payoutId);
+     setLoading(true);
+     setMessage(null);
+@@ -251,13 +228,7 @@ export default function AdminPayoutsPage() {
+           <h1>Payout console</h1>
+           <p className="notice-box admin">Review payout requests, provider sandbox status, related support tickets, ledger entries, and admin audit notes before real-money launch.</p>
+         </div>
+-        <div className="form-row">
+-          <div className="admin-console__login-grid">
+-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
+-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" />
+-          </div>
+-          <button onClick={() => { void login(); }} disabled={loading}>{token ? 'Logged in' : 'Login'}</button>
+-        </div>
++        <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+         <div className="form-row">
+           <select value={status} onChange={(event) => { const next = event.target.value as AdminPayoutStatusFilter; setStatus(next); void loadPayouts(next); }}>
+             {statuses.map((item) => <option key={item} value={item}>{item}</option>)}
+diff --git a/apps/web/src/app/admin/reports/page.tsx b/apps/web/src/app/admin/reports/page.tsx
+index 2bf5402..fd98735 100644
+--- a/apps/web/src/app/admin/reports/page.tsx
++++ b/apps/web/src/app/admin/reports/page.tsx
+@@ -1,27 +1,22 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useEffect, useMemo, useState } from 'react';
++import { useMemo, useState } from 'react';
+ import type { AdminReportActionRequest, AdminReportsResponse, ReportDto, ReportReason, ReportStatus, ReportTargetType } from '@hellowhen/contracts';
+ import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
+ type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
+ type StatusFilter = ReportStatus | 'all';
+ type TargetFilter = ReportTargetType | 'all';
+ type ReasonFilter = ReportReason | 'all';
+ type ReportAction = AdminReportActionRequest['action'];
+ 
+-const adminTokenKey = 'hellowhen:admin_access_token';
+ const statusFilters: StatusFilter[] = ['pending', 'reviewing', 'resolved', 'dismissed', 'all'];
+ const targetFilters: TargetFilter[] = ['all', 'user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'media'];
+ const reasonFilters: ReasonFilter[] = ['all', 'spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other'];
+ 
+-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+-}
+-
+ function labelize(value?: string | null) {
+   return value ? value.replaceAll('_', ' ') : 'unknown';
+ }
+@@ -48,9 +43,7 @@ function actionHelp(action: ReportAction) {
+ 
+ export default function AdminReportsPage() {
+   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
++  const { token, headers } = useAdminSessionToken();
+   const [status, setStatus] = useState<StatusFilter>('pending');
+   const [targetType, setTargetType] = useState<TargetFilter>('all');
+   const [reason, setReason] = useState<ReasonFilter>('all');
+@@ -60,33 +53,11 @@ export default function AdminReportsPage() {
+   const [note, setNote] = useState('');
+   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+-  useEffect(() => {
+-    const saved = window.localStorage.getItem(adminTokenKey);
+-    if (saved) setToken(saved);
+-  }, []);
+-
+-  useEffect(() => {
+-    if (token) window.localStorage.setItem(adminTokenKey, token);
+-  }, [token]);
+-
+-  async function login() {
+-    setLoading(true);
+-    setNotice(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
+-      const data = await response.json() as LoginResponse;
+-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
+-      setToken(data.accessToken);
+-      window.localStorage.setItem(adminTokenKey, data.accessToken);
+-      setNotice({ tone: 'success', body: 'Admin logged in. Load reports to review the moderation queue.' });
+-    } catch (error) {
+-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
+-    } finally {
+-      setLoading(false);
+-    }
++  function clearLocalSession() {
++    clearAdminBrowserSession();
++    setReports([]);
++    setSelectedReport(null);
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
+   }
+ 
+   function queryString() {
+@@ -100,7 +71,7 @@ export default function AdminReportsPage() {
+   }
+ 
+   async function loadReports() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -160,10 +131,8 @@ export default function AdminReportsPage() {
+           <p>Review user-submitted reports, escalate complex cases to support, hide unsafe public content, suspend target owners, dismiss false reports, and keep every decision in the admin audit log.</p>
+         </div>
+         <div className="admin-console__login-grid">
+-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
+-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
+-          <button type="button" onClick={() => { void login(); }} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
+-          <button type="button" className="secondary" onClick={() => { setToken(''); window.localStorage.removeItem(adminTokenKey); }} disabled={!token}>Clear token</button>
++          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
+         </div>
+         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+       </section>
+diff --git a/apps/web/src/app/admin/support/page.tsx b/apps/web/src/app/admin/support/page.tsx
+index e0eb32a..648d9b0 100644
+--- a/apps/web/src/app/admin/support/page.tsx
++++ b/apps/web/src/app/admin/support/page.tsx
+@@ -2,27 +2,23 @@
+ 
+ import Link from 'next/link';
+ import { useEffect, useMemo, useState } from 'react';
+-import type { AuthResponse, SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
++import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority, SupportTicketStatus } from '@hellowhen/contracts';
+ import { getWebApiBaseUrl } from '../../../lib/api';
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
++import { useWebAuth } from '../../../providers/WebAuthProvider';
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+-type LoginResponse = AuthResponse | { requiresTwoFactor: true; challengeToken: string; message?: string };
+ type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; _count?: { messages: number } };
+ type TicketsResponse = { tickets: AdminTicketItem[] };
+ type TicketResponse = { ticket: AdminTicketItem };
+ type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
+ type AssignedFilter = 'all' | 'unassigned' | 'mine';
+ 
+-const adminTokenKey = 'hellowhen:admin_access_token';
+ const statuses: Array<SupportTicketStatus | 'all'> = ['all', 'open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
+ const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
+ const priorities: Array<SupportTicketPriority | 'all'> = ['all', 'low', 'normal', 'high', 'urgent'];
+ const assignedFilters: AssignedFilter[] = ['all', 'unassigned', 'mine'];
+ 
+-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
+-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
+-}
+-
+ function labelize(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'unknown'; }
+ function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
+   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
+@@ -52,10 +48,9 @@ function categoryTone(category: SupportTicketCategory | 'all') {
+ 
+ export default function AdminSupportPage() {
+   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
+-  const [email, setEmail] = useState('admin@hellowhen.app');
+-  const [password, setPassword] = useState('password123');
+-  const [token, setToken] = useState('');
+-  const [currentAdminId, setCurrentAdminId] = useState<string | null>(null);
++  const auth = useWebAuth();
++  const { token, headers } = useAdminSessionToken();
++  const currentAdminId = auth.user?.id ?? null;
+   const [status, setStatus] = useState<SupportTicketStatus | 'all'>('open');
+   const [category, setCategory] = useState<SupportTicketCategory | 'all'>('all');
+   const [priority, setPriority] = useState<SupportTicketPriority | 'all'>('all');
+@@ -68,19 +63,11 @@ export default function AdminSupportPage() {
+   const [internal, setInternal] = useState(false);
+   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
+   const [loading, setLoading] = useState(false);
+-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
+-
+   useEffect(() => {
+-    const saved = window.localStorage.getItem(adminTokenKey);
+-    if (saved) setToken(saved);
+     const ticketId = new URLSearchParams(window.location.search).get('ticketId');
+     if (ticketId) setDeepLinkTicketId(ticketId);
+   }, []);
+ 
+-  useEffect(() => {
+-    if (token) window.localStorage.setItem(adminTokenKey, token);
+-  }, [token]);
+-
+   useEffect(() => {
+     if (!token || !deepLinkTicketId) return;
+     void openTicket(deepLinkTicketId);
+@@ -88,32 +75,11 @@ export default function AdminSupportPage() {
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [token, deepLinkTicketId]);
+ 
+-  async function login() {
+-    setLoading(true);
+-    setNotice(null);
+-    try {
+-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
+-      const data = await response.json() as LoginResponse;
+-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
+-      setToken(data.accessToken);
+-      setCurrentAdminId(data.user.id);
+-      window.localStorage.setItem(adminTokenKey, data.accessToken);
+-      setNotice({ tone: 'success', body: 'Admin logged in. Load support tickets or open the escalated ticket from the report queue.' });
+-    } catch (error) {
+-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
+-    } finally {
+-      setLoading(false);
+-    }
+-  }
+-
+-  function logout() {
+-    setToken('');
+-    setCurrentAdminId(null);
++  function clearLocalSession() {
++    clearAdminBrowserSession();
+     setTickets([]);
+     setSelectedTicket(null);
+-    window.localStorage.removeItem(adminTokenKey);
+-    setNotice({ tone: 'info', body: 'Admin token cleared from this browser.' });
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
+   }
+ 
+   function queryString() {
+@@ -128,7 +94,7 @@ export default function AdminSupportPage() {
+   }
+ 
+   async function loadTickets() {
+-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+     try {
+@@ -215,10 +181,8 @@ export default function AdminSupportPage() {
+           <p>Handle user tickets, internal notes, report escalations, and safety follow-up without exposing internal moderation details to users.</p>
+         </div>
+         <div className="admin-console__login-grid">
+-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
+-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
+-          <button type="button" onClick={() => { void login(); }} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
+-          <button type="button" className="secondary" onClick={logout} disabled={!token}>Clear token</button>
++          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
+         </div>
+         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+       </section>
+diff --git a/apps/web/src/app/robots.ts b/apps/web/src/app/robots.ts
+new file mode 100644
+index 0000000..d5e3055
+--- /dev/null
++++ b/apps/web/src/app/robots.ts
+@@ -0,0 +1,11 @@
++import type { MetadataRoute } from 'next';
++
++export default function robots(): MetadataRoute.Robots {
++  return {
++    rules: {
++      userAgent: '*',
++      allow: '/',
++      disallow: ['/admin/', '/admin'],
++    },
++  };
++}
+diff --git a/apps/web/src/components/WebAuthPanel.tsx b/apps/web/src/components/WebAuthPanel.tsx
+index 821886a..786f616 100644
+--- a/apps/web/src/components/WebAuthPanel.tsx
++++ b/apps/web/src/components/WebAuthPanel.tsx
+@@ -9,6 +9,7 @@ import { useWebAuth } from '../providers/WebAuthProvider';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+ 
+ type AuthMode = 'login' | 'register' | 'forgot';
++type TwoFactorChallenge = { challengeToken: string; message?: string };
+ 
+ function subtitleKey(mode: AuthMode) {
+   if (mode === 'register') return 'auth.subtitles.register';
+@@ -25,6 +26,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+   const [email, setEmail] = useState('');
+   const [password, setPassword] = useState('');
+   const [confirmPassword, setConfirmPassword] = useState('');
++  const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
++  const [twoFactorCode, setTwoFactorCode] = useState('');
+   const [acceptedTerms, setAcceptedTerms] = useState(false);
+   const [countryCode, setCountryCode] = useState('FR');
+   const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
+@@ -35,10 +38,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+ 
+   const primaryLabel = useMemo(() => {
+     if (submitting) return t('common.states.working');
++    if (twoFactorChallenge) return t('auth.actions.verifyCode');
+     if (mode === 'register') return t('auth.actions.createAccount');
+     if (mode === 'forgot') return t('auth.actions.sendResetLink');
+     return t('auth.actions.login');
+-  }, [mode, submitting, t]);
++  }, [mode, submitting, t, twoFactorChallenge]);
+ 
+   useEffect(() => {
+     if (!auth.hydrated || !auth.isAuthenticated) return;
+@@ -50,10 +54,13 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+     setMode(nextMode);
+     setError(null);
+     setMessage(null);
++    setTwoFactorChallenge(null);
++    setTwoFactorCode('');
+   }
+ 
+   function validateLocalForm() {
+     if (!email.trim()) return t('auth.errors.emailRequired');
++    if (twoFactorChallenge && twoFactorCode.trim().length < 6) return t('auth.errors.twoFactorCodeRequired');
+     if (mode !== 'forgot' && password.length < 8) return t('auth.errors.passwordMin');
+     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
+     if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
+@@ -75,7 +82,18 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+     setMessage(null);
+     try {
+       if (mode === 'login') {
+-        await auth.login(email.trim(), password);
++        if (twoFactorChallenge) {
++          await auth.completeTwoFactorLogin({ challengeToken: twoFactorChallenge.challengeToken, code: twoFactorCode.trim() });
++          router.replace(redirectTo);
++          router.refresh();
++          return;
++        }
++        const twoFactor = await auth.login(email.trim(), password);
++        if (twoFactor) {
++          setTwoFactorChallenge({ challengeToken: twoFactor.challengeToken, message: twoFactor.message });
++          setMessage(twoFactor.message || t('auth.twoFactorNotice'));
++          return;
++        }
+         router.replace(redirectTo);
+         router.refresh();
+       } else if (mode === 'register') {
+@@ -190,6 +208,16 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+         ) : null}
+       </div>
+ 
++      {twoFactorChallenge ? (
++        <div className="form-stack">
++          <p className="notice-box info">{twoFactorChallenge.message || t('auth.twoFactorNotice')}</p>
++          <label className="field-label">
++            {t('auth.fields.twoFactorCode')}
++            <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} placeholder={t('auth.placeholders.twoFactorCode')} inputMode="numeric" autoComplete="one-time-code" />
++          </label>
++        </div>
++      ) : null}
++
+       {mode === 'forgot' ? <p className="notice-box info">{t('auth.forgotNotice')}</p> : null}
+       {message ? <p className="notice-box success">{message}</p> : null}
+       {error ? <p className="notice-box danger">{error}</p> : null}
+diff --git a/apps/web/src/features/admin/AdminAccessGate.tsx b/apps/web/src/features/admin/AdminAccessGate.tsx
+new file mode 100644
+index 0000000..8153e5e
+--- /dev/null
++++ b/apps/web/src/features/admin/AdminAccessGate.tsx
+@@ -0,0 +1,47 @@
++'use client';
++
++import type { ReactNode } from 'react';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++
++function GenericNotFound() {
++  return (
++    <main className="utility-shell admin-hidden-page" aria-label="Page not found">
++      <section className="app-card">
++        <span className="semantic-badge admin">404</span>
++        <h1>Page not found</h1>
++        <p>The page you requested could not be found.</p>
++      </section>
++    </main>
++  );
++}
++
++export function AdminAccessGate({ children }: { children: ReactNode }) {
++  const auth = useWebAuth();
++
++  if (!auth.hydrated) {
++    return (
++      <main className="utility-shell admin-hidden-page" aria-label="Loading">
++        <section className="app-card">
++          <span className="semantic-badge admin">Loading</span>
++          <h1>Loading…</h1>
++        </section>
++      </main>
++    );
++  }
++
++  if (auth.user?.role !== 'admin') return <GenericNotFound />;
++
++  if (auth.user.forceTwoFactor && !auth.user.twoFactorEnabled) {
++    return (
++      <main className="utility-shell admin-hidden-page" aria-label="Secure admin setup required">
++        <section className="app-card">
++          <span className="semantic-badge warning">Two-step verification required</span>
++          <h1>Secure setup required</h1>
++          <p>Enable authenticator app two-step verification on this admin account before opening internal tools.</p>
++        </section>
++      </main>
++    );
++  }
++
++  return <>{children}</>;
++}
+diff --git a/apps/web/src/features/admin/adminSession.ts b/apps/web/src/features/admin/adminSession.ts
+new file mode 100644
+index 0000000..b62d5bc
+--- /dev/null
++++ b/apps/web/src/features/admin/adminSession.ts
+@@ -0,0 +1,51 @@
++'use client';
++
++import { useCallback, useEffect, useMemo, useState } from 'react';
++import { clearAuthTokens, getAccessToken } from '../../lib/webTokenStore';
++
++const legacyAdminTokenKey = 'hellowhen:admin_access_token';
++
++export function clearLegacyAdminToken() {
++  if (typeof window === 'undefined') return;
++  window.localStorage.removeItem(legacyAdminTokenKey);
++}
++
++export function readAdminSessionToken() {
++  clearLegacyAdminToken();
++  return getAccessToken() ?? '';
++}
++
++export function useAdminSessionToken() {
++  const [token, setToken] = useState('');
++
++  const refreshToken = useCallback(() => {
++    setToken(readAdminSessionToken());
++  }, []);
++
++  useEffect(() => {
++    refreshToken();
++    window.addEventListener('storage', refreshToken);
++    window.addEventListener('focus', refreshToken);
++    return () => {
++      window.removeEventListener('storage', refreshToken);
++      window.removeEventListener('focus', refreshToken);
++    };
++  }, [refreshToken]);
++
++  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
++
++  return { token, headers, refreshToken };
++}
++
++export function clearAdminBrowserSession() {
++  clearLegacyAdminToken();
++  clearAuthTokens();
++}
++
++export function adminSessionRequiredMessage() {
++  return 'Use a signed-in admin account before loading this internal console.';
++}
++
++export function adminRequestFailedMessage() {
++  return 'Could not load this internal console. The account may not have admin access, two-step verification may be required, or this section may be disabled for launch mode.';
++}
+diff --git a/apps/web/src/providers/WebAuthProvider.tsx b/apps/web/src/providers/WebAuthProvider.tsx
+index 7248045..af1f1f9 100644
+--- a/apps/web/src/providers/WebAuthProvider.tsx
++++ b/apps/web/src/providers/WebAuthProvider.tsx
+@@ -17,10 +17,11 @@ type AuthContextValue = {
+   user: AuthUser | null;
+   hydrated: boolean;
+   isAuthenticated: boolean;
+-  login: (email: string, password: string) => Promise<void>;
++  login: (email: string, password: string) => Promise<TwoFactorRequired | void>;
+   register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; countryCode: string; preferredCurrency: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
+   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
+   resetPassword: (token: string, password: string, confirmPassword: string) => Promise<ResetPasswordResponse>;
++  completeTwoFactorLogin: (input: { challengeToken: string; code: string }) => Promise<void>;
+   reauthenticate: (input: { password?: string; code?: string }) => Promise<void>;
+   updateLocalProfile: (profile: AuthProfilePatch) => void;
+   logout: () => Promise<void>;
+@@ -134,8 +135,9 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
+     isAuthenticated: Boolean(user),
+     async login(email, password) {
+       const result = await api.auth.login({ email, password });
+-      if (isTwoFactorRequired(result)) throw new Error(result.message || 'Two-step verification is required. Finish login from a client with 2FA enabled.');
++      if (isTwoFactorRequired(result)) return result;
+       await applyAuthResult(result as AuthMeResponse);
++      return undefined;
+     },
+     async register(input) {
+       const result = await api.auth.register(input);
+@@ -147,6 +149,10 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
+     resetPassword(token, password, confirmPassword) {
+       return api.auth.resetPassword({ token, password, confirmPassword });
+     },
++    async completeTwoFactorLogin(input) {
++      const result = await api.auth.loginTwoFactor(input);
++      await applyAuthResult(result as AuthMeResponse);
++    },
+     async reauthenticate(input) {
+       await api.auth.reauthenticate(input);
+       await refreshMe().catch(() => undefined);
+diff --git a/docs/phase-25-s1-admin-invisibility-hardening.md b/docs/phase-25-s1-admin-invisibility-hardening.md
+new file mode 100644
+index 0000000..97a9f99
+--- /dev/null
++++ b/docs/phase-25-s1-admin-invisibility-hardening.md
+@@ -0,0 +1,49 @@
++# Phase 25.S1 — Admin invisibility and hardening
++
++## Goal
++
++Keep the launch admin area out of normal user discovery and make sure admin access depends on backend authorization, not visible links or client-side hiding.
++
++## Implemented
++
++- Added an admin-only web layout gate for `/admin` routes.
++  - Non-admin and signed-out visitors see a generic 404-style page.
++  - Admin users still use the existing internal admin pages.
++- Removed standalone admin login panels and default credential fields from web admin pages.
++  - Admin tools now use the normal signed-in app session token.
++  - Legacy `hellowhen:admin_access_token` storage is cleared when admin pages read the current session.
++- Added no-index controls for admin web routes.
++  - Admin pages export noindex metadata.
++  - Next headers add `X-Robots-Tag: noindex, nofollow, noarchive` and `Referrer-Policy: no-referrer` for `/admin/*`.
++  - `robots.ts` disallows `/admin`.
++- Hardened admin API responses.
++  - `/admin/*` API responses are `Cache-Control: no-store`.
++  - `/admin/*` API responses include `X-Robots-Tag: noindex, nofollow, noarchive`.
++  - Non-admin authenticated users receive a generic `404 not_found` from admin API routes instead of an explicit admin-required response.
++  - Admin two-step enforcement remains explicit only after the account is confirmed to be an admin.
++- Added web authenticator-code completion for accounts that require two-step login.
++- Reduced seed/admin credential exposure.
++  - `.env.example` no longer uses the local demo password as the example admin password.
++  - Production seeding fails if the admin password falls back to the demo password.
++  - Seed logs no longer print the admin password.
++
++## Launch operator checklist
++
++Before public beta:
++
++1. Remove or rotate any local `admin@hellowhen.app` seed admin.
++2. Set a unique `SEED_ADMIN_EMAIL` and strong `SEED_ADMIN_PASSWORD` outside local development.
++3. Keep `ADMIN_REQUIRE_TWO_FACTOR=true`.
++4. Log in through the normal app auth flow with the admin account and complete the authenticator-code challenge before opening `/admin`.
++5. Enable authenticator app two-step verification for every admin account.
++6. Confirm `/admin` is not linked from normal account, support, footer, sitemap, or app navigation.
++7. Confirm non-admin users see a generic not-found screen for `/admin`.
++8. Confirm `/api/admin/*` requires an admin token and returns generic `not_found` for non-admin users.
++
++## Non-goals
++
++- No route renaming or secret admin path in this phase.
++- No IP allowlist in this phase.
++- No new admin role hierarchy.
++- No moderation behavior changes.
++- No money/wallet/payout/provider enablement.
+diff --git a/packages/i18n/src/locales/en/auth.ts b/packages/i18n/src/locales/en/auth.ts
+index f233c6a..efe5b52 100644
+--- a/packages/i18n/src/locales/en/auth.ts
++++ b/packages/i18n/src/locales/en/auth.ts
+@@ -10,6 +10,7 @@ export const auth = {
+   modes: {
+     label: 'Auth mode',
+     login: 'Login',
++    verifyCode: 'Verify code',
+     register: 'Register',
+     reset: 'Reset',
+   },
+@@ -22,12 +23,14 @@ export const auth = {
+     confirmNewPassword: 'Confirm new password',
+     country: 'Country',
+     displayCurrency: 'Display currency',
++    twoFactorCode: 'Authenticator code',
+   },
+   placeholders: {
+     email: 'you@example.com',
+     fullName: 'Mina Chen',
+     passwordMin: 'At least 8 characters',
+     repeatPassword: 'Repeat password',
++    twoFactorCode: '6-digit code',
+   },
+   localDisplay: {
+     title: 'Local display',
+@@ -39,6 +42,7 @@ export const auth = {
+   terms: 'I agree to the Terms and Privacy Policy.',
+   termsNativeHint: 'Review Terms and Privacy before creating your account.',
+   forgotNotice: 'Enter your account email and we will send a reset link if the account exists.',
++  twoFactorNotice: 'Enter the code from your authenticator app to finish signing in.',
+   errors: {
+     signIn: 'Sign-in error',
+     emailRequired: 'Enter your email.',
+@@ -48,6 +52,7 @@ export const auth = {
+     countryRequired: 'Choose your country.',
+     currencyRequired: 'Choose your display currency.',
+     termsRequired: 'Please agree to the terms to continue.',
++    twoFactorCodeRequired: 'Enter your authenticator code.',
+     googleUnavailable: 'Google sign-in is not available in this build.',
+     googleIncomplete: 'Google sign-in could not be completed.',
+     googleFailed: 'Google sign-in failed.',
+@@ -56,6 +61,7 @@ export const auth = {
+     googleUnavailableWeb: 'Google sign-in is not wired for web yet',
+     signIn: 'Sign in',
+     login: 'Login',
++    verifyCode: 'Verify code',
+     createAccount: 'Create account',
+     sendResetLink: 'Send reset link',
+     continueWithGoogle: 'Continue with Google',
+diff --git a/packages/i18n/src/locales/fr/auth.ts b/packages/i18n/src/locales/fr/auth.ts
+index 55cd7c7..fa29f13 100644
+--- a/packages/i18n/src/locales/fr/auth.ts
++++ b/packages/i18n/src/locales/fr/auth.ts
+@@ -10,6 +10,7 @@ export const auth = {
+   modes: {
+     label: 'Mode d’authentification',
+     login: 'Connexion',
++    verifyCode: 'Vérifier le code',
+     register: 'Inscription',
+     reset: 'Réinitialiser',
+   },
+@@ -22,12 +23,14 @@ export const auth = {
+     confirmNewPassword: 'Confirmer le nouveau mot de passe',
+     country: 'Pays',
+     displayCurrency: 'Devise d’affichage',
++    twoFactorCode: 'Code d’authentification',
+   },
+   placeholders: {
+     email: 'vous@exemple.com',
+     fullName: 'Mina Chen',
+     passwordMin: 'Au moins 8 caractères',
+     repeatPassword: 'Répétez le mot de passe',
++    twoFactorCode: 'Code à 6 chiffres',
+   },
+   localDisplay: {
+     title: 'Affichage local',
+@@ -39,6 +42,7 @@ export const auth = {
+   terms: 'J’accepte les Conditions et la Politique de confidentialité.',
+   termsNativeHint: 'Consultez les Conditions et la Confidentialité avant de créer votre compte.',
+   forgotNotice: 'Saisissez l’e-mail de votre compte et nous enverrons un lien de réinitialisation si le compte existe.',
++  twoFactorNotice: 'Saisissez le code de votre application d’authentification pour terminer la connexion.',
+   errors: {
+     signIn: 'Erreur de connexion',
+     emailRequired: 'Saisissez votre e-mail.',
+@@ -48,6 +52,7 @@ export const auth = {
+     countryRequired: 'Choisissez votre pays.',
+     currencyRequired: 'Choisissez votre devise d’affichage.',
+     termsRequired: 'Veuillez accepter les conditions pour continuer.',
++    twoFactorCodeRequired: 'Saisissez votre code d’authentification.',
+     googleUnavailable: 'La connexion Google n’est pas disponible dans cette version.',
+     googleIncomplete: 'La connexion Google n’a pas pu être terminée.',
+     googleFailed: 'La connexion Google a échoué.',
+@@ -56,6 +61,7 @@ export const auth = {
+     googleUnavailableWeb: 'La connexion Google n’est pas encore connectée sur le web.',
+     signIn: 'Se connecter',
+     login: 'Connexion',
++    verifyCode: 'Vérifier le code',
+     createAccount: 'Créer un compte',
+     sendResetLink: 'Envoyer le lien',
+     continueWithGoogle: 'Continuer avec Google',

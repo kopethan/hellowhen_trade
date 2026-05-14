@@ -1,26 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AdminReportActionRequest, AdminReportsResponse, ReportDto, ReportReason, ReportStatus, ReportTargetType } from '@hellowhen/contracts';
 import { getWebApiBaseUrl } from '../../../lib/api';
+import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
 import { formatWebDateTime } from '../../../lib/webFormat';
 
-type LoginResponse = { accessToken: string } | { requiresTwoFactor: true; challengeToken: string; message?: string };
 type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
 type StatusFilter = ReportStatus | 'all';
 type TargetFilter = ReportTargetType | 'all';
 type ReasonFilter = ReportReason | 'all';
 type ReportAction = AdminReportActionRequest['action'];
 
-const adminTokenKey = 'hellowhen:admin_access_token';
 const statusFilters: StatusFilter[] = ['pending', 'reviewing', 'resolved', 'dismissed', 'all'];
 const targetFilters: TargetFilter[] = ['all', 'user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'media'];
 const reasonFilters: ReasonFilter[] = ['all', 'spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other'];
-
-function isTwoFactorRequired(value: LoginResponse): value is Extract<LoginResponse, { requiresTwoFactor: true }> {
-  return 'requiresTwoFactor' in value && value.requiresTwoFactor === true;
-}
 
 function labelize(value?: string | null) {
   return value ? value.replaceAll('_', ' ') : 'unknown';
@@ -48,9 +43,7 @@ function actionHelp(action: ReportAction) {
 
 export default function AdminReportsPage() {
   const apiBase = useMemo(() => getWebApiBaseUrl(), []);
-  const [email, setEmail] = useState('admin@hellowhen.app');
-  const [password, setPassword] = useState('password123');
-  const [token, setToken] = useState('');
+  const { token, headers } = useAdminSessionToken();
   const [status, setStatus] = useState<StatusFilter>('pending');
   const [targetType, setTargetType] = useState<TargetFilter>('all');
   const [reason, setReason] = useState<ReasonFilter>('all');
@@ -60,33 +53,11 @@ export default function AdminReportsPage() {
   const [note, setNote] = useState('');
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
-
-  useEffect(() => {
-    const saved = window.localStorage.getItem(adminTokenKey);
-    if (saved) setToken(saved);
-  }, []);
-
-  useEffect(() => {
-    if (token) window.localStorage.setItem(adminTokenKey, token);
-  }, [token]);
-
-  async function login() {
-    setLoading(true);
-    setNotice(null);
-    try {
-      const response = await fetch(`${apiBase}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
-      if (!response.ok) throw new Error('Login failed. Check the admin credentials.');
-      const data = await response.json() as LoginResponse;
-      if (isTwoFactorRequired(data)) throw new Error(data.message || 'This admin account requires two-step verification. Use an app session that already satisfies admin 2FA.');
-      setToken(data.accessToken);
-      window.localStorage.setItem(adminTokenKey, data.accessToken);
-      setNotice({ tone: 'success', body: 'Admin logged in. Load reports to review the moderation queue.' });
-    } catch (error) {
-      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Login failed.' });
-    } finally {
-      setLoading(false);
-    }
+  function clearLocalSession() {
+    clearAdminBrowserSession();
+    setReports([]);
+    setSelectedReport(null);
+    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
   }
 
   function queryString() {
@@ -100,7 +71,7 @@ export default function AdminReportsPage() {
   }
 
   async function loadReports() {
-    if (!token) { setNotice({ tone: 'warning', body: 'Log in as admin first.' }); return; }
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
     try {
@@ -160,10 +131,8 @@ export default function AdminReportsPage() {
           <p>Review user-submitted reports, escalate complex cases to support, hide unsafe public content, suspend target owners, dismiss false reports, and keep every decision in the admin audit log.</p>
         </div>
         <div className="admin-console__login-grid">
-          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" autoComplete="username" />
-          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" />
-          <button type="button" onClick={() => { void login(); }} disabled={loading}>{token ? 'Refresh login' : 'Log in'}</button>
-          <button type="button" className="secondary" onClick={() => { setToken(''); window.localStorage.removeItem(adminTokenKey); }} disabled={!token}>Clear token</button>
+          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
         </div>
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
       </section>

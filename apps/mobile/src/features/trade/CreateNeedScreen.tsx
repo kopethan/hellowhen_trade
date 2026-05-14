@@ -14,10 +14,12 @@ import { ImagePickerField } from './components/ImagePickerField';
 import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import type { NeedItem } from './types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
+type CreateNeedResponse = { need: NeedItem };
 
-export function CreateNeedScreen({ navigation }: Props) {
+export function CreateNeedScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -51,7 +53,7 @@ export function CreateNeedScreen({ navigation }: Props) {
 
     try {
       const mediaIds = await uploadSelectedImages(images);
-      await api.needs.create({
+      const response = await api.needs.create({
         title: cleanTitle,
         description: cleanDescription,
         itemType,
@@ -60,9 +62,24 @@ export function CreateNeedScreen({ navigation }: Props) {
         mode,
         locationLabel: optionalText(locationLabel),
         tags: parseInventoryList(tagsInput),
-        status: 'draft',
+        status: route.params?.returnTo ? 'active' : 'draft',
         mediaIds,
-      });
+      }) as CreateNeedResponse;
+
+      if (route.params?.returnTo === 'tradeProposal' && route.params.tradeId) {
+        navigation.navigate('TradeDetail', {
+          tradeId: route.params.tradeId,
+          title: route.params.tradeTitle,
+          selectedProposalSide: { side: 'need', kind: 'need', id: response.need.id },
+        });
+        return;
+      }
+
+      if (route.params?.returnTo === 'createTrade') {
+        navigation.navigate('CreateTrade', { selectedTradeSide: { side: 'need', kind: 'need', id: response.need.id } });
+        return;
+      }
+
       navigation.goBack();
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));

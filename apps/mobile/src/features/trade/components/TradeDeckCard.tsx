@@ -5,7 +5,6 @@ import { formatLocalizedTimeUntil, type SupportedLanguage } from '@hellowhen/i18
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
 import { MoneyPill, SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
-import { UserIdentityPressable } from '../../users/UserIdentityPressable';
 import type { TradeDeckItem } from '../types';
 import { resolveMediaUrl } from '../mediaUrls';
 
@@ -25,11 +24,6 @@ function getTradeKind(trade: TradeDeckItem, t: TFunction): { label: string; tone
   if (trade.needId) return { label: t('trade.labels.needTrade'), tone: 'need' };
   if (trade.offerId) return { label: t('trade.labels.offerTrade'), tone: 'offer' };
   return { label: t('trade.labels.publicTrade'), tone: 'trade' };
-}
-
-function getPublicOwnerId(ownerId?: string | null) {
-  if (!ownerId || ownerId === 'preview' || ownerId === 'unknown') return null;
-  return ownerId;
 }
 
 function getExpiryLabel(expiresAt: string | null | undefined, t: TFunction, language: SupportedLanguage) {
@@ -57,14 +51,6 @@ export function TradeDeckCard({ trade, index, total, saved, onOpen, onPass, onSa
       </View>
       <View style={styles.creditPanel}>
         {(trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={trade.amountCents ?? 0} currency={trade.currency ?? 'eur'} label={t('trade.labels.optionalMoney').toLowerCase()} /> : <SemanticBadge label={t('trade.labels.serviceForService')} tone="trade" />}
-        <UserIdentityPressable
-          user={trade.owner}
-          userId={trade.owner?.id ?? getPublicOwnerId(trade.ownerId)}
-          variant="compact"
-          avatarSize="sm"
-          subtitle={t('trade.labels.owner')}
-          style={styles.ownerIdentity}
-        />
       </View>
       <View style={styles.metaRow}>
         <SemanticBadge label={getExpiryLabel(trade.expiresAt, t, language)} tone="time" size="sm" />
@@ -88,7 +74,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, lineHeight: 36, fontWeight: '900', letterSpacing: -0.8 },
   description: { color: '#475569', fontSize: 16, lineHeight: 23, fontWeight: '600' },
   creditPanel: { borderRadius: 24, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', padding: 16, gap: 14 },
-  ownerIdentity: { alignSelf: 'stretch' },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
   actionsRow: { flexDirection: 'row', gap: 10 },
   primaryButton: { flex: 1.35, minHeight: 48, borderRadius: 16, backgroundColor: '#7C3AED', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },

@@ -213,7 +213,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
     async function loadTemplates() {
       setTemplateLoading(true);
       try {
-        const response = await api.inventoryTemplates.list({ kind, take: 100 });
+        const response = await api.inventoryTemplates.list({ kind, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 100 });
         if (!mounted) return;
         setTemplates(normalizeTemplateList(response));
         setTemplateError('');
@@ -227,7 +227,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
     }
     void loadTemplates();
     return () => { mounted = false; };
-  }, [kind, t]);
+  }, [auth.user?.profile?.countryCode, kind, language, t]);
 
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();

@@ -1,0 +1,790 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index e3b337f..9e22a94 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -28,7 +28,14 @@ export type TradeCreateSideSelection =
+   | { side: 'need'; kind: 'money'; amountCents: number; currency: string }
+   | { side: 'offer'; kind: 'offer'; id: string }
+   | { side: 'offer'; kind: 'money'; amountCents: number; currency: string };
+-export type TradeSidePickerParams = { side: TradeCreateSide; selection?: TradeCreateSideSelection | null; postType?: TradePostType };
++export type TradeSidePickerParams = {
++  side: TradeCreateSide;
++  selection?: TradeCreateSideSelection | null;
++  postType?: TradePostType;
++  returnTo?: 'createTrade' | 'tradeProposal';
++  tradeId?: string;
++  tradeTitle?: string;
++};
+ export type TradeCreateReturnParams = { selectedTradeSide?: TradeCreateSideSelection } | undefined;
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateTrade'>;
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 98780d2..9a6aed5 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -86,6 +86,19 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+   const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | null>(null);
+   const [proposalActionLoading, setProposalActionLoading] = useState<{ proposalId: string; status: ProposalActionStatus } | null>(null);
+ 
++
++  useEffect(() => {
++    const selection = params.selectedProposalSide;
++    if (!selection || selection.kind === 'money') return;
++    if (selection.kind === 'need') {
++      setSelectedProposalNeedId(selection.id);
++      setSelectedProposalOfferId('');
++    } else if (selection.kind === 'offer') {
++      setSelectedProposalOfferId(selection.id);
++      setSelectedProposalNeedId('');
++    }
++  }, [params.selectedProposalSide]);
++
+   const role = useMemo<DetailRole>(() => {
+     if (trade.ownerId === auth.user?.id) return 'owner';
+     if (trade.providerId && trade.providerId === auth.user?.id) return 'provider';
+@@ -135,7 +148,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+           setProposalNeeds([]);
+           setSelectedProposalNeedId('');
+           setProposalOffers(offers);
+-          setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current && isOfferAvailable(offer)) ? current : offers.find(isOfferAvailable)?.id ?? '');
++          setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current && isOfferAvailable(offer)) ? current : '');
+         } else if (requiredSide === 'need') {
+           const result = await api.needs.mine() as NeedsResponse;
+           const needs = Array.isArray(result.needs) ? result.needs : [];
+@@ -143,7 +156,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+           setProposalOffers([]);
+           setSelectedProposalOfferId('');
+           setProposalNeeds(needs);
+-          setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current && isNeedAvailable(need)) ? current : needs.find(isNeedAvailable)?.id ?? '');
++          setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current && isNeedAvailable(need)) ? current : '');
+         } else {
+           const [needsResult, offersResult] = await Promise.all([api.needs.mine() as Promise<NeedsResponse>, api.offers.mine() as Promise<OffersResponse>]);
+           const needs = Array.isArray(needsResult.needs) ? needsResult.needs : [];
+@@ -160,7 +173,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     }
+     void loadProposalInventory();
+     return () => { mounted = false; };
+-  }, [auth.isAuthenticated, myProposal, requiredSide, role, t, trade.status]);
++  }, [auth.isAuthenticated, myProposal, params.selectedProposalSide, requiredSide, role, t, trade.status]);
+ 
+   const actions = useMemo(() => {
+     const canSubmit = trade.status === 'in_progress' && ['owner', 'provider'].includes(role);
+@@ -257,7 +270,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
+     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{t('trade.labels.tradeDetails')}</AppText><View style={styles.detailRows}><DetailRow label={t('trade.labels.type')} value={postTypeLabel(trade, t)} theme={theme} /><DetailRow label={t('trade.labels.status')} value={formatStatus(trade.status, t)} theme={theme} /><DetailRow label={t('trade.labels.expiry')} value={expiryLabel(trade.expiresAt, t, language)} theme={theme} /><DetailRow label={t('trade.labels.exchange')} value={paymentLabel} theme={theme} />{createdLabel ? <DetailRow label={t('trade.labels.created')} value={createdLabel} theme={theme} /> : null}<DetailIdentityRow label={t('trade.labels.owner')} user={trade.owner} userId={trade.ownerId} theme={theme} />{trade.provider ? <DetailIdentityRow label={t('trade.labels.provider')} user={trade.provider} userId={trade.providerId} theme={theme} /> : null}</View><InfoNotice tone="info" title={t('trade.labels.nextStep')} body={statusHint(trade, role, t)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? t('trade.detail.updated') : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
+ 
+     <Separator theme={theme} />
+-    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? t('trade.proposals.title') : myProposal ? t('trade.proposals.yourProposal') : proposalActionTitle(trade, t)}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}{message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.detail.refreshing')}</AppText> : null}{!auth.isAuthenticated ? <SignedOutProposalBox trade={trade} onLogin={() => navigation.navigate('Login')} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer trade={trade} requiredSide={requiredSide} value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} sideLoading={sideLoading} needs={activeProposalNeeds} offers={activeProposalOffers} selectedNeedId={selectedProposalNeedId} selectedOfferId={selectedProposalOfferId} onSelectNeed={(id) => { setSelectedProposalNeedId((current) => current === id ? '' : id); setSelectedProposalOfferId(''); }} onSelectOffer={(id) => { setSelectedProposalOfferId((current) => current === id ? '' : id); setSelectedProposalNeedId(''); }} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.notAccepting')}</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noProposalsOwner')}</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title={t('trade.proposals.acceptedConversation')} body={t('trade.proposals.acceptedConversationBody')} /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} t={t} />)}</View></View>
++    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? t('trade.proposals.title') : myProposal ? t('trade.proposals.yourProposal') : proposalActionTitle(trade, t)}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}{message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.detail.refreshing')}</AppText> : null}{!auth.isAuthenticated ? <SignedOutProposalBox trade={trade} onLogin={() => navigation.navigate('Login')} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer trade={trade} requiredSide={requiredSide} value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} sideLoading={sideLoading} needs={activeProposalNeeds} offers={activeProposalOffers} selectedNeedId={selectedProposalNeedId} selectedOfferId={selectedProposalOfferId} onChooseNeed={() => navigation.navigate('TradeSidePicker', { side: 'need', selection: selectedProposalNeed ? { side: 'need', kind: 'need', id: selectedProposalNeed.id } : null, returnTo: 'tradeProposal', tradeId: trade.id, tradeTitle: detailTitle(trade, t) })} onChooseOffer={() => navigation.navigate('TradeSidePicker', { side: 'offer', selection: selectedProposalOffer ? { side: 'offer', kind: 'offer', id: selectedProposalOffer.id } : null, returnTo: 'tradeProposal', tradeId: trade.id, tradeTitle: detailTitle(trade, t) })} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.notAccepting')}</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noProposalsOwner')}</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title={t('trade.proposals.acceptedConversation')} body={t('trade.proposals.acceptedConversationBody')} /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} role={role} currentUserId={auth.user?.id} replyDraft={replyDrafts[proposal.id] ?? ''} onReplyDraftChange={(value) => setReplyDrafts((current) => ({ ...current, [proposal.id]: value }))} onSendMessage={() => { void sendProposalMessage(proposal.id); }} replying={replyingProposalId === proposal.id} proposalActionLoading={proposalActionLoading} onUpdateStatus={updateProposalStatus} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} t={t} />)}</View></View>
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+ 
+@@ -268,7 +281,7 @@ function TradeDetailImageGrid({ media, emptyLabel, theme }: { media: MediaAssetD
+ function DetailRow({ label, value, theme }: { label: string; value: string; theme: ThemeTokens }) { return <View style={[styles.detailRow, { borderColor: theme.color.border }]}><AppText style={[styles.detailLabel, { color: theme.color.muted }]}>{label}</AppText><AppText style={styles.detailValue}>{value}</AppText></View>; }
+ function DetailIdentityRow({ label, user, userId, theme }: { label: string; user?: TradeDeckItem['owner']; userId?: string | null; theme: ThemeTokens }) { return <View style={[styles.detailRow, { borderColor: theme.color.border }]}><AppText style={[styles.detailLabel, { color: theme.color.muted }]}>{label}</AppText><UserIdentityPressable user={user} userId={userId} variant="compact" avatarSize="xs" showHandle={false} style={styles.detailIdentity} /></View>; }
+ 
+-function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeedId, selectedOfferId, onSelectNeed, onSelectOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeedId: string; selectedOfferId: string; onSelectNeed: (id: string) => void; onSelectOffer: (id: string) => void; theme: ThemeTokens; t: TFunction }) {
++function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeedId, selectedOfferId, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeedId: string; selectedOfferId: string; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
+   const missingInventory = requiredSide === 'need' ? needs.length === 0 : requiredSide === 'offer' ? offers.length === 0 : false;
+   const selectedNeed = requiredSide !== 'offer' ? needs.find((need) => need.id === selectedNeedId) ?? null : null;
+   const selectedOffer = requiredSide !== 'need' ? offers.find((offer) => offer.id === selectedOfferId) ?? null : null;
+@@ -295,12 +308,34 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+ 
+       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
+ 
+-      {!requiredSide ? <InfoNotice tone="info" title={t('trade.proposals.attachSavedItemOptional')} body={t('trade.proposals.attachSavedItemOptionalBody')} /> : null}
+-      {requiredSide !== 'need' ? <InventoryChoiceList title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} items={offers} selectedId={selectedOfferId} onSelect={onSelectOffer} kind="offer" theme={theme} t={t} /> : null}
+-      {requiredSide !== 'offer' ? <InventoryChoiceList title={requiredSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')} emptyText={requiredSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')} items={needs} selectedId={selectedNeedId} onSelect={onSelectNeed} kind="need" theme={theme} t={t} /> : null}
+-
+-      {selectedOffer ? <InventoryPreviewCard item={selectedOffer} kind="offer" label={t('trade.labels.selectedOffer')} theme={theme} t={t} /> : null}
+-      {selectedNeed ? <InventoryPreviewCard item={selectedNeed} kind="need" label={t('trade.labels.selectedNeed')} theme={theme} t={t} /> : null}
++      {!requiredSide ? <InfoNotice tone="info" title={t('trade.proposals.chooseProposalItem')} body={t('trade.proposals.chooseProposalItemOptionalBody')} /> : null}
++      {requiredSide === 'offer' ? <InfoNotice tone="instruction" title={t('trade.proposals.chooseOfferToPropose')} body={t('trade.proposals.chooseOfferFirst')} /> : null}
++      {requiredSide === 'need' ? <InfoNotice tone="instruction" title={t('trade.proposals.chooseNeedToPropose')} body={t('trade.proposals.chooseNeedFirst')} /> : null}
++
++      {requiredSide !== 'need' ? (
++        <InventoryPickerShortcut
++          kind="offer"
++          title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
++          count={offers.length}
++          item={selectedOffer}
++          emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
++          onChoose={onChooseOffer}
++          theme={theme}
++          t={t}
++        />
++      ) : null}
++      {requiredSide !== 'offer' ? (
++        <InventoryPickerShortcut
++          kind="need"
++          title={requiredSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
++          count={needs.length}
++          item={selectedNeed}
++          emptyText={requiredSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
++          onChoose={onChooseNeed}
++          theme={theme}
++          t={t}
++        />
++      ) : null}
+ 
+       <View style={styles.messageComposerBlock}>
+         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
+@@ -313,6 +348,38 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+   );
+ }
+ 
++function InventoryPickerShortcut({ kind, title, count, item, emptyText, onChoose, theme, t }: { kind: 'need' | 'offer'; title: string; count: number; item: NeedItem | OfferItem | null; emptyText: string; onChoose: () => void; theme: ThemeTokens; t: TFunction }) {
++  return (
++    <Pressable accessibilityRole="button" onPress={onChoose} style={({ pressed }) => [styles.inventoryPickerShortcut, { backgroundColor: theme.color.subtleSurface, borderColor: item ? theme.semantic[kind].border : theme.color.border }, pressed && styles.pressed]}>
++      <View style={styles.inventoryPickerTopRow}>
++        <View style={styles.inventoryPickerHeading}>
++          <SemanticBadge label={kind === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer')} tone={kind} size="sm" />
++          <AppText style={styles.threadLabel}>{title}</AppText>
++        </View>
++        <View style={[styles.inventoryPickerIcon, { backgroundColor: theme.semantic[kind].softBg }]}>
++          <MobileIcon name={kind === 'need' ? 'need' : 'offer'} size={18} color={theme.semantic[kind].text} />
++        </View>
++      </View>
++      {item ? (
++        <View style={styles.inventoryPickerSelectedBody}>
++          <AppText style={styles.inventoryChoiceTitle} numberOfLines={2}>{item.title}</AppText>
++          <AppText style={[styles.inventoryChoiceMeta, { color: theme.semantic[kind].text }]} numberOfLines={1}>{proposalInventoryMeta(kind, item, t)}</AppText>
++          <AppText style={[styles.inventoryChoiceDescription, { color: theme.color.muted }]} numberOfLines={2}>{proposalInventoryDescription(item, t)}</AppText>
++          <View style={styles.inventoryPickerActionRow}>
++            <SemanticBadge label={t('trade.labels.selected')} tone={kind} size="sm" />
++            <AppText style={[styles.inventoryPickerActionText, { color: theme.semantic.proposal.bg }]}>{t('common.actions.edit')}</AppText>
++          </View>
++        </View>
++      ) : (
++        <View style={styles.inventoryPickerEmptyBody}>
++          <AppText style={[styles.muted, { color: theme.color.muted }]}>{count > 0 ? t('trade.proposals.chooseFromSavedItems', { count }) : emptyText}</AppText>
++          <AppText style={[styles.inventoryPickerActionText, { color: theme.semantic.proposal.bg }]}>{t('trade.proposals.openPicker')}</AppText>
++        </View>
++      )}
++    </Pressable>
++  );
++}
++
+ function InventoryChoiceList<T extends NeedItem | OfferItem>({ title, emptyText, items, selectedId, onSelect, kind, theme, t }: { title: string; emptyText: string; items: T[]; selectedId: string; onSelect: (id: string) => void; kind: 'need' | 'offer'; theme: ThemeTokens; t: TFunction }) {
+   return (
+     <View style={[styles.inventoryChoiceBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+@@ -407,4 +474,4 @@ function MessageBubble({ message, mine, theme, t }: { message: ProposalMessageIt
+ }
+ function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) { const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }; const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text; return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>; }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, ownerLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, openSideInvite: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 8 }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, detailIdentity: { flex: 1, justifyContent: 'flex-end' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 12 }, proposalPromptBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 8 }, proposalPromptText: { lineHeight: 20, fontWeight: '800' }, messageComposerBlock: { gap: 8 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, inventoryChoiceBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 }, inventoryChoiceHeading: { gap: 7 }, inventoryEmptyBox: { borderRadius: 18, borderWidth: 1, padding: 12 }, inventoryChoiceRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }, inventoryChoiceSelected: { borderWidth: 2 }, inventoryChoiceCopy: { flex: 1, gap: 5 }, inventoryChoiceTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }, inventoryChoiceTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' }, inventoryChoiceMeta: { fontSize: 12, fontWeight: '900', lineHeight: 17 }, inventoryChoiceDescription: { fontSize: 12, lineHeight: 17, fontWeight: '700' }, selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' }, selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, selectedSideDescription: { lineHeight: 20, fontWeight: '700' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 13, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, proposalIdentityLink: { flex: 1 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 5 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, ownerLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, openSideInvite: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 8 }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, detailIdentity: { flex: 1, justifyContent: 'flex-end' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 12 }, proposalPromptBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 8 }, proposalPromptText: { lineHeight: 20, fontWeight: '800' }, messageComposerBlock: { gap: 8 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, inventoryChoiceBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 }, inventoryChoiceHeading: { gap: 7 }, inventoryEmptyBox: { borderRadius: 18, borderWidth: 1, padding: 12 }, inventoryChoiceRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }, inventoryChoiceSelected: { borderWidth: 2 }, inventoryChoiceCopy: { flex: 1, gap: 5 }, inventoryChoiceTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }, inventoryChoiceTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' }, inventoryChoiceMeta: { fontSize: 12, fontWeight: '900', lineHeight: 17 }, inventoryChoiceDescription: { fontSize: 12, lineHeight: 17, fontWeight: '700' }, inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 }, inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }, inventoryPickerHeading: { flex: 1, gap: 7 }, inventoryPickerIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, inventoryPickerSelectedBody: { gap: 6 }, inventoryPickerEmptyBody: { gap: 8 }, inventoryPickerActionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 }, inventoryPickerActionText: { fontWeight: '900' }, selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' }, selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, selectedSideDescription: { lineHeight: 20, fontWeight: '700' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 13, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, proposalIdentityLink: { flex: 1 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 5 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, inlineThread: { gap: 9 }, threadLabel: { fontSize: 13, fontWeight: '900' }, messageBubble: { maxWidth: '90%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 }, myMessageBubble: { alignSelf: 'flex-end' }, theirMessageBubble: { alignSelf: 'flex-start' }, messageAuthor: { fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 }, messageBody: { lineHeight: 20, fontWeight: '600' }, replyBox: { gap: 8 }, replyInput: { minHeight: 88, borderRadius: 18, borderWidth: 1, padding: 12, fontSize: 15, lineHeight: 21, fontWeight: '600' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+index 5ccda03..a7bc820 100644
+--- a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+@@ -107,6 +107,14 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
+   }, [query, usableOffers]);
+ 
+   function choose(selection: TradeCreateSideSelection) {
++    if (route.params.returnTo === 'tradeProposal' && route.params.tradeId) {
++      navigation.navigate('TradeDetail', {
++        tradeId: route.params.tradeId,
++        title: route.params.tradeTitle,
++        selectedProposalSide: selection,
++      });
++      return;
++    }
+     navigation.navigate('CreateTrade', { selectedTradeSide: selection });
+   }
+ 
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 1cd119f..b6b05a8 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -18,7 +18,7 @@ import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScre
+ import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
+ import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
+ import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
+-import { CreateTradeScreen, type TradeCreateReturnParams, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
++import { CreateTradeScreen, type TradeCreateReturnParams, type TradeCreateSideSelection, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
+ import { TradeSidePickerScreen } from '../features/trade/TradeSidePickerScreen';
+ import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
+ import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
+@@ -58,7 +58,7 @@ export type RootStackParamList = {
+   TradeSidePicker: TradeSidePickerParams;
+   CreateProposal: { tradeId: string; title?: string };
+   ProposalDetail: { proposalId: string };
+-  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
++  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection };
+   UserProfile: { userId: string; displayName?: string };
+   Login: undefined;
+ };
+diff --git a/apps/web/src/app/trades/[tradeId]/propose/choose-need/new/page.tsx b/apps/web/src/app/trades/[tradeId]/propose/choose-need/new/page.tsx
+new file mode 100644
+index 0000000..1fd7e08
+--- /dev/null
++++ b/apps/web/src/app/trades/[tradeId]/propose/choose-need/new/page.tsx
+@@ -0,0 +1,31 @@
++import { InventoryFormClient } from '../../../../../../features/inventory/InventoryFormClient';
++
++type NewProposalNeedPageProps = {
++  params: Promise<{ tradeId: string }>;
++  searchParams?: Promise<{ proposalNeedId?: string; proposalOfferId?: string }>;
++};
++
++function chooseNeedHref(tradeId: string, params: { proposalNeedId?: string; proposalOfferId?: string }) {
++  const queryParams = new URLSearchParams();
++  if (params.proposalNeedId) queryParams.set('proposalNeedId', params.proposalNeedId);
++  if (params.proposalOfferId) queryParams.set('proposalOfferId', params.proposalOfferId);
++  const query = queryParams.toString();
++  return `/trades/${tradeId}/propose/choose-need${query ? `?${query}` : ''}`;
++}
++
++export default async function NewProposalNeedPage({ params, searchParams }: NewProposalNeedPageProps) {
++  const { tradeId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
++  return (
++    <InventoryFormClient
++      kind="need"
++      mode="create"
++      cancelHref={chooseNeedHref(tradeId, resolvedSearchParams)}
++      afterCreateRedirect={{
++        pathname: `/trades/${tradeId}`,
++        selectedParam: 'proposalNeedId',
++        preservedParams: {},
++      }}
++    />
++  );
++}
+diff --git a/apps/web/src/app/trades/[tradeId]/propose/choose-need/page.tsx b/apps/web/src/app/trades/[tradeId]/propose/choose-need/page.tsx
+new file mode 100644
+index 0000000..57f2d28
+--- /dev/null
++++ b/apps/web/src/app/trades/[tradeId]/propose/choose-need/page.tsx
+@@ -0,0 +1,21 @@
++import { TradeSideChoosePage } from '../../../../../features/trade/TradeSideChoosePage';
++
++type ProposalChooseNeedPageProps = {
++  params: Promise<{ tradeId: string }>;
++  searchParams?: Promise<{ proposalNeedId?: string; proposalOfferId?: string; source?: string }>;
++};
++
++export default async function ProposalChooseNeedPage({ params, searchParams }: ProposalChooseNeedPageProps) {
++  const { tradeId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
++  return (
++    <TradeSideChoosePage
++      mode="proposal"
++      tradeId={tradeId}
++      side="need"
++      currentNeedId={resolvedSearchParams.proposalNeedId}
++      currentOfferId={resolvedSearchParams.proposalOfferId}
++      initialSource={resolvedSearchParams.source === 'mine' || resolvedSearchParams.source === 'starter' ? resolvedSearchParams.source : ''}
++    />
++  );
++}
+diff --git a/apps/web/src/app/trades/[tradeId]/propose/choose-offer/new/page.tsx b/apps/web/src/app/trades/[tradeId]/propose/choose-offer/new/page.tsx
+new file mode 100644
+index 0000000..9475daa
+--- /dev/null
++++ b/apps/web/src/app/trades/[tradeId]/propose/choose-offer/new/page.tsx
+@@ -0,0 +1,31 @@
++import { InventoryFormClient } from '../../../../../../features/inventory/InventoryFormClient';
++
++type NewProposalOfferPageProps = {
++  params: Promise<{ tradeId: string }>;
++  searchParams?: Promise<{ proposalNeedId?: string; proposalOfferId?: string }>;
++};
++
++function chooseOfferHref(tradeId: string, params: { proposalNeedId?: string; proposalOfferId?: string }) {
++  const queryParams = new URLSearchParams();
++  if (params.proposalNeedId) queryParams.set('proposalNeedId', params.proposalNeedId);
++  if (params.proposalOfferId) queryParams.set('proposalOfferId', params.proposalOfferId);
++  const query = queryParams.toString();
++  return `/trades/${tradeId}/propose/choose-offer${query ? `?${query}` : ''}`;
++}
++
++export default async function NewProposalOfferPage({ params, searchParams }: NewProposalOfferPageProps) {
++  const { tradeId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
++  return (
++    <InventoryFormClient
++      kind="offer"
++      mode="create"
++      cancelHref={chooseOfferHref(tradeId, resolvedSearchParams)}
++      afterCreateRedirect={{
++        pathname: `/trades/${tradeId}`,
++        selectedParam: 'proposalOfferId',
++        preservedParams: {},
++      }}
++    />
++  );
++}
+diff --git a/apps/web/src/app/trades/[tradeId]/propose/choose-offer/page.tsx b/apps/web/src/app/trades/[tradeId]/propose/choose-offer/page.tsx
+new file mode 100644
+index 0000000..06c3b4c
+--- /dev/null
++++ b/apps/web/src/app/trades/[tradeId]/propose/choose-offer/page.tsx
+@@ -0,0 +1,21 @@
++import { TradeSideChoosePage } from '../../../../../features/trade/TradeSideChoosePage';
++
++type ProposalChooseOfferPageProps = {
++  params: Promise<{ tradeId: string }>;
++  searchParams?: Promise<{ proposalNeedId?: string; proposalOfferId?: string; source?: string }>;
++};
++
++export default async function ProposalChooseOfferPage({ params, searchParams }: ProposalChooseOfferPageProps) {
++  const { tradeId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
++  return (
++    <TradeSideChoosePage
++      mode="proposal"
++      tradeId={tradeId}
++      side="offer"
++      currentNeedId={resolvedSearchParams.proposalNeedId}
++      currentOfferId={resolvedSearchParams.proposalOfferId}
++      initialSource={resolvedSearchParams.source === 'mine' || resolvedSearchParams.source === 'starter' ? resolvedSearchParams.source : ''}
++    />
++  );
++}
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 301f2a8..5f9d319 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -34,7 +34,7 @@ import {
+ 
+ type InventoryCreateRedirect = {
+   pathname: string;
+-  selectedParam: 'needId' | 'offerId';
++  selectedParam: 'needId' | 'offerId' | 'proposalNeedId' | 'proposalOfferId';
+   preservedParams?: Record<string, string | undefined>;
+ };
+ 
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 6b39c52..c17b949 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -1,6 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
++import { useSearchParams } from 'next/navigation';
+ import type { FormEvent } from 'react';
+ import type { NeedDto, OfferDto, ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+@@ -122,6 +123,14 @@ function proposalSideRequirement(trade: TradeDto) {
+   return null;
+ }
+ 
++function proposalChooseHref(tradeId: string, side: 'need' | 'offer', currentNeedId?: string, currentOfferId?: string) {
++  const params = new URLSearchParams();
++  if (currentNeedId) params.set('proposalNeedId', currentNeedId);
++  if (currentOfferId) params.set('proposalOfferId', currentOfferId);
++  const query = params.toString();
++  return `/trades/${tradeId}/propose/choose-${side}${query ? `?${query}` : ''}`;
++}
++
+ function firstMediaUrl(item: NeedDto | OfferDto) {
+   return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
+ }
+@@ -156,13 +165,38 @@ function ProposalSidePreview({ kind, item, label, compact = false, i18n }: { kin
+   );
+ }
+ 
++function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18n }: { side: 'need' | 'offer'; title: string; count: number; item: NeedDto | OfferDto | null; emptyText: string; href: string; i18n: TradeI18n }) {
++  const t = i18n.t;
++  return (
++    <div className="proposal-side-picker">
++      <div className="trade-section-heading compact">
++        <div>
++          <p className="eyebrow">{side === 'need' ? t?.('trade.labels.yourNeed') ?? 'Your Need' : t?.('trade.labels.yourOffer') ?? 'Your Offer'}</p>
++          <h3 className="icon-heading"><WebIcon name={side} size={18} decorative /> {title}</h3>
++        </div>
++        <Link href={href} className="button secondary proposal-picker-link">{item ? t?.('common.actions.edit') ?? 'Edit' : t?.('trade.proposals.openPicker') ?? 'Open picker'}</Link>
++      </div>
++      {item ? <ProposalSidePreview kind={side} item={item} label={side === 'need' ? t?.('trade.labels.selectedNeed') : t?.('trade.labels.selectedOffer')} i18n={i18n} /> : (
++        <Link href={href} className="trade-side-placeholder proposal-side-placeholder">
++          <span><WebIcon name={side} size={22} decorative /></span>
++          <strong>{count > 0 ? t?.('trade.proposals.chooseFromSavedItems', { count }) : emptyText}</strong>
++          <small>{t?.('trade.proposals.chooseProposalItemOptionalBody')}</small>
++        </Link>
++      )}
++    </div>
++  );
++}
++
+ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
+   const auth = useWebAuth();
++  const searchParams = useSearchParams();
+   const { t, language } = useWebTranslation();
+   const i18n = { t, language };
+   const isOwner = auth.user?.id === trade.ownerId;
+   const proposalCopy = getTradeProposalCopy(trade, i18n);
+   const requiredProposalSide = proposalSideRequirement(trade);
++  const proposalNeedIdFromUrl = searchParams.get('proposalNeedId') ?? '';
++  const proposalOfferIdFromUrl = searchParams.get('proposalOfferId') ?? '';
+   const [proposals, setProposals] = useState<TradeProposalDto[]>([]);
+   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
+   const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
+@@ -186,6 +220,17 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+   const canShowConversation = Boolean(selectedProposal && (selectedProposal.status === 'accepted' || isOwner || selectedProposal.applicantId === auth.user?.id));
+   const canReplyToSelectedProposal = Boolean(selectedProposal && canShowConversation && !['declined', 'withdrawn'].includes(selectedProposal.status));
+ 
++
++  useEffect(() => {
++    if (proposalNeedIdFromUrl) {
++      setProposedNeedId(proposalNeedIdFromUrl);
++      setProposedOfferId('');
++    } else if (proposalOfferIdFromUrl) {
++      setProposedOfferId(proposalOfferIdFromUrl);
++      setProposedNeedId('');
++    }
++  }, [proposalNeedIdFromUrl, proposalOfferIdFromUrl]);
++
+   useEffect(() => {
+     if (!auth.isAuthenticated) return;
+     let mounted = true;
+@@ -222,7 +267,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+           setProposalNeeds([]);
+           setProposedNeedId('');
+           setProposalOffers(offers);
+-          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : offers.find((offer) => offer.status === 'active')?.id ?? '');
++          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : '');
+         } else if (requiredProposalSide === 'need') {
+           const response = await api.needs.mine();
+           const needs = normalizeNeeds(response);
+@@ -230,7 +275,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+           setProposalOffers([]);
+           setProposedOfferId('');
+           setProposalNeeds(needs);
+-          setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : needs.find((need) => need.status === 'active')?.id ?? '');
++          setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : '');
+         } else {
+           const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
+           const needs = normalizeNeeds(needsResponse);
+@@ -249,7 +294,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+     }
+     void loadProposalInventory();
+     return () => { mounted = false; };
+-  }, [auth.isAuthenticated, isOwner, ownProposal, requiredProposalSide, trade.status]);
++  }, [auth.isAuthenticated, isOwner, ownProposal, proposalNeedIdFromUrl, proposalOfferIdFromUrl, requiredProposalSide, trade.status]);
+ 
+   useEffect(() => {
+     if (!selectedProposal || !auth.isAuthenticated || !canShowConversation) {
+@@ -400,81 +445,27 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto;
+           ) : null}
+ 
+           {requiredProposalSide !== 'need' ? (
+-            <div className="proposal-side-picker">
+-              <div className="trade-section-heading compact">
+-                <div>
+-                  <p className="eyebrow">{t('trade.labels.yourOffer')}</p>
+-                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> {requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}</h3>
+-                </div>
+-                {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
+-              </div>
+-              {activeProposalOffers.length ? (
+-                <div className="trade-side-option-list proposal-side-option-list">
+-                  {activeProposalOffers.map((offer) => {
+-                    const mediaUrl = firstMediaUrl(offer);
+-                    return (
+-                      <button key={offer.id} type="button" className={offer.id === proposedOfferId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => { setProposedOfferId((current) => current === offer.id ? '' : offer.id); setProposedNeedId(''); }}>
+-                        <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'O'}</span>
+-                        <span className="trade-side-option__body">
+-                          <span className="trade-side-option__top"><strong>{offer.title}</strong><em>{t('inventory.labels.offer')}</em></span>
+-                          <span>{sideMeta(offer, i18n)}</span>
+-                        </span>
+-                      </button>
+-                    );
+-                  })}
+-                </div>
+-              ) : (
+-                <div className="proposal-empty-state proposal-empty-state--compact">
+-                  <WebIcon name="offer" size={28} decorative />
+-                  <strong>{t('trade.proposals.noActiveOffers')}</strong>
+-                  <span>{requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}</span>
+-                  <Link href="/offers" className="button secondary full">{t('trade.proposals.goToOffers')}</Link>
+-                </div>
+-              )}
+-            </div>
++            <ProposalPickerShortcut
++              side="offer"
++              title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
++              count={activeProposalOffers.length}
++              item={selectedOffer}
++              emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
++              href={proposalChooseHref(trade.id, 'offer', '', proposedOfferId)}
++              i18n={i18n}
++            />
+           ) : null}
+ 
+           {requiredProposalSide !== 'offer' ? (
+-            <div className="proposal-side-picker">
+-              <div className="trade-section-heading compact">
+-                <div>
+-                  <p className="eyebrow">{t('trade.labels.yourNeed')}</p>
+-                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> {requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}</h3>
+-                </div>
+-                {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
+-              </div>
+-              {activeProposalNeeds.length ? (
+-                <div className="trade-side-option-list proposal-side-option-list">
+-                  {activeProposalNeeds.map((need) => {
+-                    const mediaUrl = firstMediaUrl(need);
+-                    return (
+-                      <button key={need.id} type="button" className={need.id === proposedNeedId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => { setProposedNeedId((current) => current === need.id ? '' : need.id); setProposedOfferId(''); }}>
+-                        <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'N'}</span>
+-                        <span className="trade-side-option__body">
+-                          <span className="trade-side-option__top"><strong>{need.title}</strong><em>{t('inventory.labels.need')}</em></span>
+-                          <span>{sideMeta(need, i18n)}</span>
+-                        </span>
+-                      </button>
+-                    );
+-                  })}
+-                </div>
+-              ) : (
+-                <div className="proposal-empty-state proposal-empty-state--compact">
+-                  <WebIcon name="need" size={28} decorative />
+-                  <strong>{t('trade.proposals.noActiveNeeds')}</strong>
+-                  <span>{requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}</span>
+-                  <Link href="/needs" className="button secondary full">{t('trade.proposals.goToNeeds')}</Link>
+-                </div>
+-              )}
+-            </div>
+-          ) : null}
+-
+-          {selectedOffer ? (
+-            <ProposalSidePreview kind="offer" item={selectedOffer} label={t('trade.labels.selectedOffer')} i18n={i18n} />
+-          ) : null}
+-
+-          {selectedNeed ? (
+-            <ProposalSidePreview kind="need" item={selectedNeed} label={t('trade.labels.selectedNeed')} i18n={i18n} />
++            <ProposalPickerShortcut
++              side="need"
++              title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
++              count={activeProposalNeeds.length}
++              item={selectedNeed}
++              emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
++              href={proposalChooseHref(trade.id, 'need', proposedNeedId, '')}
++              i18n={i18n}
++            />
+           ) : null}
+ 
+           <label className="field-label proposal-message-field">
+diff --git a/apps/web/src/features/trade/TradeSideChoosePage.tsx b/apps/web/src/features/trade/TradeSideChoosePage.tsx
+index 9096e5e..19b7c67 100644
+--- a/apps/web/src/features/trade/TradeSideChoosePage.tsx
++++ b/apps/web/src/features/trade/TradeSideChoosePage.tsx
+@@ -27,6 +27,8 @@ type TradeSideChoosePageProps = {
+   currentOfferId?: string;
+   initialSource?: InitialSourceMode;
+   postType?: TradePostType | '';
++  mode?: 'createTrade' | 'proposal';
++  tradeId?: string;
+ };
+ 
+ type TemplateSection = {
+@@ -61,8 +63,23 @@ function createTradeHref(next: { postType?: TradePostType | ''; needId?: string;
+   return `/trades/create${query ? `?${query}` : ''}`;
+ }
+ 
+-function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode) {
++function tradeProposalHref(tradeId: string, next: { needId?: string; offerId?: string }) {
+   const params = new URLSearchParams();
++  if (next.needId) params.set('proposalNeedId', next.needId);
++  if (next.offerId) params.set('proposalOfferId', next.offerId);
++  const query = params.toString();
++  return `/trades/${tradeId}${query ? `?${query}` : ''}`;
++}
++
++function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
++  const params = new URLSearchParams();
++  if (context?.mode === 'proposal' && context.tradeId) {
++    if (next.needId) params.set('proposalNeedId', next.needId);
++    if (next.offerId) params.set('proposalOfferId', next.offerId);
++    if (source) params.set('source', source);
++    const query = params.toString();
++    return `/trades/${context.tradeId}/propose/choose-${side}${query ? `?${query}` : ''}`;
++  }
+   if (next.postType) params.set('postType', next.postType);
+   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
+   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+@@ -71,8 +88,14 @@ function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needI
+   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
+ }
+ 
+-function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }) {
++function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
+   const params = new URLSearchParams();
++  if (context?.mode === 'proposal' && context.tradeId) {
++    if (next.needId) params.set('proposalNeedId', next.needId);
++    if (next.offerId) params.set('proposalOfferId', next.offerId);
++    const query = params.toString();
++    return `/trades/${context.tradeId}/propose/choose-${side}/new${query ? `?${query}` : ''}`;
++  }
+   if (next.postType) params.set('postType', next.postType);
+   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
+   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+@@ -80,7 +103,12 @@ function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?:
+   return `/trades/create/choose-${side}/new${query ? `?${query}` : ''}`;
+ }
+ 
+-function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '') {
++function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '', context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
++  if (context?.mode === 'proposal' && context.tradeId) {
++    return side === 'need'
++      ? tradeProposalHref(context.tradeId, { needId: itemId, offerId: '' })
++      : tradeProposalHref(context.tradeId, { needId: '', offerId: itemId });
++  }
+   return side === 'need'
+     ? createTradeHref({ postType, needId: itemId, offerId: currentOfferId })
+     : createTradeHref({ postType, needId: currentNeedId, offerId: itemId });
+@@ -201,7 +229,7 @@ function StarterTemplateOption({
+   );
+ }
+ 
+-export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer' }: TradeSideChoosePageProps) {
++export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer', mode = 'createTrade', tradeId }: TradeSideChoosePageProps) {
+   const router = useRouter();
+   const auth = useWebAuth();
+   const { t } = useWebTranslation();
+@@ -220,9 +248,10 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+   const lowerLabel = label.toLowerCase();
+   const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+   const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
+-  const backHref = createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
+-  const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
+-  const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId });
++  const context = { mode, tradeId };
++  const backHref = mode === 'proposal' && tradeId ? tradeProposalHref(tradeId, { needId: currentNeedId, offerId: currentOfferId }) : createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
++  const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, undefined, context);
++  const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, context);
+ 
+   useEffect(() => {
+     setSourceMode(initialSource);
+@@ -311,7 +340,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+       const response = await api.inventoryTemplates.clone(template.id, { status: 'active' });
+       const created = createdItemFromCloneResponse(response, side);
+       if (!created) throw new Error(t('trade.sidePicker.starterSavedUnreadable', { item: label }));
+-      const href = selectHref(side, created.id, currentNeedId, currentOfferId, postType);
++      const href = selectHref(side, created.id, currentNeedId, currentOfferId, postType, context);
+       router.push(href);
+     } catch (cloneError) {
+       setTemplateError(getFriendlyApiErrorMessage(cloneError, t('trade.sidePicker.couldNotSaveStarter', { item: label })));
+@@ -324,7 +353,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+   return (
+     <MobilePage className="trade-side-choose-page">
+       <PageIntro
+-        eyebrow={t('trade.create.title')}
++        eyebrow={mode === 'proposal' ? t('trade.proposals.askToTrade') : t('trade.create.title')}
+         title={showSourceChoice ? t('trade.sidePicker.chooseSourceTitle', { item: lowerLabel }) : sourceMode === 'starter' ? t('trade.sidePicker.chooseStarterTitle', { item: lowerLabel }) : t('trade.sidePicker.chooseMineTitle', { items: pluralLabel })}
+         body={showSourceChoice
+           ? t('trade.sidePicker.chooseSourceBody', { items: pluralLabel, item: lowerLabel })
+@@ -344,7 +373,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+           <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
+           <h3>{t('trade.create.signInChoose', { items: pluralLabel })}</h3>
+           <p>{t('trade.create.signInChooseBody')}</p>
+-          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined))}`} className="button">{t('auth.actions.signIn')}</Link>
++          <Link href={`/auth?next=${encodeURIComponent(choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, sourceMode || undefined, context))}`} className="button">{t('auth.actions.signIn')}</Link>
+         </section>
+       ) : null}
+ 
+@@ -355,12 +384,12 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+             <span className="semantic-badge instruction">{t('trade.create.stepOneOfTwo')}</span>
+           </div>
+           <div className="trade-side-source-grid">
+-            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
++            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine', context)} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
+               <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={22} decorative /></span>
+               <strong>{t('trade.sidePicker.useMine')}</strong>
+               <small>{t('trade.sidePicker.useMineBody', { items: pluralLabel })}</small>
+             </Link>
+-            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
++            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter', context)} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
+               <span><WebIcon name="trade" size={22} decorative /></span>
+               <strong>{t('trade.sidePicker.useStarter')}</strong>
+               <small>{t('trade.sidePicker.useStarterBody')}</small>
+@@ -399,7 +428,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+                   item={item}
+                   side={side}
+                   active={item.id === selectedId}
+-                  href={selectHref(side, item.id, currentNeedId, currentOfferId, postType)}
++                  href={selectHref(side, item.id, currentNeedId, currentOfferId, postType, context)}
+                 />
+               ))}
+             </div>
+@@ -409,7 +438,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+               <span>{query.trim() ? t('trade.sidePicker.noMatchesBody') : t('trade.sidePicker.noSavedBody', { item: lowerLabel })}</span>
+               <div className="trade-side-empty-actions">
+                 <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> {t('common.actions.create')} {label}</Link>
+-                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter')} className="button secondary">{t('trade.sidePicker.useStarter')}</Link>
++                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter', context)} className="button secondary">{t('trade.sidePicker.useStarter')}</Link>
+               </div>
+             </div>
+           )}
+@@ -476,7 +505,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
+               <span>{query.trim() ? t('inventory.empty.searchOrFilterBody') : t('inventory.empty.starterSeedBody', { items: pluralLabel })}</span>
+               <div className="trade-side-empty-actions">
+                 <Link href={createHref} className="button secondary"><WebIcon name="add" size={16} decorative /> {t('common.actions.create')} {label}</Link>
+-                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine')} className="button secondary">{t('trade.sidePicker.useMine')}</Link>
++                <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine', context)} className="button secondary">{t('trade.sidePicker.useMine')}</Link>
+               </div>
+             </div>
+           )}
+diff --git a/docs/phase-25-p1b-proposal-picker-flow.md b/docs/phase-25-p1b-proposal-picker-flow.md
+new file mode 100644
+index 0000000..d38a32c
+--- /dev/null
++++ b/docs/phase-25-p1b-proposal-picker-flow.md
+@@ -0,0 +1,26 @@
++# Phase 25.P1b — Proposal picker flow polish
++
++## Goal
++
++Make proposal Need/Offer selection feel like the Create Trade selection flow instead of a dense inline list inside Trade Detail.
++
++## Implemented
++
++- Reused the Trade Side Picker route pattern for proposal selection on native.
++- Added web proposal picker routes:
++  - `/trades/[tradeId]/propose/choose-need`
++  - `/trades/[tradeId]/propose/choose-offer`
++  - `/trades/[tradeId]/propose/choose-need/new`
++  - `/trades/[tradeId]/propose/choose-offer/new`
++- The proposal composer now shows a compact selected Need/Offer preview and opens the picker for careful selection.
++- Open Need/Open Offer proposals no longer auto-select the first saved item. Users must choose deliberately.
++- Complete Need + Offer trades still allow optional proposal attachment, but only one side can be attached at a time.
++- Created Needs/Offers from the proposal picker return to Trade Detail with the new item selected.
++- Added English/French copy for the new picker flow.
++
++## Safety boundaries
++
++- No feed/deck behavior changes.
++- No proposal acceptance logic changes.
++- No wallet/money/payout/provider behavior was enabled.
++- Backend proposal validation from Phase 25.P1 remains the source of truth.
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index dedbbd2..64a5786 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -155,6 +155,10 @@ export const trade = {
+     chooseNeedToPropose: 'Choose existing Need to propose',
+     attachSavedItemOptional: 'Attach a saved Need or Offer',
+     attachSavedItemOptionalBody: 'Optional: attach one active Need or Offer so the owner can understand what you are proposing.',
++    chooseProposalItem: 'Choose what you want to propose',
++    chooseProposalItemOptionalBody: 'Open the picker, review your saved Needs or Offers, then come back here with one selected before you send the message.',
++    chooseFromSavedItems: 'Choose carefully from {{count}} active saved items.',
++    openPicker: 'Open picker',
+     attachOfferToProposal: 'Attach one of your Offers',
+     attachNeedToProposal: 'Attach one of your Needs',
+     noActiveOffers: 'No active Offers yet',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 981dac8..c698428 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -155,6 +155,10 @@ export const trade = {
+     chooseNeedToPropose: 'Choisir un besoin existant à proposer',
+     attachSavedItemOptional: 'Joindre un besoin ou une offre enregistré',
+     attachSavedItemOptionalBody: 'Optionnel : joignez un besoin ou une offre active pour aider le propriétaire à comprendre votre proposition.',
++    chooseProposalItem: 'Choisissez ce que vous voulez proposer',
++    chooseProposalItemOptionalBody: 'Ouvrez le sélecteur, vérifiez vos besoins ou offres enregistrés, puis revenez ici avec un élément sélectionné avant d’envoyer le message.',
++    chooseFromSavedItems: 'Choisissez soigneusement parmi {{count}} éléments actifs enregistrés.',
++    openPicker: 'Ouvrir le sélecteur',
+     attachOfferToProposal: 'Joindre une de vos offres',
+     attachNeedToProposal: 'Joindre un de vos besoins',
+     noActiveOffers: 'Aucune offre active pour le moment',

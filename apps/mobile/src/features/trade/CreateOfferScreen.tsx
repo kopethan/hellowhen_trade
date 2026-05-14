@@ -14,10 +14,12 @@ import { ImagePickerField } from './components/ImagePickerField';
 import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import type { OfferItem } from './types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
+type CreateOfferResponse = { offer: OfferItem };
 
-export function CreateOfferScreen({ navigation }: Props) {
+export function CreateOfferScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -52,7 +54,7 @@ export function CreateOfferScreen({ navigation }: Props) {
 
     try {
       const mediaIds = await uploadSelectedImages(images);
-      await api.offers.create({
+      const response = await api.offers.create({
         title: cleanTitle,
         description: cleanDescription,
         itemType,
@@ -62,9 +64,24 @@ export function CreateOfferScreen({ navigation }: Props) {
         locationLabel: optionalText(locationLabel),
         includes: parseInventoryList(includesInput),
         tags: parseInventoryList(tagsInput),
-        status: 'draft',
+        status: route.params?.returnTo ? 'active' : 'draft',
         mediaIds,
-      });
+      }) as CreateOfferResponse;
+
+      if (route.params?.returnTo === 'tradeProposal' && route.params.tradeId) {
+        navigation.navigate('TradeDetail', {
+          tradeId: route.params.tradeId,
+          title: route.params.tradeTitle,
+          selectedProposalSide: { side: 'offer', kind: 'offer', id: response.offer.id },
+        });
+        return;
+      }
+
+      if (route.params?.returnTo === 'createTrade') {
+        navigation.navigate('CreateTrade', { selectedTradeSide: { side: 'offer', kind: 'offer', id: response.offer.id } });
+        return;
+      }
+
       navigation.goBack();
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));

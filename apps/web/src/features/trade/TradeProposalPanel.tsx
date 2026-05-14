@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
 import type { NeedDto, OfferDto, ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
@@ -122,6 +123,14 @@ function proposalSideRequirement(trade: TradeDto) {
   return null;
 }
 
+function proposalChooseHref(tradeId: string, side: 'need' | 'offer', currentNeedId?: string, currentOfferId?: string) {
+  const params = new URLSearchParams();
+  if (currentNeedId) params.set('proposalNeedId', currentNeedId);
+  if (currentOfferId) params.set('proposalOfferId', currentOfferId);
+  const query = params.toString();
+  return `/trades/${tradeId}/propose/choose-${side}${query ? `?${query}` : ''}`;
+}
+
 function firstMediaUrl(item: NeedDto | OfferDto) {
   return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
 }
@@ -156,13 +165,38 @@ function ProposalSidePreview({ kind, item, label, compact = false, i18n }: { kin
   );
 }
 
+function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18n }: { side: 'need' | 'offer'; title: string; count: number; item: NeedDto | OfferDto | null; emptyText: string; href: string; i18n: TradeI18n }) {
+  const t = i18n.t;
+  return (
+    <div className="proposal-side-picker">
+      <div className="trade-section-heading compact">
+        <div>
+          <p className="eyebrow">{side === 'need' ? t?.('trade.labels.yourNeed') ?? 'Your Need' : t?.('trade.labels.yourOffer') ?? 'Your Offer'}</p>
+          <h3 className="icon-heading"><WebIcon name={side} size={18} decorative /> {title}</h3>
+        </div>
+        <Link href={href} className="button secondary proposal-picker-link">{item ? t?.('common.actions.edit') ?? 'Edit' : t?.('trade.proposals.openPicker') ?? 'Open picker'}</Link>
+      </div>
+      {item ? <ProposalSidePreview kind={side} item={item} label={side === 'need' ? t?.('trade.labels.selectedNeed') : t?.('trade.labels.selectedOffer')} i18n={i18n} /> : (
+        <Link href={href} className="trade-side-placeholder proposal-side-placeholder">
+          <span><WebIcon name={side} size={22} decorative /></span>
+          <strong>{count > 0 ? t?.('trade.proposals.chooseFromSavedItems', { count }) : emptyText}</strong>
+          <small>{t?.('trade.proposals.chooseProposalItemOptionalBody')}</small>
+        </Link>
+      )}
+    </div>
+  );
+}
+
 export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
   const auth = useWebAuth();
+  const searchParams = useSearchParams();
   const { t, language } = useWebTranslation();
   const i18n = { t, language };
   const isOwner = auth.user?.id === trade.ownerId;
   const proposalCopy = getTradeProposalCopy(trade, i18n);
   const requiredProposalSide = proposalSideRequirement(trade);
+  const proposalNeedIdFromUrl = searchParams.get('proposalNeedId') ?? '';
+  const proposalOfferIdFromUrl = searchParams.get('proposalOfferId') ?? '';
   const [proposals, setProposals] = useState<TradeProposalDto[]>([]);
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
@@ -178,13 +212,24 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
 
   const selectedProposal = useMemo(() => proposals.find((proposal) => proposal.id === selectedProposalId) ?? proposals.find((proposal) => proposal.status === 'accepted') ?? proposals[0] ?? null, [proposals, selectedProposalId]);
   const ownProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id), [auth.user?.id, proposals]);
-  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => !['fulfilled', 'closed', 'expired'].includes(need.status)), [proposalNeeds]);
-  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => !['accepted', 'closed', 'expired'].includes(offer.status)), [proposalOffers]);
+  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => need.status === 'active'), [proposalNeeds]);
+  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => offer.status === 'active'), [proposalOffers]);
   const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
   const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
   const hasRequiredSide = requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
   const canShowConversation = Boolean(selectedProposal && (selectedProposal.status === 'accepted' || isOwner || selectedProposal.applicantId === auth.user?.id));
   const canReplyToSelectedProposal = Boolean(selectedProposal && canShowConversation && !['declined', 'withdrawn'].includes(selectedProposal.status));
+
+
+  useEffect(() => {
+    if (proposalNeedIdFromUrl) {
+      setProposedNeedId(proposalNeedIdFromUrl);
+      setProposedOfferId('');
+    } else if (proposalOfferIdFromUrl) {
+      setProposedOfferId(proposalOfferIdFromUrl);
+      setProposedNeedId('');
+    }
+  }, [proposalNeedIdFromUrl, proposalOfferIdFromUrl]);
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
@@ -210,7 +255,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
 
 
   useEffect(() => {
-    if (!auth.isAuthenticated || isOwner || ownProposal || !requiredProposalSide) return;
+    if (!auth.isAuthenticated || isOwner || ownProposal || trade.status !== 'active') return;
     let mounted = true;
     async function loadProposalInventory() {
       setSideLoading(true);
@@ -219,24 +264,37 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
           const response = await api.offers.mine();
           const offers = normalizeOffers(response);
           if (!mounted) return;
+          setProposalNeeds([]);
+          setProposedNeedId('');
           setProposalOffers(offers);
-          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current) ? current : offers.find((offer) => !['accepted', 'closed', 'expired'].includes(offer.status))?.id ?? '');
-        } else {
+          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : '');
+        } else if (requiredProposalSide === 'need') {
           const response = await api.needs.mine();
           const needs = normalizeNeeds(response);
           if (!mounted) return;
+          setProposalOffers([]);
+          setProposedOfferId('');
           setProposalNeeds(needs);
-          setProposedNeedId((current) => current && needs.some((need) => need.id === current) ? current : needs.find((need) => !['fulfilled', 'closed', 'expired'].includes(need.status))?.id ?? '');
+          setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : '');
+        } else {
+          const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
+          const needs = normalizeNeeds(needsResponse);
+          const offers = normalizeOffers(offersResponse);
+          if (!mounted) return;
+          setProposalNeeds(needs);
+          setProposalOffers(offers);
+          setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : '');
+          setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : '');
         }
       } catch {
-        if (mounted) setNotice(requiredProposalSide === 'offer' ? t('trade.errors.couldNotLoadOffers') : t('trade.errors.couldNotLoadNeeds'));
+        if (mounted) setNotice(t('trade.errors.couldNotLoadInventory'));
       } finally {
         if (mounted) setSideLoading(false);
       }
     }
     void loadProposalInventory();
     return () => { mounted = false; };
-  }, [auth.isAuthenticated, isOwner, ownProposal, requiredProposalSide]);
+  }, [auth.isAuthenticated, isOwner, ownProposal, proposalNeedIdFromUrl, proposalOfferIdFromUrl, requiredProposalSide, trade.status]);
 
   useEffect(() => {
     if (!selectedProposal || !auth.isAuthenticated || !canShowConversation) {
@@ -268,8 +326,8 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
     try {
       const response = await api.trades.createProposal(trade.id, {
         message,
-        ...(requiredProposalSide === 'need' ? { proposedNeedId: selectedNeed?.id } : {}),
-        ...(requiredProposalSide === 'offer' ? { proposedOfferId: selectedOffer?.id } : {})
+        ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed ? { proposedNeedId: selectedNeed.id } : {}),
+        ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer ? { proposedOfferId: selectedOffer.id } : {})
       });
       const proposal = normalizeProposal(response);
       if (!proposal) throw new Error('missing_proposal_response');
@@ -370,7 +428,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       {notice ? <p className="notice-box info">{notice}</p> : null}
 
       {!isOwner && !ownProposal ? (
-        <form className={requiredProposalSide ? 'proposal-composer proposal-composer--with-side' : 'proposal-composer'} onSubmit={submitProposal}>
+        <form className="proposal-composer proposal-composer--with-side" onSubmit={submitProposal}>
           {requiredProposalSide ? (
             <p className="proposal-side-callout">
               <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
@@ -379,82 +437,35 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
                 : t('trade.proposals.chooseNeedFirst')}
             </p>
           ) : null}
-          {requiredProposalSide === 'offer' ? (
-            <div className="proposal-side-picker">
-              <div className="trade-section-heading compact">
-                <div>
-                  <p className="eyebrow">{t('trade.labels.yourOffer')}</p>
-                  <h3 className="icon-heading"><WebIcon name="offer" size={18} decorative /> {t('trade.proposals.chooseOfferToPropose')}</h3>
-                </div>
-                {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
-              </div>
-              {activeProposalOffers.length ? (
-                <div className="trade-side-option-list proposal-side-option-list">
-                  {activeProposalOffers.map((offer) => {
-                    const mediaUrl = firstMediaUrl(offer);
-                    return (
-                      <button key={offer.id} type="button" className={offer.id === proposedOfferId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedOfferId(offer.id)}>
-                        <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'O'}</span>
-                        <span className="trade-side-option__body">
-                          <span className="trade-side-option__top"><strong>{offer.title}</strong><em>{t('inventory.labels.offer')}</em></span>
-                          <span>{sideMeta(offer, i18n)}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="proposal-empty-state proposal-empty-state--compact">
-                  <WebIcon name="offer" size={28} decorative />
-                  <strong>{t('trade.proposals.noActiveOffers')}</strong>
-                  <span>{t('trade.proposals.createOfferFirst')}</span>
-                  <Link href="/offers" className="button secondary full">{t('trade.proposals.goToOffers')}</Link>
-                </div>
-              )}
-            </div>
+          {!requiredProposalSide ? (
+            <p className="proposal-side-callout">
+              <WebIcon name="proposal" size={17} decorative />
+              {t('trade.proposals.attachSavedItemOptionalBody')}
+            </p>
           ) : null}
 
-          {requiredProposalSide === 'need' ? (
-            <div className="proposal-side-picker">
-              <div className="trade-section-heading compact">
-                <div>
-                  <p className="eyebrow">{t('trade.labels.yourNeed')}</p>
-                  <h3 className="icon-heading"><WebIcon name="need" size={18} decorative /> {t('trade.proposals.chooseNeedToPropose')}</h3>
-                </div>
-                {sideLoading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : null}
-              </div>
-              {activeProposalNeeds.length ? (
-                <div className="trade-side-option-list proposal-side-option-list">
-                  {activeProposalNeeds.map((need) => {
-                    const mediaUrl = firstMediaUrl(need);
-                    return (
-                      <button key={need.id} type="button" className={need.id === proposedNeedId ? 'trade-side-option is-active' : 'trade-side-option'} onClick={() => setProposedNeedId(need.id)}>
-                        <span className="trade-side-option__media">{mediaUrl ? <img src={mediaUrl} alt="" /> : 'N'}</span>
-                        <span className="trade-side-option__body">
-                          <span className="trade-side-option__top"><strong>{need.title}</strong><em>{t('inventory.labels.need')}</em></span>
-                          <span>{sideMeta(need, i18n)}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="proposal-empty-state proposal-empty-state--compact">
-                  <WebIcon name="need" size={28} decorative />
-                  <strong>{t('trade.proposals.noActiveNeeds')}</strong>
-                  <span>{t('trade.proposals.createNeedFirst')}</span>
-                  <Link href="/needs" className="button secondary full">{t('trade.proposals.goToNeeds')}</Link>
-                </div>
-              )}
-            </div>
+          {requiredProposalSide !== 'need' ? (
+            <ProposalPickerShortcut
+              side="offer"
+              title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
+              count={activeProposalOffers.length}
+              item={selectedOffer}
+              emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
+              href={proposalChooseHref(trade.id, 'offer', '', proposedOfferId)}
+              i18n={i18n}
+            />
           ) : null}
 
-          {requiredProposalSide === 'offer' && selectedOffer ? (
-            <ProposalSidePreview kind="offer" item={selectedOffer} label={t('trade.labels.selectedOffer')} i18n={i18n} />
-          ) : null}
-
-          {requiredProposalSide === 'need' && selectedNeed ? (
-            <ProposalSidePreview kind="need" item={selectedNeed} label={t('trade.labels.selectedNeed')} i18n={i18n} />
+          {requiredProposalSide !== 'offer' ? (
+            <ProposalPickerShortcut
+              side="need"
+              title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
+              count={activeProposalNeeds.length}
+              item={selectedNeed}
+              emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
+              href={proposalChooseHref(trade.id, 'need', proposedNeedId, '')}
+              i18n={i18n}
+            />
           ) : null}
 
           <label className="field-label proposal-message-field">

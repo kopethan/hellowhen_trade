@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { cloneInventoryTemplateRequestSchema, listInventoryTemplatesQuerySchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { optionalAuth, requireAuth } from '../../middleware/auth.js';
 import { withOneMedia } from '../media/media.helpers.js';
 
 export const inventoryTemplatesRoutes = Router();
@@ -16,7 +16,46 @@ const businessProfileSelect = {
   status: true,
 } as const;
 
-function buildTemplateWhere(input: ReturnType<typeof listInventoryTemplatesQuerySchema.parse>) {
+type TemplateListInput = ReturnType<typeof listInventoryTemplatesQuerySchema.parse>;
+type TemplateLocalePreferences = { language: 'en' | 'fr'; countryCode?: string };
+
+function normalizeDiscoveryLanguage(value?: string | null): 'en' | 'fr' | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === 'system') return null;
+  const base = normalized.replace('_', '-').split('-')[0];
+  return base === 'fr' || base === 'en' ? base : null;
+}
+
+function normalizeCountryCode(value?: string | null) {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
+}
+
+function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | null {
+  if (typeof value !== 'string') return null;
+  const candidates = value.split(',').map((entry) => entry.split(';')[0]?.trim()).filter(Boolean);
+  for (const candidate of candidates) {
+    const language = normalizeDiscoveryLanguage(candidate);
+    if (language) return language;
+  }
+  return null;
+}
+
+function resolveTemplateLocalePreferences(
+  input: TemplateListInput,
+  actorPreferences: { profile?: { countryCode?: string | null } | null; settings?: { language?: string | null } | null } | null | undefined,
+  acceptLanguageHeader: unknown,
+): TemplateLocalePreferences {
+  return {
+    language: normalizeDiscoveryLanguage(input.language)
+      ?? normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
+      ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
+      ?? 'en',
+    countryCode: normalizeCountryCode(input.countryCode) ?? normalizeCountryCode(actorPreferences?.profile?.countryCode),
+  };
+}
+
+function baseTemplateWhere(input: TemplateListInput): Prisma.InventoryTemplateWhereInput {
   const and: Prisma.InventoryTemplateWhereInput[] = [{ status: 'active' }];
 
   if (input.kind) and.push({ kind: input.kind });
@@ -39,16 +78,61 @@ function buildTemplateWhere(input: ReturnType<typeof listInventoryTemplatesQuery
   return { AND: and };
 }
 
-inventoryTemplatesRoutes.get('/', asyncRoute(async (req, res) => {
-  const input = listInventoryTemplatesQuerySchema.parse(req.query);
-  const templates = await prisma.inventoryTemplate.findMany({
-    where: buildTemplateWhere(input),
+function templateLocaleWhere(preferences: TemplateLocalePreferences, fallbackLanguage?: 'en' | 'fr'): Prisma.InventoryTemplateWhereInput {
+  const languageCode = fallbackLanguage ?? preferences.language;
+  const countryFilter: Prisma.InventoryTemplateWhereInput = preferences.countryCode
+    ? { OR: [{ countryCode: null }, { countryCode: preferences.countryCode }] }
+    : { countryCode: null };
+  return { AND: [{ languageCode }, countryFilter] };
+}
+
+function sortTemplatesForLocale<T extends { languageCode?: string | null; countryCode?: string | null; sortOrder?: number; itemType?: string | null; title?: string | null }>(templates: T[], preferences: TemplateLocalePreferences) {
+  return [...templates].sort((left, right) => {
+    const leftCountry = normalizeCountryCode(left.countryCode);
+    const rightCountry = normalizeCountryCode(right.countryCode);
+    const leftCountryScore = preferences.countryCode && leftCountry === preferences.countryCode ? 0 : leftCountry ? 2 : 1;
+    const rightCountryScore = preferences.countryCode && rightCountry === preferences.countryCode ? 0 : rightCountry ? 2 : 1;
+    if (leftCountryScore !== rightCountryScore) return leftCountryScore - rightCountryScore;
+    const sortDelta = (left.sortOrder ?? 0) - (right.sortOrder ?? 0);
+    if (sortDelta !== 0) return sortDelta;
+    const typeDelta = String(left.itemType ?? '').localeCompare(String(right.itemType ?? ''));
+    if (typeDelta !== 0) return typeDelta;
+    return String(left.title ?? '').localeCompare(String(right.title ?? ''));
+  });
+}
+
+async function listLocalizedTemplates(input: TemplateListInput, preferences: TemplateLocalePreferences) {
+  const take = input.take ?? 80;
+  const baseWhere = baseTemplateWhere(input);
+  const preferred = await prisma.inventoryTemplate.findMany({
+    where: { AND: [baseWhere, templateLocaleWhere(preferences)] },
     include: { businessProfile: { select: businessProfileSelect } },
     orderBy: [{ sortOrder: 'asc' }, { itemType: 'asc' }, { title: 'asc' }],
-    take: input.take ?? 80,
+    take,
   });
 
-  res.json({ templates });
+  const sortedPreferred = sortTemplatesForLocale(preferred, preferences);
+  if (preferences.language === 'en' || sortedPreferred.length > 0) return sortedPreferred.slice(0, take);
+
+  const fallback = await prisma.inventoryTemplate.findMany({
+    where: { AND: [baseWhere, templateLocaleWhere(preferences, 'en'), { key: { notIn: sortedPreferred.map((template) => template.key) } }] },
+    include: { businessProfile: { select: businessProfileSelect } },
+    orderBy: [{ sortOrder: 'asc' }, { itemType: 'asc' }, { title: 'asc' }],
+    take,
+  });
+
+  return sortTemplatesForLocale(fallback, preferences).slice(0, take);
+}
+
+inventoryTemplatesRoutes.get('/', optionalAuth, asyncRoute(async (req, res) => {
+  const input = listInventoryTemplatesQuerySchema.parse(req.query);
+  const actorPreferences = req.user?.id
+    ? await prisma.user.findUnique({ where: { id: req.user.id }, select: { profile: { select: { countryCode: true } }, settings: { select: { language: true } } } })
+    : null;
+  const preferences = resolveTemplateLocalePreferences(input, actorPreferences, req.headers['accept-language']);
+  const templates = await listLocalizedTemplates(input, preferences);
+
+  res.json({ templates, language: preferences.language, countryCode: preferences.countryCode ?? null });
 }));
 
 inventoryTemplatesRoutes.get('/:templateId', asyncRoute(async (req, res) => {

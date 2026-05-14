@@ -13,6 +13,14 @@ import { publicUserPreviewSelect } from '../users/publicUser.js';
 
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+const feedTradeInclude = {
+  owner: { select: { ...publicUserPreviewSelect, settings: { select: { language: true } } } },
+  provider: { select: publicUserPreviewSelect },
+  need: true,
+  offer: true,
+  payment: true,
+  escrow: true
+} as const;
 export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
 
 type DeckRelatedEntity = { id: string } | null | undefined;
@@ -22,7 +30,7 @@ type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'off
   need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
   offer: (NonNullable<T['offer']> & { media: MediaAsset[] }) | null;
 };
-type ProposalWithTrade = { trade?: TradeWithDeckRelations | null };
+type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity };
 
 export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trades: T[], visibility: MediaVisibility = 'owner'): Promise<Array<TradeDeckHydrated<T>>> {
   const tradeIds = trades.map((trade) => trade.id);
@@ -63,9 +71,20 @@ export async function withTradeDeckMediaForActor<T extends TradeWithDeckRelation
 
 export async function withProposalTradeMedia<T extends ProposalWithTrade>(proposals: T[], visibility: MediaVisibility = 'owner'): Promise<T[]> {
   const trades = proposals.map((proposal) => proposal.trade).filter((trade): trade is TradeWithDeckRelations => Boolean(trade));
-  const hydratedTrades = await withTradeDeckMedia(trades, visibility);
+  const proposedNeedIds = proposals.map((proposal) => proposal.proposedNeed?.id).filter((id): id is string => Boolean(id));
+  const proposedOfferIds = proposals.map((proposal) => proposal.proposedOffer?.id).filter((id): id is string => Boolean(id));
+  const [hydratedTrades, proposedNeedMedia, proposedOfferMedia] = await Promise.all([
+    withTradeDeckMedia(trades, visibility),
+    loadMediaByEntityIds('need', proposedNeedIds, visibility),
+    loadMediaByEntityIds('offer', proposedOfferIds, visibility)
+  ]);
   const byTradeId = new Map(hydratedTrades.map((trade) => [trade.id, trade]));
-  return proposals.map((proposal) => proposal.trade ? { ...proposal, trade: byTradeId.get(proposal.trade.id) ?? proposal.trade } : proposal) as T[];
+  return proposals.map((proposal) => ({
+    ...proposal,
+    trade: proposal.trade ? byTradeId.get(proposal.trade.id) ?? proposal.trade : proposal.trade,
+    proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
+    proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
+  })) as T[];
 }
 
 function containsText(value: string) {
@@ -103,7 +122,7 @@ function proposalSideRequirement(postType?: string | null) {
 }
 
 function inventoryUnavailable(status?: string | null) {
-  return Boolean(status && ['fulfilled', 'accepted', 'closed', 'expired'].includes(status));
+  return status !== 'active';
 }
 
 
@@ -117,17 +136,71 @@ const FEED_URGENCY = {
   noExpiry: -8,
 } as const;
 
+const DISCOVERY_SEED_SALT = 'hellowhen-feed-v1';
+const MAX_SEEN_TRADE_PENALTY = 36;
+
+type FeedRankableTrade = {
+  id: string;
+  ownerId?: string | null;
+  postType?: string | null;
+  title?: string | null;
+  description?: string | null;
+  amountCents?: number | null;
+  creditAmount?: number | null;
+  owner?: {
+    profile?: { countryCode?: string | null } | null;
+    settings?: { language?: string | null } | null;
+  } | null;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  expiresAt?: Date | string | null;
+  need?: {
+    title?: string | null;
+    description?: string | null;
+    category?: string | null;
+    timing?: string | null;
+    mode?: string | null;
+    locationLabel?: string | null;
+    tags?: string[] | null;
+    media?: unknown[] | null;
+  } | null;
+  offer?: {
+    title?: string | null;
+    description?: string | null;
+    category?: string | null;
+    availability?: string | null;
+    mode?: string | null;
+    locationLabel?: string | null;
+    includes?: string[] | null;
+    tags?: string[] | null;
+    media?: unknown[] | null;
+  } | null;
+};
+
+type FeedDiscoveryPreferences = {
+  language: 'en' | 'fr';
+  countryCode?: string;
+};
+
+type FeedDiscoveryContext = {
+  filters: ListTradesFeedQuery;
+  refreshSeed: string;
+  seenTradeIds: Set<string>;
+  nowMs: number;
+  preferences: FeedDiscoveryPreferences;
+};
+
 function toDateMs(value?: Date | string | null) {
   if (!value) return null;
   const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(ms) ? ms : null;
 }
 
-function getExpiryUrgencyBoost(expiresAt?: Date | string | null) {
+function getExpiryUrgencyBoost(expiresAt: Date | string | null | undefined, nowMs: number) {
   const expiresMs = toDateMs(expiresAt);
   if (!expiresMs) return FEED_URGENCY.noExpiry;
 
-  const hoursLeft = (expiresMs - Date.now()) / 36e5;
+  const hoursLeft = (expiresMs - nowMs) / 36e5;
   if (hoursLeft <= 0) return FEED_URGENCY.expired;
   if (hoursLeft <= 24) return FEED_URGENCY.expiresWithin24h;
   if (hoursLeft <= 72) return FEED_URGENCY.expiresWithin72h;
@@ -136,23 +209,217 @@ function getExpiryUrgencyBoost(expiresAt?: Date | string | null) {
   return FEED_URGENCY.longExpiry;
 }
 
-function getFeedVisibilityScore(trade: { createdAt?: Date | string | null; expiresAt?: Date | string | null; need?: { media?: unknown[] } | null; offer?: { media?: unknown[] } | null }) {
-  const createdMs = toDateMs(trade.createdAt) ?? Date.now();
-  const ageHours = Math.max(0, (Date.now() - createdMs) / 36e5);
-  const recencyScore = Math.max(0, 100 - ageHours * 0.65);
-  const mediaScore = ((trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0)) > 0 ? 4 : 0;
-  return recencyScore + getExpiryUrgencyBoost(trade.expiresAt) + mediaScore;
+function hashStringToUnit(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
 }
 
-function sortTradesForDiscovery<T extends { id: string; createdAt?: Date | string | null; expiresAt?: Date | string | null; need?: { media?: unknown[] } | null; offer?: { media?: unknown[] } | null }>(trades: T[]) {
-  return [...trades].sort((left, right) => {
-    const scoreDelta = getFeedVisibilityScore(right) - getFeedVisibilityScore(left);
+function seededJitter(seed: string, tradeId: string, spread = 18) {
+  return (hashStringToUnit(`${DISCOVERY_SEED_SALT}:${seed}:${tradeId}`) - 0.5) * spread;
+}
+
+function normalizeDiscoveryLanguage(value?: string | null): 'en' | 'fr' | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || normalized === 'system') return null;
+  const base = normalized.replace('_', '-').split('-')[0];
+  return base === 'fr' || base === 'en' ? base : null;
+}
+
+function normalizeCountryCode(value?: string | null) {
+  const normalized = value?.trim().toUpperCase();
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : undefined;
+}
+
+function resolveLanguageFromAcceptLanguage(value: unknown): 'en' | 'fr' | null {
+  if (typeof value !== 'string') return null;
+  const candidates = value.split(',').map((entry) => entry.split(';')[0]?.trim()).filter(Boolean);
+  for (const candidate of candidates) {
+    const language = normalizeDiscoveryLanguage(candidate);
+    if (language) return language;
+  }
+  return null;
+}
+
+function resolveFeedDiscoveryPreferences(
+  filters: ListTradesFeedQuery,
+  actorPreferences: { profile?: { countryCode?: string | null } | null; settings?: { language?: string | null } | null } | null | undefined,
+  acceptLanguageHeader: unknown,
+): FeedDiscoveryPreferences {
+  return {
+    language: normalizeDiscoveryLanguage(filters.language)
+      ?? normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
+      ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
+      ?? 'en',
+    countryCode: normalizeCountryCode(filters.countryCode) ?? normalizeCountryCode(actorPreferences?.profile?.countryCode),
+  };
+}
+
+function getLocaleAffinityScore(trade: FeedRankableTrade, preferences: FeedDiscoveryPreferences) {
+  let score = 0;
+  const ownerCountry = normalizeCountryCode(trade.owner?.profile?.countryCode);
+  const ownerLanguage = normalizeDiscoveryLanguage(trade.owner?.settings?.language);
+
+  if (preferences.countryCode && ownerCountry) {
+    if (ownerCountry === preferences.countryCode) score += 20;
+    else if (getFeedModeKey(trade) === 'local') score -= 8;
+  }
+
+  if (ownerLanguage) {
+    if (ownerLanguage === preferences.language) score += 16;
+    else score -= 5;
+  }
+
+  return score;
+}
+
+function stripFeedRankingOnlyFields<T extends FeedRankableTrade>(trade: T): T {
+  if (!trade.owner || typeof trade.owner !== 'object' || !('settings' in trade.owner)) return trade;
+  const owner = { ...trade.owner };
+  delete (owner as { settings?: unknown }).settings;
+  return { ...trade, owner } as T;
+}
+
+function textContains(value: string | null | undefined, query: string) {
+  return Boolean(value?.toLowerCase().includes(query));
+}
+
+function getSearchRelevanceScore(trade: FeedRankableTrade, query?: string) {
+  const normalized = query?.trim().toLowerCase();
+  if (!normalized) return 0;
+
+  let score = 0;
+  if (textContains(trade.title, normalized)) score += 18;
+  if (textContains(trade.need?.title, normalized)) score += 16;
+  if (textContains(trade.offer?.title, normalized)) score += 16;
+  if (textContains(trade.need?.category, normalized)) score += 10;
+  if (textContains(trade.offer?.category, normalized)) score += 10;
+  if (textContains(trade.description, normalized)) score += 6;
+  if (textContains(trade.need?.description, normalized)) score += 5;
+  if (textContains(trade.offer?.description, normalized)) score += 5;
+  return score;
+}
+
+function getCompletenessScore(trade: FeedRankableTrade) {
+  const mediaCount = (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0);
+  const hasNeedMetadata = Boolean(trade.need?.category || trade.need?.mode || trade.need?.locationLabel || trade.need?.timing || (trade.need?.tags?.length ?? 0) > 0);
+  const hasOfferMetadata = Boolean(trade.offer?.category || trade.offer?.mode || trade.offer?.locationLabel || trade.offer?.availability || (trade.offer?.tags?.length ?? 0) > 0 || (trade.offer?.includes?.length ?? 0) > 0);
+  let score = 0;
+  if (mediaCount > 0) score += 8;
+  if (mediaCount > 1) score += 3;
+  if (hasNeedMetadata) score += 4;
+  if (hasOfferMetadata) score += 4;
+  if (trade.need && trade.offer) score += 5;
+  if ((trade.amountCents ?? 0) > 0 || (trade.creditAmount ?? 0) > 0) score -= 12;
+  return score;
+}
+
+function getFreshnessScore(trade: FeedRankableTrade, nowMs: number) {
+  const createdMs = toDateMs(trade.createdAt) ?? nowMs;
+  const updatedMs = toDateMs(trade.updatedAt) ?? createdMs;
+  const ageHours = Math.max(0, (nowMs - createdMs) / 36e5);
+  const updatedAgeHours = Math.max(0, (nowMs - updatedMs) / 36e5);
+  const createdRecency = Math.max(0, 100 - ageHours * 0.65);
+  const updatedRecency = Math.max(0, 16 - updatedAgeHours * 0.22);
+  return createdRecency + updatedRecency;
+}
+
+function getFeedCategoryKey(trade: FeedRankableTrade) {
+  return (trade.need?.category || trade.offer?.category || 'uncategorized').trim().toLowerCase();
+}
+
+function getFeedModeKey(trade: FeedRankableTrade) {
+  return (trade.need?.mode || trade.offer?.mode || 'unknown').trim().toLowerCase();
+}
+
+function getFeedDiscoveryScore(trade: FeedRankableTrade, context: FeedDiscoveryContext) {
+  const seenPenalty = context.seenTradeIds.has(trade.id) ? MAX_SEEN_TRADE_PENALTY : 0;
+  const filterMatchBoost = context.filters.mode && (trade.need?.mode === context.filters.mode || trade.offer?.mode === context.filters.mode) ? 8 : 0;
+  const categoryFilter = context.filters.category?.trim().toLowerCase();
+  const categoryMatchBoost = categoryFilter && (textContains(trade.need?.category, categoryFilter) || textContains(trade.offer?.category, categoryFilter)) ? 8 : 0;
+
+  return getFreshnessScore(trade, context.nowMs)
+    + getExpiryUrgencyBoost(trade.expiresAt, context.nowMs)
+    + getCompletenessScore(trade)
+    + getSearchRelevanceScore(trade, context.filters.q)
+    + getLocaleAffinityScore(trade, context.preferences)
+    + filterMatchBoost
+    + categoryMatchBoost
+    + seededJitter(context.refreshSeed, trade.id)
+    - seenPenalty;
+}
+
+function diversifyRankedTrades<T extends FeedRankableTrade>(ranked: T[], context: FeedDiscoveryContext) {
+  const remaining = [...ranked];
+  const result: T[] = [];
+  const recentOwners: string[] = [];
+  const recentCategories: string[] = [];
+  const recentPostTypes: string[] = [];
+
+  while (remaining.length) {
+    let bestIndex = 0;
+    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
+
+    for (let index = 0; index < Math.min(remaining.length, 18); index += 1) {
+      const trade = remaining[index];
+      const ownerKey = trade.ownerId || 'unknown';
+      const categoryKey = getFeedCategoryKey(trade);
+      const postTypeKey = trade.postType || 'need_offer';
+      const modeKey = getFeedModeKey(trade);
+      const baseRankPenalty = index * 0.7;
+      const ownerPenalty = recentOwners.includes(ownerKey) ? 18 : 0;
+      const categoryPenalty = categoryKey !== 'uncategorized' && recentCategories.includes(categoryKey) ? 9 : 0;
+      const postTypePenalty = recentPostTypes.filter((value) => value === postTypeKey).length >= 2 ? 7 : 0;
+      const modeBoost = context.filters.mode && modeKey === context.filters.mode ? 3 : 0;
+      const adjustedScore = getFeedDiscoveryScore(trade, context) + modeBoost - baseRankPenalty - ownerPenalty - categoryPenalty - postTypePenalty;
+
+      if (adjustedScore > bestAdjustedScore) {
+        bestAdjustedScore = adjustedScore;
+        bestIndex = index;
+      }
+    }
+
+    const [next] = remaining.splice(bestIndex, 1);
+    result.push(next);
+    recentOwners.push(next.ownerId || 'unknown');
+    recentCategories.push(getFeedCategoryKey(next));
+    recentPostTypes.push(next.postType || 'need_offer');
+    if (recentOwners.length > 3) recentOwners.shift();
+    if (recentCategories.length > 4) recentCategories.shift();
+    if (recentPostTypes.length > 4) recentPostTypes.shift();
+  }
+
+  return result;
+}
+
+function buildFeedRefreshSeed(input: ListTradesFeedQuery, actorId?: string) {
+  const requestedSeed = input.refreshSeed?.trim();
+  if (requestedSeed) return requestedSeed;
+  const dayBucket = Math.floor(Date.now() / 86_400_000);
+  return `${actorId ?? 'anonymous'}:${dayBucket}`;
+}
+
+function sortTradesForDiscovery<T extends FeedRankableTrade>(trades: T[], filters: ListTradesFeedQuery, actorId: string | undefined, preferences: FeedDiscoveryPreferences) {
+  const context: FeedDiscoveryContext = {
+    filters,
+    refreshSeed: buildFeedRefreshSeed(filters, actorId),
+    seenTradeIds: new Set(filters.seenTradeIds ?? []),
+    nowMs: Date.now(),
+    preferences,
+  };
+  const ranked = [...trades].sort((left, right) => {
+    const scoreDelta = getFeedDiscoveryScore(right, context) - getFeedDiscoveryScore(left, context);
     if (Math.abs(scoreDelta) > 0.001) return scoreDelta;
 
     const createdDelta = (toDateMs(right.createdAt) ?? 0) - (toDateMs(left.createdAt) ?? 0);
     if (createdDelta !== 0) return createdDelta;
     return left.id.localeCompare(right.id);
   });
+
+  return diversifyRankedTrades(ranked, context);
 }
 
 export function publicTradeVisibilityWhere(now = new Date()): Prisma.TradeWhereInput {
@@ -283,12 +550,16 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
   const requestedTake = input.take ?? 50;
   const candidateTake = Math.min(100, Math.max(requestedTake, requestedTake * 3));
-  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: tradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake });
+  const actorPreferences = actorId
+    ? await prisma.user.findUnique({ where: { id: actorId }, select: { profile: { select: { countryCode: true } }, settings: { select: { language: true } } } })
+    : null;
+  const preferences = resolveFeedDiscoveryPreferences(input, actorPreferences, req.headers['accept-language']);
+  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: feedTradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake });
   const hydratedTrades = await withTradeDeckMediaForActor(trades, actorId);
   const filteredTrades = input.hasImages
     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
     : hydratedTrades;
-  res.json({ trades: sortTradesForDiscovery(filteredTrades).slice(0, requestedTake) });
+  res.json({ trades: sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields) });
 }));
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
@@ -492,20 +763,28 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
   let proposedNeedId: string | null = null;
   let proposedOfferId: string | null = null;
 
+  if (input.proposedNeedId && input.proposedOfferId) {
+    return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Choose either one Need or one Offer for this proposal, not both.' });
+  }
+
   if (requiredSide === 'offer') {
     if (!input.proposedOfferId) return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
-    if (input.proposedNeedId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Need proposals must include an Offer, not a Need.' });
     const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
     if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
     proposedOfferId = offer.id;
   } else if (requiredSide === 'need') {
     if (!input.proposedNeedId) return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
-    if (input.proposedOfferId) return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Open Offer proposals must include a Need, not an Offer.' });
     const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
     if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
     proposedNeedId = need.id;
-  } else if (input.proposedNeedId || input.proposedOfferId) {
-    return res.status(400).json({ error: 'proposal_side_not_supported', message: 'This trade already has a Need and Offer. Send a message proposal instead.' });
+  } else if (input.proposedOfferId) {
+    const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
+    if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+    proposedOfferId = offer.id;
+  } else if (input.proposedNeedId) {
+    const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
+    if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+    proposedNeedId = need.id;
   }
 
   const existing = await prisma.tradeProposal.findUnique({ where: { tradeId_applicantId: { tradeId: trade.id, applicantId: actorId } }, include: proposalInclude });

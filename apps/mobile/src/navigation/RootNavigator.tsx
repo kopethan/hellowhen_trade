@@ -18,7 +18,7 @@ import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScre
 import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
 import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
 import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
-import { CreateTradeScreen, type TradeCreateReturnParams, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
+import { CreateTradeScreen, type TradeCreateReturnParams, type TradeCreateSideSelection, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
 import { TradeSidePickerScreen } from '../features/trade/TradeSidePickerScreen';
 import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
 import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
@@ -50,15 +50,15 @@ export type RootStackParamList = {
   SupportCenter: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
   LegalPolicy: { policy?: LegalPolicyKey } | undefined;
-  CreateNeed: undefined;
+  CreateNeed: { returnTo?: 'createTrade' | 'tradeProposal'; tradeId?: string; tradeTitle?: string } | undefined;
   NeedDetail: { needId: string; title?: string };
-  CreateOffer: undefined;
+  CreateOffer: { returnTo?: 'createTrade' | 'tradeProposal'; tradeId?: string; tradeTitle?: string } | undefined;
   OfferDetail: { offerId: string; title?: string };
   CreateTrade: TradeCreateReturnParams;
   TradeSidePicker: TradeSidePickerParams;
   CreateProposal: { tradeId: string; title?: string };
   ProposalDetail: { proposalId: string };
-  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null };
+  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection };
   UserProfile: { userId: string; displayName?: string };
   Login: undefined;
 };

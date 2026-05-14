@@ -15,8 +15,7 @@ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
-import { ContinuousSquareStackDeck } from './deck';
-import { buildTradeSquareDeckCards, renderTradeSquareDeckCard } from './components/TradeSquareDeckCards';
+import { TradeSquareDeck } from './components/TradeSquareDeck';
 import type { TradeDeckItem } from './types';
 
 type FeedResponse = { trades: TradeDeckItem[] };
@@ -44,7 +43,15 @@ function hasWalletAmount(trade: TradeDeckItem) {
   return (trade.amountCents ?? 0) > 0;
 }
 
-function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: PostTypeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean): ListTradesFeedQuery {
+function createFeedRefreshSeed() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function compactSeenTradeIds(ids: string[]) {
+  return Array.from(new Set(ids)).slice(-80);
+}
+
+function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: PostTypeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean, refreshSeed: string, seenTradeIds: string[], language: 'en' | 'fr', countryCode?: string | null): ListTradesFeedQuery {
   return {
     q: query.trim() || undefined,
     mode: modeFilter === 'all' ? undefined : modeFilter,
@@ -52,6 +59,10 @@ function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: P
     category: category.trim() || undefined,
     hasImages: imagesOnly || undefined,
     hasMoney: betaFeatures.moneyTradesEnabled ? (moneyOnly || undefined) : undefined,
+    language,
+    countryCode: countryCode ?? undefined,
+    refreshSeed,
+    seenTradeIds: seenTradeIds.length ? seenTradeIds : undefined,
     take: 50,
   };
 }
@@ -60,7 +71,7 @@ export function TradeDeckFeedScreen() {
   const theme = useThemeTokens();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const auth = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -72,8 +83,10 @@ export function TradeDeckFeedScreen() {
   const [moneyOnly, setMoneyOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
+  const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
 
-  const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly), [category, imagesOnly, modeFilter, moneyOnly, postTypeFilter, query]);
+  const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, refreshSeed, seenTradeIds, language, auth.user?.profile?.countryCode), [auth.user?.profile?.countryCode, category, imagesOnly, language, modeFilter, moneyOnly, postTypeFilter, query, refreshSeed, seenTradeIds]);
   const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.postType, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
 
   const loadFeed = useCallback(async () => {
@@ -116,6 +129,11 @@ export function TradeDeckFeedScreen() {
     });
   }, [navigation]);
 
+  const refreshDiscoveryOrder = useCallback(() => {
+    setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
+    setRefreshSeed(createFeedRefreshSeed());
+  }, [trades]);
+
   const createTrade = useCallback(() => {
     if (!auth.isAuthenticated) {
       navigation.navigate('Login');
@@ -130,6 +148,8 @@ export function TradeDeckFeedScreen() {
     setCategory('');
     setImagesOnly(false);
     setMoneyOnly(false);
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
   }, []);
 
   const hasTrades = trades.length > 0;
@@ -153,21 +173,21 @@ export function TradeDeckFeedScreen() {
           </Pressable>
         </View>
       </View>
-      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder={t('trade.filters.searchPlaceholder')} placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => { void loadFeed(); }} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /> : null}
+      {searchOpen ? <TextInput value={query} onChangeText={setQuery} placeholder={t('trade.filters.searchPlaceholder')} placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={() => refreshDiscoveryOrder()} style={[styles.searchInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /> : null}
       {filtersOpen ? <AppCard style={styles.filterCard}><View style={styles.filterPanel}><View style={styles.filterHeaderRow}><AppText style={styles.filterTitle}>{t('trade.filters.filters')}</AppText>{hasFilters ? <Pressable accessibilityRole="button" onPress={clearFilters} style={({ pressed }) => [styles.clearButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.clearButtonText, { color: theme.color.muted }]}>{t('trade.filters.clear')}</AppText></Pressable> : null}</View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.mode')}</AppText><View style={styles.chipRow}>{modeOptions.map((option) => { const selected = modeFilter === option.value; return <Pressable key={option.value} onPress={() => setModeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText></Pressable>; })}</View></View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.postType')}</AppText><View style={styles.chipRow}>{postTypeOptions.map((option) => { const selected = postTypeFilter === option.value; return <Pressable key={option.value} onPress={() => setPostTypeFilter(option.value)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{t(option.labelKey)}</AppText></Pressable>; })}</View></View><View style={styles.filterGroup}><AppText style={[styles.filterLabel, { color: theme.color.muted }]}>{t('trade.filters.category')}</AppText><TextInput value={category} onChangeText={setCategory} placeholder={t('inventory.form.categoryNeedPlaceholder')} placeholderTextColor={theme.color.muted} autoCapitalize="none" autoCorrect={false} style={[styles.categoryInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} /></View><View style={styles.chipRow}><Pressable onPress={() => setImagesOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, imagesOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: imagesOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.hasImages')}</AppText></Pressable>{betaFeatures.moneyTradesEnabled ? <Pressable onPress={() => setMoneyOnly((current) => !current)} style={({ pressed }) => [styles.filterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, moneyOnly && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.filterChipText, { color: moneyOnly ? theme.color.background : theme.color.muted }]}>{t('trade.filters.walletAmount')}</AppText></Pressable> : null}</View></View></AppCard> : null}
     </View>
   );
 
   return (
     <AppFixedHeaderScreen header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadFeed(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
         {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
         {hasVisibleTrades ? (
           <View style={styles.feedList}>
             {visibleTrades.map((trade, index) => <TradeDeckSection key={trade.id} trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />)}
           </View>
         ) : (
-          <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={loadFeed} onClear={clearFilters} />
+          <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
         )}
       </ScrollView>
     </AppFixedHeaderScreen>
@@ -175,17 +195,12 @@ export function TradeDeckFeedScreen() {
 }
 
 function TradeDeckSection({ trade, index, total, onOpen }: { trade: TradeDeckItem; index: number; total: number; onOpen: () => void }) {
-  const cards = useMemo(() => buildTradeSquareDeckCards(trade, index, total), [index, total, trade]);
-  return (
-    <View style={styles.tradeSection}>
-      <ContinuousSquareStackDeck cards={cards} renderCard={({ card, index: cardIndex, total: cardTotal }) => renderTradeSquareDeckCard(card, cardIndex, cardTotal, onOpen)} renderWindow="all" showDebugBadge={false} depthEffect="motionOnly" availableHeight={404} maxCardSize={348} />
-    </View>
-  );
+  return <TradeSquareDeck trade={trade} index={index} total={total} onOpen={onOpen} />;
 }
 
 function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh, onClear }: { loading: boolean; hasTrades: boolean; hasFilters: boolean; onCreate: () => void; onRefresh: () => void; onClear: () => void }) {
   const theme = useThemeTokens();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const title = loading ? t('trade.filters.loadingTrades') : hasFilters ? t('trade.filters.noMatches') : t('trade.filters.noTradesYet');
   const body = hasFilters ? t('trade.filters.noTradesBody') : t('trade.filters.emptyBody');
 
@@ -229,7 +244,6 @@ const styles = StyleSheet.create({
   filterChipText: { fontSize: 13, fontWeight: '900' },
   categoryInput: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
   feedList: { gap: 20 },
-  tradeSection: { alignItems: 'center', justifyContent: 'center' },
   emptyBox: { minHeight: 360, alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 18 },
   emptyTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.6, textAlign: 'center' },
   emptyText: { lineHeight: 21, fontWeight: '600', textAlign: 'center' },

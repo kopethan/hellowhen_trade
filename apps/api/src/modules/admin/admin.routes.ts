@@ -92,11 +92,17 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
   });
 }
 
+adminRoutes.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  return next();
+});
+
 adminRoutes.use(requireAuth);
 
 adminRoutes.use(asyncRoute(async (req, res, next) => {
   const user = await prisma.user.findUnique({ where: { id: req.user!.id }, select: { role: true, twoFactorEnabled: true } });
-  if (user?.role !== 'admin') return res.status(403).json({ error: 'admin_required', message: 'Admin access is required.' });
+  if (user?.role !== 'admin') return res.status(404).json({ error: 'not_found' });
   if (env.adminRequireTwoFactor && !user.twoFactorEnabled) return res.status(403).json({ error: 'admin_two_factor_required', message: 'Admin accounts must enable authenticator app two-step verification before using admin tools.' });
   return next();
 }));
