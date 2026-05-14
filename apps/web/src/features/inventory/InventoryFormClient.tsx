@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
+import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts';
 import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -210,10 +211,26 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
     setMedia((current) => current.filter((item) => item.id !== mediaId));
   }
 
+  function validateValues() {
+    const cleanTitle = values.title.trim();
+    const cleanDescription = values.description.trim();
+    if (cleanTitle.length < INVENTORY_TITLE_MIN_LENGTH) return kind === 'need' ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort');
+    if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+    if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return kind === 'need' ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort');
+    if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+    if (!parseMode(values.mode)) return t('validation.modeRequired');
+    return '';
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isEditProtected) {
       setError(t('inventory.errors.editProtected', { item: lowerNoun }));
+      return;
+    }
+    const validationError = validateValues();
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setSaving(true);
@@ -313,42 +330,23 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         <section className="mobile-card inventory-form__hero">
           <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
           <label className="field-label">
-            {t('inventory.labels.title')}
-            <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={3} maxLength={120} />
+            <span className="field-label__row"><span>{t('inventory.labels.title')}</span><small>{t('inventory.form.textCounter', { count: values.title.length, max: INVENTORY_TITLE_MAX_LENGTH })}</small></span>
+            <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={INVENTORY_TITLE_MIN_LENGTH} maxLength={INVENTORY_TITLE_MAX_LENGTH} />
           </label>
           <label className="field-label">
-            {t('inventory.labels.description')}
-            <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.descriptionNeedPlaceholder') : t('inventory.form.descriptionOfferPlaceholder')} required minLength={10} maxLength={2000} rows={5} />
+            <span className="field-label__row"><span>{t('inventory.labels.description')}</span><small>{t('inventory.form.textCounter', { count: values.description.length, max: INVENTORY_DESCRIPTION_MAX_LENGTH })}</small></span>
+            <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.descriptionNeedPlaceholder') : t('inventory.form.descriptionOfferPlaceholder')} required minLength={INVENTORY_DESCRIPTION_MIN_LENGTH} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} rows={5} />
           </label>
         </section>
 
-        <section className="mobile-card mobile-card--soft inventory-form__grid">
-          <label className="field-label">
-            {t('inventory.labels.status')}
-            <select value={values.status} onChange={(event) => updateField('status', event.target.value)}>
-              {selectedStatusOptions(kind).map((status) => <option key={status} value={status}>{inventoryStatusLabel(status, i18n)}</option>)}
-            </select>
-          </label>
-          <label className="field-label">
-            {t('inventory.labels.type')}
-            <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryItemType)}>
-              <option value="service">{itemTypeLabel('service', i18n)}</option>
-              <option value="goods">{itemTypeLabel('goods', i18n)}</option>
-              <option value="other">{itemTypeLabel('other', i18n)}</option>
-            </select>
-          </label>
-          <label className="field-label">
-            {t('inventory.labels.category')}
-            <input value={values.category} onChange={(event) => updateField('category', event.target.value)} placeholder={t('inventory.form.categoryPlaceholder')} maxLength={80} />
-          </label>
-          <label className="field-label">
-            {kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}
-            <input value={kind === 'need' ? values.timing : values.availability} onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.timingPlaceholder') : t('inventory.form.availabilityPlaceholder')} maxLength={80} />
-          </label>
+        <section className="mobile-card mobile-card--soft inventory-form__grid inventory-form__grid--simple">
+          <div className="inventory-form__wide inventory-form__helper-copy">
+            <strong>{t('inventory.form.simplifiedDetailsTitle')}</strong>
+            <span>{t('inventory.form.simplifiedDetailsBody')}</span>
+          </div>
           <label className="field-label">
             {t('inventory.labels.mode')}
-            <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)}>
-              <option value="">{t('inventory.labels.notSpecified')}</option>
+            <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
               <option value="remote">{modeLabel('remote', i18n)}</option>
               <option value="local">{modeLabel('local', i18n)}</option>
               <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
@@ -358,20 +356,6 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
             {t('inventory.labels.locationLabel')}
             <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={t('inventory.form.locationPlaceholder')} maxLength={120} />
           </label>
-          <label className="field-label">
-            {t('inventory.labels.expires')}
-            <input value={values.expiresAt} onChange={(event) => updateField('expiresAt', event.target.value)} type="date" />
-          </label>
-          <label className="field-label inventory-form__wide">
-            {t('inventory.labels.tags')}
-            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} />
-          </label>
-          {kind === 'offer' ? (
-            <label className="field-label inventory-form__wide">
-              {t('inventory.labels.includes')}
-              <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesPlaceholder')} rows={4} />
-            </label>
-          ) : null}
         </section>
 
         <section className="mobile-card inventory-media-panel">

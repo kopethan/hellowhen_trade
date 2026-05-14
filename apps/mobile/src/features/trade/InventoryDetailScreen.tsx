@@ -11,25 +11,22 @@ import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { ImagePickerField } from './components/ImagePickerField';
-import { InventoryTypePicker, itemTypeLabel } from './components/InventoryFormFields';
+import { itemTypeLabel } from './components/InventoryFormFields';
 import {
   DangerButton,
   ExistingMediaManager,
   getOptionalString,
-  getStringArray,
   InventoryModePicker,
   InventoryTextField,
-  joinCsv,
   modeLabel,
   normalizeMode,
   optionalText,
-  parseCsv,
   PrimaryButton,
   SecondaryButton,
   type InventoryMode,
 } from './components/InventoryDetailFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
-import type { InventoryItemType } from '@hellowhen/contracts';
+import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH, type InventoryItemType } from '@hellowhen/contracts';
 import { formatLocalizedDate } from '@hellowhen/i18n';
 import type { NeedItem, OfferItem } from './types';
 
@@ -57,8 +54,6 @@ export function InventoryDetailScreen({
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
   const [mode, setMode] = useState<InventoryMode>('remote');
   const [locationLabel, setLocationLabel] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
-  const [includesInput, setIncludesInput] = useState('');
   const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,10 +66,7 @@ export function InventoryDetailScreen({
   const labelsLower = isNeed ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const tone = isNeed ? 'need' : 'offer';
   const titlePlaceholder = isNeed ? t('inventory.form.titleNeedExample') : t('inventory.form.titleOfferExample');
-  const timingLabel = isNeed ? t('inventory.labels.timing') : t('inventory.labels.availability');
-  const timingPlaceholder = isNeed ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder');
   const locationPlaceholder = isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder');
-  const tagsPlaceholder = isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder');
 
   const hydrateForm = useCallback((nextItem: InventoryItem) => {
     setItem(nextItem);
@@ -85,8 +77,6 @@ export function InventoryDetailScreen({
     setTimingOrAvailability(isNeed ? getOptionalString(nextItem, 'timing') : getOptionalString(nextItem, 'availability'));
     setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
     setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
-    setTagsInput(joinCsv(getStringArray(nextItem, 'tags')));
-    setIncludesInput(joinCsv(getStringArray(nextItem, 'includes')));
     setNewImages([]);
   }, [isNeed]);
 
@@ -108,12 +98,20 @@ export function InventoryDetailScreen({
   useEffect(() => { void loadItem(); }, [loadItem]);
 
   async function saveItem(nextStatus?: string) {
-    if (title.trim().length < 3) {
+    if (title.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
       setError(isNeed ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'));
       return;
     }
-    if (description.trim().length < 10) {
+    if (title.trim().length > INVENTORY_TITLE_MAX_LENGTH) {
+      setError(t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH }));
+      return;
+    }
+    if (description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) {
       setError(isNeed ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort'));
+      return;
+    }
+    if (description.trim().length > INVENTORY_DESCRIPTION_MAX_LENGTH) {
+      setError(t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH }));
       return;
     }
 
@@ -124,14 +122,10 @@ export function InventoryDetailScreen({
       const payload = {
         title: title.trim(),
         description: description.trim(),
-        itemType,
-        category: optionalText(category),
         mode,
         locationLabel: optionalText(locationLabel),
-        tags: parseCsv(tagsInput),
         status: nextStatus ?? item?.status ?? 'draft',
         mediaIds,
-        ...(isNeed ? { timing: optionalText(timingOrAvailability) } : { availability: optionalText(timingOrAvailability), includes: parseCsv(includesInput) }),
       } as never;
       const result = isNeed ? await api.needs.update(itemId, payload) as InventoryResponse : await api.offers.update(itemId, payload) as InventoryResponse;
       const nextItem = (isNeed ? result.need : result.offer) as InventoryItem | undefined;
@@ -219,21 +213,16 @@ export function InventoryDetailScreen({
 
               {editing ? (
                 <View style={styles.form}>
-                  <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} disabled={saving} />
-                  <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} multiline disabled={saving} />
-                  <InventoryTypePicker value={itemType} onChange={setItemType} disabled={saving} />
-                  <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={isNeed ? t('inventory.form.categoryNeedPlaceholder') : t('inventory.form.categoryOfferPlaceholder')} disabled={saving} />
-                  <InventoryTextField label={timingLabel} value={timingOrAvailability} onChangeText={setTimingOrAvailability} placeholder={timingPlaceholder} disabled={saving} />
+                  <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={saving} />
+                  <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={saving} />
                   <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
                   <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />
-                  {!isNeed ? <InventoryTextField label={t('inventory.labels.includes')} value={includesInput} onChangeText={setIncludesInput} placeholder={t('inventory.form.includesMobilePlaceholder')} disabled={saving} /> : null}
-                  <InventoryTextField label={t('inventory.labels.tags')} value={tagsInput} onChangeText={setTagsInput} placeholder={tagsPlaceholder} disabled={saving} />
                 </View>
               ) : (
                 <View style={styles.readOnly}>
-                  <AppText style={styles.readTitle}>{item.title}</AppText>
+                  <AppText style={styles.readTitle} numberOfLines={2}>{item.title}</AppText>
                   <AppText style={styles.readDescription}>{item.description}</AppText>
-                  {meta ? <AppText style={styles.metaText}>{meta}</AppText> : null}
+                  {meta ? <AppText style={styles.metaText} numberOfLines={1}>{meta}</AppText> : null}
                 </View>
               )}
             </AppCard>

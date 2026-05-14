@@ -186,12 +186,12 @@ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disa
       <View style={styles.templateHeader}>
         <View style={styles.templateTitleWrap}>
           <SemanticBadge label={sourceLabel(template, t)} tone="instruction" size="sm" />
-          <AppText style={styles.templateTitle}>{template.title}</AppText>
+          <AppText style={styles.templateTitle} numberOfLines={2}>{template.title}</AppText>
         </View>
         <SemanticBadge label={itemTypeLabel(template.itemType ?? 'service', t)} tone={tone} size="sm" />
       </View>
-      {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{meta}</AppText> : null}
-      <AppText style={[styles.templateDescription, { color: theme.color.muted }]}>{template.description}</AppText>
+      {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}
+      <AppText style={[styles.templateDescription, { color: theme.color.muted }]} numberOfLines={2}>{template.description}</AppText>
       {template.includes?.length ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{t('inventory.labels.includes')}: {template.includes.join(', ')}</AppText> : null}
       {template.tags?.length ? <View style={styles.tagRow}>{template.tags.slice(0, 4).map((tag) => <SemanticBadge key={tag} label={tag} tone="muted" size="sm" />)}</View> : null}
       <Pressable

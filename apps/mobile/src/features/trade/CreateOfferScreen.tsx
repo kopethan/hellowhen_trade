@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH, type TradeExchangeMode } from '@hellowhen/contracts';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -11,7 +11,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+import { InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { OfferItem } from './types';
@@ -23,29 +23,28 @@ export function CreateOfferScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [itemType, setItemType] = useState<InventoryItemType>('service');
-  const [category, setCategory] = useState('');
-  const [availability, setAvailability] = useState('');
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [locationLabel, setLocationLabel] = useState('');
-  const [includesInput, setIncludesInput] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const meta = useMemo(() => [itemTypeLabel(itemType, t), category.trim(), availability.trim(), modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · '), [availability, category, itemType, locationLabel, mode, t]);
+  function validateForm() {
+    const cleanTitle = title.trim();
+    const cleanDescription = description.trim();
+    if (cleanTitle.length < INVENTORY_TITLE_MIN_LENGTH) return t('validation.offerTitleTooShort');
+    if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+    if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('validation.offerDescriptionTooShort');
+    if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+    return null;
+  }
 
   async function handleCreate() {
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
-
-    if (cleanTitle.length < 3) {
-      setError(t('validation.offerTitleTooShort'));
-      return;
-    }
-    if (cleanDescription.length < 10) {
-      setError(t('validation.offerDescriptionTooShort'));
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -57,13 +56,11 @@ export function CreateOfferScreen({ route, navigation }: Props) {
       const response = await api.offers.create({
         title: cleanTitle,
         description: cleanDescription,
-        itemType,
-        category: optionalText(category),
-        availability: optionalText(availability),
+        itemType: 'service',
         mode,
         locationLabel: optionalText(locationLabel),
-        includes: parseInventoryList(includesInput),
-        tags: parseInventoryList(tagsInput),
+        includes: [],
+        tags: [],
         status: route.params?.returnTo ? 'active' : 'draft',
         mediaIds,
       }) as CreateOfferResponse;
@@ -104,19 +101,15 @@ export function CreateOfferScreen({ route, navigation }: Props) {
 
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.offerQuestion')}</AppText>
-          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleOfferExample')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} multiline disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleOfferExample')} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} />
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>{t('inventory.labels.deckDetails')}</AppText>
-          <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={t('inventory.form.categoryOfferPlaceholder')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.availability')} value={availability} onChangeText={setAvailability} placeholder={t('inventory.form.availabilityMobilePlaceholder')} disabled={submitting} />
+          <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+          <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationOfferPlaceholder')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.includes')} hint={t('inventory.form.separateWithCommas')} value={includesInput} onChangeText={setIncludesInput} placeholder={t('inventory.form.includesMobilePlaceholder')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tagsInput} onChangeText={setTagsInput} placeholder={t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} />
         </AppCard>
 
         <AppCard>
@@ -128,11 +121,6 @@ export function CreateOfferScreen({ route, navigation }: Props) {
             label={t('inventory.labels.sampleImages')}
             hint={t('inventory.form.offerImageHint')}
           />
-        </AppCard>
-
-        <AppCard>
-          <AppText style={styles.sectionTitle}>{t('inventory.labels.cardPreview')}</AppText>
-          <InventoryPreview eyebrow={t('inventory.side.offer')} title={title.trim()} meta={meta} description={description.trim()} />
         </AppCard>
 
         <View style={styles.actions}>
@@ -170,6 +158,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     color: '#0F172A',
+  },
+  sectionBody: {
+    color: '#64748B',
+    lineHeight: 20,
+    fontWeight: '700',
   },
   actions: {
     gap: 10,

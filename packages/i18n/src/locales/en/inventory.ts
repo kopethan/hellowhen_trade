@@ -147,9 +147,12 @@ export const inventory = {
     imagePickerHint: 'Add up to {{count}} JPEG, PNG, or WEBP images.',
     selectedCount: '{{count}}/5 selected',
     previewTitleFallback: 'Title appears here',
-    previewMetaFallback: 'Category · Timing · Mode · Location',
+    previewMetaFallback: 'Mode · Location',
     previewDescriptionFallback: 'A short summary will appear here while you write.',
     describeThis: 'Describe this {{item}}.',
+    textCounter: '{{count}}/{{max}}',
+    simplifiedDetailsTitle: 'How can it be exchanged?',
+    simplifiedDetailsBody: 'Add only the basics now. Categories and tags can be improved later.',
   },
   empty: {
     createFirstNeed: 'Create your first need',

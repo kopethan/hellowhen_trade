@@ -1696,3 +1696,61 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .legal-updated-note { margin: 0; }
 .legal-policy-section-list { display: grid; gap: 12px; }
 .legal-policy-section p, .legal-related-card p, .legal-launch-note p { margin-bottom: 0; }
+
+/* Phase 25.P2: simplified inventory forms and card-safe text */
+.field-label__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+.field-label__row small { color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+.inventory-form__grid--simple { grid-template-columns: 1fr; }
+.inventory-form__helper-copy { display: grid; gap: 4px; color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.4; }
+.inventory-form__helper-copy strong { color: var(--app-text); font-size: 16px; font-weight: 950; }
+.inventory-card__body h3,
+.inventory-template-card__body h3,
+.public-profile-post-card h3,
+.trade-side-option h3,
+.trade-side-template-option h3,
+.proposal-side-preview__body h4 {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.trade-card__title {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.trade-card__body p,
+.trade-side-option p,
+.trade-side-template-option p {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.trade-card__body .eyebrow,
+.trade-side-option .eyebrow,
+.trade-side-template-option .eyebrow { -webkit-line-clamp: 1; }
+.trade-deck-card__body h2,
+.trade-stack-card__body h2 {
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.trade-side-choice-card__body strong {
+  display: -webkit-box;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.trade-side-choice-card__body small {
+  display: -webkit-box;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}

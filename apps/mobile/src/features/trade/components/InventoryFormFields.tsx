@@ -58,6 +58,7 @@ export function InventoryTextField({
   placeholder,
   multiline,
   disabled,
+  maxLength,
 }: {
   label: string;
   hint?: string;
@@ -66,12 +67,17 @@ export function InventoryTextField({
   placeholder: string;
   multiline?: boolean;
   disabled?: boolean;
+  maxLength?: number;
 }) {
   const theme = useThemeTokens();
+  const { t } = useTranslation();
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
-        <AppText style={styles.label}>{label}</AppText>
+        <View style={styles.labelTopRow}>
+          <AppText style={styles.label}>{label}</AppText>
+          {maxLength ? <AppText style={[styles.counter, { color: value.length >= maxLength ? theme.semantic.danger.text : theme.color.muted }]}>{t('inventory.form.textCounter', { count: value.length, max: maxLength })}</AppText> : null}
+        </View>
         {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
       </View>
       <TextInput
@@ -81,6 +87,7 @@ export function InventoryTextField({
         placeholderTextColor={theme.color.muted}
         editable={!disabled}
         multiline={multiline}
+        maxLength={maxLength}
         textAlignVertical={multiline ? 'top' : 'center'}
         style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
       />
@@ -168,8 +175,18 @@ const styles = StyleSheet.create({
   labelRow: {
     gap: 3,
   },
+  labelTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   label: {
     fontSize: 14,
+    fontWeight: '900',
+  },
+  counter: {
+    fontSize: 12,
     fontWeight: '900',
   },
   hint: {

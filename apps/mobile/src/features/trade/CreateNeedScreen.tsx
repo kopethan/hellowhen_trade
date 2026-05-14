@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH, type TradeExchangeMode } from '@hellowhen/contracts';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
@@ -11,7 +11,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { InventoryPreview, InventoryTextField, InventoryTypePicker, ModePicker, itemTypeLabel, modeLabel, optionalText, parseInventoryList } from './components/InventoryFormFields';
+import { InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { NeedItem } from './types';
@@ -23,28 +23,28 @@ export function CreateNeedScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [itemType, setItemType] = useState<InventoryItemType>('service');
-  const [category, setCategory] = useState('');
-  const [timing, setTiming] = useState('');
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [locationLabel, setLocationLabel] = useState('');
-  const [tagsInput, setTagsInput] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const meta = useMemo(() => [itemTypeLabel(itemType, t), category.trim(), timing.trim(), modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · '), [category, itemType, locationLabel, mode, t, timing]);
+  function validateForm() {
+    const cleanTitle = title.trim();
+    const cleanDescription = description.trim();
+    if (cleanTitle.length < INVENTORY_TITLE_MIN_LENGTH) return t('validation.needTitleTooShort');
+    if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+    if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('validation.needDescriptionTooShort');
+    if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+    return null;
+  }
 
   async function handleCreate() {
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
-
-    if (cleanTitle.length < 3) {
-      setError(t('validation.needTitleTooShort'));
-      return;
-    }
-    if (cleanDescription.length < 10) {
-      setError(t('validation.needDescriptionTooShort'));
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -56,12 +56,10 @@ export function CreateNeedScreen({ route, navigation }: Props) {
       const response = await api.needs.create({
         title: cleanTitle,
         description: cleanDescription,
-        itemType,
-        category: optionalText(category),
-        timing: optionalText(timing),
+        itemType: 'service',
         mode,
         locationLabel: optionalText(locationLabel),
-        tags: parseInventoryList(tagsInput),
+        tags: [],
         status: route.params?.returnTo ? 'active' : 'draft',
         mediaIds,
       }) as CreateNeedResponse;
@@ -102,18 +100,15 @@ export function CreateNeedScreen({ route, navigation }: Props) {
 
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.needQuestion')}</AppText>
-          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleNeedExample')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionNeedMobile')} multiline disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleNeedExample')} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionNeedMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} />
         </AppCard>
 
         <AppCard>
-          <AppText style={styles.sectionTitle}>{t('inventory.labels.deckDetails')}</AppText>
-          <InventoryTypePicker value={itemType} onChange={setItemType} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.category')} value={category} onChangeText={setCategory} placeholder={t('inventory.form.categoryNeedPlaceholder')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.timing')} value={timing} onChangeText={setTiming} placeholder={t('inventory.form.timingMobilePlaceholder')} disabled={submitting} />
+          <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+          <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationNeedPlaceholder')} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tagsInput} onChangeText={setTagsInput} placeholder={t('inventory.form.tagsNeedPlaceholder')} disabled={submitting} />
         </AppCard>
 
         <AppCard>
@@ -125,11 +120,6 @@ export function CreateNeedScreen({ route, navigation }: Props) {
             label={t('inventory.labels.referenceImages')}
             hint={t('inventory.form.needImageHint')}
           />
-        </AppCard>
-
-        <AppCard>
-          <AppText style={styles.sectionTitle}>{t('inventory.labels.cardPreview')}</AppText>
-          <InventoryPreview eyebrow={t('inventory.side.need')} title={title.trim()} meta={meta} description={description.trim()} />
         </AppCard>
 
         <View style={styles.actions}>
@@ -167,6 +157,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '900',
     color: '#0F172A',
+  },
+  sectionBody: {
+    color: '#64748B',
+    lineHeight: 20,
+    fontWeight: '700',
   },
   actions: {
     gap: 10,

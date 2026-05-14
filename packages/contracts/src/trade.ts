@@ -18,6 +18,11 @@ export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
 export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
 export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
 
+export const INVENTORY_TITLE_MIN_LENGTH = 3;
+export const INVENTORY_TITLE_MAX_LENGTH = 70;
+export const INVENTORY_DESCRIPTION_MIN_LENGTH = 10;
+export const INVENTORY_DESCRIPTION_MAX_LENGTH = 500;
+
 const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 const needMetadataSchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
@@ -38,16 +43,16 @@ const offerMetadataSchema = z.object({
 });
 
 export const createNeedRequestSchema = z.object({
-  title: z.string().min(3).max(120),
-  description: z.string().min(10).max(2000),
+  title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
+  description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
   status: needStatusSchema.optional(),
   expiresAt: z.string().datetime().optional(),
   mediaIds: z.array(z.string()).max(5).optional()
 }).merge(needMetadataSchema);
 
 export const createOfferRequestSchema = z.object({
-  title: z.string().min(3).max(120),
-  description: z.string().min(10).max(2000),
+  title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
+  description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
   status: offerStatusSchema.optional(),
   expiresAt: z.string().datetime().optional(),
   mediaIds: z.array(z.string()).max(5).optional()
@@ -118,8 +123,8 @@ export const createTradeRequestSchema = z.object({
 });
 
 const inventoryUpdateBaseSchema = z.object({
-  title: z.string().min(3).max(120).optional(),
-  description: z.string().min(10).max(2000).optional(),
+  title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH).optional(),
+  description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH).optional(),
   status: z.string().optional(),
   expiresAt: z.string().datetime().nullable().optional(),
   itemType: inventoryItemTypeSchema.optional(),

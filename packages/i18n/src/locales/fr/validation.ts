@@ -7,4 +7,7 @@ export const validation = {
   offerTitleTooShort: 'Ajoutez un titre clair pour l’offre.',
   needDescriptionTooShort: 'Décrivez le besoin avec au moins un détail utile.',
   offerDescriptionTooShort: 'Décrivez l’offre avec au moins un détail utile.',
+  titleTooLong: 'Le titre doit contenir {{max}} caractères maximum.',
+  descriptionTooLong: 'La description doit contenir {{max}} caractères maximum.',
+  modeRequired: 'Choisissez comment cet échange peut se faire.',
 } as const;
