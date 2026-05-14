@@ -26,7 +26,8 @@ import {
   type InventoryMode,
 } from './components/InventoryDetailFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
-import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH, type InventoryItemType } from '@hellowhen/contracts';
+import type { InventoryItemType } from '@hellowhen/contracts';
+import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { formatLocalizedDate } from '@hellowhen/i18n';
 import type { NeedItem, OfferItem } from './types';
 

@@ -365,6 +365,7 @@ function diversifyRankedTrades<T extends FeedRankableTrade>(ranked: T[], context
 
     for (let index = 0; index < Math.min(remaining.length, 18); index += 1) {
       const trade = remaining[index];
+      if (!trade) continue;
       const ownerKey = trade.ownerId || 'unknown';
       const categoryKey = getFeedCategoryKey(trade);
       const postTypeKey = trade.postType || 'need_offer';
@@ -383,6 +384,7 @@ function diversifyRankedTrades<T extends FeedRankableTrade>(ranked: T[], context
     }
 
     const [next] = remaining.splice(bestIndex, 1);
+    if (!next) break;
     result.push(next);
     recentOwners.push(next.ownerId || 'unknown');
     recentCategories.push(getFeedCategoryKey(next));

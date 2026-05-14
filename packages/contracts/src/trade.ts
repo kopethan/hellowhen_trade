@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import { mediaAssetSchema } from './media.js';
+import {
+  INVENTORY_DESCRIPTION_MAX_LENGTH,
+  INVENTORY_DESCRIPTION_MIN_LENGTH,
+  INVENTORY_TITLE_MAX_LENGTH,
+  INVENTORY_TITLE_MIN_LENGTH
+} from './inventoryLimits.js';
 
 export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
 export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
@@ -18,10 +24,12 @@ export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
 export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
 export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
 
-export const INVENTORY_TITLE_MIN_LENGTH = 3;
-export const INVENTORY_TITLE_MAX_LENGTH = 70;
-export const INVENTORY_DESCRIPTION_MIN_LENGTH = 10;
-export const INVENTORY_DESCRIPTION_MAX_LENGTH = 500;
+export {
+  INVENTORY_DESCRIPTION_MAX_LENGTH,
+  INVENTORY_DESCRIPTION_MIN_LENGTH,
+  INVENTORY_TITLE_MAX_LENGTH,
+  INVENTORY_TITLE_MIN_LENGTH
+} from './inventoryLimits.js';
 
 const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 const needMetadataSchema = z.object({
