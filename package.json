@@ -18,7 +18,8 @@
     "prisma:validate": "prisma validate --schema apps/api/prisma/schema.prisma",
     "prisma:seed": "prisma db seed --schema apps/api/prisma/schema.prisma",
     "admin:smoke": "node scripts/admin-launch-smoke.mjs",
-    "admin:rehearsal": "node scripts/admin-launch-smoke.mjs"
+    "admin:rehearsal": "node scripts/admin-launch-smoke.mjs",
+    "plans:smoke": "node scripts/plans-hidden-smoke.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.5"
