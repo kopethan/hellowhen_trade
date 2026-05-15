@@ -68,7 +68,7 @@ export default function AdminMediaPage() {
       <div className="card">
         <span className="semantic-badge admin">Admin moderation</span>
         <h1>Uploaded images</h1>
-        <p className="notice-box admin">Basic dev admin space for moderating uploaded need, offer, profile, and support images. First-beta uploads are active immediately; use flag or remove only after reports or a manual check.</p>
+        <p className="notice-box admin">Basic dev admin space for moderating uploaded need, offer, plan, profile, and support images. First-beta uploads are active immediately; use flag or remove only after reports or a manual check.</p>
         <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
         <div className="form-row" style={{ marginTop: 12 }}>
           <select value={status} onChange={(event) => setStatus(event.target.value as MediaAssetStatus | 'all')}>

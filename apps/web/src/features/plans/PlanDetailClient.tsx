@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import type { PlanDto, PlanParticipantDto } from '@hellowhen/contracts';
+import type { MediaAssetDto, PlanDto, PlanParticipantDto, PlanPlaceDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
+import { ReportContentButton } from '../../components/ReportContentButton';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -38,6 +39,41 @@ function ParticipantRow({ participant, ownerControls, onAction }: { participant:
   );
 }
 
+function PlanMediaGallery({ media, emptyLabel }: { media?: MediaAssetDto[]; emptyLabel?: string }) {
+  const visibleMedia = media ?? [];
+  if (!visibleMedia.length) return emptyLabel ? <p className="meta">{emptyLabel}</p> : null;
+
+  return (
+    <div className="plan-media-gallery">
+      {visibleMedia.map((item) => {
+        const imageSrc = planMediaSrc(item);
+        return imageSrc ? <img key={item.id} src={imageSrc} alt={item.filename ?? 'Plan image'} loading="lazy" /> : null;
+      })}
+    </div>
+  );
+}
+
+function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
+  const hasMedia = Boolean(place.media?.length);
+  return (
+    <article className="plan-place-card plan-place-card--detail">
+      <div className="plan-place-card__media" aria-hidden="true">
+        {hasMedia ? <img src={planMediaSrc(place.media?.[0])} alt="" loading="lazy" /> : <WebIcon name="trade" size={30} decorative />}
+      </div>
+      <div className="plan-place-card__body">
+        <span className="semantic-badge instruction">Stop {index + 1}</span>
+        <h4>{place.title}</h4>
+        {place.note ? <p>{place.note}</p> : null}
+        <p className="meta">{planDateTime(place.startsAt ?? planStartsAt)}</p>
+        {place.addressPublicText ? <p className="meta">Public: {place.addressPublicText}</p> : null}
+        {place.addressPrivateText ? <p className="meta">Private: {place.addressPrivateText}</p> : null}
+        {hasMedia ? <PlanMediaGallery media={place.media} /> : null}
+        {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
+      </div>
+    </article>
+  );
+}
+
 export function PlanDetailClient({ planId }: { planId: string }) {
   const auth = useWebAuth();
   const [plan, setPlan] = useState<PlanDto | null>(null);
@@ -51,6 +87,7 @@ export function PlanDetailClient({ planId }: { planId: string }) {
   const canRequestJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && !plan.myParticipantStatus);
   const canCancelPending = plan?.myParticipantStatus === 'pending';
   const canLeave = plan?.myParticipantStatus === 'accepted';
+  const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
 
   async function loadPlan() {
     setLoading(true);
@@ -148,34 +185,21 @@ export function PlanDetailClient({ planId }: { planId: string }) {
               <h2>{plan.title}</h2>
               <p>{plan.description}</p>
               <p className="meta">Posted by {planOwnerName(plan)} - starts {planDateTime(plan.startsAt)}</p>
+              <PlanMediaGallery media={plan.media} emptyLabel="No Plan images attached yet." />
               <div className="plan-stat-grid">
                 <span><strong>{plan.participantCount ?? 0}</strong> joined</span>
                 <span><strong>{plan.pendingRequestCount ?? 0}</strong> pending</span>
                 <span><strong>{plan.places?.length ?? 0}</strong> stops</span>
               </div>
+              {showReportActions ? <ReportContentButton targetType="plan" targetId={plan.id} /> : null}
             </section>
 
             <section className="mobile-card">
               <h3>Places</h3>
               <div className="mobile-list">
-                {(plan.places ?? []).map((place, index) => {
-                  const imageSrc = planMediaSrc(place.media?.[0]);
-                  return (
-                    <article key={place.id} className="plan-place-card">
-                      <div className="plan-place-card__media" aria-hidden="true">
-                        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="trade" size={30} decorative />}
-                      </div>
-                      <div>
-                        <span className="semantic-badge instruction">Stop {index + 1}</span>
-                        <h4>{place.title}</h4>
-                        {place.note ? <p>{place.note}</p> : null}
-                        <p className="meta">{planDateTime(place.startsAt ?? plan.startsAt)}</p>
-                        {place.addressPublicText ? <p className="meta">Public: {place.addressPublicText}</p> : null}
-                        {place.addressPrivateText ? <p className="meta">Private: {place.addressPrivateText}</p> : null}
-                      </div>
-                    </article>
-                  );
-                })}
+                {(plan.places ?? []).map((place, index) => (
+                  <PlanPlaceCard key={place.id} place={place} index={index} planStartsAt={plan.startsAt} showReport={showReportActions} />
+                ))}
                 {(plan.places ?? []).length === 0 ? <p className="meta">No places added yet.</p> : null}
               </div>
             </section>
@@ -204,6 +228,12 @@ export function PlanDetailClient({ planId }: { planId: string }) {
                 {sortedParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner} onAction={updateParticipant} />)}
                 {sortedParticipants.length === 0 ? <p className="meta">No participants yet.</p> : null}
               </div>
+            </section>
+
+            <section className="mobile-card mobile-card--soft">
+              <h3>Safety and support</h3>
+              <p>Plans are internal, 18+, approval-first, and exact place details stay private until approval.</p>
+              <Link className="button secondary" href="/account/support">Contact support</Link>
             </section>
           </>
         ) : null}

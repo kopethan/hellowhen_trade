@@ -21,7 +21,7 @@ function checklistTone(status?: string) {
 const adminSections = [
   { href: '/admin/reports', title: 'Report queue', body: 'Review user-submitted reports, hide unsafe content, and suspend target owners when needed.', tone: 'danger' },
   { href: '/admin/support', title: 'Support inbox', body: 'Review support tickets, internal notes, and user replies.', tone: 'info' },
-  { href: '/admin/media', title: 'Media moderation', body: 'Flag, remove, or restore uploaded profile, need, offer, and support images.', tone: 'warning' },
+  { href: '/admin/media', title: 'Media moderation', body: 'Flag, remove, or restore uploaded profile, need, offer, plan, and support images.', tone: 'warning' },
   { href: '/admin/content', title: 'Content moderation', body: 'Hide, restore, close, or mark reviewed trades, needs, and offers.', tone: 'danger' },
   { href: '/admin/disputes', title: 'Trade disputes', body: 'Review reported trades and resolve service-money disputes safely.', tone: 'danger' },
   { href: '/admin/payouts', title: 'Payout review', body: 'Hidden unless payout tools are enabled for the launch mode.', tone: 'money' },

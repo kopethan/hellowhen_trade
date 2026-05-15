@@ -89,6 +89,11 @@ async function loadPlanForViewer(planId: string, viewerId?: string | null) {
   if (!viewerId || plan.ownerId !== viewerId) {
     if (!publicPlanStatuses.includes(plan.status as any)) return null;
   }
+  const isOwner = Boolean(viewerId && plan.ownerId === viewerId);
+  if (!isOwner) {
+    const owner = await prisma.user.findUnique({ where: { id: plan.ownerId }, select: { trustTier: true } });
+    if (!owner || owner.trustTier === 'restricted') return null;
+  }
   if (viewerId && plan.ownerId !== viewerId && await usersHaveBlockBetween(viewerId, plan.ownerId)) return null;
   return decoratePlan(plan, viewerId ?? null);
 }
@@ -161,6 +166,7 @@ plansRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
       ...(input.category ? { category: input.category } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.city ? { locationLabel: { contains: input.city, mode: 'insensitive' as const } } : {}),
+      owner: { trustTier: { not: 'restricted' } },
       ...(blockedOwnerIds.length > 0 ? { ownerId: { notIn: blockedOwnerIds } } : {}),
     },
     include: planInclude(),
@@ -230,8 +236,8 @@ plansRoutes.patch('/:planId/places/:placeId', requireAuth, requireActiveAccount,
 
 plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createPlanJoinRequestSchema.parse(req.body ?? {});
-  const plan = await prisma.plan.findUnique({ where: { id: req.params.planId }, include: { participants: true } });
-  if (!plan || !publicPlanStatuses.includes(plan.status as any)) return res.status(404).json({ error: 'not_found' });
+  const plan = await prisma.plan.findUnique({ where: { id: req.params.planId }, include: { participants: true, owner: { select: { trustTier: true } } } });
+  if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
   if (plan.ownerId === req.user!.id) return res.status(409).json({ error: 'owner_cannot_join', message: 'You already own this plan.' });
   if (await usersHaveBlockBetween(req.user!.id, plan.ownerId)) return res.status(403).json({ error: 'blocked_user', message: 'You cannot request to join this plan.' });
   const acceptedCount = (plan.participants ?? []).filter((participant: any) => participant.status === 'accepted').length;

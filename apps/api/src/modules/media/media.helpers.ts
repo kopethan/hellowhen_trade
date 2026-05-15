@@ -27,7 +27,7 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
 
   const alreadyAttachedElsewhere = selectedMedia.find((item) => item.entityType && item.entityId && (item.entityType !== entityType || item.entityId !== entityId));
   if (alreadyAttachedElsewhere) {
-    throw createMediaRequestError('media_already_attached', 'One or more selected images already belong to another need or offer. Upload a new copy if you want to reuse it.');
+    throw createMediaRequestError('media_already_attached', 'One or more selected images already belong to another item. Upload a new copy if you want to reuse it.');
   }
 
   const existingIds = new Set(existingEntityMedia.map((item) => item.id));

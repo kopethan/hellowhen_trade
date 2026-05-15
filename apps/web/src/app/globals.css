@@ -1769,12 +1769,21 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .plan-preview-card__body p { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-bottom: 0; }
 .plan-preview-card__footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--app-text-muted); font-size: 12px; font-weight: 850; }
 .plan-form { display: grid; gap: 13px; }
-.plan-form label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
+.plan-form > label, .plan-form__row label { display: grid; gap: 7px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: 0.04em; text-transform: uppercase; }
 .plan-form input, .plan-form textarea, .plan-form select, .proposal-composer textarea { width: 100%; border: 1px solid var(--app-border-strong); border-radius: 18px; background: var(--app-surface-soft); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
 .plan-form textarea, .proposal-composer textarea { min-height: 110px; resize: vertical; line-height: 1.35; }
 .plan-form input:focus, .plan-form textarea:focus, .plan-form select:focus, .proposal-composer textarea:focus { border-color: var(--proposal-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--proposal-border) 24%, transparent); }
 .plan-form__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .plan-form hr { width: 100%; border: 0; border-top: 1px solid var(--app-border); margin: 4px 0; }
+.plan-image-picker { display: grid; gap: 12px; border: 1px dashed var(--app-border-strong); border-radius: 24px; background: var(--app-surface-soft); padding: 12px; }
+.plan-image-picker h3 { margin-bottom: 4px; }
+.plan-media-grid, .plan-media-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.plan-media-grid figure { position: relative; overflow: hidden; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); margin: 0; }
+.plan-media-grid img, .plan-media-gallery img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; border-radius: 18px; background: var(--app-surface); }
+.plan-media-grid figcaption { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; }
+.plan-media-grid figcaption button { min-height: 34px; padding: 0 10px; border-radius: 999px; }
+.plan-media-gallery { margin-top: 8px; }
+.plan-media-gallery img { border: 1px solid var(--app-border); }
 .plan-detail-hero { display: grid; gap: 10px; }
 .plan-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .plan-stat-grid span { border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface-soft); padding: 10px; color: var(--app-text-muted); font-size: 12px; font-weight: 850; text-align: center; }
@@ -1783,10 +1792,12 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .plan-place-card__media { display: grid; place-items: center; overflow: hidden; min-height: 86px; border-radius: 18px; background: var(--app-surface); color: var(--app-text-soft); }
 .plan-place-card__media img { width: 100%; height: 100%; object-fit: cover; }
 .plan-place-card h4 { margin: 8px 0 5px; font-size: 16px; letter-spacing: -0.02em; }
+.plan-place-card--detail { grid-template-columns: 96px minmax(0, 1fr); }
+.plan-place-card__body { min-width: 0; }
 .plan-participant-row { display: grid; gap: 10px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
 .success-message { color: var(--success-text); font-weight: 900; }
 .form-error { color: var(--danger-text); font-weight: 900; }
 @media (max-width: 390px) {
   .plan-preview-card, .plan-place-card { grid-template-columns: 1fr; }
-  .plan-form__row, .plan-stat-grid { grid-template-columns: 1fr; }
+  .plan-form__row, .plan-stat-grid, .plan-media-grid, .plan-media-gallery { grid-template-columns: 1fr; }
 }

@@ -47,7 +47,8 @@ Plans are not money features. Do not add paid helpers, wallet amounts, payouts, 
 - Hellowhen remains 18+ only.
 - Owner approval is the default join mode.
 - Exact/private place details stay hidden unless the viewer owns the plan or has an accepted participant status.
-- Restricted users cannot create plans, add places, or request to join.
+- Restricted users cannot create plans, add places, upload media, or request to join.
+- Public Plan feed/detail responses hide Plans owned by restricted users.
 - Blocked user pairs cannot request/accept participation.
 - Plans should stay connected to reporting, support, hidden-content, and admin moderation before public release.
 
@@ -57,7 +58,8 @@ Plans are not money features. Do not add paid helpers, wallet amounts, payouts, 
 - `PlanPlace`: ordered stops with public note/address and optional private address.
 - `PlanParticipant`: join requests and participant lifecycle.
 - Media can attach to `plan` or `plan_place` through `MediaAsset.entityType`.
-- Reports can target `plan` and `plan_place`.
+- Plan and Plan Place media reuse the same authenticated JPEG/PNG/WEBP upload route and the same five-image limit as Needs/Offers.
+- Reports can target `plan` and `plan_place`; hiding a reported Plan Place hides its parent Plan from public/internal discovery.
 
 ## Current API foundation
 
@@ -120,7 +122,10 @@ The hidden UI currently supports:
 
 - feed vs mine list
 - create Plan with one place/stop
-- Plan detail view
+- Plan and first-place image upload
+- Plan detail view with Plan and Place image galleries
+- report Plan and report Plan Place actions for non-owner viewers
+- support link from Plan detail
 - request to join
 - owner accept/decline/remove
 - participant cancel/leave
@@ -139,8 +144,7 @@ The hidden UI currently supports:
 
 ## Recommended next step
 
-1. Add plan/place media upload and preview to the hidden web UI.
-2. Add report/support buttons on Plan detail.
-3. Add admin Plan moderation views.
-4. Add hidden native Plans screens.
-5. Add edit/cancel lifecycle polish and major-change warnings.
+1. Add admin Plan moderation views if Plans need deeper internal review before visibility.
+2. Add hidden native Plans screens only when explicitly selected.
+3. Add edit/cancel lifecycle polish and major-change warnings.
+4. Add optional smoke coverage for media/report flows once a dedicated non-polluting test fixture is available.
