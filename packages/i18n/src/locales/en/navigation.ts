@@ -17,6 +17,7 @@ export const navigation = {
     plan: 'Plan',
     plans: 'Plans',
     createPlan: 'Create plan',
+    editPlan: 'Edit plan',
     profile: 'Profile',
     trade: 'Trade',
     createNeed: 'Create need',

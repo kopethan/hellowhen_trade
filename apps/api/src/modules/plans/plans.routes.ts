@@ -45,6 +45,18 @@ async function blockedUserIdsForViewer(viewerId?: string) {
   return Array.from(new Set(blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId)));
 }
 
+async function syncPlanCapacityStatus(planId: string) {
+  const plan = await prisma.plan.findUnique({ where: { id: planId }, select: { id: true, status: true, maxParticipants: true } });
+  if (!plan?.maxParticipants || !['open', 'full'].includes(plan.status as string)) return;
+  const acceptedCount = await prisma.planParticipant.count({ where: { planId, status: 'accepted' as any } });
+  if (acceptedCount >= plan.maxParticipants && plan.status === 'open') {
+    await prisma.plan.update({ where: { id: planId }, data: { status: 'full' as any } });
+  }
+  if (acceptedCount < plan.maxParticipants && plan.status === 'full') {
+    await prisma.plan.update({ where: { id: planId }, data: { status: 'open' as any } });
+  }
+}
+
 async function decoratePlan(plan: any, viewerId?: string | null) {
   const [withPlanMedia] = await withMedia('plan' as any, [plan], 'public');
   const places = await withMedia('plan_place' as any, plan.places ?? [], 'public');
@@ -127,7 +139,10 @@ function planUpdateData(input: ReturnType<typeof updatePlanRequestSchema.parse>)
     ...(input.endsAt !== undefined ? { endsAt: input.endsAt ? new Date(input.endsAt) : null } : {}),
     ...(input.maxParticipants !== undefined ? { maxParticipants: input.maxParticipants } : {}),
     ...(input.joinApprovalMode !== undefined ? { joinApprovalMode: input.joinApprovalMode } : {}),
-    ...(input.status !== undefined ? { status: input.status, ...(input.status === 'cancelled' ? { cancelledAt: new Date() } : {}) } : {}),
+    ...(input.status !== undefined ? {
+      status: input.status,
+      cancelledAt: input.status === 'cancelled' ? new Date() : null,
+    } : {}),
   };
 }
 
@@ -206,6 +221,7 @@ plansRoutes.patch('/:planId', requireAuth, requireActiveAccount, asyncRoute(asyn
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const plan = await prisma.plan.update({ where: { id: existing.id }, data: planUpdateData(input) as any });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'plan' as any, plan.id);
+  if (input.maxParticipants !== undefined || input.status !== undefined) await syncPlanCapacityStatus(plan.id);
   const updated = await prisma.plan.findUnique({ where: { id: plan.id }, include: planInclude() });
   res.json({ plan: await decoratePlan(updated, req.user!.id) });
 }));
@@ -278,10 +294,7 @@ plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireA
     data: { status: input.status as any, decidedAt: new Date(), decidedById: req.user!.id },
     include: { user: { select: userSummarySelect } },
   });
-  if (input.status === 'accepted' && plan.maxParticipants) {
-    const acceptedCount = await prisma.planParticipant.count({ where: { planId: plan.id, status: 'accepted' as any } });
-    if (acceptedCount >= plan.maxParticipants && plan.status === 'open') await prisma.plan.update({ where: { id: plan.id }, data: { status: 'full' as any } });
-  }
+  if (['accepted', 'removed'].includes(input.status)) await syncPlanCapacityStatus(plan.id);
   res.json({ participant: updated });
 }));
 
@@ -294,6 +307,7 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
   if (input.status === 'cancelled' && participant.status !== 'pending') return res.status(409).json({ error: 'cannot_cancel_join_request', message: 'Only pending join requests can be cancelled.' });
   if (input.status === 'left' && participant.status !== 'accepted') return res.status(409).json({ error: 'cannot_leave_plan', message: 'Only accepted participants can leave a plan.' });
   const updated = await prisma.planParticipant.update({ where: { id: participant.id }, data: { status: input.status as any }, include: { user: { select: userSummarySelect } } });
+  if (input.status === 'left') await syncPlanCapacityStatus(planId);
   res.json({ participant: updated });
 }));
 

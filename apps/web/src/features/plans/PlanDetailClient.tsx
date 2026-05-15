@@ -191,6 +191,11 @@ export function PlanDetailClient({ planId }: { planId: string }) {
                 <span><strong>{plan.pendingRequestCount ?? 0}</strong> pending</span>
                 <span><strong>{plan.places?.length ?? 0}</strong> stops</span>
               </div>
+              {isOwner ? (
+                <div className="cta-row">
+                  <Link className="button secondary" href={`/plans/${plan.id}/edit`}>Edit Plan</Link>
+                </div>
+              ) : null}
               {showReportActions ? <ReportContentButton targetType="plan" targetId={plan.id} /> : null}
             </section>
 

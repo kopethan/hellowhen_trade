@@ -106,7 +106,7 @@ npm run plans:smoke
 
 `EXPECT_PLANS_ENABLED=true` tells the script to expect an enabled API. It does not enable the already-running API process by itself.
 
-The enabled smoke test logs in the seeded demo users, creates an open Plan, verifies private place details are hidden from anonymous/non-participants, sends a join request, accepts it as owner, verifies private details become visible to the accepted participant, and then cancels the test Plan.
+The enabled smoke test logs in the seeded demo users, creates an open Plan, verifies private place details are hidden from anonymous/non-participants, sends a join request, accepts it as owner, verifies private details become visible to the accepted participant, edits Plan/place details, adds a second place, checks capacity status reopening after a participant leaves, and then cancels the test Plan.
 
 ## Hidden web UI
 
@@ -115,6 +115,7 @@ When `NEXT_PUBLIC_PLANS_ENABLED=true`, internal testers can open:
 - `/plans`
 - `/plans/new`
 - `/plans/[planId]`
+- `/plans/[planId]/edit`
 
 `NEXT_PUBLIC_PLANS_VISIBLE=false` keeps Plans out of primary navigation. These routes are direct internal preview routes only.
 
@@ -124,6 +125,9 @@ The hidden UI currently supports:
 - create Plan with one place/stop
 - Plan and first-place image upload
 - Plan detail view with Plan and Place image galleries
+- owner-only Plan editor at `/plans/[planId]/edit`
+- owner edit/cancel lifecycle controls with major-change warning copy
+- add/edit Plan Places and append Place images
 - report Plan and report Plan Place actions for non-owner viewers
 - support link from Plan detail
 - request to join
@@ -146,5 +150,5 @@ The hidden UI currently supports:
 
 1. Add admin Plan moderation views if Plans need deeper internal review before visibility.
 2. Add hidden native Plans screens only when explicitly selected.
-3. Add edit/cancel lifecycle polish and major-change warnings.
+3. Add admin Plan moderation views if direct Plan review is needed beyond reports.
 4. Add optional smoke coverage for media/report flows once a dedicated non-polluting test fixture is available.
