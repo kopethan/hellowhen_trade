@@ -5,10 +5,12 @@ import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
+import { usersHaveBlockBetween } from '../users/userBlocks.js';
 
 export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
 function canReadProposal(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) { return proposal.applicantId === actorId || proposal.trade.ownerId === actorId || proposal.trade.providerId === actorId; }
+function otherProposalMemberId(proposal: { applicantId: string; trade: { ownerId: string } }, actorId: string) { return actorId === proposal.applicantId ? proposal.trade.ownerId : proposal.applicantId; }
 
 proposalsRoutes.get('/mine', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
@@ -75,6 +77,7 @@ proposalsRoutes.post('/:proposalId/messages', requireActiveAccount, asyncRoute(a
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
   if (['declined', 'withdrawn'].includes(proposal.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
+  if (await usersHaveBlockBetween(actorId, otherProposalMemberId(proposal, actorId))) return res.status(403).json({ error: 'user_blocked', message: 'This conversation is not available because one member has blocked the other.' });
   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: publicUserPreviewSelect } } });
   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
   res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });

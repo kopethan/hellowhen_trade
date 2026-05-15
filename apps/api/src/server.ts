@@ -1,5 +1,7 @@
 import { createApp } from './app.js';
-import { env } from './config/env.js';
+import { env, validateProductionEnv } from './config/env.js';
+
+validateProductionEnv();
 
 const app = createApp();
 

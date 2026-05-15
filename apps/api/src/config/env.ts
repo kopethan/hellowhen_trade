@@ -118,3 +118,28 @@ export const env = {
   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true'
 };
+
+function isLocalUrl(value: string) {
+  try {
+    const parsed = new URL(value);
+    return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function validateProductionEnv() {
+  if (env.nodeEnv !== 'production') return;
+  const errors: string[] = [];
+  if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
+  if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
+  if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
+  if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
+  const moneyConfigured = env.moneyProvider !== 'none' || env.moneyFeaturesVisible || env.walletVisible || env.payoutsVisible || env.moneyTradesEnabled || env.cashTradesEnabled;
+  if (moneyConfigured && !env.moneyProductionEnabled) {
+    errors.push('Money/wallet/payout features must stay disabled in production unless MONEY_PRODUCTION_ENABLED=true is explicitly set for a separate money launch.');
+  }
+  if (errors.length) {
+    throw new Error(`Invalid Hellowhen production configuration:\n- ${errors.join('\n- ')}`);
+  }
+}

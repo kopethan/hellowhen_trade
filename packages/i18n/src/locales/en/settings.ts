@@ -81,6 +81,8 @@ export const settings = {
     body: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
     bodyNative: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
     open: 'Open legal & safety center',
+    support: 'Contact support',
+    deleteAccount: 'Delete account',
   },
   signedOutHint: 'You are not logged in. Appearance and language still persist locally on this browser.',
 } as const;

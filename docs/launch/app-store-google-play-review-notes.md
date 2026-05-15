@@ -1,0 +1,60 @@
+# App Store / Google Play Review Notes
+
+> Documentation note: this is launch-readiness guidance for reviewers and the Hellowhen team. It is not legal advice. Final Terms, Privacy, and safety wording must be reviewed before public launch.
+
+## Product scope for first launch
+
+Hellowhen Trade is a mobile-first marketplace for service, goods, and skill trades. First launch should stay focused on:
+
+- creating Needs;
+- creating Offers;
+- creating Trades;
+- sending proposals/messages tied to a Trade;
+- reporting unsafe content or users;
+- contacting support;
+- requesting account deletion.
+
+Money, wallet, payouts, Stripe, Airwallex, and real-money trades must remain disabled unless a separate money-launch review explicitly enables them.
+
+## Demo reviewer setup
+
+Prepare a normal reviewer account before submission:
+
+- email: use a real inbox that can receive verification/reset messages;
+- password: temporary strong password, rotated after review;
+- language: English or French can be tested from Account settings;
+- content: include at least one safe Need, Offer, and Trade for reviewer exploration.
+
+Do not give reviewers admin credentials unless a reviewer specifically asks for admin/moderation access. Admin accounts should require strong credentials and two-step authentication outside local development.
+
+## Review path inside the app
+
+Suggested reviewer path:
+
+1. Register or log in with the demo account.
+2. Open Terms/Privacy/Safety from auth or Account.
+3. Open Trades, Needs, and Offers.
+4. Open a public profile.
+5. Use report buttons without submitting abusive test content.
+6. Open Support / Contact.
+7. Open Account deletion request screen.
+8. Confirm wallet, payouts, and money trade features are not advertised or available in production.
+
+## Safety features to mention in review notes
+
+- Users can report profiles, trades, needs, offers, proposals, messages, and media.
+- Users can block/unblock another user from public profiles.
+- Admins can review reports, hide/restore content, restrict/suspend users, review media, and manage support tickets.
+- Restricted users are blocked from marketplace write actions.
+- Hidden/restricted content is filtered from public discovery and public profile routes.
+- Support is available through authenticated app flows and the public support page.
+- Account deletion can be requested in-app and through the public web deletion page.
+
+## Production readiness checks before submission
+
+- No production API/web URL points to `localhost`.
+- Production `JWT_SECRET` is strong and not the development fallback.
+- Money flags stay off: `MONEY_PROVIDER=none`, `MONEY_FEATURES_VISIBLE=false`, `WALLET_VISIBLE=false`, `PAYOUTS_VISIBLE=false`, `MONEY_TRADES_ENABLED=false`.
+- Native public money flags stay off: `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
+- Web public money flags stay off: `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`.
+- Terms, Privacy, Community/Safety, Support, and Account Deletion pages are reachable from the app.

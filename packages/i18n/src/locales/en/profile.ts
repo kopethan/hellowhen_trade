@@ -1,6 +1,10 @@
 export const profile = {
   title: 'Profile',
   publicBadge: 'Public profile',
+  blockedByMeNotice: 'You blocked this member. Their public posts are hidden from this profile while the block is active.',
+  blockSuccess: 'Member blocked.',
+  unblockSuccess: 'Member unblocked.',
+  blockError: 'Could not update block status.',
   unavailableBadge: 'Not available',
   unavailableTitle: 'Profile unavailable',
   unknownMember: 'Unknown member',

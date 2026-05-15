@@ -12,6 +12,7 @@ import { ReportContentPanel } from '../../components/ReportContentPanel';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserAvatar, getUserDisplayName, resolveNativeAssetUrl } from './UserAvatar';
@@ -154,10 +155,13 @@ function PublicPostSection({ kind, posts, onOpenPost }: { kind: PostKind; posts:
 
 export function PublicUserProfileScreen({ navigation, route }: Props) {
   const theme = useThemeTokens();
+  const auth = useAuth();
   const { t, language } = useTranslation();
   const { userId, displayName } = route.params;
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadProfile = useCallback(async () => {
@@ -188,6 +192,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
   const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || t('profile.hellowhenMember'), [displayName, profile?.user.profile, t]);
   const handleLabel = formatHandle(profile?.user.profile?.handle);
   const memberSince = formatDate(profile?.user.memberSince, language);
+  const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
   const activeTrades = profile?.sections.activeTrades ?? [];
   const openNeeds = profile?.sections.openNeeds ?? [];
   const openOffers = profile?.sections.openOffers ?? [];
@@ -205,6 +210,24 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
     });
   }, [navigation]);
 
+  async function toggleBlock() {
+    if (!profile) return;
+    setBlockBusy(true); setNotice(null); setError(null);
+    try {
+      if (isBlockedByMe) {
+        await api.users.unblock(profile.user.id);
+        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: false } } : current);
+        setNotice(t('profile.unblockSuccess'));
+      } else {
+        await api.users.block(profile.user.id);
+        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: true }, sections: { ...current.sections, activeTrades: [], openNeeds: [], openOffers: [] } } : current);
+        setNotice(t('profile.blockSuccess'));
+      }
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError, t('profile.blockError')));
+    } finally { setBlockBusy(false); }
+  }
+
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('profile.title')} onBack={() => navigation.goBack()} />}>
       <ScrollView
@@ -212,6 +235,8 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProfile(); }} tintColor={theme.color.text} />}
       >
+        {notice ? <InfoNotice tone="success" title={t('common.states.done')} body={notice} /> : null}
+
         {error ? (
           <AppCard>
             <View style={styles.errorBox}>
@@ -243,6 +268,12 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                   {memberSince ? <SemanticBadge label={t('profile.memberSince', { date: memberSince })} tone="info" size="sm" /> : null}
                 </View>
                 <ReportContentPanel targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" />
+                {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
+                  <Pressable accessibilityRole="button" disabled={blockBusy} onPress={() => { void toggleBlock(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, blockBusy && styles.disabled, pressed && styles.pressed]}>
+                    <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{isBlockedByMe ? t('common.actions.unblockUser') : t('common.actions.blockUser')}</AppText>
+                  </Pressable>
+                ) : null}
+                {isBlockedByMe ? <InfoNotice tone="warning" title={t('common.actions.blockUser')} body={t('profile.blockedByMeNotice')} /> : null}
               </View>
             </AppCard>
 
@@ -300,5 +331,6 @@ const styles = StyleSheet.create({
   primaryButtonText: { fontWeight: '900' },
   secondaryButton: { minHeight: 46, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
   secondaryButtonText: { fontWeight: '900' },
+  disabled: { opacity: 0.55 },
   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
 });

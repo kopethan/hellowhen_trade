@@ -1,0 +1,1797 @@
+diff --git a/apps/api/prisma/migrations/20260514120000_launch_readiness_safety_policy/migration.sql b/apps/api/prisma/migrations/20260514120000_launch_readiness_safety_policy/migration.sql
+--- a/apps/api/prisma/migrations/20260514120000_launch_readiness_safety_policy/migration.sql	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/api/prisma/migrations/20260514120000_launch_readiness_safety_policy/migration.sql	2026-05-14 11:03:57.404070711 +0000
+@@ -0,0 +1,44 @@
++-- Launch-readiness safety and policy polish.
++-- Adds account deletion request tracking and user blocking for UGC review readiness.
++
++CREATE TYPE "AccountDeletionRequestStatus" AS ENUM ('requested', 'in_review', 'completed', 'cancelled', 'rejected');
++
++CREATE TABLE "AccountDeletionRequest" (
++  "id" TEXT NOT NULL,
++  "userId" TEXT NOT NULL,
++  "status" "AccountDeletionRequestStatus" NOT NULL DEFAULT 'requested',
++  "reason" TEXT,
++  "details" TEXT,
++  "supportTicketId" TEXT,
++  "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "reviewedAt" TIMESTAMP(3),
++  "completedAt" TIMESTAMP(3),
++  "cancelledAt" TIMESTAMP(3),
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++  CONSTRAINT "AccountDeletionRequest_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "UserBlock" (
++  "id" TEXT NOT NULL,
++  "blockerId" TEXT NOT NULL,
++  "blockedId" TEXT NOT NULL,
++  "reason" TEXT,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++  CONSTRAINT "UserBlock_pkey" PRIMARY KEY ("id")
++);
++
++CREATE INDEX "AccountDeletionRequest_userId_status_createdAt_idx" ON "AccountDeletionRequest"("userId", "status", "createdAt");
++CREATE INDEX "AccountDeletionRequest_status_createdAt_idx" ON "AccountDeletionRequest"("status", "createdAt");
++CREATE INDEX "AccountDeletionRequest_supportTicketId_idx" ON "AccountDeletionRequest"("supportTicketId");
++
++CREATE UNIQUE INDEX "UserBlock_blockerId_blockedId_key" ON "UserBlock"("blockerId", "blockedId");
++CREATE INDEX "UserBlock_blockerId_createdAt_idx" ON "UserBlock"("blockerId", "createdAt");
++CREATE INDEX "UserBlock_blockedId_createdAt_idx" ON "UserBlock"("blockedId", "createdAt");
++
++ALTER TABLE "AccountDeletionRequest" ADD CONSTRAINT "AccountDeletionRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "UserBlock" ADD CONSTRAINT "UserBlock_blockerId_fkey" FOREIGN KEY ("blockerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "UserBlock" ADD CONSTRAINT "UserBlock_blockedId_fkey" FOREIGN KEY ("blockedId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "User" ADD COLUMN "termsAcceptedAt" TIMESTAMP(3), ADD COLUMN "termsVersion" TEXT, ADD COLUMN "privacyVersion" TEXT;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+--- a/apps/api/prisma/schema.prisma	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/prisma/schema.prisma	2026-05-14 11:03:57.139654849 +0000
+@@ -308,6 +308,14 @@
+   dismissed
+ }
+ 
++enum AccountDeletionRequestStatus {
++  requested
++  in_review
++  completed
++  cancelled
++  rejected
++}
++
+ model User {
+   id           String    @id @default(cuid())
+   email        String    @unique
+@@ -327,6 +335,9 @@
+   sensitiveActionVerifiedAt DateTime?
+   sessionRevokedAt DateTime?
+   lastLoginAt     DateTime?
++  termsAcceptedAt DateTime?
++  termsVersion    String?
++  privacyVersion  String?
+   createdAt    DateTime  @default(now())
+   updatedAt    DateTime  @updatedAt
+ 
+@@ -363,6 +374,9 @@
+   adminAuditLogs AdminAuditLog[] @relation("AdminAuditLogs")
+   reportsMade Report[] @relation("UserReportsMade")
+   reviewedReports Report[] @relation("ReviewedReports")
++  accountDeletionRequests AccountDeletionRequest[]
++  blocksCreated UserBlock[] @relation("UserBlocksCreated")
++  blocksReceived UserBlock[] @relation("UserBlocksReceived")
+ }
+ 
+ 
+@@ -1102,6 +1116,43 @@
+ }
+ 
+ 
++model AccountDeletionRequest {
++  id              String                       @id @default(cuid())
++  userId          String
++  status          AccountDeletionRequestStatus @default(requested)
++  reason          String?
++  details         String?
++  supportTicketId String?
++  requestedAt     DateTime                     @default(now())
++  reviewedAt      DateTime?
++  completedAt     DateTime?
++  cancelledAt     DateTime?
++  createdAt       DateTime                     @default(now())
++  updatedAt       DateTime                     @updatedAt
++
++  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
++
++  @@index([userId, status, createdAt])
++  @@index([status, createdAt])
++  @@index([supportTicketId])
++}
++
++model UserBlock {
++  id        String   @id @default(cuid())
++  blockerId String
++  blockedId String
++  reason    String?
++  createdAt DateTime @default(now())
++  updatedAt DateTime @updatedAt
++
++  blocker User @relation("UserBlocksCreated", fields: [blockerId], references: [id], onDelete: Cascade)
++  blocked User @relation("UserBlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
++
++  @@unique([blockerId, blockedId])
++  @@index([blockerId, createdAt])
++  @@index([blockedId, createdAt])
++}
++
+ model Report {
+   id            String           @id @default(cuid())
+   reporterId    String
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+--- a/apps/api/src/config/env.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/config/env.ts	2026-05-14 11:09:07.898265474 +0000
+@@ -118,3 +118,28 @@
+   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+   businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true'
+ };
++
++function isLocalUrl(value: string) {
++  try {
++    const parsed = new URL(value);
++    return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase());
++  } catch {
++    return false;
++  }
++}
++
++export function validateProductionEnv() {
++  if (env.nodeEnv !== 'production') return;
++  const errors: string[] = [];
++  if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
++  if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
++  if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
++  if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
++  const moneyConfigured = env.moneyProvider !== 'none' || env.moneyFeaturesVisible || env.walletVisible || env.payoutsVisible || env.moneyTradesEnabled || env.cashTradesEnabled;
++  if (moneyConfigured && !env.moneyProductionEnabled) {
++    errors.push('Money/wallet/payout features must stay disabled in production unless MONEY_PRODUCTION_ENABLED=true is explicitly set for a separate money launch.');
++  }
++  if (errors.length) {
++    throw new Error(`Invalid Hellowhen production configuration:\n- ${errors.join('\n- ')}`);
++  }
++}
+diff --git a/apps/api/src/modules/account/account.routes.ts b/apps/api/src/modules/account/account.routes.ts
+--- a/apps/api/src/modules/account/account.routes.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/api/src/modules/account/account.routes.ts	2026-05-14 10:59:45.385982828 +0000
+@@ -0,0 +1,82 @@
++import { Router } from 'express';
++import { createAccountDeletionRequestSchema } from '@hellowhen/contracts';
++import { asyncRoute } from '../../lib/asyncRoute.js';
++import { prisma } from '../../lib/prisma.js';
++import { requireAuth } from '../../middleware/auth.js';
++
++export const accountRoutes = Router();
++accountRoutes.use(requireAuth);
++
++const activeDeletionStatuses = ['requested', 'in_review'] as const;
++
++function deletionMessage(reason?: string, details?: string) {
++  const lines = [
++    'The user requested account deletion from the account deletion flow.',
++    reason ? `Reason: ${reason}` : null,
++    details ? `Details: ${details}` : null,
++    'Support should confirm identity/safety retention requirements before final deletion.',
++  ].filter(Boolean);
++  return lines.join('\n\n');
++}
++
++accountRoutes.get('/deletion-request', asyncRoute(async (req, res) => {
++  const request = await prisma.accountDeletionRequest.findFirst({
++    where: { userId: req.user!.id },
++    orderBy: { createdAt: 'desc' },
++  });
++  res.json({ request });
++}));
++
++accountRoutes.post('/deletion-request', asyncRoute(async (req, res) => {
++  const input = createAccountDeletionRequestSchema.parse(req.body ?? {});
++  const actorId = req.user!.id;
++  const existing = await prisma.accountDeletionRequest.findFirst({
++    where: { userId: actorId, status: { in: [...activeDeletionStatuses] } },
++    orderBy: { createdAt: 'desc' },
++  });
++  if (existing) return res.status(200).json({ request: existing, duplicate: true });
++
++  const request = await prisma.$transaction(async (tx) => {
++    const created = await tx.accountDeletionRequest.create({
++      data: {
++        userId: actorId,
++        reason: input.reason?.trim() || null,
++        details: input.details?.trim() || null,
++      },
++    });
++    const message = deletionMessage(input.reason?.trim(), input.details?.trim());
++    const ticket = await tx.supportTicket.create({
++      data: {
++        userId: actorId,
++        category: 'account_issue',
++        subject: 'Account deletion request',
++        message,
++        priority: 'normal',
++        messages: { create: { senderId: actorId, senderRole: 'user', body: message } },
++      },
++    });
++    return tx.accountDeletionRequest.update({ where: { id: created.id }, data: { supportTicketId: ticket.id } });
++  });
++
++  res.status(201).json({ request });
++}));
++
++accountRoutes.patch('/deletion-request/cancel', asyncRoute(async (req, res) => {
++  const actorId = req.user!.id;
++  const existing = await prisma.accountDeletionRequest.findFirst({
++    where: { userId: actorId, status: { in: [...activeDeletionStatuses] } },
++    orderBy: { createdAt: 'desc' },
++  });
++  if (!existing) return res.status(404).json({ error: 'not_found', message: 'There is no active account deletion request to cancel.' });
++
++  const request = await prisma.$transaction(async (tx) => {
++    const updated = await tx.accountDeletionRequest.update({ where: { id: existing.id }, data: { status: 'cancelled', cancelledAt: new Date() } });
++    if (existing.supportTicketId) {
++      await tx.supportTicket.updateMany({ where: { id: existing.supportTicketId, userId: actorId }, data: { status: 'closed', resolvedAt: new Date() } });
++      await tx.supportTicketMessage.create({ data: { ticketId: existing.supportTicketId, senderId: actorId, senderRole: 'user', body: 'I cancelled my account deletion request.' } }).catch(() => null);
++    }
++    return updated;
++  });
++
++  res.json({ request });
++}));
+diff --git a/apps/api/src/modules/auth/auth.routes.ts b/apps/api/src/modules/auth/auth.routes.ts
+--- a/apps/api/src/modules/auth/auth.routes.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/modules/auth/auth.routes.ts	2026-05-14 11:09:16.912750183 +0000
+@@ -247,6 +247,9 @@
+       email,
+       passwordHash,
+       lastLoginAt: new Date(),
++      termsAcceptedAt: new Date(),
++      termsVersion: '2026-05-14',
++      privacyVersion: '2026-05-14',
+       profile: { create: { displayName: input.displayName ?? null, countryCode: input.countryCode ?? null, preferredCurrency: input.preferredCurrency ?? 'eur' } },
+       settings: { create: {} },
+       wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: input.preferredCurrency ?? 'eur' } },
+@@ -320,6 +323,9 @@
+           trustTierUpdatedAt: new Date(),
+           trustTierNote: 'Email verified by Google sign-in.',
+           lastLoginAt: new Date(),
++          termsAcceptedAt: new Date(),
++          termsVersion: '2026-05-14',
++          privacyVersion: '2026-05-14',
+           profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
+           settings: { create: {} },
+           wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: 'eur' } },
+diff --git a/apps/api/src/modules/media/media.routes.ts b/apps/api/src/modules/media/media.routes.ts
+--- a/apps/api/src/modules/media/media.routes.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/modules/media/media.routes.ts	2026-05-14 11:00:46.941821664 +0000
+@@ -8,7 +8,7 @@
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+-import { requireAuth } from '../../middleware/auth.js';
++import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ 
+ const maxImageBytes = 5 * 1024 * 1024;
+ fs.mkdirSync(env.uploadDir, { recursive: true });
+@@ -46,7 +46,7 @@
+ export const mediaRoutes = Router();
+ mediaRoutes.use(requireAuth);
+ 
+-mediaRoutes.post('/image', uploadImage, asyncRoute(async (req, res) => {
++mediaRoutes.post('/image', requireActiveAccount, uploadImage, asyncRoute(async (req, res) => {
+   if (!req.file) return res.status(400).json({ error: 'missing_image', message: 'Choose a JPEG, PNG, or WEBP image first.' });
+ 
+   const url = `/uploads/${req.file.filename}`;
+diff --git a/apps/api/src/modules/proposals/proposals.routes.ts b/apps/api/src/modules/proposals/proposals.routes.ts
+--- a/apps/api/src/modules/proposals/proposals.routes.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/modules/proposals/proposals.routes.ts	2026-05-14 11:00:23.340786015 +0000
+@@ -5,10 +5,12 @@
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
++import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ 
+ export const proposalsRoutes = Router();
+ proposalsRoutes.use(requireAuth);
+ function canReadProposal(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) { return proposal.applicantId === actorId || proposal.trade.ownerId === actorId || proposal.trade.providerId === actorId; }
++function otherProposalMemberId(proposal: { applicantId: string; trade: { ownerId: string } }, actorId: string) { return actorId === proposal.applicantId ? proposal.trade.ownerId : proposal.applicantId; }
+ 
+ proposalsRoutes.get('/mine', asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+@@ -75,6 +77,7 @@
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+   if (['declined', 'withdrawn'].includes(proposal.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
++  if (await usersHaveBlockBetween(actorId, otherProposalMemberId(proposal, actorId))) return res.status(403).json({ error: 'user_blocked', message: 'This conversation is not available because one member has blocked the other.' });
+   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: publicUserPreviewSelect } } });
+   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
+   res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+--- a/apps/api/src/modules/trades/trades.routes.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/modules/trades/trades.routes.ts	2026-05-14 11:05:08.990180488 +0000
+@@ -10,6 +10,7 @@
+ import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+ import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
++import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ 
+ export const tradesRoutes = Router();
+ export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+@@ -556,8 +557,13 @@
+     ? await prisma.user.findUnique({ where: { id: actorId }, select: { profile: { select: { countryCode: true } }, settings: { select: { language: true } } } })
+     : null;
+   const preferences = resolveFeedDiscoveryPreferences(input, actorPreferences, req.headers['accept-language']);
+-  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: feedTradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake });
+-  const hydratedTrades = await withTradeDeckMediaForActor(trades, actorId);
++  const [trades, blocks] = await Promise.all([
++    prisma.trade.findMany({ where: buildFeedWhere(input), include: feedTradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake }),
++    actorId ? prisma.userBlock.findMany({ where: { OR: [{ blockerId: actorId }, { blockedId: actorId }] }, select: { blockerId: true, blockedId: true } }) : Promise.resolve([]),
++  ]);
++  const blockedUserIds = new Set(blocks.map((block) => block.blockerId === actorId ? block.blockedId : block.blockerId));
++  const blockFilteredTrades = actorId ? trades.filter((trade) => !blockedUserIds.has(trade.ownerId) && (!trade.providerId || !blockedUserIds.has(trade.providerId))) : trades;
++  const hydratedTrades = await withTradeDeckMediaForActor(blockFilteredTrades, actorId);
+   const filteredTrades = input.hasImages
+     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
+     : hydratedTrades;
+@@ -582,6 +588,7 @@
+     include: tradeInclude,
+   });
+   if (!trade) return res.status(404).json({ error: 'not_found' });
++  if (actorId && ![trade.ownerId, trade.providerId].includes(actorId) && await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(404).json({ error: 'not_found' });
+   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
+   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
+   res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
+@@ -760,6 +767,7 @@
+   if (!trade) return res.status(404).json({ error: 'not_found', message: 'This trade is no longer open for proposals.' });
+   if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
+   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
++  if (await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(403).json({ error: 'user_blocked', message: 'This proposal is not available because one member has blocked the other.' });
+ 
+   const requiredSide = proposalSideRequirement(trade.postType);
+   let proposedNeedId: string | null = null;
+diff --git a/apps/api/src/modules/users/userBlocks.ts b/apps/api/src/modules/users/userBlocks.ts
+--- a/apps/api/src/modules/users/userBlocks.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/api/src/modules/users/userBlocks.ts	2026-05-14 10:59:45.406086160 +0000
+@@ -0,0 +1,31 @@
++import { prisma } from '../../lib/prisma.js';
++
++export async function usersHaveBlockBetween(firstUserId: string, secondUserId?: string | null) {
++  if (!secondUserId || firstUserId === secondUserId) return false;
++  const count = await prisma.userBlock.count({
++    where: {
++      OR: [
++        { blockerId: firstUserId, blockedId: secondUserId },
++        { blockerId: secondUserId, blockedId: firstUserId },
++      ],
++    },
++  });
++  return count > 0;
++}
++
++export async function userBlockState(viewerId: string, profileUserId: string) {
++  if (viewerId === profileUserId) return { isBlockedByMe: false, isBlockingMe: false };
++  const blocks = await prisma.userBlock.findMany({
++    where: {
++      OR: [
++        { blockerId: viewerId, blockedId: profileUserId },
++        { blockerId: profileUserId, blockedId: viewerId },
++      ],
++    },
++    select: { blockerId: true, blockedId: true },
++  });
++  return {
++    isBlockedByMe: blocks.some((block) => block.blockerId === viewerId && block.blockedId === profileUserId),
++    isBlockingMe: blocks.some((block) => block.blockerId === profileUserId && block.blockedId === viewerId),
++  };
++}
+diff --git a/apps/api/src/modules/users/users.routes.ts b/apps/api/src/modules/users/users.routes.ts
+--- a/apps/api/src/modules/users/users.routes.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/modules/users/users.routes.ts	2026-05-14 11:00:35.770142192 +0000
+@@ -1,8 +1,11 @@
+ import { Router } from 'express';
++import { createUserBlockRequestSchema } from '@hellowhen/contracts';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
++import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
+ import { publicUserProfileSelect } from './publicUser.js';
++import { userBlockState } from './userBlocks.js';
+ 
+ export const usersRoutes = Router();
+ 
+@@ -15,7 +18,40 @@
+   offer: true,
+ } as const;
+ 
+-usersRoutes.get('/:userId/public-profile', asyncRoute(async (req, res) => {
++usersRoutes.get('/blocked', requireAuth, asyncRoute(async (req, res) => {
++  const blocks = await prisma.userBlock.findMany({
++    where: { blockerId: req.user!.id },
++    include: { blocked: { select: publicUserProfileSelect } },
++    orderBy: { createdAt: 'desc' },
++    take: 250,
++  });
++  res.json({ blocks });
++}));
++
++usersRoutes.post('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
++  const input = createUserBlockRequestSchema.parse(req.body ?? {});
++  const actorId = req.user!.id;
++  const targetId = req.params.userId;
++  if (!targetId || targetId === actorId) return res.status(400).json({ error: 'invalid_block_target', message: 'Choose another member to block.' });
++  const target = await prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
++  if (!target) return res.status(404).json({ error: 'not_found' });
++  const block = await prisma.userBlock.upsert({
++    where: { blockerId_blockedId: { blockerId: actorId, blockedId: targetId } },
++    update: { reason: input.reason?.trim() || null },
++    create: { blockerId: actorId, blockedId: targetId, reason: input.reason?.trim() || null },
++  });
++  res.json({ blocked: true, block });
++}));
++
++usersRoutes.delete('/:userId/block', requireAuth, asyncRoute(async (req, res) => {
++  const actorId = req.user!.id;
++  const targetId = req.params.userId;
++  if (!targetId || targetId === actorId) return res.status(400).json({ error: 'invalid_block_target' });
++  await prisma.userBlock.deleteMany({ where: { blockerId: actorId, blockedId: targetId } });
++  res.json({ blocked: false });
++}));
++
++usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, res) => {
+   const userId = req.params.userId;
+   if (!userId) return res.status(400).json({ error: 'missing_user_id' });
+ 
+@@ -26,6 +62,9 @@
+ 
+   if (!user || user.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
+ 
++  const viewerState = req.user ? await userBlockState(req.user.id, userId) : undefined;
++  if (viewerState?.isBlockingMe) return res.status(404).json({ error: 'not_found' });
++
+   const [completedTradesCount, activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
+     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
+     prisma.trade.count({ where: { ...publicPostWhereBase(userId), postType: 'need_offer' } }),
+@@ -55,9 +94,10 @@
+       openOffersCount,
+     },
+     sections: {
+-      activeTrades: activeTradesWithMedia,
+-      openNeeds: openNeedsWithMedia,
+-      openOffers: openOffersWithMedia,
++      activeTrades: viewerState?.isBlockedByMe ? [] : activeTradesWithMedia,
++      openNeeds: viewerState?.isBlockedByMe ? [] : openNeedsWithMedia,
++      openOffers: viewerState?.isBlockedByMe ? [] : openOffersWithMedia,
+     },
++    viewerState,
+   });
+ }));
+diff --git a/apps/api/src/routes.ts b/apps/api/src/routes.ts
+--- a/apps/api/src/routes.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/routes.ts	2026-05-14 10:59:48.101507780 +0000
+@@ -1,4 +1,5 @@
+ import { Router } from 'express';
++import { accountRoutes } from './modules/account/account.routes.js';
+ import { adminRoutes } from './modules/admin/admin.routes.js';
+ import { authRoutes } from './modules/auth/auth.routes.js';
+ import { businessRoutes } from './modules/business/business.routes.js';
+@@ -23,6 +24,7 @@
+ routes.use('/health', healthRoutes);
+ routes.use('/inventory-templates', inventoryTemplatesRoutes);
+ routes.use('/auth', authRoutes);
++routes.use('/account', accountRoutes);
+ routes.use('/business', requireBusinessAccountsVisible(), businessRoutes);
+ routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);
+ routes.use('/profile', profileRoutes);
+diff --git a/apps/api/src/server.ts b/apps/api/src/server.ts
+--- a/apps/api/src/server.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/api/src/server.ts	2026-05-14 11:00:58.083184011 +0000
+@@ -1,5 +1,7 @@
+ import { createApp } from './app.js';
+-import { env } from './config/env.js';
++import { env, validateProductionEnv } from './config/env.js';
++
++validateProductionEnv();
+ 
+ const app = createApp();
+ 
+diff --git a/apps/mobile/src/features/account/AccountDeletionScreen.tsx b/apps/mobile/src/features/account/AccountDeletionScreen.tsx
+--- a/apps/mobile/src/features/account/AccountDeletionScreen.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/mobile/src/features/account/AccountDeletionScreen.tsx	2026-05-14 11:11:13.378606423 +0000
+@@ -0,0 +1,154 @@
++import React, { useCallback, useState } from 'react';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { useFocusEffect } from '@react-navigation/native';
++import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { AccountDeletionRequestDto } from '@hellowhen/contracts';
++import { AppCard } from '../../components/AppCard';
++import { AppHeader } from '../../components/AppHeader';
++import { AppScreen } from '../../components/AppScreen';
++import { AppText } from '../../components/AppText';
++import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++
++type Props = NativeStackScreenProps<RootStackParamList, 'AccountDeletion'>;
++
++function normalizeRequest(payload: unknown) {
++  if (!payload || typeof payload !== 'object') return null;
++  const record = payload as { request?: unknown };
++  return record.request && typeof record.request === 'object' ? record.request as AccountDeletionRequestDto : null;
++}
++
++export function AccountDeletionScreen({ navigation }: Props) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const [request, setRequest] = useState<AccountDeletionRequestDto | null>(null);
++  const [reason, setReason] = useState('');
++  const [details, setDetails] = useState('');
++  const [loading, setLoading] = useState(false);
++  const [saving, setSaving] = useState(false);
++  const [notice, setNotice] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  const loadRequest = useCallback(async () => {
++    setLoading(true); setError(null);
++    try {
++      setRequest(normalizeRequest(await api.account.deletionRequest()));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
++  useFocusEffect(useCallback(() => { void loadRequest(); }, [loadRequest]));
++
++  async function submitRequest() {
++    setSaving(true); setNotice(null); setError(null);
++    try {
++      const response = await api.account.requestDeletion({ reason: reason.trim() || undefined, details: details.trim() || undefined });
++      setRequest(normalizeRequest(response));
++      setReason(''); setDetails(''); setNotice(t('account.deletion.requestCreated'));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function cancelRequest() {
++    setSaving(true); setNotice(null); setError(null);
++    try {
++      const response = await api.account.cancelDeletionRequest();
++      setRequest(normalizeRequest(response));
++      setNotice(t('account.deletion.requestCancelled'));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  const active = request && ['requested', 'in_review'].includes(request.status);
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadRequest(); }} />}>
++        <AppHeader title={t('account.deletion.title')} onBack={() => navigation.goBack()} />
++
++        <View style={styles.header}>
++          <SemanticBadge label={t('account.deletion.badge')} tone="warning" />
++          <AppText style={styles.title}>{t('account.deletion.title')}</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.deletion.body')}</AppText>
++        </View>
++
++        {notice ? <InfoNotice tone="success" title={t('common.states.done')} body={notice} /> : null}
++        {error ? <InfoNotice tone="danger" title={t('account.deletion.couldNotUpdate')} body={error} /> : null}
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>{t('account.deletion.whatHappensTitle')}</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.whatHappensBody')}</AppText>
++          <View style={styles.bulletList}>
++            <AppText style={[styles.bullet, { color: theme.color.muted }]}>• {t('account.deletion.pointProfile')}</AppText>
++            <AppText style={[styles.bullet, { color: theme.color.muted }]}>• {t('account.deletion.pointSafety')}</AppText>
++            <AppText style={[styles.bullet, { color: theme.color.muted }]}>• {t('account.deletion.pointSupport')}</AppText>
++          </View>
++        </AppCard>
++
++        {active ? (
++          <AppCard>
++            <SemanticBadge label={request.status} tone="instruction" size="sm" />
++            <AppText style={styles.sectionTitle}>{t('account.deletion.activeTitle')}</AppText>
++            <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.activeBody')}</AppText>
++            <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void cancelRequest(); }} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, saving && styles.disabled, pressed && styles.pressed]}>
++              <AppText style={styles.secondaryButtonText}>{t('account.deletion.cancelRequest')}</AppText>
++            </Pressable>
++          </AppCard>
++        ) : (
++          <AppCard>
++            <AppText style={styles.sectionTitle}>{t('account.deletion.formTitle')}</AppText>
++            <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.formBody')}</AppText>
++            <AppText style={styles.label}>{t('account.deletion.reason')}</AppText>
++            <TextInput value={reason} onChangeText={setReason} maxLength={120} placeholder={t('account.deletion.reasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
++            <AppText style={styles.label}>{t('account.deletion.details')}</AppText>
++            <TextInput value={details} onChangeText={setDetails} maxLength={2000} multiline placeholder={t('account.deletion.detailsPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.textarea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
++            <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void submitRequest(); }} style={({ pressed }) => [styles.dangerButton, saving && styles.disabled, pressed && styles.pressed]}>
++              <AppText style={styles.dangerButtonText}>{saving ? t('common.states.submitting') : t('account.deletion.submitRequest')}</AppText>
++            </Pressable>
++          </AppCard>
++        )}
++
++        <AppCard>
++          <AppText style={styles.sectionTitle}>{t('account.deletion.needHelpTitle')}</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('account.deletion.needHelpBody')}</AppText>
++          <Pressable accessibilityRole="button" onPress={() => navigation.navigate('SupportCenter')} style={({ pressed }) => [styles.secondaryButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
++            <AppText style={styles.secondaryButtonText}>{t('account.items.support.title')}</AppText>
++          </Pressable>
++        </AppCard>
++      </ScrollView>
++    </AppScreen>
++  );
++}
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 32, gap: 14 },
++  header: { gap: 8 },
++  title: { fontSize: 34, lineHeight: 39, fontWeight: '900', letterSpacing: -0.8 },
++  subtitle: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
++  sectionTitle: { fontSize: 21, lineHeight: 27, fontWeight: '900', letterSpacing: -0.25 },
++  body: { fontSize: 14, lineHeight: 21, fontWeight: '700' },
++  label: { fontSize: 13, lineHeight: 18, fontWeight: '900', marginBottom: -6 },
++  bulletList: { gap: 6 },
++  bullet: { fontWeight: '700', lineHeight: 20 },
++  input: { minHeight: 50, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, fontWeight: '800' },
++  textarea: { minHeight: 118, borderWidth: 1, borderRadius: 18, padding: 14, textAlignVertical: 'top', fontWeight: '700' },
++  dangerButton: { minHeight: 50, borderRadius: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, backgroundColor: '#DC2626' },
++  dangerButtonText: { color: 'white', fontWeight: '900' },
++  secondaryButton: { minHeight: 48, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
++  secondaryButtonText: { fontWeight: '900' },
++  disabled: { opacity: 0.55 },
++  pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
++});
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+--- a/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/mobile/src/features/account/AccountScreen.tsx	2026-05-14 11:02:06.973641351 +0000
+@@ -20,7 +20,7 @@
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+-type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'BuyCredits';
++type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+ 
+ type AccountAction = {
+   titleKey: string;
+@@ -39,6 +39,7 @@
+   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings' },
+   { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning' },
+   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help' },
++  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning' },
+ ];
+ 
+ function formatLedgerType(type: string) {
+@@ -114,6 +115,7 @@
+     else if (route === 'Settings') navigation.navigate('Settings');
+     else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
+     else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
++    else if (route === 'AccountDeletion') navigation.navigate('AccountDeletion');
+     else navigation.navigate('BuyCredits');
+   }
+ 
+diff --git a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+--- a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx	2026-05-14 11:03:44.719661609 +0000
+@@ -12,6 +12,7 @@
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserAvatar, getUserDisplayName, resolveNativeAssetUrl } from './UserAvatar';
+@@ -154,10 +155,13 @@
+ 
+ export function PublicUserProfileScreen({ navigation, route }: Props) {
+   const theme = useThemeTokens();
++  const auth = useAuth();
+   const { t, language } = useTranslation();
+   const { userId, displayName } = route.params;
+   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
+   const [loading, setLoading] = useState(false);
++  const [blockBusy, setBlockBusy] = useState(false);
++  const [notice, setNotice] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
+ 
+   const loadProfile = useCallback(async () => {
+@@ -188,6 +192,7 @@
+   const name = useMemo(() => displayNameForProfile(profile?.user.profile) || displayName || t('profile.hellowhenMember'), [displayName, profile?.user.profile, t]);
+   const handleLabel = formatHandle(profile?.user.profile?.handle);
+   const memberSince = formatDate(profile?.user.memberSince, language);
++  const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
+   const activeTrades = profile?.sections.activeTrades ?? [];
+   const openNeeds = profile?.sections.openNeeds ?? [];
+   const openOffers = profile?.sections.openOffers ?? [];
+@@ -205,6 +210,24 @@
+     });
+   }, [navigation]);
+ 
++  async function toggleBlock() {
++    if (!profile) return;
++    setBlockBusy(true); setNotice(null); setError(null);
++    try {
++      if (isBlockedByMe) {
++        await api.users.unblock(profile.user.id);
++        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: false } } : current);
++        setNotice(t('profile.unblockSuccess'));
++      } else {
++        await api.users.block(profile.user.id);
++        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: true }, sections: { ...current.sections, activeTrades: [], openNeeds: [], openOffers: [] } } : current);
++        setNotice(t('profile.blockSuccess'));
++      }
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('profile.blockError')));
++    } finally { setBlockBusy(false); }
++  }
++
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={t('profile.title')} onBack={() => navigation.goBack()} />}>
+       <ScrollView
+@@ -212,6 +235,8 @@
+         showsVerticalScrollIndicator={false}
+         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProfile(); }} tintColor={theme.color.text} />}
+       >
++        {notice ? <InfoNotice tone="success" title={t('common.states.done')} body={notice} /> : null}
++
+         {error ? (
+           <AppCard>
+             <View style={styles.errorBox}>
+@@ -243,6 +268,12 @@
+                   {memberSince ? <SemanticBadge label={t('profile.memberSince', { date: memberSince })} tone="info" size="sm" /> : null}
+                 </View>
+                 <ReportContentPanel targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" />
++                {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
++                  <Pressable accessibilityRole="button" disabled={blockBusy} onPress={() => { void toggleBlock(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, blockBusy && styles.disabled, pressed && styles.pressed]}>
++                    <AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{isBlockedByMe ? t('common.actions.unblockUser') : t('common.actions.blockUser')}</AppText>
++                  </Pressable>
++                ) : null}
++                {isBlockedByMe ? <InfoNotice tone="warning" title={t('common.actions.blockUser')} body={t('profile.blockedByMeNotice')} /> : null}
+               </View>
+             </AppCard>
+ 
+@@ -300,5 +331,6 @@
+   primaryButtonText: { fontWeight: '900' },
+   secondaryButton: { minHeight: 46, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+   secondaryButtonText: { fontWeight: '900' },
++  disabled: { opacity: 0.55 },
+   pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
+ });
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+--- a/apps/mobile/src/navigation/RootNavigator.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/mobile/src/navigation/RootNavigator.tsx	2026-05-14 11:02:06.972287286 +0000
+@@ -6,6 +6,7 @@
+ import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { AccountScreen } from '../features/account/AccountScreen';
++import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
+ import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+ import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
+@@ -48,6 +49,7 @@
+   BusinessAccounts: undefined;
+   BuyCredits: undefined;
+   SupportCenter: undefined;
++  AccountDeletion: undefined;
+   SupportTicketDetail: { ticketId: string; subject?: string };
+   LegalPolicy: { policy?: LegalPolicyKey } | undefined;
+   CreateNeed: { returnTo?: 'createTrade' | 'tradeProposal'; tradeId?: string; tradeTitle?: string } | undefined;
+@@ -114,6 +116,7 @@
+ const ProtectedBusinessAccountsScreen = withAuth(BusinessAccountsScreen);
+ const ProtectedBuyCreditsScreen = withAuth(BuyCreditsScreen);
+ const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
++const ProtectedAccountDeletionScreen = withAuth(AccountDeletionScreen);
+ const ProtectedSupportTicketDetailScreen = withAuth(SupportTicketDetailScreen);
+ const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
+ const ProtectedNeedDetailScreen = withAuth(NeedDetailScreen);
+@@ -183,6 +186,7 @@
+       {betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts" component={ProtectedBusinessAccountsScreen} /> : null}
+       {betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits" component={ProtectedBuyCreditsScreen} /> : null}
+       <Stack.Screen name="SupportCenter" component={ProtectedSupportCenterScreen} />
++      <Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />
+       <Stack.Screen name="SupportTicketDetail" component={ProtectedSupportTicketDetailScreen} />
+       <Stack.Screen name="CreateNeed" component={ProtectedCreateNeedScreen} />
+       <Stack.Screen name="NeedDetail" component={ProtectedNeedDetailScreen} />
+diff --git a/apps/mobile/src/providers/AuthProvider.tsx b/apps/mobile/src/providers/AuthProvider.tsx
+--- a/apps/mobile/src/providers/AuthProvider.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/mobile/src/providers/AuthProvider.tsx	2026-05-14 11:11:00.141104373 +0000
+@@ -14,7 +14,7 @@
+   hydrated: boolean;
+   isAuthenticated: boolean;
+   login: (email: string, password: string) => Promise<void>;
+-  register: (email: string, password: string, displayName: string, confirmPassword?: string, acceptedTerms?: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
++  register: (email: string, password: string, displayName: string, confirmPassword: string | undefined, acceptedTerms: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
+   loginWithGoogleIdToken: (idToken: string) => Promise<void>;
+   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
+   reauthenticate: (input: { password?: string; code?: string }) => Promise<void>;
+diff --git a/apps/web/src/app/account/delete/page.tsx b/apps/web/src/app/account/delete/page.tsx
+--- a/apps/web/src/app/account/delete/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/web/src/app/account/delete/page.tsx	2026-05-14 11:07:08.801961928 +0000
+@@ -0,0 +1,12 @@
++import { MobilePage } from '../../../components/MobilePage';
++import { TranslatedPageIntro } from '../../../components/TranslatedPageIntro';
++import { AccountDeletionClient } from '../../../features/account/AccountDeletionClient';
++
++export default function AccountDeletePage() {
++  return (
++    <MobilePage>
++      <TranslatedPageIntro eyebrowKey="account.eyebrow" titleKey="account.deletion.title" bodyKey="account.deletion.body" />
++      <AccountDeletionClient />
++    </MobilePage>
++  );
++}
+diff --git a/apps/web/src/app/account/settings/page.tsx b/apps/web/src/app/account/settings/page.tsx
+--- a/apps/web/src/app/account/settings/page.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/web/src/app/account/settings/page.tsx	2026-05-14 11:01:36.590449347 +0000
+@@ -267,6 +267,8 @@
+         <p>{t('settings.policies.body')}</p>
+         <div className="cta-row">
+           <Link href="/legal" className="button secondary">{t('settings.policies.open')}</Link>
++          <Link href="/support" className="button secondary">{t('settings.policies.support')}</Link>
++          <Link href="/account/delete" className="button secondary danger-text">{t('settings.policies.deleteAccount')}</Link>
+         </div>
+       </section>
+ 
+diff --git a/apps/web/src/app/auth/verify-email/page.tsx b/apps/web/src/app/auth/verify-email/page.tsx
+--- a/apps/web/src/app/auth/verify-email/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/web/src/app/auth/verify-email/page.tsx	2026-05-14 11:01:26.776710905 +0000
+@@ -0,0 +1,10 @@
++import { Suspense } from 'react';
++import { VerifyEmailClient } from '../../../features/auth/VerifyEmailClient';
++
++export default function VerifyEmailPage() {
++  return (
++    <Suspense>
++      <VerifyEmailClient />
++    </Suspense>
++  );
++}
+diff --git a/apps/web/src/app/support/page.tsx b/apps/web/src/app/support/page.tsx
+--- a/apps/web/src/app/support/page.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/web/src/app/support/page.tsx	2026-05-14 11:04:35.535894671 +0000
+@@ -0,0 +1,5 @@
++import { PublicSupportClient } from '../../features/account/PublicSupportClient';
++
++export default function PublicSupportPage() {
++  return <PublicSupportClient />;
++}
+diff --git a/apps/web/src/features/account/AccountDeletionClient.tsx b/apps/web/src/features/account/AccountDeletionClient.tsx
+--- a/apps/web/src/features/account/AccountDeletionClient.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/web/src/features/account/AccountDeletionClient.tsx	2026-05-14 11:01:26.797140951 +0000
+@@ -0,0 +1,133 @@
++'use client';
++
++import Link from 'next/link';
++import type { FormEvent } from 'react';
++import { useEffect, useState } from 'react';
++import type { AccountDeletionRequestDto } from '@hellowhen/contracts';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++
++function normalizeRequest(payload: unknown) {
++  if (!payload || typeof payload !== 'object') return null;
++  const record = payload as { request?: unknown };
++  return record.request && typeof record.request === 'object' ? record.request as AccountDeletionRequestDto : null;
++}
++
++export function AccountDeletionClient() {
++  const auth = useWebAuth();
++  const { t } = useWebTranslation();
++  const [request, setRequest] = useState<AccountDeletionRequestDto | null>(null);
++  const [reason, setReason] = useState('');
++  const [details, setDetails] = useState('');
++  const [loading, setLoading] = useState(true);
++  const [saving, setSaving] = useState(false);
++  const [notice, setNotice] = useState('');
++  const [error, setError] = useState('');
++
++  async function loadRequest() {
++    if (!auth.hydrated) return;
++    if (!auth.isAuthenticated) { setLoading(false); return; }
++    setLoading(true); setError('');
++    try {
++      setRequest(normalizeRequest(await api.account.deletionRequest()));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  useEffect(() => { void loadRequest(); }, [auth.hydrated, auth.isAuthenticated]);
++
++  async function submit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault(); setSaving(true); setNotice(''); setError('');
++    try {
++      const response = await api.account.requestDeletion({ reason: reason.trim() || undefined, details: details.trim() || undefined });
++      setRequest(normalizeRequest(response));
++      setReason(''); setDetails(''); setNotice(t('account.deletion.requestCreated'));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function cancel() {
++    setSaving(true); setNotice(''); setError('');
++    try {
++      const response = await api.account.cancelDeletionRequest();
++      setRequest(normalizeRequest(response));
++      setNotice(t('account.deletion.requestCancelled'));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  if (!auth.hydrated || loading) return <p className="notice-box info">{t('common.states.loading')}…</p>;
++  if (!auth.isAuthenticated) {
++    return (
++      <section className="mobile-card mobile-card--soft">
++        <h3>{t('account.deletion.signedOutTitle')}</h3>
++        <p>{t('account.deletion.signedOutBody')}</p>
++        <Link href="/auth?next=/account/delete" className="button primary">{t('common.actions.loginOrRegister')}</Link>
++      </section>
++    );
++  }
++
++  const active = request && ['requested', 'in_review'].includes(request.status);
++
++  return (
++    <div className="account-deletion-flow">
++      <section className="mobile-card mobile-card--soft">
++        <span className="semantic-badge warning">{t('account.deletion.badge')}</span>
++        <h3>{t('account.deletion.whatHappensTitle')}</h3>
++        <p>{t('account.deletion.whatHappensBody')}</p>
++        <ul className="policy-bullet-list">
++          <li>{t('account.deletion.pointProfile')}</li>
++          <li>{t('account.deletion.pointSafety')}</li>
++          <li>{t('account.deletion.pointSupport')}</li>
++        </ul>
++      </section>
++
++      {active ? (
++        <section className="mobile-card settings-panel">
++          <div>
++            <span className="semantic-badge instruction">{request.status}</span>
++            <h3>{t('account.deletion.activeTitle')}</h3>
++            <p>{t('account.deletion.activeBody')}</p>
++          </div>
++          <button type="button" className="secondary" disabled={saving} onClick={() => void cancel()}>{t('account.deletion.cancelRequest')}</button>
++        </section>
++      ) : (
++        <form className="mobile-card settings-panel" onSubmit={submit}>
++          <div>
++            <h3>{t('account.deletion.formTitle')}</h3>
++            <p>{t('account.deletion.formBody')}</p>
++          </div>
++          <label className="field-label">
++            {t('account.deletion.reason')}
++            <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={120} placeholder={t('account.deletion.reasonPlaceholder')} />
++          </label>
++          <label className="field-label">
++            {t('account.deletion.details')}
++            <textarea value={details} onChange={(event) => setDetails(event.target.value)} maxLength={2000} rows={5} placeholder={t('account.deletion.detailsPlaceholder')} />
++          </label>
++          <button type="submit" className="danger-button" disabled={saving}>{saving ? t('common.states.submitting') : t('account.deletion.submitRequest')}</button>
++        </form>
++      )}
++
++      <section className="mobile-card mobile-card--soft">
++        <h3>{t('account.deletion.needHelpTitle')}</h3>
++        <p>{t('account.deletion.needHelpBody')}</p>
++        <Link href="/account/support" className="button secondary">{t('account.items.support.title')}</Link>
++      </section>
++
++      {notice ? <p className="notice-box success">{notice}</p> : null}
++      {error ? <p className="notice-box danger">{error}</p> : null}
++    </div>
++  );
++}
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+--- a/apps/web/src/features/account/AccountHubClient.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/web/src/features/account/AccountHubClient.tsx	2026-05-14 11:01:36.588758679 +0000
+@@ -32,6 +32,7 @@
+     { href: '/account/settings', titleKey: 'account.items.settings.title', bodyKey: 'account.items.settings.body', icon: 'settings' },
+     { href: '/legal', titleKey: 'account.items.legal.title', bodyKey: 'account.items.legal.body', icon: 'warning', publicAccess: true },
+     { href: '/account/support', titleKey: 'account.items.support.title', bodyKey: 'account.items.support.body', icon: 'help' },
++    { href: '/account/delete', titleKey: 'account.items.delete.title', bodyKey: 'account.items.delete.body', icon: 'warning' },
+   ], []);
+ 
+   useEffect(() => {
+diff --git a/apps/web/src/features/account/PublicSupportClient.tsx b/apps/web/src/features/account/PublicSupportClient.tsx
+--- a/apps/web/src/features/account/PublicSupportClient.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/web/src/features/account/PublicSupportClient.tsx	2026-05-14 11:04:35.556840259 +0000
+@@ -0,0 +1,28 @@
++'use client';
++
++import Link from 'next/link';
++import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++
++export function PublicSupportClient() {
++  const { t } = useWebTranslation();
++  return (
++    <MobilePage>
++      <PageIntro eyebrow={t('support.public.eyebrow')} title={t('support.public.title')} body={t('support.public.body')} />
++      <section className="mobile-card mobile-card--soft">
++        <span className="semantic-badge success">{t('support.title')}</span>
++        <h3>{t('support.public.privateTitle')}</h3>
++        <p>{t('support.public.privateBody')}</p>
++        <div className="cta-row">
++          <Link href="/account/support" className="button primary">{t('support.public.openSupport')}</Link>
++          <Link href="/legal/safety" className="button secondary">{t('legal.policies.safety.title')}</Link>
++        </div>
++      </section>
++      <section className="mobile-card mobile-card--soft">
++        <h3>{t('account.deletion.title')}</h3>
++        <p>{t('support.public.deletionBody')}</p>
++        <Link href="/account/delete" className="button secondary">{t('account.deletion.submitRequest')}</Link>
++      </section>
++    </MobilePage>
++  );
++}
+diff --git a/apps/web/src/features/auth/VerifyEmailClient.tsx b/apps/web/src/features/auth/VerifyEmailClient.tsx
+--- a/apps/web/src/features/auth/VerifyEmailClient.tsx	1970-01-01 00:00:00.000000000 +0000
++++ b/apps/web/src/features/auth/VerifyEmailClient.tsx	2026-05-14 11:01:26.757149011 +0000
+@@ -0,0 +1,55 @@
++'use client';
++
++import Link from 'next/link';
++import { useSearchParams } from 'next/navigation';
++import { useEffect, useState } from 'react';
++import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++
++export function VerifyEmailClient() {
++  const params = useSearchParams();
++  const token = params.get('token') ?? '';
++  const auth = useWebAuth();
++  const { t } = useWebTranslation();
++  const [status, setStatus] = useState<'loading' | 'success' | 'error'>(token ? 'loading' : 'error');
++  const [message, setMessage] = useState(token ? t('auth.emailVerification.checking') : t('auth.emailVerification.missingToken'));
++
++  useEffect(() => {
++    let mounted = true;
++    async function verify() {
++      if (!token) return;
++      setStatus('loading');
++      setMessage(t('auth.emailVerification.checking'));
++      try {
++        const response = await api.auth.verifyEmail(token) as { message?: string };
++        if (!mounted) return;
++        setStatus('success');
++        setMessage(response.message ?? t('auth.emailVerification.success'));
++        await auth.refreshMe().catch(() => undefined);
++      } catch (caughtError) {
++        if (!mounted) return;
++        setStatus('error');
++        setMessage(getFriendlyApiErrorMessage(caughtError, t('auth.emailVerification.failed')));
++      }
++    }
++    void verify();
++    return () => { mounted = false; };
++  }, [auth, t, token]);
++
++  return (
++    <MobilePage>
++      <PageIntro eyebrow={t('auth.emailVerification.eyebrow')} title={t('auth.emailVerification.title')} body={t('auth.emailVerification.body')} />
++      <section className={status === 'success' ? 'mobile-card notice-box success' : status === 'error' ? 'mobile-card notice-box danger' : 'mobile-card mobile-card--soft'}>
++        <h3>{status === 'success' ? t('auth.emailVerification.successTitle') : status === 'error' ? t('auth.emailVerification.failedTitle') : t('common.states.loading')}</h3>
++        <p>{message}</p>
++        <div className="cta-row">
++          <Link href="/auth" className="button primary">{t('common.actions.loginOrRegister')}</Link>
++          <Link href="/account/settings" className="button secondary">{t('navigation.routes.settings')}</Link>
++        </div>
++      </section>
++    </MobilePage>
++  );
++}
+diff --git a/apps/web/src/features/legal/LegalOverviewClient.tsx b/apps/web/src/features/legal/LegalOverviewClient.tsx
+--- a/apps/web/src/features/legal/LegalOverviewClient.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/web/src/features/legal/LegalOverviewClient.tsx	2026-05-14 11:04:18.841020302 +0000
+@@ -19,6 +19,16 @@
+         <p>{t('legal.overview.launchBody')}</p>
+       </section>
+ 
++      <section className="mobile-card mobile-card--soft">
++        <span className="semantic-badge success">{t('legal.overview.helpBadge')}</span>
++        <h3>{t('legal.overview.helpTitle')}</h3>
++        <p>{t('legal.overview.helpBody')}</p>
++        <div className="cta-row">
++          <Link href="/support" className="button secondary">{t('legal.overview.openSupport')}</Link>
++          <Link href="/account/delete" className="button secondary danger-text">{t('legal.overview.openDeletion')}</Link>
++        </div>
++      </section>
++
+       <div className="mobile-list legal-card-list">
+         {legalPolicyKeys.map((policy) => (
+           <Link key={policy} href={legalPolicyRoutes[policy]} className="mobile-link-card legal-link-card">
+diff --git a/apps/web/src/features/users/PublicUserProfileClient.tsx b/apps/web/src/features/users/PublicUserProfileClient.tsx
+--- a/apps/web/src/features/users/PublicUserProfileClient.tsx	2026-05-14 10:47:18.000000000 +0000
++++ b/apps/web/src/features/users/PublicUserProfileClient.tsx	2026-05-14 11:07:08.803132871 +0000
+@@ -12,6 +12,7 @@
+ import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
+ import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
++import { useWebAuth } from '../../providers/WebAuthProvider';
+ 
+ type TFunction = ReturnType<typeof useWebTranslation>['t'];
+ 
+@@ -170,9 +171,12 @@
+ 
+ export function PublicUserProfileClient({ userId }: { userId: string }) {
+   const { t, language } = useWebTranslation();
++  const auth = useWebAuth();
+   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState<string | null>(null);
++  const [blockBusy, setBlockBusy] = useState(false);
++  const [notice, setNotice] = useState<string | null>(null);
+ 
+   const loadProfile = useCallback(async () => {
+     setLoading(true);
+@@ -214,6 +218,30 @@
+   const location = countryLabel(profile?.user.profile?.countryCode, language);
+   const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince, t('common.states.unknown'), language) : t('common.states.unknown');
+   const handle = profile?.user.profile?.handle?.trim();
++  const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
++
++  async function toggleBlock() {
++    if (!profile) return;
++    setBlockBusy(true);
++    setNotice(null);
++    setError(null);
++    try {
++      if (isBlockedByMe) {
++        await api.users.unblock(profile.user.id);
++        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: false }, sections: current.sections } : current);
++        setNotice(t('profile.unblockSuccess'));
++      } else {
++        await api.users.block(profile.user.id);
++        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: true }, sections: { ...current.sections, activeTrades: [], openNeeds: [], openOffers: [] } } : current);
++        setNotice(t('profile.blockSuccess'));
++      }
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause, t('profile.blockError')));
++    } finally {
++      setBlockBusy(false);
++    }
++  }
++
+   const stats = useMemo(() => profile ? [
+     { label: t('profile.stats.completed'), value: profile.stats.completedTradesCount },
+     { label: t('profile.stats.activeTrades'), value: profile.stats.activeTradesCount },
+@@ -263,7 +291,14 @@
+             {location ? <span>{location}</span> : null}
+           </div>
+           {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">{t('profile.noBio')}</p>}
+-          <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
++          <div className="cta-row">
++            <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
++            {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
++              <button type="button" className="button secondary" disabled={blockBusy} onClick={() => void toggleBlock()}>{isBlockedByMe ? t('common.actions.unblockUser') : t('common.actions.blockUser')}</button>
++            ) : null}
++          </div>
++          {isBlockedByMe ? <p className="notice-box warning">{t('profile.blockedByMeNotice')}</p> : null}
++          {notice ? <p className="notice-box success">{notice}</p> : null}
+         </div>
+       </section>
+ 
+diff --git a/docs/launch/app-store-google-play-review-notes.md b/docs/launch/app-store-google-play-review-notes.md
+--- a/docs/launch/app-store-google-play-review-notes.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/launch/app-store-google-play-review-notes.md	2026-05-14 11:07:41.601344896 +0000
+@@ -0,0 +1,60 @@
++# App Store / Google Play Review Notes
++
++> Documentation note: this is launch-readiness guidance for reviewers and the Hellowhen team. It is not legal advice. Final Terms, Privacy, and safety wording must be reviewed before public launch.
++
++## Product scope for first launch
++
++Hellowhen Trade is a mobile-first marketplace for service, goods, and skill trades. First launch should stay focused on:
++
++- creating Needs;
++- creating Offers;
++- creating Trades;
++- sending proposals/messages tied to a Trade;
++- reporting unsafe content or users;
++- contacting support;
++- requesting account deletion.
++
++Money, wallet, payouts, Stripe, Airwallex, and real-money trades must remain disabled unless a separate money-launch review explicitly enables them.
++
++## Demo reviewer setup
++
++Prepare a normal reviewer account before submission:
++
++- email: use a real inbox that can receive verification/reset messages;
++- password: temporary strong password, rotated after review;
++- language: English or French can be tested from Account settings;
++- content: include at least one safe Need, Offer, and Trade for reviewer exploration.
++
++Do not give reviewers admin credentials unless a reviewer specifically asks for admin/moderation access. Admin accounts should require strong credentials and two-step authentication outside local development.
++
++## Review path inside the app
++
++Suggested reviewer path:
++
++1. Register or log in with the demo account.
++2. Open Terms/Privacy/Safety from auth or Account.
++3. Open Trades, Needs, and Offers.
++4. Open a public profile.
++5. Use report buttons without submitting abusive test content.
++6. Open Support / Contact.
++7. Open Account deletion request screen.
++8. Confirm wallet, payouts, and money trade features are not advertised or available in production.
++
++## Safety features to mention in review notes
++
++- Users can report profiles, trades, needs, offers, proposals, messages, and media.
++- Users can block/unblock another user from public profiles.
++- Admins can review reports, hide/restore content, restrict/suspend users, review media, and manage support tickets.
++- Restricted users are blocked from marketplace write actions.
++- Hidden/restricted content is filtered from public discovery and public profile routes.
++- Support is available through authenticated app flows and the public support page.
++- Account deletion can be requested in-app and through the public web deletion page.
++
++## Production readiness checks before submission
++
++- No production API/web URL points to `localhost`.
++- Production `JWT_SECRET` is strong and not the development fallback.
++- Money flags stay off: `MONEY_PROVIDER=none`, `MONEY_FEATURES_VISIBLE=false`, `WALLET_VISIBLE=false`, `PAYOUTS_VISIBLE=false`, `MONEY_TRADES_ENABLED=false`.
++- Native public money flags stay off: `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
++- Web public money flags stay off: `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`.
++- Terms, Privacy, Community/Safety, Support, and Account Deletion pages are reachable from the app.
+diff --git a/docs/launch/data-safety-map.md b/docs/launch/data-safety-map.md
+--- a/docs/launch/data-safety-map.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/launch/data-safety-map.md	2026-05-14 11:07:41.623399243 +0000
+@@ -0,0 +1,68 @@
++# Data Safety Map
++
++> Documentation note: this map helps prepare privacy labels and data-safety forms. It is not legal advice and must be checked against the final production build and every third-party SDK before launch.
++
++## Account and identity data
++
++Collected or generated:
++
++- email address;
++- password hash / auth credentials;
++- display name and handle;
++- profile bio and avatar;
++- country, language, currency, and appearance preferences;
++- email verification and security/session timestamps;
++- two-step authentication state if enabled.
++
++Primary purpose:
++
++- account creation and login;
++- public profile display;
++- localization and account preferences;
++- security, abuse prevention, and support.
++
++## Marketplace content
++
++Collected or generated:
++
++- Needs, Offers, Trades;
++- titles, descriptions, categories, tags, timing, location labels, and mode;
++- proposal messages and trade conversation messages;
++- uploaded media and media moderation status.
++
++Primary purpose:
++
++- marketplace discovery;
++- user-to-user trade coordination;
++- moderation, support, and abuse prevention.
++
++## Safety and support data
++
++Collected or generated:
++
++- reports, report reasons, report details, target content IDs;
++- support tickets, ticket messages, and attachments;
++- admin notes and audit logs;
++- account deletion requests;
++- user block records.
++
++Primary purpose:
++
++- user safety;
++- support response;
++- content moderation;
++- account/privacy request handling;
++- marketplace integrity.
++
++## Diagnostics and analytics
++
++Current launch expectation:
++
++- do not add analytics, advertising, attribution, crash, or diagnostics SDKs unless the privacy/data-safety forms are updated to match.
++- server logs may still contain request metadata needed for security and operations.
++
++## First-launch money data
++
++Money, wallet, payouts, payment-provider accounts, and real-money trade data should not be collected during first launch because those features remain disabled.
++
++If a later launch enables money features, update this map before implementation is released.
+diff --git a/docs/launch/moderation-readiness-checklist.md b/docs/launch/moderation-readiness-checklist.md
+--- a/docs/launch/moderation-readiness-checklist.md	2026-05-14 10:47:18.000000000 +0000
++++ b/docs/launch/moderation-readiness-checklist.md	2026-05-14 11:07:44.475019039 +0000
+@@ -16,8 +16,10 @@
+ 
+ ## Runtime moderation checks
+ 
+-- Restricted users cannot create/update/delete Needs, Offers, Trades, Proposals, or messages.
++- Restricted users cannot create/update/delete Needs, Offers, Trades, Proposals, messages, or marketplace media uploads.
+ - Restricted users’ public content is absent from public discovery/profile routes.
+ - Hide/restore/close actions affect public visibility correctly.
+ - Report-to-support escalation creates a linked support ticket.
++- Block/unblock prevents blocked users from appearing in feed/profile discovery and prevents new proposal/message interactions between the pair.
++- Account deletion requests create or link a support-visible request for follow-up.
+ - Public optional-auth reads degrade to anonymous when stale tokens are sent.
+diff --git a/docs/launch/native-app-store-release-checklist.md b/docs/launch/native-app-store-release-checklist.md
+--- a/docs/launch/native-app-store-release-checklist.md	2026-05-14 10:47:18.000000000 +0000
++++ b/docs/launch/native-app-store-release-checklist.md	2026-05-14 11:07:44.468032629 +0000
+@@ -8,9 +8,12 @@
+ - Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
+ - Verify login/register/reset flows on iOS and Android devices.
+ - Verify Terms and Privacy can be opened from registration and Account.
++- Verify email verification links open `/auth/verify-email` and show success/failure states.
++- Verify Account deletion can be opened from Account/Settings and creates a request.
++- Verify the public Account Deletion page is reachable for store-console deletion URL requirements.
+ - Verify Settings includes Legal & Safety links.
+ - Verify Support includes safety/dispute links and ticket creation.
+-- Verify reports and restricted-user protections on device.
++- Verify reports, block/unblock, and restricted-user protections on device.
+ - Verify language switching and French copy on device.
+ - Verify dark/light/system appearance persistence after app restart.
+ - Prepare store privacy disclosures that match implemented data collection and safety workflows.
+diff --git a/docs/launch/privacy-data-readiness-checklist.md b/docs/launch/privacy-data-readiness-checklist.md
+--- a/docs/launch/privacy-data-readiness-checklist.md	2026-05-14 10:47:18.000000000 +0000
++++ b/docs/launch/privacy-data-readiness-checklist.md	2026-05-14 11:07:44.474145627 +0000
+@@ -22,3 +22,6 @@
+ - Support/report/admin notes are not exposed through public discovery routes.
+ - Store privacy disclosures match app behavior.
+ - A process exists for user privacy/support requests.
++- Account deletion request flow is reachable in-app and on web.
++- Block records and deletion requests are included in the data-safety inventory.
++- Any new analytics, crash, ads, or attribution SDKs are added to the data-safety map before release.
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+--- a/packages/api-client/src/index.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/api-client/src/index.ts	2026-05-14 10:59:25.205064907 +0000
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -21,7 +21,7 @@
+     needs: { create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/needs/mine'), get: (needId: string) => requestJson(options, `/needs/${needId}`), deleteImpact: (needId: string) => requestJson(options, `/needs/${needId}/delete-impact`), update: (needId: string, body: UpdateNeedRequest) => requestJson(options, `/needs/${needId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (needId: string) => requestJson(options, `/needs/${needId}`, { method: 'DELETE' }) },
+     offers: { create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/offers/mine'), get: (offerId: string) => requestJson(options, `/offers/${offerId}`), deleteImpact: (offerId: string) => requestJson(options, `/offers/${offerId}/delete-impact`), update: (offerId: string, body: UpdateOfferRequest) => requestJson(options, `/offers/${offerId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (offerId: string) => requestJson(options, `/offers/${offerId}`, { method: 'DELETE' }) },
+     inventoryTemplates: { list: (query?: ListInventoryTemplatesQuery) => requestJson(options, `/inventory-templates${buildQueryString(query as Record<string, unknown> | undefined)}`), get: (templateId: string) => requestJson(options, `/inventory-templates/${templateId}`), clone: (templateId: string, body?: CloneInventoryTemplateRequest) => requestJson(options, `/inventory-templates/${templateId}/clone`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+-    users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`) },
++    users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+ 
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+@@ -29,6 +29,7 @@
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+     admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: () => requestJson(options, '/admin/business-profiles'), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
++    account: { deletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request'), requestDeletion: (body?: CreateAccountDeletionRequest) => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request', { method: 'POST', body: JSON.stringify(body ?? {}) }), cancelDeletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request/cancel', { method: 'PATCH' }) },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }), providerBalances: () => requestJson(options, '/wallet/provider-balances'), syncProviderBalances: (body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, '/wallet/provider-balances/sync', { method: 'POST', body: JSON.stringify(body ?? {}) }) }
+   };
+diff --git a/packages/contracts/src/account.ts b/packages/contracts/src/account.ts
+--- a/packages/contracts/src/account.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/packages/contracts/src/account.ts	2026-05-14 10:59:09.790684080 +0000
+@@ -0,0 +1,33 @@
++import { z } from 'zod';
++
++export const accountDeletionRequestStatusSchema = z.enum(['requested', 'in_review', 'completed', 'cancelled', 'rejected']);
++
++export const createAccountDeletionRequestSchema = z.object({
++  reason: z.string().trim().max(120).optional(),
++  details: z.string().trim().max(2000).optional(),
++});
++
++export const accountDeletionRequestSchema = z.object({
++  id: z.string(),
++  userId: z.string(),
++  status: accountDeletionRequestStatusSchema,
++  reason: z.string().nullable().optional(),
++  details: z.string().nullable().optional(),
++  supportTicketId: z.string().nullable().optional(),
++  requestedAt: z.string(),
++  reviewedAt: z.string().nullable().optional(),
++  completedAt: z.string().nullable().optional(),
++  cancelledAt: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++}).passthrough();
++
++export const accountDeletionRequestResponseSchema = z.object({
++  request: accountDeletionRequestSchema.nullable(),
++  duplicate: z.boolean().optional(),
++});
++
++export type AccountDeletionRequestStatus = z.infer<typeof accountDeletionRequestStatusSchema>;
++export type CreateAccountDeletionRequest = z.infer<typeof createAccountDeletionRequestSchema>;
++export type AccountDeletionRequestDto = z.infer<typeof accountDeletionRequestSchema>;
++export type AccountDeletionRequestResponse = z.infer<typeof accountDeletionRequestResponseSchema>;
+diff --git a/packages/contracts/src/auth.ts b/packages/contracts/src/auth.ts
+--- a/packages/contracts/src/auth.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/contracts/src/auth.ts	2026-05-14 11:07:08.801169183 +0000
+@@ -46,14 +46,11 @@
+   displayName: z.string().min(1).max(80).optional(),
+   countryCode: countryCodeSchema.optional(),
+   preferredCurrency: supportedCurrencySchema.optional(),
+-  acceptedTerms: z.boolean().optional()
++  acceptedTerms: z.boolean().refine((value) => value === true, { message: 'Please accept the Terms and Privacy Policy to continue.' })
+ }).superRefine((value, ctx) => {
+   if (value.confirmPassword && value.password !== value.confirmPassword) {
+     ctx.addIssue({ code: 'custom', path: ['confirmPassword'], message: 'Passwords do not match.' });
+   }
+-  if (value.acceptedTerms === false) {
+-    ctx.addIssue({ code: 'custom', path: ['acceptedTerms'], message: 'Please accept the terms placeholder to continue.' });
+-  }
+ });
+ 
+ export const googleAuthRequestSchema = z.object({
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+--- a/packages/contracts/src/index.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/contracts/src/index.ts	2026-05-14 10:59:15.670852462 +0000
+@@ -10,3 +10,4 @@
+ export * from './users.js';
+ export * from './admin.js';
+ export * from './reports.js';
++export * from './account.js';
+diff --git a/packages/contracts/src/users.ts b/packages/contracts/src/users.ts
+--- a/packages/contracts/src/users.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/contracts/src/users.ts	2026-05-14 10:59:12.529027201 +0000
+@@ -92,11 +92,40 @@
+   user: publicUserProfileSchema,
+   stats: publicProfileStatsSchema,
+   sections: publicProfileSectionsSchema,
++  viewerState: z.object({ isBlockedByMe: z.boolean().optional(), isBlockingMe: z.boolean().optional() }).optional(),
++});
++export const createUserBlockRequestSchema = z.object({
++  reason: z.string().trim().max(240).optional(),
++});
++
++export const userBlockSchema = z.object({
++  id: z.string(),
++  blockerId: z.string(),
++  blockedId: z.string(),
++  reason: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  blocked: publicUserProfileSchema.nullable().optional(),
++}).passthrough();
++
++export const userBlockResponseSchema = z.object({
++  blocked: z.boolean(),
++  block: userBlockSchema.nullable().optional(),
+ });
+ 
++export const userBlocksResponseSchema = z.object({
++  blocks: z.array(userBlockSchema),
++});
++
++
+ export type PublicProfile = z.infer<typeof publicProfileSchema>;
+ export type PublicUserProfile = z.infer<typeof publicUserProfileSchema>;
+ export type PublicProfileTradeSummary = z.infer<typeof publicProfileTradeSummarySchema>;
+ export type PublicProfileStats = z.infer<typeof publicProfileStatsSchema>;
+ export type PublicProfileSections = z.infer<typeof publicProfileSectionsSchema>;
+ export type PublicProfileResponse = z.infer<typeof publicProfileResponseSchema>;
++
++export type CreateUserBlockRequest = z.infer<typeof createUserBlockRequestSchema>;
++export type UserBlockDto = z.infer<typeof userBlockSchema>;
++export type UserBlockResponse = z.infer<typeof userBlockResponseSchema>;
++export type UserBlocksResponse = z.infer<typeof userBlocksResponseSchema>;
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+--- a/packages/i18n/src/locales/en/account.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/account.ts	2026-05-14 11:02:32.901551917 +0000
+@@ -20,6 +20,33 @@
+   total: 'total',
+   walletUnavailable: 'Wallet unavailable',
+   noWalletActivity: 'No wallet activity yet.',
++  deletion: {
++    title: 'Delete account',
++    badge: 'Account safety',
++    body: 'Request account deletion from inside Hellowhen. The support team reviews deletion requests before final account removal.',
++    signedOutTitle: 'Sign in to request account deletion',
++    signedOutBody: 'Account deletion requests are private and must be attached to the account owner.',
++    whatHappensTitle: 'What happens next',
++    whatHappensBody: 'Submitting this request creates a private support record so the team can review your account deletion request safely.',
++    pointProfile: 'Your public profile and active marketplace content can be removed or anonymized as part of the deletion process.',
++    pointSafety: 'Some support, report, moderation, and audit records may be retained when needed for safety, legal, or abuse-prevention reasons.',
++    pointSupport: 'Support can contact you through the ticket if extra confirmation is needed before final deletion.',
++    activeTitle: 'Deletion request active',
++    activeBody: 'Your request is already in the support queue. You can cancel it before the team completes the deletion process.',
++    formTitle: 'Request account deletion',
++    formBody: 'Tell us anything useful before the request is reviewed. This is optional.',
++    reason: 'Reason',
++    reasonPlaceholder: 'Optional reason',
++    details: 'Details',
++    detailsPlaceholder: 'Anything support should know?',
++    submitRequest: 'Request account deletion',
++    cancelRequest: 'Cancel deletion request',
++    requestCreated: 'Account deletion request created.',
++    requestCancelled: 'Account deletion request cancelled.',
++    couldNotUpdate: 'Could not update deletion request',
++    needHelpTitle: 'Need help first?',
++    needHelpBody: 'Contact support instead if you want help with login, reports, safety, or profile changes before deleting your account.',
++  },
+   wallet: {
+     title: 'Wallet',
+     body: 'Spendable wallet money plus earnings from completed trades.',
+@@ -294,5 +321,11 @@
+       bodyNative: 'Get help with trades, images, or safety.',
+       badge: 'Help',
+     },
++    delete: {
++      title: 'Delete account',
++      body: 'Request account deletion and review what may be retained for safety or support.',
++      bodyNative: 'Request account deletion safely.',
++      badge: 'Privacy',
++    },
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/en/auth.ts b/packages/i18n/src/locales/en/auth.ts
+--- a/packages/i18n/src/locales/en/auth.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/auth.ts	2026-05-14 11:03:12.962839548 +0000
+@@ -79,6 +79,17 @@
+     missingTokenError: 'Missing reset token. Request a new link from the login screen.',
+     success: 'Password reset. You can now log in.',
+   },
++  emailVerification: {
++    eyebrow: 'Email verification',
++    title: 'Verify your email',
++    body: 'Email verification helps protect account recovery, support requests, and future safety limits.',
++    checking: 'Checking your verification link…',
++    missingToken: 'Missing verification token. Open the link from your email or request a new one from settings.',
++    successTitle: 'Email verified',
++    success: 'Your email is verified.',
++    failedTitle: 'Verification failed',
++    failed: 'This verification link is invalid or expired.',
++  },
+   session: {
+     checkingTitle: 'Checking session...',
+     checkingBody: 'Loading your account state.',
+diff --git a/packages/i18n/src/locales/en/common.ts b/packages/i18n/src/locales/en/common.ts
+--- a/packages/i18n/src/locales/en/common.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/common.ts	2026-05-14 11:03:12.965288001 +0000
+@@ -28,6 +28,8 @@
+     previousCard: 'Previous card',
+     nextCard: 'Next card',
+     verifyEmail: 'Verify email',
++    blockUser: 'Block user',
++    unblockUser: 'Unblock user',
+     viewAll: 'View all',
+   },
+   states: {
+diff --git a/packages/i18n/src/locales/en/legal.ts b/packages/i18n/src/locales/en/legal.ts
+--- a/packages/i18n/src/locales/en/legal.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/legal.ts	2026-05-14 11:04:18.842889627 +0000
+@@ -7,6 +7,11 @@
+     launchTitle: 'First-launch scope',
+     launchBody: 'This beta focuses on Need + Offer trades, support, reports, and moderation. Wallets, payouts, provider onboarding, and production money movement remain off unless a later launch plan enables them.',
+     openPolicy: 'Open policy',
++    helpBadge: 'Support',
++    helpTitle: 'Support and account choices',
++    helpBody: 'Contact support for account, privacy, safety, report, and content questions. Account deletion can be requested from the app account area.',
++    openSupport: 'Contact support',
++    openDeletion: 'Delete account',
+   },
+   support: {
+     title: 'Before contacting support',
+diff --git a/packages/i18n/src/locales/en/profile.ts b/packages/i18n/src/locales/en/profile.ts
+--- a/packages/i18n/src/locales/en/profile.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/profile.ts	2026-05-14 11:03:12.967689636 +0000
+@@ -1,6 +1,10 @@
+ export const profile = {
+   title: 'Profile',
+   publicBadge: 'Public profile',
++  blockedByMeNotice: 'You blocked this member. Their public posts are hidden from this profile while the block is active.',
++  blockSuccess: 'Member blocked.',
++  unblockSuccess: 'Member unblocked.',
++  blockError: 'Could not update block status.',
+   unavailableBadge: 'Not available',
+   unavailableTitle: 'Profile unavailable',
+   unknownMember: 'Unknown member',
+diff --git a/packages/i18n/src/locales/en/settings.ts b/packages/i18n/src/locales/en/settings.ts
+--- a/packages/i18n/src/locales/en/settings.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/settings.ts	2026-05-14 11:03:12.960049049 +0000
+@@ -81,6 +81,8 @@
+     body: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
+     bodyNative: 'Open the current beta terms, privacy notes, safety guidelines, and refund/dispute process.',
+     open: 'Open legal & safety center',
++    support: 'Contact support',
++    deleteAccount: 'Delete account',
+   },
+   signedOutHint: 'You are not logged in. Appearance and language still persist locally on this browser.',
+ } as const;
+diff --git a/packages/i18n/src/locales/en/support.ts b/packages/i18n/src/locales/en/support.ts
+--- a/packages/i18n/src/locales/en/support.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/en/support.ts	2026-05-14 11:04:38.205117188 +0000
+@@ -1,4 +1,13 @@
+ export const support = {
++  public: {
++    eyebrow: 'Support',
++    title: 'Contact Hellowhen support',
++    body: 'Use support for account, privacy, safety, trade, report, and content questions.',
++    privateTitle: 'Get help from your account',
++    privateBody: 'Sign in to create a private support ticket, attach screenshots, and follow replies from the Hellowhen team.',
++    openSupport: 'Open support',
++    deletionBody: 'Members can request account deletion from the account area. Some support, safety, and moderation records may be retained when needed to protect the service or handle active issues.',
++  },
+   defaultTradeIssueMessage: 'I need admin help with this trade.',
+   title: 'Support',
+   getHelpTitle: 'Get help',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+--- a/packages/i18n/src/locales/fr/account.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/account.ts	2026-05-14 11:03:12.969995533 +0000
+@@ -20,6 +20,33 @@
+   total: 'total',
+   walletUnavailable: 'Portefeuille indisponible',
+   noWalletActivity: 'Aucune activité de portefeuille pour le moment.',
++  deletion: {
++    title: 'Supprimer le compte',
++    badge: 'Sécurité du compte',
++    body: 'Demandez la suppression de votre compte depuis Hellowhen. L’équipe d’assistance examine la demande avant la suppression finale.',
++    signedOutTitle: 'Connectez-vous pour demander la suppression',
++    signedOutBody: 'Les demandes de suppression sont privées et doivent être liées au compte propriétaire.',
++    whatHappensTitle: 'Suite de la demande',
++    whatHappensBody: 'Cette demande crée un ticket privé pour que l’équipe puisse l’examiner en sécurité.',
++    pointProfile: 'Votre profil public et vos contenus actifs peuvent être supprimés ou anonymisés pendant le traitement.',
++    pointSafety: 'Certains dossiers d’assistance, signalements, modération et journaux peuvent être conservés si nécessaire pour la sécurité ou la prévention des abus.',
++    pointSupport: 'L’assistance peut vous contacter via le ticket si une confirmation est nécessaire.',
++    activeTitle: 'Demande de suppression active',
++    activeBody: 'Votre demande est déjà dans la file d’assistance. Vous pouvez l’annuler avant la suppression finale.',
++    formTitle: 'Demander la suppression du compte',
++    formBody: 'Ajoutez une information utile pour l’examen. C’est optionnel.',
++    reason: 'Raison',
++    reasonPlaceholder: 'Raison optionnelle',
++    details: 'Détails',
++    detailsPlaceholder: 'Information utile pour l’assistance ?',
++    submitRequest: 'Demander la suppression',
++    cancelRequest: 'Annuler la demande',
++    requestCreated: 'Demande de suppression créée.',
++    requestCancelled: 'Demande de suppression annulée.',
++    couldNotUpdate: 'Impossible de mettre à jour la demande',
++    needHelpTitle: 'Besoin d’aide avant ?',
++    needHelpBody: 'Contactez plutôt l’assistance si vous voulez de l’aide avec la connexion, les signalements, la sécurité ou le profil avant suppression.',
++  },
+   wallet: {
+     title: 'Portefeuille',
+     body: 'Argent disponible dans le portefeuille et gains issus des échanges terminés.',
+@@ -294,5 +321,11 @@
+       bodyNative: 'Obtenir de l’aide pour les échanges, images ou la sécurité.',
+       badge: 'Aide',
+     },
++    delete: {
++      title: 'Supprimer le compte',
++      body: 'Demandez la suppression et consultez ce qui peut être conservé pour sécurité ou assistance.',
++      bodyNative: 'Demander la suppression du compte.',
++      badge: 'Confidentialité',
++    },
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/fr/auth.ts b/packages/i18n/src/locales/fr/auth.ts
+--- a/packages/i18n/src/locales/fr/auth.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/auth.ts	2026-05-14 11:03:12.963705967 +0000
+@@ -79,6 +79,17 @@
+     missingTokenError: 'Jeton de réinitialisation manquant. Demandez un nouveau lien depuis l’écran de connexion.',
+     success: 'Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.',
+   },
++  emailVerification: {
++    eyebrow: 'Vérification e-mail',
++    title: 'Vérifiez votre e-mail',
++    body: 'La vérification e-mail aide à protéger la récupération du compte, l’assistance et les futures limites de sécurité.',
++    checking: 'Vérification du lien…',
++    missingToken: 'Jeton de vérification manquant. Ouvrez le lien reçu par e-mail ou demandez-en un nouveau dans les paramètres.',
++    successTitle: 'E-mail vérifié',
++    success: 'Votre e-mail est vérifié.',
++    failedTitle: 'Échec de la vérification',
++    failed: 'Ce lien de vérification est invalide ou expiré.',
++  },
+   session: {
+     checkingTitle: 'Vérification de la session…',
+     checkingBody: 'Chargement de l’état de votre compte.',
+diff --git a/packages/i18n/src/locales/fr/common.ts b/packages/i18n/src/locales/fr/common.ts
+--- a/packages/i18n/src/locales/fr/common.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/common.ts	2026-05-14 11:03:12.966525440 +0000
+@@ -28,6 +28,8 @@
+     previousCard: 'Carte précédente',
+     nextCard: 'Carte suivante',
+     verifyEmail: 'Vérifier l’e-mail',
++    blockUser: 'Bloquer l’utilisateur',
++    unblockUser: 'Débloquer l’utilisateur',
+     viewAll: 'Tout voir',
+   },
+   states: {
+diff --git a/packages/i18n/src/locales/fr/legal.ts b/packages/i18n/src/locales/fr/legal.ts
+--- a/packages/i18n/src/locales/fr/legal.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/legal.ts	2026-05-14 11:04:18.843978805 +0000
+@@ -7,6 +7,11 @@
+     launchTitle: 'Périmètre du premier lancement',
+     launchBody: 'Cette bêta se concentre sur les échanges Besoin + Offre, l’assistance, les signalements et la modération. Les portefeuilles, versements, intégrations de prestataires et mouvements d’argent en production restent désactivés sauf si un plan de lancement ultérieur les active.',
+     openPolicy: 'Ouvrir la politique',
++    helpBadge: 'Assistance',
++    helpTitle: 'Assistance et choix du compte',
++    helpBody: 'Contactez l’assistance pour les questions de compte, confidentialité, sécurité, signalement et contenu. La suppression du compte se demande depuis l’espace compte.',
++    openSupport: 'Contacter l’assistance',
++    openDeletion: 'Supprimer le compte',
+   },
+   support: {
+     title: 'Avant de contacter l’assistance',
+diff --git a/packages/i18n/src/locales/fr/profile.ts b/packages/i18n/src/locales/fr/profile.ts
+--- a/packages/i18n/src/locales/fr/profile.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/profile.ts	2026-05-14 11:03:12.968462837 +0000
+@@ -1,6 +1,10 @@
+ export const profile = {
+   title: 'Profil',
+   publicBadge: 'Profil public',
++  blockedByMeNotice: 'Vous avez bloqué ce membre. Ses contenus publics sont masqués sur ce profil tant que le blocage est actif.',
++  blockSuccess: 'Membre bloqué.',
++  unblockSuccess: 'Membre débloqué.',
++  blockError: 'Impossible de mettre à jour le blocage.',
+   unavailableBadge: 'Indisponible',
+   unavailableTitle: 'Profil indisponible',
+   unknownMember: 'Membre inconnu',
+diff --git a/packages/i18n/src/locales/fr/settings.ts b/packages/i18n/src/locales/fr/settings.ts
+--- a/packages/i18n/src/locales/fr/settings.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/settings.ts	2026-05-14 11:03:12.961175747 +0000
+@@ -81,6 +81,8 @@
+     body: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
+     bodyNative: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
+     open: 'Ouvrir le centre légal et sécurité',
++    support: 'Contacter l’assistance',
++    deleteAccount: 'Supprimer le compte',
+   },
+   signedOutHint: 'Vous n’êtes pas connecté. L’apparence et la langue restent enregistrées localement sur ce navigateur.',
+ } as const;
+diff --git a/packages/i18n/src/locales/fr/support.ts b/packages/i18n/src/locales/fr/support.ts
+--- a/packages/i18n/src/locales/fr/support.ts	2026-05-14 10:47:18.000000000 +0000
++++ b/packages/i18n/src/locales/fr/support.ts	2026-05-14 11:04:38.206030930 +0000
+@@ -1,4 +1,13 @@
+ export const support = {
++  public: {
++    eyebrow: 'Assistance',
++    title: 'Contacter l’assistance Hellowhen',
++    body: 'Utilisez l’assistance pour les questions de compte, confidentialité, sécurité, échange, signalement et contenu.',
++    privateTitle: 'Obtenir de l’aide depuis votre compte',
++    privateBody: 'Connectez-vous pour créer un ticket privé, joindre des captures et suivre les réponses de l’équipe Hellowhen.',
++    openSupport: 'Ouvrir l’assistance',
++    deletionBody: 'Les membres peuvent demander la suppression du compte depuis l’espace compte. Certains dossiers d’assistance, sécurité et modération peuvent être conservés si nécessaire pour protéger le service ou traiter des problèmes actifs.',
++  },
+   defaultTradeIssueMessage: 'J’ai besoin d’aide de l’équipe avec cet échange.',
+   title: 'Assistance',
+   getHelpTitle: 'Obtenir de l’aide',

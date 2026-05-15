@@ -46,13 +46,10 @@ export const registerRequestSchema = z.object({
   displayName: z.string().min(1).max(80).optional(),
   countryCode: countryCodeSchema.optional(),
   preferredCurrency: supportedCurrencySchema.optional(),
-  acceptedTerms: z.boolean().optional()
+  acceptedTerms: z.boolean().refine((value) => value === true, { message: 'Please accept the Terms and Privacy Policy to continue.' })
 }).superRefine((value, ctx) => {
   if (value.confirmPassword && value.password !== value.confirmPassword) {
     ctx.addIssue({ code: 'custom', path: ['confirmPassword'], message: 'Passwords do not match.' });
-  }
-  if (value.acceptedTerms === false) {
-    ctx.addIssue({ code: 'custom', path: ['acceptedTerms'], message: 'Please accept the terms placeholder to continue.' });
   }
 });
 

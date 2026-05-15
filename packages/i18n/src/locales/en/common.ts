@@ -28,6 +28,8 @@ export const common = {
     previousCard: 'Previous card',
     nextCard: 'Next card',
     verifyEmail: 'Verify email',
+    blockUser: 'Block user',
+    unblockUser: 'Unblock user',
     viewAll: 'View all',
   },
   states: {

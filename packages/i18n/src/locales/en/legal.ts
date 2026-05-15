@@ -7,6 +7,11 @@ export const legal = {
     launchTitle: 'First-launch scope',
     launchBody: 'This beta focuses on Need + Offer trades, support, reports, and moderation. Wallets, payouts, provider onboarding, and production money movement remain off unless a later launch plan enables them.',
     openPolicy: 'Open policy',
+    helpBadge: 'Support',
+    helpTitle: 'Support and account choices',
+    helpBody: 'Contact support for account, privacy, safety, report, and content questions. Account deletion can be requested from the app account area.',
+    openSupport: 'Contact support',
+    openDeletion: 'Delete account',
   },
   support: {
     title: 'Before contacting support',

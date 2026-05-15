@@ -12,6 +12,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
 import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
+import { useWebAuth } from '../../providers/WebAuthProvider';
 
 type TFunction = ReturnType<typeof useWebTranslation>['t'];
 
@@ -170,9 +171,12 @@ function ProfileSkeleton() {
 
 export function PublicUserProfileClient({ userId }: { userId: string }) {
   const { t, language } = useWebTranslation();
+  const auth = useWebAuth();
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -214,6 +218,30 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
   const location = countryLabel(profile?.user.profile?.countryCode, language);
   const memberSince = profile?.user.memberSince ? formatWebDate(profile.user.memberSince, t('common.states.unknown'), language) : t('common.states.unknown');
   const handle = profile?.user.profile?.handle?.trim();
+  const isBlockedByMe = Boolean(profile?.viewerState?.isBlockedByMe);
+
+  async function toggleBlock() {
+    if (!profile) return;
+    setBlockBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      if (isBlockedByMe) {
+        await api.users.unblock(profile.user.id);
+        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: false }, sections: current.sections } : current);
+        setNotice(t('profile.unblockSuccess'));
+      } else {
+        await api.users.block(profile.user.id);
+        setProfile((current) => current ? { ...current, viewerState: { ...(current.viewerState ?? {}), isBlockedByMe: true }, sections: { ...current.sections, activeTrades: [], openNeeds: [], openOffers: [] } } : current);
+        setNotice(t('profile.blockSuccess'));
+      }
+    } catch (cause) {
+      setError(getFriendlyApiErrorMessage(cause, t('profile.blockError')));
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
   const stats = useMemo(() => profile ? [
     { label: t('profile.stats.completed'), value: profile.stats.completedTradesCount },
     { label: t('profile.stats.activeTrades'), value: profile.stats.activeTradesCount },
@@ -263,7 +291,14 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
             {location ? <span>{location}</span> : null}
           </div>
           {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">{t('profile.noBio')}</p>}
-          <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
+          <div className="cta-row">
+            <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
+            {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
+              <button type="button" className="button secondary" disabled={blockBusy} onClick={() => void toggleBlock()}>{isBlockedByMe ? t('common.actions.unblockUser') : t('common.actions.blockUser')}</button>
+            ) : null}
+          </div>
+          {isBlockedByMe ? <p className="notice-box warning">{t('profile.blockedByMeNotice')}</p> : null}
+          {notice ? <p className="notice-box success">{notice}</p> : null}
         </div>
       </section>
 

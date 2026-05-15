@@ -10,6 +10,7 @@ import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafet
 import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
+import { usersHaveBlockBetween } from '../users/userBlocks.js';
 
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
@@ -556,8 +557,13 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
     ? await prisma.user.findUnique({ where: { id: actorId }, select: { profile: { select: { countryCode: true } }, settings: { select: { language: true } } } })
     : null;
   const preferences = resolveFeedDiscoveryPreferences(input, actorPreferences, req.headers['accept-language']);
-  const trades = await prisma.trade.findMany({ where: buildFeedWhere(input), include: feedTradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake });
-  const hydratedTrades = await withTradeDeckMediaForActor(trades, actorId);
+  const [trades, blocks] = await Promise.all([
+    prisma.trade.findMany({ where: buildFeedWhere(input), include: feedTradeInclude, orderBy: { createdAt: 'desc' }, take: candidateTake }),
+    actorId ? prisma.userBlock.findMany({ where: { OR: [{ blockerId: actorId }, { blockedId: actorId }] }, select: { blockerId: true, blockedId: true } }) : Promise.resolve([]),
+  ]);
+  const blockedUserIds = new Set(blocks.map((block) => block.blockerId === actorId ? block.blockedId : block.blockerId));
+  const blockFilteredTrades = actorId ? trades.filter((trade) => !blockedUserIds.has(trade.ownerId) && (!trade.providerId || !blockedUserIds.has(trade.providerId))) : trades;
+  const hydratedTrades = await withTradeDeckMediaForActor(blockFilteredTrades, actorId);
   const filteredTrades = input.hasImages
     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
     : hydratedTrades;
@@ -582,6 +588,7 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
     include: tradeInclude,
   });
   if (!trade) return res.status(404).json({ error: 'not_found' });
+  if (actorId && ![trade.ownerId, trade.providerId].includes(actorId) && await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(404).json({ error: 'not_found' });
   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
   res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
@@ -760,6 +767,7 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
   if (!trade) return res.status(404).json({ error: 'not_found', message: 'This trade is no longer open for proposals.' });
   if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
+  if (await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(403).json({ error: 'user_blocked', message: 'This proposal is not available because one member has blocked the other.' });
 
   const requiredSide = proposalSideRequirement(trade.postType);
   let proposedNeedId: string | null = null;

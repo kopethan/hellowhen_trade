@@ -1,4 +1,13 @@
 export const support = {
+  public: {
+    eyebrow: 'Support',
+    title: 'Contact Hellowhen support',
+    body: 'Use support for account, privacy, safety, trade, report, and content questions.',
+    privateTitle: 'Get help from your account',
+    privateBody: 'Sign in to create a private support ticket, attach screenshots, and follow replies from the Hellowhen team.',
+    openSupport: 'Open support',
+    deletionBody: 'Members can request account deletion from the account area. Some support, safety, and moderation records may be retained when needed to protect the service or handle active issues.',
+  },
   defaultTradeIssueMessage: 'I need admin help with this trade.',
   title: 'Support',
   getHelpTitle: 'Get help',

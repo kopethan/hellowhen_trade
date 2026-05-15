@@ -81,6 +81,8 @@ export const settings = {
     body: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
     bodyNative: 'Ouvrez les conditions bêta actuelles, les notes de confidentialité, les règles de sécurité et le processus remboursement/litige.',
     open: 'Ouvrir le centre légal et sécurité',
+    support: 'Contacter l’assistance',
+    deleteAccount: 'Supprimer le compte',
   },
   signedOutHint: 'Vous n’êtes pas connecté. L’apparence et la langue restent enregistrées localement sur ce navigateur.',
 } as const;

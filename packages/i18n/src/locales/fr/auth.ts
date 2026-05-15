@@ -79,6 +79,17 @@ export const auth = {
     missingTokenError: 'Jeton de réinitialisation manquant. Demandez un nouveau lien depuis l’écran de connexion.',
     success: 'Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.',
   },
+  emailVerification: {
+    eyebrow: 'Vérification e-mail',
+    title: 'Vérifiez votre e-mail',
+    body: 'La vérification e-mail aide à protéger la récupération du compte, l’assistance et les futures limites de sécurité.',
+    checking: 'Vérification du lien…',
+    missingToken: 'Jeton de vérification manquant. Ouvrez le lien reçu par e-mail ou demandez-en un nouveau dans les paramètres.',
+    successTitle: 'E-mail vérifié',
+    success: 'Votre e-mail est vérifié.',
+    failedTitle: 'Échec de la vérification',
+    failed: 'Ce lien de vérification est invalide ou expiré.',
+  },
   session: {
     checkingTitle: 'Vérification de la session…',
     checkingBody: 'Chargement de l’état de votre compte.',

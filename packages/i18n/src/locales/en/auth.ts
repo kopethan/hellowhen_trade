@@ -79,6 +79,17 @@ export const auth = {
     missingTokenError: 'Missing reset token. Request a new link from the login screen.',
     success: 'Password reset. You can now log in.',
   },
+  emailVerification: {
+    eyebrow: 'Email verification',
+    title: 'Verify your email',
+    body: 'Email verification helps protect account recovery, support requests, and future safety limits.',
+    checking: 'Checking your verification link…',
+    missingToken: 'Missing verification token. Open the link from your email or request a new one from settings.',
+    successTitle: 'Email verified',
+    success: 'Your email is verified.',
+    failedTitle: 'Verification failed',
+    failed: 'This verification link is invalid or expired.',
+  },
   session: {
     checkingTitle: 'Checking session...',
     checkingBody: 'Loading your account state.',

@@ -267,6 +267,8 @@ export default function AccountSettingsPage() {
         <p>{t('settings.policies.body')}</p>
         <div className="cta-row">
           <Link href="/legal" className="button secondary">{t('settings.policies.open')}</Link>
+          <Link href="/support" className="button secondary">{t('settings.policies.support')}</Link>
+          <Link href="/account/delete" className="button secondary danger-text">{t('settings.policies.deleteAccount')}</Link>
         </div>
       </section>
 

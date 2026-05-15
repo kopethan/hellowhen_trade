@@ -7,6 +7,11 @@ export const legal = {
     launchTitle: 'Périmètre du premier lancement',
     launchBody: 'Cette bêta se concentre sur les échanges Besoin + Offre, l’assistance, les signalements et la modération. Les portefeuilles, versements, intégrations de prestataires et mouvements d’argent en production restent désactivés sauf si un plan de lancement ultérieur les active.',
     openPolicy: 'Ouvrir la politique',
+    helpBadge: 'Assistance',
+    helpTitle: 'Assistance et choix du compte',
+    helpBody: 'Contactez l’assistance pour les questions de compte, confidentialité, sécurité, signalement et contenu. La suppression du compte se demande depuis l’espace compte.',
+    openSupport: 'Contacter l’assistance',
+    openDeletion: 'Supprimer le compte',
   },
   support: {
     title: 'Avant de contacter l’assistance',

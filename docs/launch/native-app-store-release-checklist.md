@@ -8,9 +8,12 @@
 - Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
 - Verify login/register/reset flows on iOS and Android devices.
 - Verify Terms and Privacy can be opened from registration and Account.
+- Verify email verification links open `/auth/verify-email` and show success/failure states.
+- Verify Account deletion can be opened from Account/Settings and creates a request.
+- Verify the public Account Deletion page is reachable for store-console deletion URL requirements.
 - Verify Settings includes Legal & Safety links.
 - Verify Support includes safety/dispute links and ticket creation.
-- Verify reports and restricted-user protections on device.
+- Verify reports, block/unblock, and restricted-user protections on device.
 - Verify language switching and French copy on device.
 - Verify dark/light/system appearance persistence after app restart.
 - Prepare store privacy disclosures that match implemented data collection and safety workflows.

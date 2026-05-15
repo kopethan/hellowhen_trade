@@ -20,7 +20,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
 
 type AccountAction = {
   titleKey: string;
@@ -39,6 +39,7 @@ const accountActions: AccountAction[] = [
   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings' },
   { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning' },
   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help' },
+  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning' },
 ];
 
 function formatLedgerType(type: string) {
@@ -114,6 +115,7 @@ export function AccountScreen() {
     else if (route === 'Settings') navigation.navigate('Settings');
     else if (route === 'LegalPolicy') navigation.navigate('LegalPolicy');
     else if (route === 'SupportCenter') navigation.navigate('SupportCenter');
+    else if (route === 'AccountDeletion') navigation.navigate('AccountDeletion');
     else navigation.navigate('BuyCredits');
   }
 

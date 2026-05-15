@@ -92,7 +92,31 @@ export const publicProfileResponseSchema = z.object({
   user: publicUserProfileSchema,
   stats: publicProfileStatsSchema,
   sections: publicProfileSectionsSchema,
+  viewerState: z.object({ isBlockedByMe: z.boolean().optional(), isBlockingMe: z.boolean().optional() }).optional(),
 });
+export const createUserBlockRequestSchema = z.object({
+  reason: z.string().trim().max(240).optional(),
+});
+
+export const userBlockSchema = z.object({
+  id: z.string(),
+  blockerId: z.string(),
+  blockedId: z.string(),
+  reason: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  blocked: publicUserProfileSchema.nullable().optional(),
+}).passthrough();
+
+export const userBlockResponseSchema = z.object({
+  blocked: z.boolean(),
+  block: userBlockSchema.nullable().optional(),
+});
+
+export const userBlocksResponseSchema = z.object({
+  blocks: z.array(userBlockSchema),
+});
+
 
 export type PublicProfile = z.infer<typeof publicProfileSchema>;
 export type PublicUserProfile = z.infer<typeof publicUserProfileSchema>;
@@ -100,3 +124,8 @@ export type PublicProfileTradeSummary = z.infer<typeof publicProfileTradeSummary
 export type PublicProfileStats = z.infer<typeof publicProfileStatsSchema>;
 export type PublicProfileSections = z.infer<typeof publicProfileSectionsSchema>;
 export type PublicProfileResponse = z.infer<typeof publicProfileResponseSchema>;
+
+export type CreateUserBlockRequest = z.infer<typeof createUserBlockRequestSchema>;
+export type UserBlockDto = z.infer<typeof userBlockSchema>;
+export type UserBlockResponse = z.infer<typeof userBlockResponseSchema>;
+export type UserBlocksResponse = z.infer<typeof userBlocksResponseSchema>;

@@ -19,6 +19,16 @@ export function LegalOverviewClient() {
         <p>{t('legal.overview.launchBody')}</p>
       </section>
 
+      <section className="mobile-card mobile-card--soft">
+        <span className="semantic-badge success">{t('legal.overview.helpBadge')}</span>
+        <h3>{t('legal.overview.helpTitle')}</h3>
+        <p>{t('legal.overview.helpBody')}</p>
+        <div className="cta-row">
+          <Link href="/support" className="button secondary">{t('legal.overview.openSupport')}</Link>
+          <Link href="/account/delete" className="button secondary danger-text">{t('legal.overview.openDeletion')}</Link>
+        </div>
+      </section>
+
       <div className="mobile-list legal-card-list">
         {legalPolicyKeys.map((policy) => (
           <Link key={policy} href={legalPolicyRoutes[policy]} className="mobile-link-card legal-link-card">

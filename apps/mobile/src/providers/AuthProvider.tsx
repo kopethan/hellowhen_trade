@@ -14,7 +14,7 @@ type AuthContextValue = {
   hydrated: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string, confirmPassword?: string, acceptedTerms?: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
+  register: (email: string, password: string, displayName: string, confirmPassword: string | undefined, acceptedTerms: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
   loginWithGoogleIdToken: (idToken: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
   reauthenticate: (input: { password?: string; code?: string }) => Promise<void>;

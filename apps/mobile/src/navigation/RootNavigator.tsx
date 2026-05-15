@@ -6,6 +6,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccountScreen } from '../features/account/AccountScreen';
+import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
@@ -48,6 +49,7 @@ export type RootStackParamList = {
   BusinessAccounts: undefined;
   BuyCredits: undefined;
   SupportCenter: undefined;
+  AccountDeletion: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
   LegalPolicy: { policy?: LegalPolicyKey } | undefined;
   CreateNeed: { returnTo?: 'createTrade' | 'tradeProposal'; tradeId?: string; tradeTitle?: string } | undefined;
@@ -114,6 +116,7 @@ const ProtectedSettingsScreen = withAuth(SettingsScreen);
 const ProtectedBusinessAccountsScreen = withAuth(BusinessAccountsScreen);
 const ProtectedBuyCreditsScreen = withAuth(BuyCreditsScreen);
 const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
+const ProtectedAccountDeletionScreen = withAuth(AccountDeletionScreen);
 const ProtectedSupportTicketDetailScreen = withAuth(SupportTicketDetailScreen);
 const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
 const ProtectedNeedDetailScreen = withAuth(NeedDetailScreen);
@@ -183,6 +186,7 @@ export function RootNavigator() {
       {betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts" component={ProtectedBusinessAccountsScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits" component={ProtectedBuyCreditsScreen} /> : null}
       <Stack.Screen name="SupportCenter" component={ProtectedSupportCenterScreen} />
+      <Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />
       <Stack.Screen name="SupportTicketDetail" component={ProtectedSupportTicketDetailScreen} />
       <Stack.Screen name="CreateNeed" component={ProtectedCreateNeedScreen} />
       <Stack.Screen name="NeedDetail" component={ProtectedNeedDetailScreen} />

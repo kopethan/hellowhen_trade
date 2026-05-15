@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { accountRoutes } from './modules/account/account.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { businessRoutes } from './modules/business/business.routes.js';
@@ -23,6 +24,7 @@ export const routes = Router();
 routes.use('/health', healthRoutes);
 routes.use('/inventory-templates', inventoryTemplatesRoutes);
 routes.use('/auth', authRoutes);
+routes.use('/account', accountRoutes);
 routes.use('/business', requireBusinessAccountsVisible(), businessRoutes);
 routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);
 routes.use('/profile', profileRoutes);

@@ -1,4 +1,13 @@
 export const support = {
+  public: {
+    eyebrow: 'Assistance',
+    title: 'Contacter l’assistance Hellowhen',
+    body: 'Utilisez l’assistance pour les questions de compte, confidentialité, sécurité, échange, signalement et contenu.',
+    privateTitle: 'Obtenir de l’aide depuis votre compte',
+    privateBody: 'Connectez-vous pour créer un ticket privé, joindre des captures et suivre les réponses de l’équipe Hellowhen.',
+    openSupport: 'Ouvrir l’assistance',
+    deletionBody: 'Les membres peuvent demander la suppression du compte depuis l’espace compte. Certains dossiers d’assistance, sécurité et modération peuvent être conservés si nécessaire pour protéger le service ou traiter des problèmes actifs.',
+  },
   defaultTradeIssueMessage: 'J’ai besoin d’aide de l’équipe avec cet échange.',
   title: 'Assistance',
   getHelpTitle: 'Obtenir de l’aide',

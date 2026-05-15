@@ -8,7 +8,7 @@ import { listMyMediaQuerySchema } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 
 const maxImageBytes = 5 * 1024 * 1024;
 fs.mkdirSync(env.uploadDir, { recursive: true });
@@ -46,7 +46,7 @@ function uploadImage(req: Request, res: Response, next: NextFunction) {
 export const mediaRoutes = Router();
 mediaRoutes.use(requireAuth);
 
-mediaRoutes.post('/image', uploadImage, asyncRoute(async (req, res) => {
+mediaRoutes.post('/image', requireActiveAccount, uploadImage, asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing_image', message: 'Choose a JPEG, PNG, or WEBP image first.' });
 
   const url = `/uploads/${req.file.filename}`;

@@ -22,3 +22,6 @@
 - Support/report/admin notes are not exposed through public discovery routes.
 - Store privacy disclosures match app behavior.
 - A process exists for user privacy/support requests.
+- Account deletion request flow is reachable in-app and on web.
+- Block records and deletion requests are included in the data-safety inventory.
+- Any new analytics, crash, ads, or attribution SDKs are added to the data-safety map before release.

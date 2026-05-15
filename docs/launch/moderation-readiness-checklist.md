@@ -16,8 +16,10 @@
 
 ## Runtime moderation checks
 
-- Restricted users cannot create/update/delete Needs, Offers, Trades, Proposals, or messages.
+- Restricted users cannot create/update/delete Needs, Offers, Trades, Proposals, messages, or marketplace media uploads.
 - Restricted users’ public content is absent from public discovery/profile routes.
 - Hide/restore/close actions affect public visibility correctly.
 - Report-to-support escalation creates a linked support ticket.
+- Block/unblock prevents blocked users from appearing in feed/profile discovery and prevents new proposal/message interactions between the pair.
+- Account deletion requests create or link a support-visible request for follow-up.
 - Public optional-auth reads degrade to anonymous when stale tokens are sent.
