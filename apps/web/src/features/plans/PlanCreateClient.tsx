@@ -69,7 +69,12 @@ function PlanImagePicker({ title, helper, media, uploading, onUpload, onRemove }
   );
 }
 
-export function PlanCreateClient() {
+type PlanCreateClientProps = {
+  plansEnabled?: boolean;
+  plansVisible?: boolean;
+};
+
+export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClientProps) {
   const router = useRouter();
   const auth = useWebAuth();
   const defaultStartsAt = useMemo(() => toDateTimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000)), []);
@@ -159,11 +164,11 @@ export function PlanCreateClient() {
   }
 
   return (
-    <PlansFeatureGate>
+    <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page">
         <section className="page-intro">
           <div>
-            <PlansInternalBadge />
+            <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Create Plan</h2>
             <p>Internal-only form for testing Plans. Exact private location is hidden until join approval.</p>
           </div>

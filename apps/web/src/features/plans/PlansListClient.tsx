@@ -40,7 +40,12 @@ function PlanCard({ plan }: { plan: PlanDto }) {
   );
 }
 
-export function PlansListClient() {
+type PlansListClientProps = {
+  plansEnabled?: boolean;
+  plansVisible?: boolean;
+};
+
+export function PlansListClient({ plansEnabled, plansVisible }: PlansListClientProps) {
   const auth = useWebAuth();
   const [tab, setTab] = useState<PlansTab>('feed');
   const [plans, setPlans] = useState<PlanDto[]>([]);
@@ -79,11 +84,11 @@ export function PlansListClient() {
   const sortedPlans = useMemo(() => [...plans].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime()), [plans]);
 
   return (
-    <PlansFeatureGate>
+    <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page">
         <section className="page-intro">
           <div>
-            <PlansInternalBadge />
+            <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Plans</h2>
             <p>Internal preview for joinable activities. Keep hidden from first-launch users.</p>
           </div>

@@ -1,6 +1,9 @@
 import { fileURLToPath } from 'node:url';
+import nextEnv from '@next/env';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const { loadEnvConfig } = nextEnv;
+loadEnvConfig(repoRoot);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

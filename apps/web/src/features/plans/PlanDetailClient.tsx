@@ -74,7 +74,13 @@ function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: Plan
   );
 }
 
-export function PlanDetailClient({ planId }: { planId: string }) {
+type PlanDetailClientProps = {
+  planId: string;
+  plansEnabled?: boolean;
+  plansVisible?: boolean;
+};
+
+export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDetailClientProps) {
   const auth = useWebAuth();
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [joinRequests, setJoinRequests] = useState<PlanParticipantDto[]>([]);
@@ -160,11 +166,11 @@ export function PlanDetailClient({ planId }: { planId: string }) {
   }
 
   return (
-    <PlansFeatureGate>
+    <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page">
         <section className="page-intro">
           <div>
-            <PlansInternalBadge />
+            <PlansInternalBadge plansVisible={plansVisible} />
             <h2>{plan?.title ?? 'Plan'}</h2>
             <p>{plan ? planMetadata(plan) : 'Internal Plan preview.'}</p>
           </div>

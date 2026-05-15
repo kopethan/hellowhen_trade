@@ -233,7 +233,13 @@ function PlaceEditor({
   );
 }
 
-export function PlanEditClient({ planId }: { planId: string }) {
+type PlanEditClientProps = {
+  planId: string;
+  plansEnabled?: boolean;
+  plansVisible?: boolean;
+};
+
+export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditClientProps) {
   const router = useRouter();
   const auth = useWebAuth();
   const [plan, setPlan] = useState<PlanDto | null>(null);
@@ -384,11 +390,11 @@ export function PlanEditClient({ planId }: { planId: string }) {
   }
 
   return (
-    <PlansFeatureGate>
+    <PlansFeatureGate plansEnabled={plansEnabled}>
       <main className="mobile-page plans-page">
         <section className="page-intro">
           <div>
-            <PlansInternalBadge />
+            <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Edit Plan</h2>
             <p>{plan ? planMetadata(plan) : 'Owner-only hidden Plan editor.'}</p>
           </div>

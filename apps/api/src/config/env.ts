@@ -1,8 +1,9 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
+const repoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
+dotenv.config({ path: path.resolve(repoRoot, '.env') });
 
 function parseCsv(value: string | undefined) {
   return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
