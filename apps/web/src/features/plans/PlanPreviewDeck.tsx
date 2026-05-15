@@ -1,5 +1,8 @@
+'use client';
+
 import type { MediaAssetDto, PlanDto, PlanPlaceMode } from '@hellowhen/contracts';
-import { WebIcon } from '../../components/WebIcon';
+import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
+import { TradePosterCard } from '../trade/TradePosterCard';
 import { formatWebDateTime } from '../../lib/webFormat';
 import { toDateInputValue, toTimeInputValue } from './planSchedule';
 import { planMediaSrc, planPlaceModeLabel } from './plansPresentation';
@@ -16,6 +19,23 @@ type PreviewPlace = {
   media?: MediaAssetDto | null;
 };
 
+type PlanPreviewDeckProps = {
+  title: string;
+  description: string;
+  rangeLabel: string;
+  places: PreviewPlace[];
+  className?: string;
+  onOpen?: () => void;
+  actionLabel?: string;
+};
+
+type PlanDtoPreviewDeckProps = {
+  plan: PlanDto;
+  className?: string;
+  onOpen?: () => void;
+  actionLabel?: string;
+};
+
 function shortLocation(value?: string | null) {
   if (!value?.trim()) return '';
   const trimmed = value.trim();
@@ -29,50 +49,97 @@ function previewDateTime(place: PreviewPlace) {
   return 'Time not set';
 }
 
-export function PlanPreviewDeck({ title, description, rangeLabel, places }: { title: string; description: string; rangeLabel: string; places: PreviewPlace[] }) {
+function cardCountLabel(index: number, totalCards: number) {
+  return `${String(Math.max(index, 1)).padStart(2, '0')}/${String(Math.max(totalCards, 1)).padStart(2, '0')}`;
+}
+
+function compactJoin(values: Array<string | null | undefined>) {
+  return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+}
+
+function visiblePlaceTitle(place: PreviewPlace) {
+  return place.title.trim() || 'Place name';
+}
+
+function visiblePlaceLocation(place: PreviewPlace) {
+  const mode = place.mode ?? 'local';
+  return shortLocation(place.location) || (mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point');
+}
+
+function planDeckItems({ title, description, rangeLabel, places, actionLabel = 'Open' }: Omit<PlanPreviewDeckProps, 'className' | 'onOpen'>): SquareStackDeckItem[] {
   const visibleTitle = title.trim() || 'Untitled Plan';
   const visibleDescription = description.trim() || 'Add a short description so joiners understand the purpose.';
+  const totalCards = Math.max(1, places.length + 1);
+  const coverImageSrc = planMediaSrc(places.find((place) => planMediaSrc(place.media))?.media ?? null);
+  const placeCountText = `${places.length} place${places.length === 1 ? '' : 's'}`;
+
+  const summary: SquareStackDeckItem = {
+    id: `${visibleTitle}-plan-summary`,
+    ariaLabel: `${actionLabel} ${visibleTitle}`,
+    content: (
+      <TradePosterCard
+        id={`${visibleTitle}-plan-summary`}
+        imageUrl={coverImageSrc}
+        imageAlt={visibleTitle}
+        badge={`PLAN · ${cardCountLabel(1, totalCards)}`}
+        eyebrow="Joinable activity"
+        title={visibleTitle}
+        detailTitle={visibleDescription}
+        subtitle={rangeLabel || 'Date range appears here'}
+        chips={places.length ? [placeCountText] : []}
+        variant="trade"
+      />
+    ),
+  };
+
+  const placeItems: SquareStackDeckItem[] = places.map((place, index) => {
+    const mode = place.mode ?? 'local';
+    const placeTitle = visiblePlaceTitle(place);
+    const location = visiblePlaceLocation(place);
+    const timeLabel = previewDateTime(place);
+    const imageSrc = planMediaSrc(place.media);
+    const cardNumber = index + 2;
+
+    return {
+      id: `${place.id}-plan-place`,
+      ariaLabel: `${actionLabel} ${visibleTitle}: ${placeTitle}`,
+      content: (
+        <TradePosterCard
+          id={`${place.id}-plan-place`}
+          imageUrl={imageSrc}
+          imageAlt={placeTitle}
+          badge={timeLabel === 'Time not set' ? `PLACE · ${cardCountLabel(cardNumber, totalCards)}` : timeLabel}
+          eyebrow={`Place ${index + 1}/${places.length} · ${planPlaceModeLabel(mode)}`}
+          title={visibleTitle}
+          detailTitle={placeTitle}
+          subtitle={compactJoin([planPlaceModeLabel(mode), location])}
+          chips={[`Place ${index + 1}/${places.length}`, planPlaceModeLabel(mode)]}
+          variant="trade"
+        />
+      ),
+    };
+  });
+
+  return [summary, ...placeItems];
+}
+
+export function PlanPreviewDeck({ title, description, rangeLabel, places, className, onOpen, actionLabel }: PlanPreviewDeckProps) {
+  const items = planDeckItems({ title, description, rangeLabel, places, actionLabel: actionLabel ?? (onOpen ? 'Open' : 'Preview') });
+  const visibleTitle = title.trim() || 'Untitled Plan';
+  const deckClassName = ['trade-stack-deck', 'plan-stack-deck', !onOpen ? 'trade-stack-deck--preview' : null, className].filter(Boolean).join(' ');
 
   return (
-    <section className="plan-preview-deck" aria-label="Plan feed preview">
-      <article className="plan-feed-card plan-feed-card--summary">
-        <span className="semantic-badge trade">Plan · 01/{Math.max(places.length + 1, 1).toString().padStart(2, '0')}</span>
-        <div className="plan-feed-card__glass">
-          <p className="eyebrow">Joinable activity</p>
-          <h3>{visibleTitle}</h3>
-          <p>{visibleDescription}</p>
-          <div className="plan-preview-card__footer">
-            <span>{rangeLabel || 'Date range appears here'}</span>
-            <strong>{places.length} place{places.length === 1 ? '' : 's'}</strong>
-          </div>
-        </div>
-      </article>
-      {places.map((place, index) => {
-        const imageSrc = planMediaSrc(place.media);
-        const mode = place.mode ?? 'local';
-        return (
-          <article key={place.id} className="plan-feed-card plan-feed-card--poster">
-            <div className="plan-feed-card__poster-media" aria-hidden="true">
-              {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="trade" size={42} decorative />}
-            </div>
-            <span className="plan-feed-card__badge">{previewDateTime(place)}</span>
-            <div className="plan-feed-card__glass">
-              <div className="status-row">
-                <span className="semantic-badge instruction">Place {index + 1}/{places.length}</span>
-                <span className="semantic-badge neutral">{planPlaceModeLabel(mode)}</span>
-              </div>
-              <h3>{visibleTitle}</h3>
-              <h4>{place.title.trim() || 'Place name'}</h4>
-              <p>{shortLocation(place.location) || (mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point')}</p>
-            </div>
-          </article>
-        );
-      })}
-    </section>
+    <SquareStackDeck
+      className={deckClassName}
+      items={items}
+      label={visibleTitle}
+      onOpen={onOpen}
+      lockScrollWithinDeck={!onOpen}
+    />
   );
 }
 
-export function PlanDtoPreviewDeck({ plan }: { plan: PlanDto }) {
+export function PlanDtoPreviewDeck({ plan, className, onOpen, actionLabel }: PlanDtoPreviewDeckProps) {
   const places = (plan.places ?? []).map((place) => ({
     id: place.id,
     mode: place.mode ?? 'local',
@@ -90,6 +157,9 @@ export function PlanDtoPreviewDeck({ plan }: { plan: PlanDto }) {
       description={plan.description}
       rangeLabel={`${formatWebDateTime(plan.startsAt, 'No start')} → ${formatWebDateTime(plan.endsAt ?? plan.startsAt, 'No end')}`}
       places={places}
+      className={className}
+      onOpen={onOpen}
+      actionLabel={actionLabel}
     />
   );
 }

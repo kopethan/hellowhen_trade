@@ -390,7 +390,15 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
             <hr />
             <section className="plan-form__preview">
               <h3>Feed deck preview</h3>
-              <PlanPreviewDeck title={title} description={description} rangeLabel={rangeLabel} places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia }))} />
+              <div className="trade-create-preview__deck">
+                <PlanPreviewDeck
+                  title={title}
+                  description={description}
+                  rangeLabel={rangeLabel}
+                  places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia }))}
+                  className="trade-stack-deck--create-preview"
+                />
+              </div>
             </section>
 
             {schedule.error ? <p className="form-error">{schedule.error}</p> : null}

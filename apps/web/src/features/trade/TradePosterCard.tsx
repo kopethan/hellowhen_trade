@@ -11,6 +11,7 @@ type TradePosterCardProps = {
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  detailTitle?: string;
   chips?: string[];
   footer?: ReactNode;
   variant?: 'trade' | 'need' | 'offer';
@@ -42,7 +43,7 @@ function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
   };
 }
 
-export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, chips = [], footer, variant = 'trade' }: TradePosterCardProps) {
+export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], footer, variant = 'trade' }: TradePosterCardProps) {
   const { t } = useWebTranslation();
   const [imageFailed, setImageFailed] = useState(!imageUrl);
   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
@@ -92,6 +93,7 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
         <div className="trade-poster-card__copy">
           {eyebrow ? <p className="trade-poster-card__eyebrow">{eyebrow}</p> : null}
           <h2>{title}</h2>
+          {detailTitle ? <p className="trade-poster-card__detail-title">{detailTitle}</p> : null}
           {subtitle ? <p className="trade-poster-card__subtitle">{subtitle}</p> : null}
           {footer ? <div className="trade-poster-card__footer">{footer}</div> : null}
           {visibleChips.length ? (

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { PlanDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
@@ -13,12 +14,13 @@ import { planOwnerName } from './plansPresentation';
 type PlansTab = 'feed' | 'mine';
 
 function PlanCard({ plan }: { plan: PlanDto }) {
+  const router = useRouter();
   const participantText = `${plan.participantCount ?? 0} joined`;
   return (
-    <Link href={`/plans/${plan.id}`} className="plan-deck-link" aria-label={`Open ${plan.title}`}>
-      <PlanDtoPreviewDeck plan={plan} />
-      <p className="plan-deck-link__meta">{participantText} · By {planOwnerName(plan)}</p>
-    </Link>
+    <article className="plan-deck-link" aria-label={`Open ${plan.title}`}>
+      <PlanDtoPreviewDeck plan={plan} onOpen={() => router.push(`/plans/${plan.id}`)} />
+      <Link href={`/plans/${plan.id}`} className="plan-deck-link__meta">{participantText} · By {planOwnerName(plan)}</Link>
+    </article>
   );
 }
 
