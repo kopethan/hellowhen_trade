@@ -9,7 +9,8 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel } from './plansPresentation';
+import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
+import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planPlaceModeLabel } from './plansPresentation';
 
 type ActionState = {
   loading: boolean;
@@ -47,10 +48,13 @@ function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: Plan
         <PlanPlaceImage media={media} />
       </div>
       <div className="plan-place-card__body">
-        <span className="semantic-badge instruction">Place {index + 1}</span>
+        <div className="status-row">
+          <span className="semantic-badge instruction">Place {index + 1}</span>
+          <span className="semantic-badge neutral">{planPlaceModeLabel(place.mode)}</span>
+        </div>
         <h4>{place.title}</h4>
         <p className="meta">{planDateTime(place.startsAt ?? planStartsAt)}</p>
-        {place.addressPublicText ? <p className="meta">Address: {place.addressPublicText}</p> : null}
+        {place.addressPublicText ? <p className="meta">{place.mode === 'remote' ? 'Link / online location' : 'Address'}: {place.addressPublicText}</p> : null}
         {place.note ? <p>{place.note}</p> : null}
         {media ? <img className="plan-place-card__full-image" src={planMediaSrc(media)} alt={media.filename ?? `${place.title} image`} loading="lazy" /> : null}
         {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
@@ -185,6 +189,11 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
                 </div>
               ) : null}
               {showReportActions ? <ReportContentButton targetType="plan" targetId={plan.id} /> : null}
+            </section>
+
+            <section className="mobile-card plan-form__preview">
+              <h3>Feed deck preview</h3>
+              <PlanDtoPreviewDeck plan={plan} />
             </section>
 
             <section className="mobile-card">

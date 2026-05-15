@@ -345,6 +345,11 @@ enum PlanParticipantStatus {
   removed
 }
 
+enum PlanPlaceMode {
+  local
+  remote
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -1220,6 +1225,7 @@ model PlanPlace {
   id                 String   @id @default(cuid())
   planId             String
   order              Int      @default(0)
+  mode               PlanPlaceMode @default(local)
   title              String
   note               String?
   addressPublicText  String?
@@ -1232,6 +1238,7 @@ model PlanPlace {
   plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([planId, order])
+  @@index([mode])
   @@index([startsAt])
 }
 

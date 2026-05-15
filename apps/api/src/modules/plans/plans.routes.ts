@@ -12,7 +12,7 @@ import {
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireActiveAccount, requireAuth } from '../../middleware/auth.js';
-import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+import { attachUploadedMediaToEntity, withMedia } from '../media/media.helpers.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 
 export const plansRoutes = Router();
@@ -84,6 +84,7 @@ function serializePlan(plan: any, viewerId: string | null) {
     ...plan,
     places: (plan.places ?? []).map((place: any) => ({
       ...place,
+      mode: place.mode ?? 'local',
       addressPrivateText: canSeePrivatePlaceDetails ? place.addressPrivateText ?? null : null,
     })),
     participants: visibleParticipants,
@@ -149,6 +150,7 @@ function placeCreateData(planId: string, input: ReturnType<typeof createPlanPlac
   return {
     planId,
     order: input.order ?? fallbackOrder,
+    mode: input.mode ?? 'local',
     title: input.title,
     note: input.note ?? null,
     addressPublicText: input.addressPublicText ?? null,
@@ -161,6 +163,7 @@ function placeCreateData(planId: string, input: ReturnType<typeof createPlanPlac
 function placeUpdateData(input: ReturnType<typeof updatePlanPlaceRequestSchema.parse>) {
   return {
     ...(input.order !== undefined ? { order: input.order } : {}),
+    ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.note !== undefined ? { note: input.note } : {}),
     ...(input.addressPublicText !== undefined ? { addressPublicText: input.addressPublicText } : {}),

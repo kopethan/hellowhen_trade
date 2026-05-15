@@ -6,15 +6,17 @@ export const planStatusSchema = z.enum(['draft', 'open', 'full', 'started', 'com
 export const planPublicStatusSchema = z.enum(['open', 'full', 'started']);
 export const planJoinApprovalModeSchema = z.enum(['owner_approval', 'automatic']);
 export const planParticipantStatusSchema = z.enum(['pending', 'accepted', 'declined', 'cancelled', 'left', 'removed']);
+export const planPlaceModeSchema = z.enum(['local', 'remote']);
 export const planOwnerParticipantActionSchema = z.enum(['accepted', 'declined', 'removed']);
 export const planSelfParticipantActionSchema = z.enum(['cancelled', 'left']);
 
 const planTagSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
 
 const planPlaceInputBaseSchema = z.object({
+  mode: planPlaceModeSchema.optional(),
   title: z.string().trim().min(3).max(120),
   note: z.string().trim().min(1).max(1000).optional(),
-  addressPublicText: z.string().trim().min(1).max(160).optional(),
+  addressPublicText: z.string().trim().min(1).max(240).optional(),
   addressPrivateText: z.string().trim().min(1).max(240).optional(),
   startsAt: z.string().datetime().optional(),
   endsAt: z.string().datetime().optional(),
@@ -107,6 +109,7 @@ export const planPlaceSchema = z.object({
   id: z.string(),
   planId: z.string(),
   order: z.number().int(),
+  mode: planPlaceModeSchema.default('local'),
   title: z.string(),
   note: z.string().nullable().optional(),
   addressPublicText: z.string().nullable().optional(),
@@ -166,6 +169,7 @@ export const planParticipantsResponseSchema = z.object({ participants: z.array(p
 export type PlanStatus = z.infer<typeof planStatusSchema>;
 export type PlanJoinApprovalMode = z.infer<typeof planJoinApprovalModeSchema>;
 export type PlanParticipantStatus = z.infer<typeof planParticipantStatusSchema>;
+export type PlanPlaceMode = z.infer<typeof planPlaceModeSchema>;
 export type CreatePlanRequest = z.infer<typeof createPlanRequestSchema>;
 export type UpdatePlanRequest = z.infer<typeof updatePlanRequestSchema>;
 export type CreatePlanPlaceRequest = z.infer<typeof createPlanPlaceRequestSchema>;

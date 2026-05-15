@@ -3,40 +3,21 @@
 import Link from 'next/link';
 import type { PlanDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
-import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { planDateTime, planMediaSrc, planMetadata, planOwnerName } from './plansPresentation';
+import { PlanDtoPreviewDeck } from './PlanPreviewDeck';
+import { planOwnerName } from './plansPresentation';
 
 type PlansTab = 'feed' | 'mine';
 
 function PlanCard({ plan }: { plan: PlanDto }) {
-  const firstPlaceWithImage = plan.places?.find((place) => place.media?.length) ?? null;
-  const image = firstPlaceWithImage?.media?.[0] ?? null;
-  const imageSrc = planMediaSrc(image);
   const participantText = `${plan.participantCount ?? 0} joined`;
-
   return (
-    <Link href={`/plans/${plan.id}`} className="plan-preview-card" aria-label={`Open ${plan.title}`}>
-      <div className="plan-preview-card__media" aria-hidden="true">
-        {imageSrc ? <img src={imageSrc} alt="" loading="lazy" /> : <WebIcon name="trade" size={42} decorative />}
-      </div>
-      <div className="plan-preview-card__body">
-        <div className="status-row">
-          <span className="semantic-badge trade">Plan</span>
-          {firstPlaceWithImage ? <span className="semantic-badge instruction">Place image</span> : null}
-        </div>
-        <h3>{plan.title}</h3>
-        <p>{plan.description}</p>
-        <p className="meta">{planMetadata(plan)}</p>
-        <div className="plan-preview-card__footer">
-          <span>{participantText}</span>
-          <strong>{plan.places?.length ?? 0} place{(plan.places?.length ?? 0) === 1 ? '' : 's'}</strong>
-        </div>
-        <p className="meta">By {planOwnerName(plan)} - {planDateTime(plan.startsAt)}</p>
-      </div>
+    <Link href={`/plans/${plan.id}`} className="plan-deck-link" aria-label={`Open ${plan.title}`}>
+      <PlanDtoPreviewDeck plan={plan} />
+      <p className="plan-deck-link__meta">{participantText} · By {planOwnerName(plan)}</p>
     </Link>
   );
 }

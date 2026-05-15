@@ -18,8 +18,14 @@ export function planParticipantStatusLabel(status?: PlanParticipantStatus | null
 
 export function planModeLabel(mode?: string | null) {
   if (!mode) return '';
-  if (mode === 'local') return 'In person';
+  if (mode === 'local') return 'Local';
+  if (mode === 'remote') return 'Remote';
+  if (mode === 'hybrid') return 'Mixed';
   return mode.replace(/_/g, ' ');
+}
+
+export function planPlaceModeLabel(mode?: string | null) {
+  return mode === 'remote' ? 'Remote' : 'Local';
 }
 
 export function planDateTime(value?: string | null) {
@@ -33,7 +39,7 @@ export function planRangeLabel(plan: PlanDto) {
 }
 
 export function planMetadata(plan: PlanDto) {
-  return [planRangeLabel(plan), plan.locationLabel, plan.category]
+  return [planRangeLabel(plan), plan.category]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }

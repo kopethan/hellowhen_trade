@@ -54,11 +54,12 @@ async function runEnabledSmoke() {
   const owner = await login(ownerEmail, ownerPassword);
   const helper = await login(helperEmail, helperPassword);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const planDate = new Date(Date.now() + 36 * 60 * 60 * 1000);
-  planDate.setHours(13, 0, 0, 0);
-  const firstStopAt = planDate.toISOString();
-  const secondStopAt = new Date(planDate.getTime() + 2 * 60 * 60 * 1000).toISOString();
-  const overnightStopAt = new Date(planDate.getTime() + 23 * 60 * 60 * 1000).toISOString();
+  const firstStopDate = new Date(Date.now() + 36 * 60 * 60 * 1000);
+  firstStopDate.setHours(13, 0, 0, 0);
+  const firstStopAt = firstStopDate.toISOString();
+  const secondStopDate = new Date(firstStopDate.getTime() + 2 * 60 * 60 * 1000);
+  const secondStopAt = secondStopDate.toISOString();
+  const remoteStopAt = new Date(firstStopDate.getTime() + 4 * 60 * 60 * 1000).toISOString();
 
   const created = await request('/plans', {
     method: 'POST',
@@ -67,14 +68,14 @@ async function runEnabledSmoke() {
       title: `Hidden Plans simplified smoke ${stamp}`,
       description: 'Internal smoke test for simplified hidden Plans instant join and place timeline.',
       category: 'Smoke test',
-      mode: 'local',
-      locationLabel: 'Paris test area',
+      mode: 'hybrid',
       startsAt: firstStopAt,
       endsAt: secondStopAt,
       joinApprovalMode: 'automatic',
       status: 'open',
       places: [
         {
+          mode: 'local',
           title: 'Public meeting area',
           note: 'Meet and align before moving to the next stop.',
           addressPublicText: 'Paris area only',
@@ -82,9 +83,10 @@ async function runEnabledSmoke() {
           order: 0,
         },
         {
+          mode: 'remote',
           title: 'Second smoke stop',
           note: 'Second public note.',
-          addressPublicText: 'Second public area',
+          addressPublicText: 'https://meet.example/smoke',
           startsAt: secondStopAt,
           order: 1,
         },
@@ -97,6 +99,8 @@ async function runEnabledSmoke() {
   assert(created.plan.joinApprovalMode === 'automatic', 'Simplified Plans should default to automatic join.');
   assert(created.plan.status === 'open', 'Simplified Plans should be open after create.');
   assert(created.plan.places?.length === 2, 'Plan should include the created places.');
+  assert(created.plan.places?.[0]?.mode === 'local', 'First place should store local mode.');
+  assert(created.plan.places?.[1]?.mode === 'remote', 'Second place should store remote mode.');
 
   const publicPlan = await request(`/plans/${planId}`);
   assert(publicPlan.plan?.places?.[0]?.addressPublicText === 'Paris area only', 'Anonymous viewer should see the simplified public place address.');
@@ -115,7 +119,7 @@ async function runEnabledSmoke() {
   await request(`/plans/${planId}`, {
     method: 'PATCH',
     headers: authHeaders(owner.token),
-    body: JSON.stringify({ title: `Hidden Plans edited ${stamp}`, locationLabel: 'Paris edited area', endsAt: overnightStopAt, joinApprovalMode: 'automatic', maxParticipants: null, status: 'open' }),
+    body: JSON.stringify({ title: `Hidden Plans edited ${stamp}`, mode: 'hybrid', endsAt: remoteStopAt, joinApprovalMode: 'automatic', maxParticipants: null, status: 'open', locationLabel: null }),
   });
 
   const firstPlaceId = helperAfter.plan?.places?.[0]?.id;
@@ -124,17 +128,18 @@ async function runEnabledSmoke() {
   await request(`/plans/${planId}/places/${firstPlaceId}`, {
     method: 'PATCH',
     headers: authHeaders(owner.token),
-    body: JSON.stringify({ addressPublicText: 'Edited smoke-test meeting area', order: 1, startsAt: secondStopAt }),
+    body: JSON.stringify({ mode: 'local', addressPublicText: 'Edited smoke-test meeting area', order: 1, startsAt: secondStopAt }),
   });
 
   await request(`/plans/${planId}/places`, {
     method: 'POST',
     headers: authHeaders(owner.token),
     body: JSON.stringify({
-      title: 'Overnight smoke stop',
-      note: 'This stop simulates next-day rollover calculated by the web form.',
-      addressPublicText: 'Overnight public area',
-      startsAt: overnightStopAt,
+      mode: 'remote',
+      title: 'Remote smoke stop',
+      note: 'This stop verifies per-place remote mode and explicit date/time scheduling.',
+      addressPublicText: 'https://meet.example/remote-smoke',
+      startsAt: remoteStopAt,
       order: 2,
     }),
   });
@@ -142,7 +147,7 @@ async function runEnabledSmoke() {
   const helperAfterEdit = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
   assert(helperAfterEdit.plan?.title?.startsWith('Hidden Plans edited'), 'Owner should be able to edit Plan details.');
   assert(helperAfterEdit.plan?.places?.some((place) => place.addressPublicText === 'Edited smoke-test meeting area'), 'Edited place address should be visible.');
-  assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Overnight smoke stop'), 'Owner should be able to add another place.');
+  assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Remote smoke stop' && place.mode === 'remote'), 'Owner should be able to add another remote place.');
 
   await request(`/plans/${planId}/my-join-request`, {
     method: 'PATCH',

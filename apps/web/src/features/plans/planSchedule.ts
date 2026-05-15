@@ -1,9 +1,8 @@
 export type PlanSchedulePlace = {
   id?: string;
+  date: string;
   time: string;
 };
-
-const minutesInDay = 24 * 60;
 
 function pad(value: number) {
   return String(value).padStart(2, '0');
@@ -22,42 +21,37 @@ export function toTimeInputValue(value?: string | null, fallback = '13:00') {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function parseTimeToMinutes(time: string) {
-  const match = /^(\d{2}):(\d{2})$/.exec(time.trim());
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours > 23 || minutes > 59) return null;
-  return hours * 60 + minutes;
-}
-
 export function formatPlanTime(time?: string | null) {
-  const minutes = time ? parseTimeToMinutes(time) : null;
-  if (minutes === null) return 'Time not set';
-  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+  if (!time || !/^\d{2}:\d{2}$/.test(time)) return 'Time not set';
+  return time;
 }
 
-export function buildPlanSchedule(planDate: string, places: PlanSchedulePlace[]) {
-  const dateStart = new Date(`${planDate}T00:00:00`);
-  const validPlaces = places.map((place, index) => ({ ...place, index, minutes: parseTimeToMinutes(place.time) }));
-  if (Number.isNaN(dateStart.getTime()) || validPlaces.length === 0 || validPlaces.some((place) => place.minutes === null)) {
-    return { startsAt: '', endsAt: '', placeStartsAt: [] as string[] };
+function parseLocalDateTime(dateValue: string, timeValue: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue.trim()) || !/^\d{2}:\d{2}$/.test(timeValue.trim())) return null;
+  const date = new Date(`${dateValue}T${timeValue}:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+export function buildPlanSchedule(places: PlanSchedulePlace[]) {
+  const validPlaces = places.map((place, index) => ({ ...place, index, dateTime: parseLocalDateTime(place.date, place.time) }));
+  if (validPlaces.length === 0 || validPlaces.some((place) => !place.dateTime)) {
+    return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Add at least one place with a valid date and time.' };
   }
 
-  let dayOffset = 0;
-  let previousMinutes: number | null = null;
-  const placeStartsAt = validPlaces.map((place) => {
-    const minutes = place.minutes ?? 0;
-    if (previousMinutes !== null && minutes < previousMinutes) dayOffset += 1;
-    previousMinutes = minutes;
-    const date = new Date(dateStart);
-    date.setMinutes(dayOffset * minutesInDay + minutes);
-    return date.toISOString();
-  });
+  for (let index = 1; index < validPlaces.length; index += 1) {
+    const previous = validPlaces[index - 1]?.dateTime;
+    const current = validPlaces[index]?.dateTime;
+    if (previous && current && current.getTime() < previous.getTime()) {
+      return { startsAt: '', endsAt: '', placeStartsAt: [] as string[], error: 'Each place must be at the same time or after the previous place.' };
+    }
+  }
 
+  const placeStartsAt = validPlaces.map((place) => place.dateTime!.toISOString());
   return {
     startsAt: placeStartsAt[0] ?? '',
     endsAt: placeStartsAt[placeStartsAt.length - 1] ?? '',
     placeStartsAt,
+    error: '',
   };
 }

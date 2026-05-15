@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ChangeEvent, FormEvent } from 'react';
-import type { MediaAssetDto, PlanDto, PlanPlaceDto } from '@hellowhen/contracts';
+import type { MediaAssetDto, PlanDto, PlanPlaceDto, PlanPlaceMode } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -16,9 +16,11 @@ import { planMediaSrc, planMetadata } from './plansPresentation';
 type PlaceFormState = {
   id: string;
   placeId?: string;
+  mode: PlanPlaceMode;
+  date: string;
   time: string;
   title: string;
-  address: string;
+  location: string;
   note: string;
   existingMedia: MediaAssetDto | null;
   media: MediaAssetDto | null;
@@ -37,13 +39,26 @@ function selectedMediaIds(media: MediaAssetDto | null) {
   return media?.id ? [media.id] : undefined;
 }
 
+function planModeFromPlaces(places: PlaceFormState[]) {
+  const modes = new Set(places.map((place) => place.mode));
+  if (modes.size > 1) return 'hybrid' as const;
+  return modes.has('remote') ? 'remote' as const : 'local' as const;
+}
+
+function rangeLabelFromSchedule(schedule: ReturnType<typeof buildPlanSchedule>) {
+  if (!schedule.startsAt) return '';
+  return `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+}
+
 function placeFormFromPlace(place: PlanPlaceDto): PlaceFormState {
   return {
     id: place.id,
     placeId: place.id,
+    mode: place.mode ?? 'local',
+    date: toDateInputValue(place.startsAt),
     time: toTimeInputValue(place.startsAt),
     title: place.title,
-    address: place.addressPublicText ?? '',
+    location: place.addressPublicText ?? '',
     note: place.note ?? '',
     existingMedia: place.media?.[0] ?? null,
     media: null,
@@ -51,17 +66,28 @@ function placeFormFromPlace(place: PlanPlaceDto): PlaceFormState {
   };
 }
 
-function makeNewPlace(index: number): PlaceFormState {
+function makeNewPlace(index: number, date = toDateInputValue()): PlaceFormState {
   return {
     id: `new-place-${Date.now()}-${index}`,
+    mode: 'local',
+    date,
     time: '',
     title: '',
-    address: '',
+    location: '',
     note: '',
     existingMedia: null,
     media: null,
     uploading: false,
   };
+}
+
+function PlaceModeSegment({ value, onChange }: { value: PlanPlaceMode; onChange: (value: PlanPlaceMode) => void }) {
+  return (
+    <div className="plan-mode-segment" aria-label="Place type">
+      <button type="button" className={value === 'local' ? 'is-active' : ''} onClick={() => onChange('local')}>Local</button>
+      <button type="button" className={value === 'remote' ? 'is-active' : ''} onClick={() => onChange('remote')}>Remote</button>
+    </div>
+  );
 }
 
 function PlaceImagePicker({ place, onUpload, onRemove }: { place: PlaceFormState; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onRemove: () => void }) {
@@ -102,24 +128,19 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
-  const [locationLabel, setLocationLabel] = useState('');
-  const [planDate, setPlanDate] = useState('');
   const [places, setPlaces] = useState<PlaceFormState[]>([]);
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
   const participantCount = plan?.participantCount ?? 0;
-  const schedule = useMemo(() => buildPlanSchedule(planDate, places.filter((place) => place.time.trim())), [planDate, places]);
-  const rangeLabel = schedule.startsAt
-    ? `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} → ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
-    : '';
+  const usablePlacesForPreview = useMemo(() => places.filter((place) => place.date.trim() && place.time.trim()), [places]);
+  const schedule = useMemo(() => buildPlanSchedule(usablePlacesForPreview), [usablePlacesForPreview]);
+  const rangeLabel = rangeLabelFromSchedule(schedule);
 
   function hydrateForm(loadedPlan: PlanDto) {
     setPlan(loadedPlan);
     setTitle(loadedPlan.title);
     setDescription(loadedPlan.description);
     setCategory(loadedPlan.category ?? '');
-    setLocationLabel(loadedPlan.locationLabel ?? '');
-    setPlanDate(toDateInputValue(loadedPlan.startsAt));
     const hydratedPlaces = (loadedPlan.places ?? []).map((place) => placeFormFromPlace(place));
     setPlaces(hydratedPlaces.length ? hydratedPlaces : [makeNewPlace(0)]);
   }
@@ -148,7 +169,10 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
   }
 
   function addPlace() {
-    setPlaces((current) => [...current, makeNewPlace(current.length)]);
+    setPlaces((current) => {
+      const previous = current[current.length - 1];
+      return [...current, makeNewPlace(current.length, previous?.date || toDateInputValue())];
+    });
   }
 
   function removeLocalPlace(index: number) {
@@ -196,10 +220,10 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
   async function savePlan(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!isOwner) return;
-    const usablePlaces = places.filter((place) => place.title.trim() && place.time.trim());
-    const nextSchedule = buildPlanSchedule(planDate, usablePlaces);
-    if (!nextSchedule.startsAt || usablePlaces.length === 0) {
-      setError('Add at least one place with a valid time.');
+    const usablePlaces = places.filter((place) => place.title.trim() && place.date.trim() && place.time.trim());
+    const nextSchedule = buildPlanSchedule(usablePlaces);
+    if (nextSchedule.error || !nextSchedule.startsAt || usablePlaces.length === 0) {
+      setError(nextSchedule.error || 'Add at least one place with a valid date and time.');
       return;
     }
     setSaving(true);
@@ -210,8 +234,8 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
         title,
         description,
         category: category.trim() || null,
-        mode: 'local',
-        locationLabel: locationLabel.trim() || null,
+        mode: planModeFromPlaces(usablePlaces),
+        locationLabel: null,
         startsAt: nextSchedule.startsAt,
         endsAt: nextSchedule.endsAt || nextSchedule.startsAt,
         maxParticipants: null,
@@ -221,9 +245,10 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
       let latestPlan = response.plan;
       for (const [index, place] of usablePlaces.entries()) {
         const body = {
+          mode: place.mode,
           title: place.title,
           note: place.note.trim() || undefined,
-          addressPublicText: place.address.trim() || undefined,
+          addressPublicText: place.location.trim() || undefined,
           startsAt: nextSchedule.placeStartsAt[index],
           order: index,
           mediaIds: selectedMediaIds(place.media),
@@ -293,7 +318,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
           <form className="mobile-card plan-form" onSubmit={savePlan}>
             {participantCount > 0 ? (
               <section className="notice-box info">
-                <strong>{participantCount} participant{participantCount === 1 ? '' : 's'} joined.</strong> Keep date, address, and place changes clear while testing instant join.
+                <strong>{participantCount} participant{participantCount === 1 ? '' : 's'} joined.</strong> Keep date, link, address, and place changes clear while testing instant join.
               </section>
             ) : null}
 
@@ -306,16 +331,6 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
               <span>Description</span>
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={2000} required />
             </label>
-            <div className="plan-form__row">
-              <label>
-                <span>Plan date</span>
-                <input type="date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} required />
-              </label>
-              <label>
-                <span>City / area</span>
-                <input value={locationLabel} onChange={(event) => setLocationLabel(event.target.value)} maxLength={160} />
-              </label>
-            </div>
             <label>
               <span>Category</span>
               <input value={category} onChange={(event) => setCategory(event.target.value)} maxLength={80} />
@@ -325,7 +340,7 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
             <div className="plan-form__section-title">
               <div>
                 <h3>Places</h3>
-                <p className="meta">Move places with buttons. The first place sets the start; the last place sets the end range.</p>
+                <p className="meta">Move places with buttons. Each place has its own Local/Remote type, date, and time.</p>
               </div>
             </div>
 
@@ -338,19 +353,24 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
                     <button type="button" className="button secondary" disabled={index === places.length - 1} onClick={() => movePlace(index, 1)}>Move down</button>
                   </div>
                 </div>
+                <PlaceModeSegment value={place.mode} onChange={(mode) => updatePlace(index, { mode, location: '' })} />
                 <div className="plan-form__row">
+                  <label>
+                    <span>Date</span>
+                    <input type="date" value={place.date} onChange={(event) => updatePlace(index, { date: event.target.value })} required />
+                  </label>
                   <label>
                     <span>Time</span>
                     <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
                   </label>
-                  <label>
-                    <span>Place name</span>
-                    <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required />
-                  </label>
                 </div>
                 <label>
-                  <span>Place address</span>
-                  <input value={place.address} onChange={(event) => updatePlace(index, { address: event.target.value })} maxLength={160} placeholder="Address or meeting area" />
+                  <span>Place name</span>
+                  <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required />
+                </label>
+                <label>
+                  <span>{place.mode === 'remote' ? 'Online link or instructions' : 'Address or meeting point'}</span>
+                  <input value={place.location} onChange={(event) => updatePlace(index, { location: event.target.value })} maxLength={240} placeholder={place.mode === 'remote' ? 'Zoom, Google Meet, Discord, website, or instructions' : 'Search or enter an address'} />
                 </label>
                 <label>
                   <span>Place notes / purpose</span>
@@ -370,9 +390,10 @@ export function PlanEditClient({ planId, plansEnabled, plansVisible }: PlanEditC
             <hr />
             <section className="plan-form__preview">
               <h3>Feed deck preview</h3>
-              <PlanPreviewDeck title={title} description={description} rangeLabel={rangeLabel} places={places.map((place) => ({ id: place.id, title: place.title, note: place.note, address: place.address, time: place.time, media: place.media ?? place.existingMedia }))} />
+              <PlanPreviewDeck title={title} description={description} rangeLabel={rangeLabel} places={places.map((place) => ({ id: place.id, mode: place.mode, title: place.title, note: place.note, location: place.location, date: place.date, time: place.time, media: place.media ?? place.existingMedia }))} />
             </section>
 
+            {schedule.error ? <p className="form-error">{schedule.error}</p> : null}
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
             <button className="button primary full" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Saving...' : 'Save Plan'}</button>
