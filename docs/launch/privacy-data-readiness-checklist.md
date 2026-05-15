@@ -5,6 +5,7 @@
 ## Data inventory
 
 - Account and session data mapped.
+- 18+ self-declared age confirmation timestamp and bucket mapped; no date of birth or ID document collection added for first launch.
 - Public profile fields mapped.
 - Need/Offer/Trade public visibility mapped.
 - Proposal/message visibility mapped.

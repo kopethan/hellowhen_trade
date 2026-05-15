@@ -10,8 +10,8 @@ export const legalPolicyRoutes: Record<LegalPolicyKey, string> = {
 };
 
 export const legalPolicySectionKeys: Record<LegalPolicyKey, string[]> = {
-  terms: ['starterScope', 'accountUse', 'tradeRules', 'contentModeration', 'moneyDisabled', 'supportChanges'],
+  terms: ['starterScope', 'accountUse', 'adultUse', 'tradeRules', 'contentModeration', 'moneyDisabled', 'supportChanges'],
   privacy: ['starterScope', 'accountData', 'publicContent', 'safetySupport', 'mediaRetention', 'choices'],
-  safety: ['starterScope', 'allowedUse', 'notAllowed', 'reportsModeration', 'identityTrust', 'meetSafely'],
+  safety: ['starterScope', 'adultUse', 'allowedUse', 'notAllowed', 'reportsModeration', 'identityTrust', 'meetSafely'],
   refundDispute: ['starterScope', 'moneyDisabled', 'tradeIssues', 'adminActions', 'futureMoney', 'supportRecords'],
 };

@@ -7,7 +7,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppSelect } from '../../components/AppSelect';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
-import { countryOptions, currencyOptions, type SupportedCurrency } from '../../lib/moneyPreferences';
+import { countryOptions } from '../../lib/moneyPreferences';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -16,9 +16,6 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 
-const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim() ?? '';
-const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?.trim() ?? '';
-const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?.trim() ?? '';
 
 function authSubtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
@@ -37,30 +34,29 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [countryCode, setCountryCode] = useState('FR');
-  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [googleSubmitting, setGoogleSubmitting] = useState(false);
+  const [authCompleted, setAuthCompleted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const googleConfigured = useMemo(() => Boolean(googleWebClientId || googleIosClientId || googleAndroidClientId), []);
   const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
     value: country.code,
     label: t(`common.locale.countries.${country.code}`),
-    helper: t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() }),
-  })), [t]);
-  const currencySelectOptions = useMemo(() => currencyOptions.map((currency) => ({
-    value: currency.code,
-    label: currency.label,
-    helper: t(`common.locale.currencies.${currency.code}`),
   })), [t]);
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
+    setAuthCompleted(true);
     navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'TradeTabs' }] }));
   }, [auth.isAuthenticated, navigation]);
+
+  function finishAuthNavigation() {
+    setAuthCompleted(true);
+    navigation.dispatch(CommonActions.reset({ index: 0, routes: [{ name: 'TradeTabs' }] }));
+  }
 
   function switchMode(nextMode: AuthMode) {
     setMode(nextMode);
@@ -74,52 +70,36 @@ export function LoginScreen() {
     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
     if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
     if (mode === 'register' && !countryCode) return t('auth.errors.countryRequired');
-    if (mode === 'register' && !preferredCurrency) return t('auth.errors.currencyRequired');
     if (mode === 'register' && !acceptedTerms) return t('auth.errors.termsRequired');
+    if (mode === 'register' && !ageConfirmed) return t('auth.errors.ageRequired');
     return null;
   }
 
   async function handleSubmit() {
+    if (submitting || authCompleted) return;
     const validationError = validateLocalForm();
     if (validationError) { setError(validationError); return; }
     setSubmitting(true);
     setError(null);
     setMessage(null);
+    let completed = false;
     try {
-      if (mode === 'login') await auth.login(email, password);
-      else if (mode === 'register') await auth.register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency);
-      else {
+      if (mode === 'login') {
+        await auth.login(email.trim(), password);
+        finishAuthNavigation();
+        completed = true;
+      } else if (mode === 'register') {
+        await auth.register(email.trim(), password, displayName, confirmPassword, acceptedTerms, ageConfirmed, countryCode);
+        finishAuthNavigation();
+        completed = true;
+      } else {
         await auth.forgotPassword(email);
         setMessage(t('auth.reset.requested'));
       }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleGoogle() {
-    if (!googleConfigured) { setError(t('auth.errors.googleUnavailable')); return; }
-    setGoogleSubmitting(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const { GoogleSignin } = await import('@react-native-google-signin/google-signin');
-      GoogleSignin.configure({
-        webClientId: googleWebClientId || undefined,
-        iosClientId: googleIosClientId || undefined,
-        scopes: ['profile', 'email']
-      });
-      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      const result = await GoogleSignin.signIn();
-      const idToken = (result as { idToken?: string; data?: { idToken?: string } }).idToken ?? (result as { data?: { idToken?: string } }).data?.idToken;
-      if (!idToken) throw new Error(t('auth.errors.googleIncomplete'));
-      await auth.loginWithGoogleIdToken(idToken);
-    } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError, caughtError instanceof Error ? caughtError.message : t('auth.errors.googleFailed')));
-    } finally {
-      setGoogleSubmitting(false);
+      if (!completed) setSubmitting(false);
     }
   }
 
@@ -155,17 +135,7 @@ export function LoginScreen() {
                   label={t('auth.fields.country')}
                   value={countryCode}
                   options={countrySelectOptions}
-                  onSelect={(value) => {
-                    const selectedCountry = countryOptions.find((country) => country.code === value);
-                    setCountryCode(value);
-                    if (selectedCountry) setPreferredCurrency(selectedCountry.currency);
-                  }}
-                />
-                <AppSelect
-                  label={t('auth.fields.displayCurrency')}
-                  value={preferredCurrency}
-                  options={currencySelectOptions}
-                  onSelect={(value) => setPreferredCurrency(value as SupportedCurrency)}
+                  onSelect={setCountryCode}
                 />
               </View>
             ) : null}
@@ -175,6 +145,10 @@ export function LoginScreen() {
                 <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}>
                   <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
                   <AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText>
+                </Pressable>
+                <Pressable onPress={() => setAgeConfirmed((value) => !value)} style={styles.termsRow}>
+                  <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, ageConfirmed && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{ageConfirmed ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
+                  <AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.ageConfirmation')}</AppText>
                 </Pressable>
                 <View style={styles.policyLinkRow}>
                   <Pressable accessibilityRole="button" onPress={() => navigation.navigate('LegalPolicy', { policy: 'terms' })}><AppText style={[styles.policyLinkText, { color: theme.semantic.proposal.bg }]}>{t('legal.authLinks.viewTerms')}</AppText></Pressable>
@@ -189,8 +163,8 @@ export function LoginScreen() {
           {message ? <InfoNotice tone="success" title={t('common.states.done')} body={message} /> : null}
 
           <View style={styles.actionStack}>
-            <AuthActionButton label={submitting ? t('common.states.working') : mode === 'login' ? t('auth.actions.login') : mode === 'register' ? t('auth.actions.createAccount') : t('auth.actions.sendResetLink')} disabled={submitting || googleSubmitting} onPress={() => { void handleSubmit(); }} />
-            <Pressable accessibilityRole="button" onPress={() => { void handleGoogle(); }} disabled={googleSubmitting || submitting || !googleConfigured} style={({ pressed }) => [styles.googleButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed, (!googleConfigured || googleSubmitting) && styles.disabledButton]}><AppText style={[styles.googleButtonText, { color: theme.color.text }]}>{googleSubmitting ? t('auth.actions.openingGoogle') : t('auth.actions.continueWithGoogle')}</AppText></Pressable>
+            <AuthActionButton label={authCompleted ? t('auth.actions.openingApp') : submitting ? t('common.states.working') : mode === 'login' ? t('auth.actions.login') : mode === 'register' ? t('auth.actions.createAccount') : t('auth.actions.sendResetLink')} disabled={submitting || authCompleted} onPress={() => { void handleSubmit(); }} />
+            <InfoNotice tone="info" title={t('auth.googleDisabledTitle')} body={t('auth.googleDisabledFirstLaunch')} />
           </View>
         </AppCard>
       </ScrollView>
@@ -254,8 +228,6 @@ const styles = StyleSheet.create({
   actionStack: { gap: 10 },
   primaryButton: { minHeight: 52, borderRadius: 16, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', textTransform: 'uppercase' },
-  googleButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
-  googleButtonText: { fontWeight: '900' },
   disabledButton: { opacity: 0.55 },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
 });

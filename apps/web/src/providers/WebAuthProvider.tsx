@@ -18,7 +18,7 @@ type AuthContextValue = {
   hydrated: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<TwoFactorRequired | void>;
-  register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; countryCode: string; preferredCurrency: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
+  register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; ageConfirmed: boolean; declaredAgeBucket: '18_plus'; countryCode: string; preferredCurrency?: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
   resetPassword: (token: string, password: string, confirmPassword: string) => Promise<ResetPasswordResponse>;
   completeTwoFactorLogin: (input: { challengeToken: string; code: string }) => Promise<void>;
@@ -69,6 +69,9 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
     persistReturnedTokens(result);
     setUser(result.user);
     saveCachedUser(result.user);
+    // Settings sync is a secondary convenience fetch. Auth should still complete
+    // when the account/session was created successfully but settings refresh is
+    // delayed or temporarily unavailable.
     await refreshSettings().catch(() => undefined);
   }, [refreshSettings]);
 

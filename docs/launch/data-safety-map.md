@@ -12,6 +12,7 @@ Collected or generated:
 - profile bio and avatar;
 - country, language, currency, and appearance preferences;
 - email verification and security/session timestamps;
+- self-declared 18+ age confirmation timestamp and age bucket;
 - two-step authentication state if enabled.
 
 Primary purpose:
@@ -64,5 +65,7 @@ Current launch expectation:
 ## First-launch money data
 
 Money, wallet, payouts, payment-provider accounts, and real-money trade data should not be collected during first launch because those features remain disabled.
+
+Hellowhen also should not collect date of birth, government ID documents, or selfie age checks for normal first-launch signup. The launch gate stores only the 18+ confirmation timestamp and declared age bucket.
 
 If a later launch enables money features, update this map before implementation is released.

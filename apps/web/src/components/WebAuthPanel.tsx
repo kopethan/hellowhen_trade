@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { getFriendlyApiErrorMessage } from '../lib/webErrors';
-import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSupportedCurrency, type SupportedCurrency } from '../lib/webMoneyPreferences';
+import { countryOptions } from '../lib/webMoneyPreferences';
 import { useWebAuth } from '../providers/WebAuthProvider';
 import { useWebTranslation } from '../providers/WebI18nProvider';
 
@@ -29,26 +29,42 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
   const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [countryCode, setCountryCode] = useState('FR');
-  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [authCompleted, setAuthCompleted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const primaryLabel = useMemo(() => {
+    if (authCompleted) return t('auth.actions.openingApp');
     if (submitting) return t('common.states.working');
     if (twoFactorChallenge) return t('auth.actions.verifyCode');
     if (mode === 'register') return t('auth.actions.createAccount');
     if (mode === 'forgot') return t('auth.actions.sendResetLink');
     return t('auth.actions.login');
-  }, [mode, submitting, t, twoFactorChallenge]);
+  }, [authCompleted, mode, submitting, t, twoFactorChallenge]);
 
   useEffect(() => {
     if (!auth.hydrated || !auth.isAuthenticated) return;
+    setAuthCompleted(true);
     router.replace(redirectTo);
     router.refresh();
   }, [auth.hydrated, auth.isAuthenticated, redirectTo, router]);
+
+  function finishAuthNavigation() {
+    setAuthCompleted(true);
+    router.replace(redirectTo);
+    router.refresh();
+
+    if (typeof window !== 'undefined') {
+      window.setTimeout(() => {
+        const targetUrl = new URL(redirectTo, window.location.origin);
+        if (window.location.pathname !== targetUrl.pathname) window.location.assign(targetUrl.toString());
+      }, 900);
+    }
+  }
 
   function switchMode(nextMode: AuthMode) {
     setMode(nextMode);
@@ -65,12 +81,13 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
     if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
     if (mode === 'register' && !countryCode) return t('auth.errors.countryRequired');
-    if (mode === 'register' && !preferredCurrency) return t('auth.errors.currencyRequired');
     if (mode === 'register' && !acceptedTerms) return t('auth.errors.termsRequired');
+    if (mode === 'register' && !ageConfirmed) return t('auth.errors.ageRequired');
     return null;
   }
 
   async function submit() {
+    if (submitting || authCompleted) return;
     const validationError = validateLocalForm();
     if (validationError) {
       setError(validationError);
@@ -80,12 +97,13 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     setSubmitting(true);
     setError(null);
     setMessage(null);
+    let completed = false;
     try {
       if (mode === 'login') {
         if (twoFactorChallenge) {
           await auth.completeTwoFactorLogin({ challengeToken: twoFactorChallenge.challengeToken, code: twoFactorCode.trim() });
-          router.replace(redirectTo);
-          router.refresh();
+          finishAuthNavigation();
+          completed = true;
           return;
         }
         const twoFactor = await auth.login(email.trim(), password);
@@ -94,8 +112,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
           setMessage(twoFactor.message || t('auth.twoFactorNotice'));
           return;
         }
-        router.replace(redirectTo);
-        router.refresh();
+        finishAuthNavigation();
+        completed = true;
       } else if (mode === 'register') {
         await auth.register({
           email: email.trim(),
@@ -104,10 +122,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
           displayName: displayName.trim(),
           acceptedTerms,
           countryCode,
-          preferredCurrency,
+          ageConfirmed,
+          declaredAgeBucket: '18_plus',
         });
-        router.replace(redirectTo);
-        router.refresh();
+        finishAuthNavigation();
+        completed = true;
       } else {
         await auth.forgotPassword(email.trim());
         setMessage(t('auth.reset.requested'));
@@ -115,7 +134,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
-      setSubmitting(false);
+      if (!completed) setSubmitting(false);
     }
   }
 
@@ -172,27 +191,10 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
                 {t('auth.fields.country')}
                 <select
                   value={countryCode}
-                  onChange={(event) => {
-                    const nextCountry = event.target.value;
-                    setCountryCode(nextCountry);
-                    setPreferredCurrency(getDefaultCurrencyForCountry(nextCountry));
-                  }}
+                  onChange={(event) => setCountryCode(event.target.value)}
                 >
                   {countryOptions.map((country) => (
-                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)} · {t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() })}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field-label">
-                {t('auth.fields.displayCurrency')}
-                <select
-                  value={preferredCurrency}
-                  onChange={(event) => {
-                    if (isSupportedCurrency(event.target.value)) setPreferredCurrency(event.target.value);
-                  }}
-                >
-                  {currencyOptions.map((currency) => (
-                    <option key={currency.code} value={currency.code}>{currency.label} · {t(`common.locale.currencies.${currency.code}`)}</option>
+                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)}</option>
                   ))}
                 </select>
               </label>
@@ -203,6 +205,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
               <span>
                 {t('legal.authLinks.prefix')} <Link className="inline-policy-link" href="/legal/terms">{t('legal.authLinks.terms')}</Link> {t('legal.authLinks.and')} <Link className="inline-policy-link" href="/legal/privacy">{t('legal.authLinks.privacy')}</Link>.
               </span>
+            </label>
+
+            <label className="checkbox-row">
+              <input checked={ageConfirmed} onChange={(event) => setAgeConfirmed(event.target.checked)} type="checkbox" />
+              <span>{t('auth.ageConfirmation')}</span>
             </label>
           </>
         ) : null}
@@ -223,8 +230,8 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
       {error ? <p className="notice-box danger">{error}</p> : null}
 
       <div className="auth-actions">
-        <button type="button" onClick={() => { void submit(); }} disabled={submitting}>{primaryLabel}</button>
-        <button type="button" className="secondary" disabled title={t('auth.actions.googleUnavailableWeb')}>{t('auth.actions.continueWithGoogle')}</button>
+        <button type="button" onClick={() => { void submit(); }} disabled={submitting || authCompleted}>{primaryLabel}</button>
+        <p className="notice-box info">{t('auth.googleDisabledFirstLaunch')}</p>
       </div>
     </section>
   );

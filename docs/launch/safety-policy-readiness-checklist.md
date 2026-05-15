@@ -9,6 +9,7 @@
 - Community & Safety Guidelines page exists.
 - Refund & Dispute Policy page exists.
 - Auth registration links to Terms and Privacy.
+- Auth registration requires self-declared 18+ confirmation.
 - Account links to Legal & Safety center.
 - Settings links to Legal & Safety center.
 - Support links to Safety and Refund/Dispute pages.
@@ -20,3 +21,4 @@
 - Confirm prohibited-content examples are appropriate for launch countries and app stores.
 - Confirm moderation action wording matches admin capabilities.
 - Confirm no user-facing copy promises legal outcomes, payment guarantees, payout availability, or response times that the team cannot support.
+- Confirm age-gate copy says age confirmation, not age verification, unless a real verification provider is added later.

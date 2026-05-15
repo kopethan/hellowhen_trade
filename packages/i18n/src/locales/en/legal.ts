@@ -2,7 +2,7 @@ export const legal = {
   overview: {
     eyebrow: 'Launch readiness',
     title: 'Legal, privacy, and safety center',
-    body: 'Starter policy pages for the Hellowhen Trade beta. They set clear expectations for service and goods exchanges while money features stay disabled.',
+    body: 'Policy pages for the Hellowhen Trade beta. They set clear expectations for adult 18+ service and goods exchanges while money features stay disabled.',
     launchBadge: 'Beta policy',
     launchTitle: 'First-launch scope',
     launchBody: 'This beta focuses on Need + Offer trades, support, reports, and moderation. Wallets, payouts, provider onboarding, and production money movement remain off unless a later launch plan enables them.',
@@ -40,6 +40,7 @@ export const legal = {
       sections: {
         starterScope: { title: 'Starter beta scope', body: 'Hellowhen Trade lets members publish Needs, Offers, and Trades, send proposals, and manage support requests. These starter terms are written for the first beta product scope.' },
         accountUse: { title: 'Account use', body: 'Use accurate account information, keep your login safe, and do not share accounts. Hellowhen may restrict accounts that create safety, spam, fraud, or moderation risk.' },
+        adultUse: { title: 'Adults only', body: 'Hellowhen is intended for adults aged 18 or older. By creating an account, you confirm that you are at least 18.' },
         tradeRules: { title: 'Trade expectations', body: 'Post clear Needs and Offers, describe what you can provide, and keep proposal messages respectful. Do not promise services, goods, or timelines that you cannot reasonably deliver.' },
         contentModeration: { title: 'Content and moderation', body: 'Hellowhen may hide, close, restore, or review public content when reports, support tickets, or admin checks indicate a safety or quality issue.' },
         moneyDisabled: { title: 'Money features are disabled', body: 'The first beta does not enable wallet top-ups, payouts, provider onboarding, or production money movement. Service-for-service and goods exchanges should not rely on an in-app payment guarantee.' },
@@ -67,6 +68,7 @@ export const legal = {
       updated: 'Starter version · May 2026',
       sections: {
         starterScope: { title: 'Starter beta scope', body: 'These guidelines help keep the first Hellowhen Trade beta focused on useful, respectful service and goods exchanges.' },
+        adultUse: { title: 'Adults only', body: 'Hellowhen is for adults aged 18 or older during the first launch. Do not create an account or use the marketplace if you are under 18.' },
         allowedUse: { title: 'Helpful use', body: 'Use clear titles, honest descriptions, appropriate images, and respectful proposal messages. Keep trade discussions inside the product when possible so support can understand issues later.' },
         notAllowed: { title: 'Not allowed', body: 'Do not post scams, harassment, illegal or unsafe content, fake profiles, sexual content, dangerous goods or services, hate, threats, spam, or content that invades someone else’s privacy.' },
         reportsModeration: { title: 'Reports and moderation', body: 'Members can report profiles, Trades, Needs, Offers, and messages where available. Admins can review reports, hide content, restrict users, escalate to support, and keep audit notes.' },

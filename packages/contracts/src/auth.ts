@@ -3,6 +3,10 @@ import { countryCodeSchema, supportedCurrencySchema } from './profile.js';
 
 const passwordSchema = z.string().min(8).max(128);
 
+const ageConfirmationMessage = 'You must confirm that you are 18 or older to create a Hellowhen account.';
+
+export const declaredAgeBucketSchema = z.literal('18_plus');
+
 export const loginRequestSchema = z.object({
   email: z.string().email(),
   password: passwordSchema
@@ -46,7 +50,9 @@ export const registerRequestSchema = z.object({
   displayName: z.string().min(1).max(80).optional(),
   countryCode: countryCodeSchema.optional(),
   preferredCurrency: supportedCurrencySchema.optional(),
-  acceptedTerms: z.boolean().refine((value) => value === true, { message: 'Please accept the Terms and Privacy Policy to continue.' })
+  acceptedTerms: z.boolean().refine((value) => value === true, { message: 'Please accept the Terms and Privacy Policy to continue.' }),
+  ageConfirmed: z.boolean().refine((value) => value === true, { message: ageConfirmationMessage }),
+  declaredAgeBucket: declaredAgeBucketSchema
 }).superRefine((value, ctx) => {
   if (value.confirmPassword && value.password !== value.confirmPassword) {
     ctx.addIssue({ code: 'custom', path: ['confirmPassword'], message: 'Passwords do not match.' });
@@ -54,7 +60,10 @@ export const registerRequestSchema = z.object({
 });
 
 export const googleAuthRequestSchema = z.object({
-  idToken: z.string().min(20)
+  idToken: z.string().min(20),
+  acceptedTerms: z.boolean().optional(),
+  ageConfirmed: z.boolean().optional(),
+  declaredAgeBucket: declaredAgeBucketSchema.optional(),
 });
 
 export const forgotPasswordRequestSchema = z.object({
@@ -90,6 +99,8 @@ export type AuthUser = {
   role?: 'user' | 'admin';
   trustTier?: 'new' | 'email_verified' | 'stripe_verified' | 'trusted' | 'restricted';
   emailVerifiedAt?: string | null;
+  ageConfirmedAt?: string | null;
+  declaredAgeBucket?: '18_plus' | null;
   twoFactorEnabled?: boolean;
   forceTwoFactor?: boolean;
   sensitiveActionVerifiedAt?: string | null;

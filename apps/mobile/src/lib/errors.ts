@@ -37,6 +37,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   }
 
   if (apiError.body?.error === 'email_already_exists') return apiError.body.message ?? 'An account already exists with this email. Try logging in or resetting your password.';
+  if (apiError.body?.error === 'age_confirmation_required') return apiError.body.message ?? 'Confirm that you are 18 or older before creating an account.';
   if (apiError.body?.error === 'google_not_configured') return apiError.body.message ?? 'Google sign-in is not configured yet.';
   if (apiError.body?.error === 'invalid_google_token') return apiError.body.message ?? 'Google sign-in could not be verified.';
   if (apiError.body?.error === 'invalid_or_expired_reset_token') return apiError.body.message ?? 'This reset link is invalid or expired.';

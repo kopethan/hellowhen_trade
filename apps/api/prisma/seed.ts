@@ -44,12 +44,22 @@ async function upsertDemoUser(input: DemoUserInput) {
       passwordHash,
       role,
       emailVerifiedAt: new Date(),
+      ageConfirmedAt: new Date(),
+      declaredAgeBucket: '18_plus',
+      termsAcceptedAt: new Date(),
+      termsVersion: '2026-05-14',
+      privacyVersion: '2026-05-14',
     },
     create: {
       email: input.email,
       passwordHash,
       role,
       emailVerifiedAt: new Date(),
+      ageConfirmedAt: new Date(),
+      declaredAgeBucket: '18_plus',
+      termsAcceptedAt: new Date(),
+      termsVersion: '2026-05-14',
+      privacyVersion: '2026-05-14',
       profile: {
         create: {
           displayName: input.displayName,

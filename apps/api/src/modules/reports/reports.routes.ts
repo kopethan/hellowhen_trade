@@ -73,6 +73,16 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
     return offer ? { type: targetType, id: offer.id, label: offer.title, ownerId: offer.ownerId, owner: offer.owner, status: offer.status, url: `/offers/${offer.id}` } : null;
   }
 
+  if (targetType === 'plan') {
+    const plan = await prisma.plan.findUnique({ where: { id: targetId }, include: { owner: { select: reportUserSelect } } });
+    return plan ? { type: targetType, id: plan.id, label: plan.title, ownerId: plan.ownerId, owner: plan.owner, status: plan.status, isPublic: ['open', 'full', 'started'].includes(plan.status), url: `/plans/${plan.id}` } : null;
+  }
+
+  if (targetType === 'plan_place') {
+    const place = await prisma.planPlace.findUnique({ where: { id: targetId }, include: { plan: { include: { owner: { select: reportUserSelect } } } } });
+    return place ? { type: targetType, id: place.id, label: place.title, ownerId: place.plan.ownerId, owner: place.plan.owner, status: place.plan.status, isPublic: ['open', 'full', 'started'].includes(place.plan.status), url: `/plans/${place.planId}` } : null;
+  }
+
   if (targetType === 'proposal') {
     const proposal = await prisma.tradeProposal.findUnique({ where: { id: targetId }, include: { applicant: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true } } } });
     return proposal ? { type: targetType, id: proposal.id, label: proposal.trade?.title ?? 'Proposal', ownerId: proposal.applicantId, owner: proposal.applicant, status: proposal.status, url: proposal.tradeId ? `/trades/${proposal.tradeId}` : null } : null;
@@ -111,6 +121,12 @@ export async function moderateReportedTarget(targetType: ReportTargetType, targe
   if (targetType === 'trade') await prisma.trade.update({ where: { id: targetId }, data: { isPublic: false } });
   else if (targetType === 'need') await prisma.need.update({ where: { id: targetId }, data: { status: 'closed' } });
   else if (targetType === 'offer') await prisma.offer.update({ where: { id: targetId }, data: { status: 'closed' } });
+  else if (targetType === 'plan') await prisma.plan.update({ where: { id: targetId }, data: { status: 'hidden' } });
+  else if (targetType === 'plan_place') {
+    const place = await prisma.planPlace.findUnique({ where: { id: targetId }, select: { planId: true } });
+    if (!place) return null;
+    await prisma.plan.update({ where: { id: place.planId }, data: { status: 'hidden' } });
+  }
   else if (targetType === 'media') await prisma.mediaAsset.update({ where: { id: targetId }, data: { status: 'removed', reviewedAt: new Date(), reviewerId: adminId, reviewNote: 'Removed from admin report queue.' } });
   else return null;
 

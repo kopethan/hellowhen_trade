@@ -16,8 +16,8 @@ import { findReportTarget, hydrateReports, moderateReportedTarget } from '../rep
 import { publicTradeVisibilityWhere, refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
 
 export const adminRoutes = Router();
-const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
-const adminOverviewUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+const adminOverviewUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
 
 
 type AdminAuditInput = {
@@ -158,7 +158,7 @@ adminRoutes.get('/overview', asyncRoute(async (_req, res) => {
     prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       take: 8,
-      select: { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, createdAt: true, profile: true },
+      select: { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, createdAt: true, profile: true },
     }),
     prisma.supportTicket.findMany({
       where: { status: { in: ['open', 'in_review', 'waiting_for_user'] } },
@@ -424,7 +424,7 @@ adminRoutes.get('/users', asyncRoute(async (req, res) => {
     },
     select: {
       id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true,
-      emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true,
+      emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true,
       _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } },
     },
     orderBy: { createdAt: 'desc' },
@@ -452,7 +452,7 @@ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
         trustTierNote: input.note ?? null,
         ...(restrictingUser ? { sessionRevokedAt: now, sensitiveActionVerifiedAt: null } : {}),
       },
-      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } }
+      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } }
     });
     if (restrictingUser) {
       await tx.session.updateMany({ where: { userId: existing.id, revokedAt: null }, data: { revokedAt: now } });
@@ -473,7 +473,7 @@ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
 
 
 
-const adminContentUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+const adminContentUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
 const tradeStatusValues = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'] as const;
 const needStatusValues = ['draft', 'active', 'fulfilled', 'closed', 'expired'] as const;
 const offerStatusValues = ['draft', 'active', 'accepted', 'closed', 'expired'] as const;
@@ -659,7 +659,7 @@ adminRoutes.patch('/users/:userId/moderation', asyncRoute(async (req, res) => {
     const updated = await tx.user.update({
       where: { id: existing.id },
       data,
-      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } },
+      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } },
     });
     if (input.action === 'suspend' || input.action === 'force_logout') {
       await tx.session.updateMany({ where: { userId: existing.id, revokedAt: null }, data: { revokedAt: now } });
@@ -871,6 +871,7 @@ adminRoutes.get('/launch-checklist', asyncRoute(async (_req, res) => {
     adminUsers,
     adminsMissingTwoFactor,
     defaultSeedAdminUsers,
+    usersMissingAgeConfirmation,
     feedEligibleTrades,
     feedEligibleRestrictedOwnerTrades,
     feedEligibleClosedNeedTrades,
@@ -891,6 +892,7 @@ adminRoutes.get('/launch-checklist', asyncRoute(async (_req, res) => {
     prisma.user.count({ where: { role: 'admin' } }),
     prisma.user.count({ where: { role: 'admin', twoFactorEnabled: false } }),
     prisma.user.count({ where: { role: 'admin', email: 'admin@hellowhen.app' } }),
+    prisma.user.count({ where: { OR: [{ ageConfirmedAt: null }, { declaredAgeBucket: null }, { declaredAgeBucket: { not: '18_plus' } }] } }),
     prisma.trade.count({ where: publicTradeVisibilityWhere() }),
     prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { owner: { trustTier: 'restricted' } }] } }),
     prisma.trade.count({ where: { AND: [publicTradeVisibilityWhere(), { needId: { not: null }, need: { is: { status: { not: 'active' } } } }] } }),
@@ -938,6 +940,15 @@ adminRoutes.get('/launch-checklist', asyncRoute(async (_req, res) => {
         ? 'The default admin@hellowhen.app seed account exists.'
         : 'No default admin@hellowhen.app account was found.',
       action: defaultSeedAdminUsers > 0 ? 'Use SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD for non-local environments, or rotate/remove the default seed admin.' : undefined,
+    },
+    {
+      id: 'age-confirmation-launch-gate',
+      label: '18+ launch gate',
+      status: usersMissingAgeConfirmation === 0 ? 'pass' : 'warning',
+      detail: usersMissingAgeConfirmation === 0
+        ? 'All existing users have the 18+ age confirmation metadata expected for first launch.'
+        : `${usersMissingAgeConfirmation} existing user account(s) are missing 18+ age confirmation metadata.`,
+      action: usersMissingAgeConfirmation > 0 ? 'Run the age confirmation migration/seed update before launch and confirm registration requires the 18+ checkbox.' : undefined,
     },
     {
       id: 'money-off-launch',

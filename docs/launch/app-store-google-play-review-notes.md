@@ -16,6 +16,10 @@ Hellowhen Trade is a mobile-first marketplace for service, goods, and skill trad
 
 Money, wallet, payouts, Stripe, Airwallex, and real-money trades must remain disabled unless a separate money-launch review explicitly enables them.
 
+Google sign-in is disabled for first launch. Reviewers should use email/password registration or the prepared email/password demo account.
+
+Hellowhen Trade is 18+ for first launch. Users must self-confirm that they are 18 or older during registration. Teen/minor accounts are not supported, and the app should not be marketed as directed to children.
+
 ## Demo reviewer setup
 
 Prepare a normal reviewer account before submission:
@@ -37,8 +41,9 @@ Suggested reviewer path:
 4. Open a public profile.
 5. Use report buttons without submitting abusive test content.
 6. Open Support / Contact.
-7. Open Account deletion request screen.
-8. Confirm wallet, payouts, and money trade features are not advertised or available in production.
+7. Confirm the register flow includes Terms/Privacy acceptance and 18+ age confirmation.
+8. Open Account deletion request screen.
+9. Confirm wallet, payouts, and money trade features are not advertised or available in production.
 
 ## Safety features to mention in review notes
 
@@ -49,6 +54,7 @@ Suggested reviewer path:
 - Hidden/restricted content is filtered from public discovery and public profile routes.
 - Support is available through authenticated app flows and the public support page.
 - Account deletion can be requested in-app and through the public web deletion page.
+- New accounts must confirm they are 18+; no date of birth or ID document is collected for first launch.
 
 ## Production readiness checks before submission
 

@@ -1,9 +1,6 @@
 declare const process: {
   env: {
     EXPO_PUBLIC_API_URL?: string;
-    EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?: string;
-    EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID?: string;
-    EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID?: string;
     EXPO_PUBLIC_MONEY_PROVIDER?: string;
     EXPO_PUBLIC_MONEY_FEATURES_VISIBLE?: string;
     EXPO_PUBLIC_WALLET_VISIBLE?: string;
@@ -11,5 +8,7 @@ declare const process: {
     EXPO_PUBLIC_MONEY_TRADES_ENABLED?: string;
     EXPO_PUBLIC_CASH_TRADES_ENABLED?: string;
     EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE?: string;
+    EXPO_PUBLIC_PLANS_ENABLED?: string;
+    EXPO_PUBLIC_PLANS_VISIBLE?: string;
   };
 };

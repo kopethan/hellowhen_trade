@@ -29,6 +29,8 @@ const RESET_TOKEN_BYTES = 32;
 const REFRESH_TOKEN_BYTES = 48;
 const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const TWO_FACTOR_CHALLENGE_BYTES = 32;
+const POLICY_VERSION = '2026-05-14';
+const ADULT_AGE_BUCKET = '18_plus';
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -248,8 +250,10 @@ authRoutes.post('/register', asyncRoute(async (req, res) => {
       passwordHash,
       lastLoginAt: new Date(),
       termsAcceptedAt: new Date(),
-      termsVersion: '2026-05-14',
-      privacyVersion: '2026-05-14',
+      termsVersion: POLICY_VERSION,
+      privacyVersion: POLICY_VERSION,
+      ageConfirmedAt: new Date(),
+      declaredAgeBucket: input.declaredAgeBucket,
       profile: { create: { displayName: input.displayName ?? null, countryCode: input.countryCode ?? null, preferredCurrency: input.preferredCurrency ?? 'eur' } },
       settings: { create: {} },
       wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: input.preferredCurrency ?? 'eur' } },
@@ -293,6 +297,11 @@ authRoutes.post('/login/2fa', asyncRoute(async (req, res) => {
   res.json(await finishLogin(user.id, req.headers['user-agent']));
 }));
 
+
+function hasAdultLaunchConfirmation(input: { acceptedTerms?: boolean; ageConfirmed?: boolean; declaredAgeBucket?: string }) {
+  return input.acceptedTerms === true && input.ageConfirmed === true && input.declaredAgeBucket === ADULT_AGE_BUCKET;
+}
+
 authRoutes.post('/google', asyncRoute(async (req, res) => {
   const input = googleAuthRequestSchema.parse(req.body);
 
@@ -310,10 +319,29 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
   if (!userId) {
     const existingByEmail = await prisma.user.findUnique({ where: { email: googleUser.email } });
     if (existingByEmail) {
+      const needsAgeConfirmation = !existingByEmail.ageConfirmedAt || existingByEmail.declaredAgeBucket !== ADULT_AGE_BUCKET;
+      if (needsAgeConfirmation && !hasAdultLaunchConfirmation(input)) {
+        return res.status(400).json({
+          error: 'age_confirmation_required',
+          message: 'Confirm that you are 18 or older and accept the Terms and Privacy Policy before using Google sign-in with this Hellowhen account.'
+        });
+      }
       userId = existingByEmail.id;
       await prisma.userIdentity.create({ data: { userId, provider: 'google', providerUserId: googleUser.sub, email: googleUser.email } }).catch(() => null);
-      await prisma.user.update({ where: { id: userId }, data: { emailVerifiedAt: existingByEmail.emailVerifiedAt ?? new Date() } });
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          emailVerifiedAt: existingByEmail.emailVerifiedAt ?? new Date(),
+          ...(needsAgeConfirmation ? { ageConfirmedAt: new Date(), declaredAgeBucket: ADULT_AGE_BUCKET } : {}),
+        }
+      });
     } else {
+      if (!hasAdultLaunchConfirmation(input)) {
+        return res.status(400).json({
+          error: 'age_confirmation_required',
+          message: 'Confirm that you are 18 or older and accept the Terms and Privacy Policy before creating a Hellowhen account with Google.'
+        });
+      }
       const created = await prisma.user.create({
         data: {
           email: googleUser.email,
@@ -324,8 +352,10 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
           trustTierNote: 'Email verified by Google sign-in.',
           lastLoginAt: new Date(),
           termsAcceptedAt: new Date(),
-          termsVersion: '2026-05-14',
-          privacyVersion: '2026-05-14',
+          termsVersion: POLICY_VERSION,
+          privacyVersion: POLICY_VERSION,
+          ageConfirmedAt: new Date(),
+          declaredAgeBucket: ADULT_AGE_BUCKET,
           profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
           settings: { create: {} },
           wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: 'eur' } },

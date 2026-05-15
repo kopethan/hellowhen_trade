@@ -28,14 +28,6 @@
     "web": {
       "favicon": "./assets/icon.png"
     },
-    "scheme": "hellowhen",
-    "plugins": [
-      [
-        "@react-native-google-signin/google-signin",
-        {
-          "iosUrlScheme": "com.googleusercontent.apps.REPLACE_WITH_REVERSED_IOS_CLIENT_ID"
-        }
-      ]
-    ]
+    "scheme": "hellowhen"
   }
 }

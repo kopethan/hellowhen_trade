@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Button, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority } from '@hellowhen/contracts';
@@ -98,7 +98,21 @@ export function SupportCenterScreen() {
       <TextInput value={subject} onChangeText={setSubject} placeholder={t('support.subjectPlaceholderShort')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
       <TextInput value={message} onChangeText={setMessage} placeholder={t('support.messagePlaceholderNative')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" />
       <ImagePickerField images={images} onChange={setImages} disabled={submitting} label={t('support.screenshots')} hint={t('support.screenshotsHint')} />
-      <Button title={submitting ? t('common.states.submitting') : t('support.submitTicket')} disabled={submitting} onPress={() => { void createTicket(); }} />
+      <Pressable
+        accessibilityRole="button"
+        disabled={submitting}
+        onPress={() => { void createTicket(); }}
+        style={({ pressed }) => [
+          styles.submitButton,
+          { backgroundColor: theme.color.text },
+          pressed && !submitting && styles.pressed,
+          submitting && styles.disabledButton,
+        ]}
+      >
+        <AppText style={[styles.submitButtonText, { color: theme.color.background }]}>
+          {submitting ? t('common.states.submitting') : t('support.submitTicket')}
+        </AppText>
+      </Pressable>
     </AppCard>
     <AppCard><AppText style={styles.sectionTitle}>{t('support.myTickets')}</AppText>{tickets.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('support.noTicketsNative')}</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={[styles.ticketCard, { borderTopColor: theme.color.border }]}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={t(`support.categories.${ticket.category}`)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={t(`support.priorities.${ticket.priority}`)} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{formatLocalizedDateTime(ticket.updatedAt, language)}</AppText></TouchableOpacity>)}</AppCard>
   </ScrollView></AppScreen>;
@@ -114,6 +128,10 @@ const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   input: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700' },
   textArea: { minHeight: 110 },
+  submitButton: { alignItems: 'center', borderRadius: 18, marginTop: 4, paddingVertical: 14 },
+  submitButtonText: { fontSize: 14, fontWeight: '900', letterSpacing: 0.4, textTransform: 'uppercase' },
+  disabledButton: { opacity: 0.6 },
+  pressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
   cardText: { lineHeight: 20, fontWeight: '600' },
   ticketCard: { borderTopWidth: 1, paddingTop: 12, gap: 7 },
   ticketHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },

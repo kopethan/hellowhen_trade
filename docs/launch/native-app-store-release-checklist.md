@@ -7,6 +7,8 @@
 - Confirm `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, and `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
 - Verify app icon, splash, bundle identifiers, version/build numbers, and store screenshots.
 - Verify login/register/reset flows on iOS and Android devices.
+- Verify Google sign-in is disabled/hidden for first launch, with no placeholder OAuth URL scheme in native config.
+- Verify registration requires Terms/Privacy acceptance and the 18+ age confirmation checkbox.
 - Verify Terms and Privacy can be opened from registration and Account.
 - Verify email verification links open `/auth/verify-email` and show success/failure states.
 - Verify Account deletion can be opened from Account/Settings and creates a request.

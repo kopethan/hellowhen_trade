@@ -2,7 +2,7 @@ export const legal = {
   overview: {
     eyebrow: 'Préparation au lancement',
     title: 'Centre légal, confidentialité et sécurité',
-    body: 'Pages de politique de départ pour la bêta Hellowhen Trade. Elles clarifient les attentes pour les échanges de services et de biens pendant que les fonctions d’argent restent désactivées.',
+    body: 'Pages de politique pour la bêta Hellowhen Trade. Elles clarifient les attentes pour les échanges de services et de biens entre adultes de 18 ans ou plus pendant que les fonctions d’argent restent désactivées.',
     launchBadge: 'Politique bêta',
     launchTitle: 'Périmètre du premier lancement',
     launchBody: 'Cette bêta se concentre sur les échanges Besoin + Offre, l’assistance, les signalements et la modération. Les portefeuilles, versements, intégrations de prestataires et mouvements d’argent en production restent désactivés sauf si un plan de lancement ultérieur les active.',
@@ -40,6 +40,7 @@ export const legal = {
       sections: {
         starterScope: { title: 'Périmètre bêta de départ', body: 'Hellowhen Trade permet aux membres de publier des Besoins, Offres et Échanges, d’envoyer des propositions et de gérer des demandes d’assistance. Ces conditions de départ sont écrites pour le périmètre de la première bêta.' },
         accountUse: { title: 'Utilisation du compte', body: 'Utilisez des informations de compte exactes, protégez votre connexion et ne partagez pas votre compte. Hellowhen peut restreindre les comptes qui créent un risque de sécurité, spam, fraude ou modération.' },
+        adultUse: { title: 'Réservé aux adultes', body: 'Hellowhen est destiné aux adultes âgés de 18 ans ou plus. En créant un compte, vous confirmez avoir au moins 18 ans.' },
         tradeRules: { title: 'Attentes d’échange', body: 'Publiez des Besoins et Offres clairs, décrivez ce que vous pouvez fournir et gardez des messages de proposition respectueux. Ne promettez pas des services, biens ou délais que vous ne pouvez pas raisonnablement tenir.' },
         contentModeration: { title: 'Contenu et modération', body: 'Hellowhen peut masquer, fermer, restaurer ou examiner du contenu public lorsque des signalements, tickets d’assistance ou contrôles admin indiquent un problème de sécurité ou de qualité.' },
         moneyDisabled: { title: 'Fonctions d’argent désactivées', body: 'La première bêta n’active pas les recharges de portefeuille, versements, intégrations de prestataires ni mouvements d’argent en production. Les échanges service-contre-service et de biens ne doivent pas dépendre d’une garantie de paiement intégrée.' },
@@ -67,6 +68,7 @@ export const legal = {
       updated: 'Version de départ · mai 2026',
       sections: {
         starterScope: { title: 'Périmètre bêta de départ', body: 'Ces règles aident à garder la première bêta Hellowhen Trade centrée sur des échanges utiles et respectueux de services et de biens.' },
+        adultUse: { title: 'Réservé aux adultes', body: 'Hellowhen est réservé aux adultes âgés de 18 ans ou plus pendant le premier lancement. Ne créez pas de compte et n’utilisez pas la place de marché si vous avez moins de 18 ans.' },
         allowedUse: { title: 'Utilisation utile', body: 'Utilisez des titres clairs, descriptions honnêtes, images appropriées et messages de proposition respectueux. Gardez autant que possible les discussions d’échange dans le produit pour aider l’assistance à comprendre les problèmes.' },
         notAllowed: { title: 'Interdit', body: 'Ne publiez pas d’arnaques, harcèlement, contenu illégal ou dangereux, faux profils, contenu sexuel, biens ou services dangereux, haine, menaces, spam ou contenu qui viole la vie privée d’autrui.' },
         reportsModeration: { title: 'Signalements et modération', body: 'Les membres peuvent signaler les profils, Échanges, Besoins, Offres et messages lorsque disponible. Les admins peuvent examiner les signalements, masquer du contenu, restreindre des utilisateurs, escalader vers l’assistance et garder des notes d’audit.' },

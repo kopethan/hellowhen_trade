@@ -1,0 +1,195 @@
+diff --git a/apps/mobile/src/features/account/SupportCenterScreen.tsx b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+index a76fbe7..54917af 100644
+--- a/apps/mobile/src/features/account/SupportCenterScreen.tsx
++++ b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useState } from 'react';
+-import { Button, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
++import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { SupportTicketCategory, SupportTicketDto, SupportTicketPriority } from '@hellowhen/contracts';
+@@ -98,7 +98,21 @@ export function SupportCenterScreen() {
+       <TextInput value={subject} onChangeText={setSubject} placeholder={t('support.subjectPlaceholderShort')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+       <TextInput value={message} onChangeText={setMessage} placeholder={t('support.messagePlaceholderNative')} placeholderTextColor={theme.color.muted} style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} multiline textAlignVertical="top" />
+       <ImagePickerField images={images} onChange={setImages} disabled={submitting} label={t('support.screenshots')} hint={t('support.screenshotsHint')} />
+-      <Button title={submitting ? t('common.states.submitting') : t('support.submitTicket')} disabled={submitting} onPress={() => { void createTicket(); }} />
++      <Pressable
++        accessibilityRole="button"
++        disabled={submitting}
++        onPress={() => { void createTicket(); }}
++        style={({ pressed }) => [
++          styles.submitButton,
++          { backgroundColor: theme.color.text },
++          pressed && !submitting && styles.pressed,
++          submitting && styles.disabledButton,
++        ]}
++      >
++        <AppText style={[styles.submitButtonText, { color: theme.color.background }]}>
++          {submitting ? t('common.states.submitting') : t('support.submitTicket')}
++        </AppText>
++      </Pressable>
+     </AppCard>
+     <AppCard><AppText style={styles.sectionTitle}>{t('support.myTickets')}</AppText>{tickets.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('support.noTicketsNative')}</AppText> : tickets.map((ticket) => <TouchableOpacity key={ticket.id} onPress={() => navigation.navigate('SupportTicketDetail', { ticketId: ticket.id, subject: ticket.subject })} style={[styles.ticketCard, { borderTopColor: theme.color.border }]}><View style={styles.ticketHeader}><StatusBadge status={ticket.status} size="sm" /><SemanticBadge label={t(`support.categories.${ticket.category}`)} tone={categoryTone(ticket.category)} size="sm" /><SemanticBadge label={t(`support.priorities.${ticket.priority}`)} tone={priorityTone(ticket.priority)} size="sm" /></View><AppText style={styles.ticketTitle}>{ticket.subject}</AppText><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{ticket.message}</AppText><MediaStrip media={ticket.media} /><AppText style={styles.dateText}>{formatLocalizedDateTime(ticket.updatedAt, language)}</AppText></TouchableOpacity>)}</AppCard>
+   </ScrollView></AppScreen>;
+@@ -114,6 +128,10 @@ const styles = StyleSheet.create({
+   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   input: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 11, fontWeight: '700' },
+   textArea: { minHeight: 110 },
++  submitButton: { alignItems: 'center', borderRadius: 18, marginTop: 4, paddingVertical: 14 },
++  submitButtonText: { fontSize: 14, fontWeight: '900', letterSpacing: 0.4, textTransform: 'uppercase' },
++  disabledButton: { opacity: 0.6 },
++  pressed: { opacity: 0.82, transform: [{ scale: 0.99 }] },
+   cardText: { lineHeight: 20, fontWeight: '600' },
+   ticketCard: { borderTopWidth: 1, paddingTop: 12, gap: 7 },
+   ticketHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+diff --git a/apps/mobile/src/features/auth/LoginScreen.tsx b/apps/mobile/src/features/auth/LoginScreen.tsx
+index 370a514..d7bbe09 100644
+--- a/apps/mobile/src/features/auth/LoginScreen.tsx
++++ b/apps/mobile/src/features/auth/LoginScreen.tsx
+@@ -7,7 +7,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppSelect } from '../../components/AppSelect';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+-import { countryOptions, currencyOptions, type SupportedCurrency } from '../../lib/moneyPreferences';
++import { countryOptions } from '../../lib/moneyPreferences';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+@@ -36,7 +36,6 @@ export function LoginScreen() {
+   const [acceptedTerms, setAcceptedTerms] = useState(false);
+   const [ageConfirmed, setAgeConfirmed] = useState(false);
+   const [countryCode, setCountryCode] = useState('FR');
+-  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
+   const [showPassword, setShowPassword] = useState(false);
+   const [submitting, setSubmitting] = useState(false);
+   const [authCompleted, setAuthCompleted] = useState(false);
+@@ -46,12 +45,6 @@ export function LoginScreen() {
+   const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
+     value: country.code,
+     label: t(`common.locale.countries.${country.code}`),
+-    helper: t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() }),
+-  })), [t]);
+-  const currencySelectOptions = useMemo(() => currencyOptions.map((currency) => ({
+-    value: currency.code,
+-    label: currency.label,
+-    helper: t(`common.locale.currencies.${currency.code}`),
+   })), [t]);
+ 
+   useEffect(() => {
+@@ -77,7 +70,6 @@ export function LoginScreen() {
+     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
+     if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
+     if (mode === 'register' && !countryCode) return t('auth.errors.countryRequired');
+-    if (mode === 'register' && !preferredCurrency) return t('auth.errors.currencyRequired');
+     if (mode === 'register' && !acceptedTerms) return t('auth.errors.termsRequired');
+     if (mode === 'register' && !ageConfirmed) return t('auth.errors.ageRequired');
+     return null;
+@@ -97,7 +89,7 @@ export function LoginScreen() {
+         finishAuthNavigation();
+         completed = true;
+       } else if (mode === 'register') {
+-        await auth.register(email.trim(), password, displayName, confirmPassword, acceptedTerms, ageConfirmed, countryCode, preferredCurrency);
++        await auth.register(email.trim(), password, displayName, confirmPassword, acceptedTerms, ageConfirmed, countryCode);
+         finishAuthNavigation();
+         completed = true;
+       } else {
+@@ -143,17 +135,7 @@ export function LoginScreen() {
+                   label={t('auth.fields.country')}
+                   value={countryCode}
+                   options={countrySelectOptions}
+-                  onSelect={(value) => {
+-                    const selectedCountry = countryOptions.find((country) => country.code === value);
+-                    setCountryCode(value);
+-                    if (selectedCountry) setPreferredCurrency(selectedCountry.currency);
+-                  }}
+-                />
+-                <AppSelect
+-                  label={t('auth.fields.displayCurrency')}
+-                  value={preferredCurrency}
+-                  options={currencySelectOptions}
+-                  onSelect={(value) => setPreferredCurrency(value as SupportedCurrency)}
++                  onSelect={setCountryCode}
+                 />
+               </View>
+             ) : null}
+diff --git a/apps/web/src/components/WebAuthPanel.tsx b/apps/web/src/components/WebAuthPanel.tsx
+index cfac396..5e3c391 100644
+--- a/apps/web/src/components/WebAuthPanel.tsx
++++ b/apps/web/src/components/WebAuthPanel.tsx
+@@ -4,7 +4,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import { useEffect, useMemo, useState } from 'react';
+ import { getFriendlyApiErrorMessage } from '../lib/webErrors';
+-import { countryOptions, currencyOptions, getDefaultCurrencyForCountry, isSupportedCurrency, type SupportedCurrency } from '../lib/webMoneyPreferences';
++import { countryOptions } from '../lib/webMoneyPreferences';
+ import { useWebAuth } from '../providers/WebAuthProvider';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+ 
+@@ -31,7 +31,6 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+   const [acceptedTerms, setAcceptedTerms] = useState(false);
+   const [ageConfirmed, setAgeConfirmed] = useState(false);
+   const [countryCode, setCountryCode] = useState('FR');
+-  const [preferredCurrency, setPreferredCurrency] = useState<SupportedCurrency>('eur');
+   const [showPassword, setShowPassword] = useState(false);
+   const [submitting, setSubmitting] = useState(false);
+   const [authCompleted, setAuthCompleted] = useState(false);
+@@ -82,7 +81,6 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
+     if (mode === 'register' && password !== confirmPassword) return t('auth.errors.passwordsMismatch');
+     if (mode === 'register' && !countryCode) return t('auth.errors.countryRequired');
+-    if (mode === 'register' && !preferredCurrency) return t('auth.errors.currencyRequired');
+     if (mode === 'register' && !acceptedTerms) return t('auth.errors.termsRequired');
+     if (mode === 'register' && !ageConfirmed) return t('auth.errors.ageRequired');
+     return null;
+@@ -124,7 +122,6 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+           displayName: displayName.trim(),
+           acceptedTerms,
+           countryCode,
+-          preferredCurrency,
+           ageConfirmed,
+           declaredAgeBucket: '18_plus',
+         });
+@@ -194,27 +191,10 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+                 {t('auth.fields.country')}
+                 <select
+                   value={countryCode}
+-                  onChange={(event) => {
+-                    const nextCountry = event.target.value;
+-                    setCountryCode(nextCountry);
+-                    setPreferredCurrency(getDefaultCurrencyForCountry(nextCountry));
+-                  }}
++                  onChange={(event) => setCountryCode(event.target.value)}
+                 >
+                   {countryOptions.map((country) => (
+-                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)} · {t('common.locale.defaultCurrency', { currency: country.currency.toUpperCase() })}</option>
+-                  ))}
+-                </select>
+-              </label>
+-              <label className="field-label">
+-                {t('auth.fields.displayCurrency')}
+-                <select
+-                  value={preferredCurrency}
+-                  onChange={(event) => {
+-                    if (isSupportedCurrency(event.target.value)) setPreferredCurrency(event.target.value);
+-                  }}
+-                >
+-                  {currencyOptions.map((currency) => (
+-                    <option key={currency.code} value={currency.code}>{currency.label} · {t(`common.locale.currencies.${currency.code}`)}</option>
++                    <option key={country.code} value={country.code}>{t(`common.locale.countries.${country.code}`)}</option>
+                   ))}
+                 </select>
+               </label>
+diff --git a/apps/web/src/providers/WebAuthProvider.tsx b/apps/web/src/providers/WebAuthProvider.tsx
+index ae40d76..336b175 100644
+--- a/apps/web/src/providers/WebAuthProvider.tsx
++++ b/apps/web/src/providers/WebAuthProvider.tsx
+@@ -18,7 +18,7 @@ type AuthContextValue = {
+   hydrated: boolean;
+   isAuthenticated: boolean;
+   login: (email: string, password: string) => Promise<TwoFactorRequired | void>;
+-  register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; ageConfirmed: boolean; declaredAgeBucket: '18_plus'; countryCode: string; preferredCurrency: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
++  register: (input: { email: string; password: string; confirmPassword: string; displayName: string; acceptedTerms: boolean; ageConfirmed: boolean; declaredAgeBucket: '18_plus'; countryCode: string; preferredCurrency?: 'eur' | 'usd' | 'gbp' }) => Promise<void>;
+   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
+   resetPassword: (token: string, password: string, confirmPassword: string) => Promise<ResetPasswordResponse>;
+   completeTwoFactorLogin: (input: { challengeToken: string; code: string }) => Promise<void>;

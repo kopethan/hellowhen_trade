@@ -34,3 +34,17 @@ export function requireBusinessAccountsVisible(surface = 'Business accounts'): R
   }
   return (_req, _res, next) => next();
 }
+
+export function requirePlansEnabled(surface = 'Plans'): RequestHandler {
+  if (!env.plansEnabled) {
+    return disabledSurface('plans_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requirePlansVisible(surface = 'Plans'): RequestHandler {
+  if (!env.plansEnabled || !env.plansVisible) {
+    return disabledSurface('plans_hidden', `${surface} are hidden for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}

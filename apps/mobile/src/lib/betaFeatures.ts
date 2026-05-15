@@ -8,4 +8,6 @@ export const betaFeatures = {
   moneyTradesEnabled: enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.EXPO_PUBLIC_MONEY_TRADES_ENABLED),
   cashTradesEnabled: enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.EXPO_PUBLIC_CASH_TRADES_ENABLED),
   businessAccountsVisible: enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+  plansEnabled: enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED),
+  plansVisible: enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED) && enabled(process.env.EXPO_PUBLIC_PLANS_VISIBLE),
 } as const;

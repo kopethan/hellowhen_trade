@@ -14,8 +14,8 @@ type AuthContextValue = {
   hydrated: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string, confirmPassword: string | undefined, acceptedTerms: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
-  loginWithGoogleIdToken: (idToken: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string, confirmPassword: string | undefined, acceptedTerms: boolean, ageConfirmed: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
+  loginWithGoogleIdToken: (idToken: string, launchConfirmation?: { acceptedTerms: boolean; ageConfirmed: boolean; declaredAgeBucket: '18_plus' }) => Promise<void>;
   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
   reauthenticate: (input: { password?: string; code?: string }) => Promise<void>;
   updateLocalProfile: (profile: AuthProfilePatch) => void;
@@ -113,12 +113,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (isTwoFactorRequired(result)) throw new Error(result.message || 'Two-step verification is required.');
       await applyAuthResult(result as AuthMeResponse);
     },
-    async register(email, password, displayName, confirmPassword, acceptedTerms, countryCode, preferredCurrency) {
-      const result = await api.auth.register({ email, password, confirmPassword, displayName, acceptedTerms, countryCode, preferredCurrency });
+    async register(email, password, displayName, confirmPassword, acceptedTerms, ageConfirmed, countryCode, preferredCurrency) {
+      const result = await api.auth.register({ email, password, confirmPassword, displayName, acceptedTerms, ageConfirmed, declaredAgeBucket: '18_plus', countryCode, preferredCurrency });
       await applyAuthResult(result as AuthMeResponse);
     },
-    async loginWithGoogleIdToken(idToken) {
-      const result = await api.auth.google({ idToken });
+    async loginWithGoogleIdToken(idToken, launchConfirmation) {
+      const result = await api.auth.google({ idToken, ...launchConfirmation });
       if (isTwoFactorRequired(result)) throw new Error(result.message || 'Two-step verification is required.');
       await applyAuthResult(result as AuthMeResponse);
     },

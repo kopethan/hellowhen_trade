@@ -56,6 +56,13 @@ function dateValue(value: string | Date | null | undefined) {
   return value instanceof Date ? value.toISOString() : value ?? null;
 }
 
+
+function ageConfirmationLabel(user: AdminUserSummaryDto) {
+  if (!user.ageConfirmedAt) return 'Age not confirmed';
+  const bucket = user.declaredAgeBucket === '18_plus' ? '18+' : user.declaredAgeBucket || 'unknown bucket';
+  return `${bucket} confirmed ${formatWebDateTime(dateValue(user.ageConfirmedAt))}`;
+}
+
 function userCounts(user: AdminUserSummaryDto) {
   const counts = user._count;
   if (!counts) return 'No activity counts';
@@ -399,6 +406,7 @@ export default function AdminHomePage() {
                 <span>
                   <strong>{personLabel(user)}</strong>
                   <small>{user.email} · joined {formatWebDateTime(dateValue(user.createdAt))}</small>
+                  <small>{ageConfirmationLabel(user)}</small>
                   <small>{userCounts(user)}</small>
                 </span>
                 <em className={`semantic-badge ${tierTone(user.trustTier)}`}>{user.trustTier.replaceAll('_', ' ')}</em>
@@ -411,9 +419,10 @@ export default function AdminHomePage() {
         <article className="app-card admin-action-card">
           {selectedUser ? (
             <>
-              <div className="status-row"><span className={`semantic-badge ${tierTone(selectedUser.trustTier)}`}>{selectedUser.trustTier.replaceAll('_', ' ')}</span><span className="semantic-badge admin">{selectedUser.role}</span>{selectedUser.emailVerifiedAt ? <span className="semantic-badge success">email verified</span> : <span className="semantic-badge warning">email not verified</span>}</div>
+              <div className="status-row"><span className={`semantic-badge ${tierTone(selectedUser.trustTier)}`}>{selectedUser.trustTier.replaceAll('_', ' ')}</span><span className="semantic-badge admin">{selectedUser.role}</span>{selectedUser.emailVerifiedAt ? <span className="semantic-badge success">email verified</span> : <span className="semantic-badge warning">email not verified</span>}{selectedUser.ageConfirmedAt ? <span className="semantic-badge success">18+ confirmed</span> : <span className="semantic-badge warning">age not confirmed</span>}</div>
               <h2>{personLabel(selectedUser)}</h2>
               <p className="meta">{selectedUser.email}</p>
+              <p className="meta">Age policy: {ageConfirmationLabel(selectedUser)}</p>
               <div className="admin-money-strip">
                 <span><small>Wallet balance</small><strong>{formatWebMoney(Number(selectedUser.wallet?.availableBalanceCents ?? 0), selectedUser.wallet?.currency ?? 'eur')}</strong></span>
                 <span><small>Held</small><strong>{formatWebMoney(Number(selectedUser.wallet?.heldBalanceCents ?? 0), selectedUser.wallet?.currency ?? 'eur')}</strong></span>
