@@ -280,8 +280,10 @@ plansRoutes.patch('/:planId/join-requests/:participantId', requireAuth, requireA
 }));
 
 plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
   const input = updateMyPlanParticipantRequestSchema.parse(req.body ?? {});
-  const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId: req.params.planId, userId: req.user!.id } } });
+  const participant = await prisma.planParticipant.findUnique({ where: { planId_userId: { planId, userId: req.user!.id } } });
   if (!participant) return res.status(404).json({ error: 'not_found' });
   if (input.status === 'cancelled' && participant.status !== 'pending') return res.status(409).json({ error: 'cannot_cancel_join_request', message: 'Only pending join requests can be cancelled.' });
   if (input.status === 'left' && participant.status !== 'accepted') return res.status(409).json({ error: 'cannot_leave_plan', message: 'Only accepted participants can leave a plan.' });
@@ -290,7 +292,9 @@ plansRoutes.patch('/:planId/my-join-request', requireAuth, requireActiveAccount,
 }));
 
 plansRoutes.get('/:planId', optionalAuth, asyncRoute(async (req, res) => {
-  const plan = await loadPlanForViewer(req.params.planId, req.user?.id ?? null);
+  const planId = req.params.planId;
+  if (!planId) return res.status(400).json({ error: 'missing_plan_id' });
+  const plan = await loadPlanForViewer(planId, req.user?.id ?? null);
   if (!plan) return res.status(404).json({ error: 'not_found' });
   res.json({ plan });
 }));
