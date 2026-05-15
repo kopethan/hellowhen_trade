@@ -8,14 +8,15 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planStatusLabel } from './plansPresentation';
+import { planDateTime, planMediaSrc, planMetadata, planOwnerName } from './plansPresentation';
 
 type PlansTab = 'feed' | 'mine';
 
 function PlanCard({ plan }: { plan: PlanDto }) {
-  const image = plan.media?.[0] ?? plan.places?.find((place) => place.media?.length)?.media?.[0] ?? null;
+  const firstPlaceWithImage = plan.places?.find((place) => place.media?.length) ?? null;
+  const image = firstPlaceWithImage?.media?.[0] ?? null;
   const imageSrc = planMediaSrc(image);
-  const participantText = `${plan.participantCount ?? 0}${plan.maxParticipants ? ` / ${plan.maxParticipants}` : ''} joined`;
+  const participantText = `${plan.participantCount ?? 0} joined`;
 
   return (
     <Link href={`/plans/${plan.id}`} className="plan-preview-card" aria-label={`Open ${plan.title}`}>
@@ -25,14 +26,14 @@ function PlanCard({ plan }: { plan: PlanDto }) {
       <div className="plan-preview-card__body">
         <div className="status-row">
           <span className="semantic-badge trade">Plan</span>
-          <span className="semantic-badge instruction">{planStatusLabel(plan.status)}</span>
+          {firstPlaceWithImage ? <span className="semantic-badge instruction">Place image</span> : null}
         </div>
         <h3>{plan.title}</h3>
         <p>{plan.description}</p>
         <p className="meta">{planMetadata(plan)}</p>
         <div className="plan-preview-card__footer">
           <span>{participantText}</span>
-          <strong>{plan.places?.length ?? 0} stops</strong>
+          <strong>{plan.places?.length ?? 0} place{(plan.places?.length ?? 0) === 1 ? '' : 's'}</strong>
         </div>
         <p className="meta">By {planOwnerName(plan)} - {planDateTime(plan.startsAt)}</p>
       </div>
@@ -56,7 +57,7 @@ export function PlansListClient({ plansEnabled, plansVisible }: PlansListClientP
   const activeTab = tab === 'mine' && !canLoadMine ? 'feed' : tab;
   const emptyTitle = activeTab === 'mine' ? 'No hidden Plans yet' : 'No open Plans yet';
   const emptyBody = activeTab === 'mine'
-    ? 'Create an internal test Plan to verify the hidden flow.'
+    ? 'Create an internal test Plan to verify the simplified hidden flow.'
     : 'When Plans are enabled internally, open Plans will appear here.';
 
   useEffect(() => {
@@ -90,7 +91,7 @@ export function PlansListClient({ plansEnabled, plansVisible }: PlansListClientP
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Plans</h2>
-            <p>Internal preview for joinable activities. Keep hidden from first-launch users.</p>
+            <p>Internal preview for simple joinable activities. Keep hidden from first-launch users.</p>
           </div>
           <Link className="button primary page-intro__action" href={auth.isAuthenticated ? '/plans/new' : '/auth?next=/plans/new'}>Create</Link>
         </section>

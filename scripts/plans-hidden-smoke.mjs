@@ -54,29 +54,39 @@ async function runEnabledSmoke() {
   const owner = await login(ownerEmail, ownerPassword);
   const helper = await login(helperEmail, helperPassword);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const startsAt = new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString();
+  const planDate = new Date(Date.now() + 36 * 60 * 60 * 1000);
+  planDate.setHours(13, 0, 0, 0);
+  const firstStopAt = planDate.toISOString();
+  const secondStopAt = new Date(planDate.getTime() + 2 * 60 * 60 * 1000).toISOString();
+  const overnightStopAt = new Date(planDate.getTime() + 23 * 60 * 60 * 1000).toISOString();
 
   const created = await request('/plans', {
     method: 'POST',
     headers: authHeaders(owner.token),
     body: JSON.stringify({
-      title: `Hidden Plans smoke ${stamp}`,
-      description: 'Internal smoke test for hidden Plans join and private place visibility.',
+      title: `Hidden Plans simplified smoke ${stamp}`,
+      description: 'Internal smoke test for simplified hidden Plans instant join and place timeline.',
       category: 'Smoke test',
       mode: 'local',
       locationLabel: 'Paris test area',
-      startsAt,
-      maxParticipants: 1,
-      joinApprovalMode: 'owner_approval',
+      startsAt: firstStopAt,
+      endsAt: secondStopAt,
+      joinApprovalMode: 'automatic',
       status: 'open',
       places: [
         {
           title: 'Public meeting area',
-          note: 'Public note visible before approval.',
+          note: 'Meet and align before moving to the next stop.',
           addressPublicText: 'Paris area only',
-          addressPrivateText: 'Exact smoke-test meeting point',
-          startsAt,
+          startsAt: firstStopAt,
           order: 0,
+        },
+        {
+          title: 'Second smoke stop',
+          note: 'Second public note.',
+          addressPublicText: 'Second public area',
+          startsAt: secondStopAt,
+          order: 1,
         },
       ],
     }),
@@ -84,40 +94,28 @@ async function runEnabledSmoke() {
 
   const planId = created.plan?.id;
   assert(planId, 'Plan creation did not return a plan id.');
-  assert(created.plan.places?.[0]?.addressPrivateText === 'Exact smoke-test meeting point', 'Owner should see private place detail after create.');
+  assert(created.plan.joinApprovalMode === 'automatic', 'Simplified Plans should default to automatic join.');
+  assert(created.plan.status === 'open', 'Simplified Plans should be open after create.');
+  assert(created.plan.places?.length === 2, 'Plan should include the created places.');
 
   const publicPlan = await request(`/plans/${planId}`);
-  assert(publicPlan.plan?.places?.[0]?.addressPrivateText === null, 'Anonymous viewer should not see private place detail.');
-
-  const helperBefore = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
-  assert(helperBefore.plan?.places?.[0]?.addressPrivateText === null, 'Non-participant should not see private place detail.');
+  assert(publicPlan.plan?.places?.[0]?.addressPublicText === 'Paris area only', 'Anonymous viewer should see the simplified public place address.');
 
   const join = await request(`/plans/${planId}/join-requests`, {
     method: 'POST',
     headers: authHeaders(helper.token),
-    body: JSON.stringify({ message: 'I can join this hidden smoke test.' }),
+    body: JSON.stringify({}),
   });
-  assert(join.participant?.status === 'pending', 'Join request should be pending by default.');
-
-  const requests = await request(`/plans/${planId}/join-requests`, { headers: authHeaders(owner.token) });
-  const pending = requests.participants?.find((participant) => participant.userId === helper.userId);
-  assert(pending?.id, 'Owner should see helper pending request.');
-
-  await request(`/plans/${planId}/join-requests/${pending.id}`, {
-    method: 'PATCH',
-    headers: authHeaders(owner.token),
-    body: JSON.stringify({ status: 'accepted' }),
-  });
+  assert(join.participant?.status === 'accepted', 'Simplified join should accept immediately.');
 
   const helperAfter = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
-  assert(helperAfter.plan?.myParticipantStatus === 'accepted', 'Helper should be accepted after owner approval.');
-  assert(helperAfter.plan?.status === 'full', 'Plan should become full when accepted participant count reaches the max.');
-  assert(helperAfter.plan?.places?.[0]?.addressPrivateText === 'Exact smoke-test meeting point', 'Accepted participant should see private place detail.');
+  assert(helperAfter.plan?.myParticipantStatus === 'accepted', 'Helper should be accepted immediately after joining.');
+  assert(helperAfter.plan?.participantCount === 1, 'Participant count should increase after instant join.');
 
   await request(`/plans/${planId}`, {
     method: 'PATCH',
     headers: authHeaders(owner.token),
-    body: JSON.stringify({ title: `Hidden Plans edited ${stamp}`, locationLabel: 'Paris edited area' }),
+    body: JSON.stringify({ title: `Hidden Plans edited ${stamp}`, locationLabel: 'Paris edited area', endsAt: overnightStopAt, joinApprovalMode: 'automatic', maxParticipants: null, status: 'open' }),
   });
 
   const firstPlaceId = helperAfter.plan?.places?.[0]?.id;
@@ -126,26 +124,25 @@ async function runEnabledSmoke() {
   await request(`/plans/${planId}/places/${firstPlaceId}`, {
     method: 'PATCH',
     headers: authHeaders(owner.token),
-    body: JSON.stringify({ addressPrivateText: 'Edited exact smoke-test meeting point' }),
+    body: JSON.stringify({ addressPublicText: 'Edited smoke-test meeting area', order: 1, startsAt: secondStopAt }),
   });
 
   await request(`/plans/${planId}/places`, {
     method: 'POST',
     headers: authHeaders(owner.token),
     body: JSON.stringify({
-      title: 'Second smoke stop',
-      note: 'Second public note.',
-      addressPublicText: 'Second public area',
-      addressPrivateText: 'Second exact smoke-test place',
-      startsAt,
-      order: 1,
+      title: 'Overnight smoke stop',
+      note: 'This stop simulates next-day rollover calculated by the web form.',
+      addressPublicText: 'Overnight public area',
+      startsAt: overnightStopAt,
+      order: 2,
     }),
   });
 
   const helperAfterEdit = await request(`/plans/${planId}`, { headers: authHeaders(helper.token) });
   assert(helperAfterEdit.plan?.title?.startsWith('Hidden Plans edited'), 'Owner should be able to edit Plan details.');
-  assert(helperAfterEdit.plan?.places?.[0]?.addressPrivateText === 'Edited exact smoke-test meeting point', 'Accepted participant should see edited private place detail.');
-  assert(helperAfterEdit.plan?.places?.[1]?.addressPrivateText === 'Second exact smoke-test place', 'Accepted participant should see newly added private place detail.');
+  assert(helperAfterEdit.plan?.places?.some((place) => place.addressPublicText === 'Edited smoke-test meeting area'), 'Edited place address should be visible.');
+  assert(helperAfterEdit.plan?.places?.some((place) => place.title === 'Overnight smoke stop'), 'Owner should be able to add another place.');
 
   await request(`/plans/${planId}/my-join-request`, {
     method: 'PATCH',
@@ -154,7 +151,7 @@ async function runEnabledSmoke() {
   });
 
   const ownerAfterLeave = await request(`/plans/${planId}`, { headers: authHeaders(owner.token) });
-  assert(ownerAfterLeave.plan?.status === 'open', 'Plan should reopen when accepted count drops below max participants.');
+  assert(ownerAfterLeave.plan?.participantCount === 0, 'Participant count should drop when helper leaves.');
 
   await request(`/plans/${planId}`, {
     method: 'PATCH',
@@ -162,7 +159,7 @@ async function runEnabledSmoke() {
     body: JSON.stringify({ status: 'cancelled' }),
   });
 
-  console.log(`Created, joined, accepted, edited, capacity-synced, privacy-checked, and cancelled Plan ${planId}: PASS`);
+  console.log(`Created, instantly joined, edited, place-updated, left, and cancelled simplified Plan ${planId}: PASS`);
 }
 
 async function main() {

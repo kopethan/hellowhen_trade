@@ -9,7 +9,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
-import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel, planStatusLabel } from './plansPresentation';
+import { planDateTime, planMediaSrc, planMetadata, planOwnerName, planParticipantStatusLabel } from './plansPresentation';
 
 type ActionState = {
   loading: boolean;
@@ -17,7 +17,7 @@ type ActionState = {
   error: string;
 };
 
-function ParticipantRow({ participant, ownerControls, onAction }: { participant: PlanParticipantDto; ownerControls: boolean; onAction: (participantId: string, status: 'accepted' | 'declined' | 'removed') => void }) {
+function ParticipantRow({ participant, ownerControls, onRemove }: { participant: PlanParticipantDto; ownerControls: boolean; onRemove: (participantId: string) => void }) {
   const name = participant.user?.profile?.displayName || participant.user?.profile?.handle || 'Hellowhen user';
   return (
     <article className="plan-participant-row">
@@ -26,48 +26,33 @@ function ParticipantRow({ participant, ownerControls, onAction }: { participant:
         <p className="meta">{planParticipantStatusLabel(participant.status)}</p>
         {participant.message ? <p>{participant.message}</p> : null}
       </div>
-      {ownerControls && participant.status === 'pending' ? (
-        <div className="cta-row">
-          <button type="button" className="button primary" onClick={() => onAction(participant.id, 'accepted')}>Accept</button>
-          <button type="button" className="button secondary" onClick={() => onAction(participant.id, 'declined')}>Decline</button>
-        </div>
-      ) : null}
       {ownerControls && participant.status === 'accepted' ? (
-        <button type="button" className="button secondary" onClick={() => onAction(participant.id, 'removed')}>Remove</button>
+        <button type="button" className="button secondary" onClick={() => onRemove(participant.id)}>Remove</button>
       ) : null}
     </article>
   );
 }
 
-function PlanMediaGallery({ media, emptyLabel }: { media?: MediaAssetDto[]; emptyLabel?: string }) {
-  const visibleMedia = media ?? [];
-  if (!visibleMedia.length) return emptyLabel ? <p className="meta">{emptyLabel}</p> : null;
-
-  return (
-    <div className="plan-media-gallery">
-      {visibleMedia.map((item) => {
-        const imageSrc = planMediaSrc(item);
-        return imageSrc ? <img key={item.id} src={imageSrc} alt={item.filename ?? 'Plan image'} loading="lazy" /> : null;
-      })}
-    </div>
-  );
+function PlanPlaceImage({ media }: { media?: MediaAssetDto | null }) {
+  const imageSrc = planMediaSrc(media);
+  if (!imageSrc) return <WebIcon name="trade" size={30} decorative />;
+  return <img src={imageSrc} alt="" loading="lazy" />;
 }
 
 function PlanPlaceCard({ place, index, planStartsAt, showReport }: { place: PlanPlaceDto; index: number; planStartsAt: string; showReport: boolean }) {
-  const hasMedia = Boolean(place.media?.length);
+  const media = place.media?.[0] ?? null;
   return (
     <article className="plan-place-card plan-place-card--detail">
       <div className="plan-place-card__media" aria-hidden="true">
-        {hasMedia ? <img src={planMediaSrc(place.media?.[0])} alt="" loading="lazy" /> : <WebIcon name="trade" size={30} decorative />}
+        <PlanPlaceImage media={media} />
       </div>
       <div className="plan-place-card__body">
-        <span className="semantic-badge instruction">Stop {index + 1}</span>
+        <span className="semantic-badge instruction">Place {index + 1}</span>
         <h4>{place.title}</h4>
-        {place.note ? <p>{place.note}</p> : null}
         <p className="meta">{planDateTime(place.startsAt ?? planStartsAt)}</p>
-        {place.addressPublicText ? <p className="meta">Public: {place.addressPublicText}</p> : null}
-        {place.addressPrivateText ? <p className="meta">Private: {place.addressPrivateText}</p> : null}
-        {hasMedia ? <PlanMediaGallery media={place.media} /> : null}
+        {place.addressPublicText ? <p className="meta">Address: {place.addressPublicText}</p> : null}
+        {place.note ? <p>{place.note}</p> : null}
+        {media ? <img className="plan-place-card__full-image" src={planMediaSrc(media)} alt={media.filename ?? `${place.title} image`} loading="lazy" /> : null}
         {showReport ? <ReportContentButton targetType="plan_place" targetId={place.id} /> : null}
       </div>
     </article>
@@ -86,12 +71,10 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
   const [joinRequests, setJoinRequests] = useState<PlanParticipantDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [joinMessage, setJoinMessage] = useState('');
   const [action, setAction] = useState<ActionState>({ loading: false, message: '', error: '' });
 
   const isOwner = Boolean(auth.user?.id && plan?.ownerId === auth.user.id);
-  const canRequestJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && !plan.myParticipantStatus);
-  const canCancelPending = plan?.myParticipantStatus === 'pending';
+  const canJoin = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner && !['accepted', 'pending', 'removed'].includes(plan.myParticipantStatus ?? ''));
   const canLeave = plan?.myParticipantStatus === 'accepted';
   const showReportActions = Boolean(auth.hydrated && auth.isAuthenticated && plan && !isOwner);
 
@@ -128,40 +111,42 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
     void loadJoinRequests();
   }, [isOwner, planId]);
 
-  const sortedParticipants = useMemo(() => [...(isOwner ? joinRequests : plan?.participants ?? [])].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()), [isOwner, joinRequests, plan?.participants]);
+  const visibleParticipants = useMemo(() => {
+    const source = isOwner ? joinRequests : plan?.participants ?? [];
+    return [...source].filter((participant) => participant.status === 'accepted').sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+  }, [isOwner, joinRequests, plan?.participants]);
 
-  async function requestJoin() {
+  async function joinPlan() {
     if (!auth.isAuthenticated) return;
     setAction({ loading: true, message: '', error: '' });
     try {
-      await api.plans.requestJoin(planId, { message: joinMessage.trim() || undefined });
-      setJoinMessage('');
-      setAction({ loading: false, message: 'Join request sent.', error: '' });
+      await api.plans.requestJoin(planId, {});
+      setAction({ loading: false, message: 'You joined this Plan.', error: '' });
       await loadPlan();
     } catch (joinError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(joinError, 'Could not request to join.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(joinError, 'Could not join this Plan.') });
     }
   }
 
-  async function updateMyStatus(status: 'cancelled' | 'left') {
+  async function leavePlan() {
     setAction({ loading: true, message: '', error: '' });
     try {
-      await api.plans.updateMyJoinRequest(planId, { status });
-      setAction({ loading: false, message: status === 'left' ? 'You left this Plan.' : 'Join request cancelled.', error: '' });
+      await api.plans.updateMyJoinRequest(planId, { status: 'left' });
+      setAction({ loading: false, message: 'You left this Plan.', error: '' });
       await loadPlan();
     } catch (statusError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, 'Could not update your request.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, 'Could not leave this Plan.') });
     }
   }
 
-  async function updateParticipant(participantId: string, status: 'accepted' | 'declined' | 'removed') {
+  async function removeParticipant(participantId: string) {
     setAction({ loading: true, message: '', error: '' });
     try {
-      await api.plans.updateJoinRequest(planId, participantId, { status });
-      setAction({ loading: false, message: `Participant ${status}.`, error: '' });
+      await api.plans.updateJoinRequest(planId, participantId, { status: 'removed' });
+      setAction({ loading: false, message: 'Participant removed.', error: '' });
       await Promise.all([loadPlan(), loadJoinRequests()]);
     } catch (statusError) {
-      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, 'Could not update participant.') });
+      setAction({ loading: false, message: '', error: getFriendlyApiErrorMessage(statusError, 'Could not remove participant.') });
     }
   }
 
@@ -185,17 +170,14 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             <section className="mobile-card plan-detail-hero">
               <div className="status-row">
                 <span className="semantic-badge trade">Plan</span>
-                <span className="semantic-badge instruction">{planStatusLabel(plan.status)}</span>
-                {plan.myParticipantStatus ? <span className="semantic-badge proposal">{planParticipantStatusLabel(plan.myParticipantStatus)}</span> : null}
+                {plan.myParticipantStatus === 'accepted' ? <span className="semantic-badge success">Joined</span> : null}
               </div>
-              <h2>{plan.title}</h2>
+              <h3>{plan.title}</h3>
               <p>{plan.description}</p>
-              <p className="meta">Posted by {planOwnerName(plan)} - starts {planDateTime(plan.startsAt)}</p>
-              <PlanMediaGallery media={plan.media} emptyLabel="No Plan images attached yet." />
+              <p className="meta">By {planOwnerName(plan)} · {planMetadata(plan)}</p>
               <div className="plan-stat-grid">
                 <span><strong>{plan.participantCount ?? 0}</strong> joined</span>
-                <span><strong>{plan.pendingRequestCount ?? 0}</strong> pending</span>
-                <span><strong>{plan.places?.length ?? 0}</strong> stops</span>
+                <span><strong>{plan.places?.length ?? 0}</strong> places</span>
               </div>
               {isOwner ? (
                 <div className="cta-row">
@@ -218,32 +200,27 @@ export function PlanDetailClient({ planId, plansEnabled, plansVisible }: PlanDet
             <section className="mobile-card">
               <h3>Join</h3>
               {!auth.isAuthenticated ? (
-                <p><Link href={`/auth?next=/plans/${plan.id}`}>Log in</Link> to request to join this internal Plan.</p>
+                <p><Link href={`/auth?next=/plans/${plan.id}`}>Log in</Link> to join this internal Plan.</p>
               ) : null}
-              {isOwner ? <p className="meta">You own this Plan. Review requests below.</p> : null}
-              {canRequestJoin ? (
-                <div className="proposal-composer">
-                  <textarea value={joinMessage} onChange={(event) => setJoinMessage(event.target.value)} maxLength={1000} placeholder="Write a short message to the owner." />
-                  <button type="button" className="button primary" disabled={action.loading} onClick={requestJoin}>{action.loading ? 'Sending...' : 'Request to join'}</button>
-                </div>
-              ) : null}
-              {canCancelPending ? <button type="button" className="button secondary" disabled={action.loading} onClick={() => updateMyStatus('cancelled')}>Cancel request</button> : null}
-              {canLeave ? <button type="button" className="button secondary" disabled={action.loading} onClick={() => updateMyStatus('left')}>Leave Plan</button> : null}
+              {isOwner ? <p className="meta">You own this Plan. People can join instantly while this hidden flow is enabled.</p> : null}
+              {canJoin ? <button type="button" className="button primary full" disabled={action.loading} onClick={joinPlan}>{action.loading ? 'Joining...' : 'Join Plan'}</button> : null}
+              {canLeave ? <button type="button" className="button secondary full" disabled={action.loading} onClick={leavePlan}>Leave Plan</button> : null}
+              {plan.myParticipantStatus && !canLeave && !canJoin && !isOwner ? <p className="meta">Your status: {planParticipantStatusLabel(plan.myParticipantStatus)}</p> : null}
               {action.message ? <p className="success-message">{action.message}</p> : null}
               {action.error ? <p className="form-error">{action.error}</p> : null}
             </section>
 
             <section className="mobile-card">
-              <h3>{isOwner ? 'Join requests' : 'Participants'}</h3>
+              <h3>Participants</h3>
               <div className="mobile-list">
-                {sortedParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner} onAction={updateParticipant} />)}
-                {sortedParticipants.length === 0 ? <p className="meta">No participants yet.</p> : null}
+                {visibleParticipants.map((participant) => <ParticipantRow key={participant.id} participant={participant} ownerControls={isOwner} onRemove={removeParticipant} />)}
+                {visibleParticipants.length === 0 ? <p className="meta">No participants yet.</p> : null}
               </div>
             </section>
 
             <section className="mobile-card mobile-card--soft">
               <h3>Safety and support</h3>
-              <p>Plans are internal, 18+, approval-first, and exact place details stay private until approval.</p>
+              <p>Plans are hidden, 18+, and internal while testing. Use report or support if a Plan or place looks unsafe.</p>
               <Link className="button secondary" href="/account/support">Contact support</Link>
             </section>
           </>

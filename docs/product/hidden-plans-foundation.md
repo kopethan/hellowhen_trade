@@ -30,7 +30,7 @@ This keeps Plans out of visible navigation while allowing direct internal routes
 
 ## Product definition
 
-A Plan is a joinable activity owned by one user. It can have one or more places/stops, and other users can request to join.
+A Plan is a joinable activity owned by one user. In the simplified hidden v1, a Plan has one date and one or more ordered places/stops; authenticated users can join instantly.
 
 Examples:
 
@@ -45,20 +45,20 @@ Plans are not money features. Do not add paid helpers, wallet amounts, payouts, 
 ## Safety defaults
 
 - Hellowhen remains 18+ only.
-- Owner approval is the default join mode.
-- Exact/private place details stay hidden unless the viewer owns the plan or has an accepted participant status.
-- Restricted users cannot create plans, add places, upload media, or request to join.
+- Simplified hidden v1 uses instant join; owner approval controls remain in the model for later but are not exposed in the hidden web UI.
+- The hidden web UI uses one visible place address field for now. The older private-address model remains available internally for a later safety/privacy pass.
+- Restricted users cannot create plans, add places, upload media, or join.
 - Public Plan feed/detail responses hide Plans owned by restricted users.
-- Blocked user pairs cannot request/accept participation.
+- Blocked user pairs cannot join each other's Plans.
 - Plans should stay connected to reporting, support, hidden-content, and admin moderation before public release.
 
 ## Foundation models
 
-- `Plan`: title, description, timing, category/tags, location label, status, owner, participant limits.
-- `PlanPlace`: ordered stops with public note/address and optional private address.
-- `PlanParticipant`: join requests and participant lifecycle.
-- Media can attach to `plan` or `plan_place` through `MediaAsset.entityType`.
-- Plan and Plan Place media reuse the same authenticated JPEG/PNG/WEBP upload route and the same five-image limit as Needs/Offers.
+- `Plan`: title, description, calculated timing range, category/tags, location label, status, owner, and future participant-limit fields.
+- `PlanPlace`: ordered stops with time, name, visible address, notes/purpose, and optional media.
+- `PlanParticipant`: instant joins and participant lifecycle; pending approval status remains for later use.
+- Media can attach to `plan` or `plan_place` through `MediaAsset.entityType`, but the simplified hidden web UI only creates Place images.
+- Place media reuse the authenticated JPEG/PNG/WEBP upload route. The hidden web UI limits this to one image per place for now.
 - Reports can target `plan` and `plan_place`; hiding a reported Plan Place hides its parent Plan from public/internal discovery.
 
 ## Current API foundation
@@ -106,7 +106,7 @@ npm run plans:smoke
 
 `EXPECT_PLANS_ENABLED=true` tells the script to expect an enabled API. It does not enable the already-running API process by itself.
 
-The enabled smoke test logs in the seeded demo users, creates an open Plan, verifies private place details are hidden from anonymous/non-participants, sends a join request, accepts it as owner, verifies private details become visible to the accepted participant, edits Plan/place details, adds a second place, checks capacity status reopening after a participant leaves, and then cancels the test Plan.
+The enabled smoke test logs in the seeded demo users, creates an open simplified Plan, verifies public place details, joins instantly as the helper user, edits Plan/place details, adds an overnight place, checks participant leave behavior, and then cancels the test Plan.
 
 ## Hidden web UI
 
@@ -122,18 +122,20 @@ When `NEXT_PUBLIC_PLANS_ENABLED=true`, internal testers can open:
 The hidden UI currently supports:
 
 - feed vs mine list
-- create Plan with one place/stop
-- Plan and first-place image upload
-- Plan detail view with Plan and Place image galleries
+- create Plan with a plan-level date and ordered places
+- one image per place
+- add-place button at the bottom of the Places section
+- Move up / Move down place ordering buttons
+- automatic Plan start/end range calculation from place times, including next-day rollover when a later place time is earlier than the previous one
+- feed deck preview at the end of create/edit forms
+- Plan detail view with place timeline and Place images
 - owner-only Plan editor at `/plans/[planId]/edit`
-- owner edit/cancel lifecycle controls with major-change warning copy
-- add/edit Plan Places and append Place images
+- owner edit/cancel lifecycle controls
 - report Plan and report Plan Place actions for non-owner viewers
 - support link from Plan detail
-- request to join
-- owner accept/decline/remove
-- participant cancel/leave
-- private place details hidden until accepted
+- instant Join Plan flow
+- owner remove participant
+- participant leave
 
 ## Not included yet
 
@@ -149,6 +151,6 @@ The hidden UI currently supports:
 ## Recommended next step
 
 1. Add admin Plan moderation views if Plans need deeper internal review before visibility.
-2. Add hidden native Plans screens only when explicitly selected.
-3. Add admin Plan moderation views if direct Plan review is needed beyond reports.
+2. Decide whether exact addresses need owner-approval/private visibility again before any public Plans launch.
+3. Add hidden native Plans screens only when explicitly selected.
 4. Add optional smoke coverage for media/report flows once a dedicated non-polluting test fixture is available.

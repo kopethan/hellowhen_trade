@@ -8,19 +8,30 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { PlansFeatureGate, PlansInternalBadge } from './PlansFeatureGate';
+import { PlanPreviewDeck } from './PlanPreviewDeck';
+import { buildPlanSchedule, toDateInputValue } from './planSchedule';
 import { planMediaSrc } from './plansPresentation';
 
-function toDateTimeLocalValue(date: Date) {
-  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-}
+type PlaceFormState = {
+  id: string;
+  time: string;
+  title: string;
+  address: string;
+  note: string;
+  media: MediaAssetDto | null;
+  uploading: boolean;
+};
 
-function toIsoDateTime(value: string) {
-  return new Date(value).toISOString();
-}
-
-function selectedMediaIds(media: MediaAssetDto[]) {
-  return media.map((item) => item.id);
+function makePlace(index: number): PlaceFormState {
+  return {
+    id: `place-${Date.now()}-${index}`,
+    time: index === 0 ? '13:00' : '',
+    title: index === 0 ? 'Meeting point' : '',
+    address: '',
+    note: '',
+    media: null,
+    uploading: false,
+  };
 }
 
 function normalizePlanMediaUpload(value: unknown): MediaAssetDto | null {
@@ -31,41 +42,27 @@ function normalizePlanMediaUpload(value: unknown): MediaAssetDto | null {
   return null;
 }
 
-type PlanImagePickerProps = {
-  title: string;
-  helper: string;
-  media: MediaAssetDto[];
-  uploading: boolean;
-  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
-  onRemove: (mediaId: string) => void;
-};
+function selectedMediaIds(media: MediaAssetDto | null) {
+  return media?.id ? [media.id] : undefined;
+}
 
-function PlanImagePicker({ title, helper, media, uploading, onUpload, onRemove }: PlanImagePickerProps) {
+function PlaceImagePicker({ place, onUpload, onRemove }: { place: PlaceFormState; onUpload: (event: ChangeEvent<HTMLInputElement>) => void; onRemove: () => void }) {
   return (
-    <section className="plan-image-picker">
-      <div>
-        <p className="eyebrow">Images</p>
-        <h3>{title}</h3>
-        <p>{helper}</p>
-      </div>
+    <div className="plan-place-image-picker">
       <label className="image-upload-button">
-        <input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || media.length >= 5} onChange={onUpload} />
-        {uploading ? 'Uploading...' : media.length >= 5 ? 'Image limit reached' : 'Upload images'}
+        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={place.uploading || Boolean(place.media)} onChange={onUpload} />
+        {place.uploading ? 'Uploading...' : place.media ? 'One image selected' : 'Add place image'}
       </label>
-      {media.length ? (
-        <div className="plan-media-grid">
-          {media.map((item) => (
-            <figure key={item.id}>
-              <img src={planMediaSrc(item)} alt={item.filename ?? 'Plan image'} />
-              <figcaption>
-                <span className="semantic-badge instruction">{item.status}</span>
-                <button type="button" className="secondary" onClick={() => onRemove(item.id)}>Remove</button>
-              </figcaption>
-            </figure>
-          ))}
-        </div>
-      ) : null}
-    </section>
+      {place.media ? (
+        <figure>
+          <img src={planMediaSrc(place.media)} alt={place.media.filename ?? 'Place image'} />
+          <figcaption>
+            <span className="semantic-badge instruction">1 image</span>
+            <button type="button" className="secondary" onClick={onRemove}>Remove</button>
+          </figcaption>
+        </figure>
+      ) : <p className="meta">One image per place for this first version.</p>}
+    </div>
   );
 }
 
@@ -77,50 +74,65 @@ type PlanCreateClientProps = {
 export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClientProps) {
   const router = useRouter();
   const auth = useWebAuth();
-  const defaultStartsAt = useMemo(() => toDateTimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000)), []);
+  const defaultPlanDate = useMemo(() => toDateInputValue(), []);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Culture');
   const [locationLabel, setLocationLabel] = useState('Paris');
-  const [mode, setMode] = useState<'local' | 'remote' | 'hybrid'>('local');
-  const [startsAt, setStartsAt] = useState(defaultStartsAt);
-  const [maxParticipants, setMaxParticipants] = useState('3');
-  const [placeTitle, setPlaceTitle] = useState('Meeting point');
-  const [placeNote, setPlaceNote] = useState('Short internal test stop.');
-  const [placePublicAddress, setPlacePublicAddress] = useState('City area only');
-  const [placePrivateAddress, setPlacePrivateAddress] = useState('Exact meeting point shown after approval.');
-  const [status, setStatus] = useState<'draft' | 'open'>('open');
-  const [planMedia, setPlanMedia] = useState<MediaAssetDto[]>([]);
-  const [placeMedia, setPlaceMedia] = useState<MediaAssetDto[]>([]);
-  const [uploadingPlanMedia, setUploadingPlanMedia] = useState(false);
-  const [uploadingPlaceMedia, setUploadingPlaceMedia] = useState(false);
+  const [planDate, setPlanDate] = useState(defaultPlanDate);
+  const [places, setPlaces] = useState<PlaceFormState[]>([makePlace(0)]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  async function uploadFiles(files: FileList | null, target: 'plan' | 'place') {
-    if (!files?.length) return;
-    const currentMedia = target === 'plan' ? planMedia : placeMedia;
-    const setMedia = target === 'plan' ? setPlanMedia : setPlaceMedia;
-    const setUploading = target === 'plan' ? setUploadingPlanMedia : setUploadingPlaceMedia;
-    setUploading(true);
+  const schedule = useMemo(() => buildPlanSchedule(planDate, places.filter((place) => place.time.trim())), [planDate, places]);
+  const rangeLabel = schedule.startsAt
+    ? `${new Date(schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} -> ${new Date(schedule.endsAt || schedule.startsAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
+    : '';
+
+  function updatePlace(index: number, update: Partial<PlaceFormState>) {
+    setPlaces((current) => current.map((place, placeIndex) => placeIndex === index ? { ...place, ...update } : place));
+  }
+
+  function addPlace() {
+    setPlaces((current) => [...current, makePlace(current.length)]);
+  }
+
+  function removePlace(index: number) {
+    setPlaces((current) => current.length <= 1 ? current : current.filter((_, placeIndex) => placeIndex !== index));
+  }
+
+  function movePlace(index: number, direction: -1 | 1) {
+    setPlaces((current) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const currentPlace = next[index];
+      const targetPlace = next[nextIndex];
+      if (!currentPlace || !targetPlace) return current;
+      next[index] = targetPlace;
+      next[nextIndex] = currentPlace;
+      return next;
+    });
+  }
+
+  async function uploadPlaceImage(index: number, files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    updatePlace(index, { uploading: true });
     setError('');
     setMessage('');
     try {
-      const nextMedia = [...currentMedia];
-      for (const file of Array.from(files).slice(0, Math.max(0, 5 - nextMedia.length))) {
-        const formData = new FormData();
-        formData.append('image', file);
-        const response = await api.media.uploadImage(formData);
-        const uploaded = normalizePlanMediaUpload(response);
-        if (uploaded) nextMedia.push(uploaded);
-      }
-      setMedia(nextMedia.slice(0, 5));
-      setMessage(target === 'plan' ? 'Plan image uploaded.' : 'Place image uploaded.');
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await api.media.uploadImage(formData);
+      const uploaded = normalizePlanMediaUpload(response);
+      if (uploaded) updatePlace(index, { media: uploaded });
+      setMessage('Place image uploaded.');
     } catch (uploadError) {
-      setError(getFriendlyApiErrorMessage(uploadError, 'Could not upload image.'));
+      setError(getFriendlyApiErrorMessage(uploadError, 'Could not upload place image.'));
     } finally {
-      setUploading(false);
+      updatePlace(index, { uploading: false });
     }
   }
 
@@ -128,6 +140,12 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
     event.preventDefault();
     if (!auth.isAuthenticated) {
       router.push('/auth?next=/plans/new');
+      return;
+    }
+    const usablePlaces = places.filter((place) => place.title.trim() && place.time.trim());
+    const nextSchedule = buildPlanSchedule(planDate, usablePlaces);
+    if (!nextSchedule.startsAt || usablePlaces.length === 0) {
+      setError('Add at least one place with a valid time.');
       return;
     }
     setSaving(true);
@@ -138,22 +156,20 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
         title,
         description,
         category: category.trim() || undefined,
-        mode,
+        mode: 'local',
         locationLabel: locationLabel.trim() || undefined,
-        startsAt: toIsoDateTime(startsAt),
-        maxParticipants: maxParticipants ? Number(maxParticipants) : undefined,
-        joinApprovalMode: 'owner_approval',
-        status,
-        mediaIds: selectedMediaIds(planMedia),
-        places: placeTitle.trim() ? [{
-          title: placeTitle,
-          note: placeNote.trim() || undefined,
-          addressPublicText: placePublicAddress.trim() || undefined,
-          addressPrivateText: placePrivateAddress.trim() || undefined,
-          startsAt: toIsoDateTime(startsAt),
-          order: 0,
-          mediaIds: selectedMediaIds(placeMedia),
-        }] : [],
+        startsAt: nextSchedule.startsAt,
+        endsAt: nextSchedule.endsAt || nextSchedule.startsAt,
+        joinApprovalMode: 'automatic',
+        status: 'open',
+        places: usablePlaces.map((place, index) => ({
+          title: place.title,
+          note: place.note.trim() || undefined,
+          addressPublicText: place.address.trim() || undefined,
+          startsAt: nextSchedule.placeStartsAt[index],
+          order: index,
+          mediaIds: selectedMediaIds(place.media),
+        })),
       });
       router.replace(`/plans/${response.plan.id}`);
     } catch (saveError) {
@@ -170,7 +186,7 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
           <div>
             <PlansInternalBadge plansVisible={plansVisible} />
             <h2>Create Plan</h2>
-            <p>Internal-only form for testing Plans. Exact private location is hidden until join approval.</p>
+            <p>Build a simple date-based Plan. Add places in order; the app calculates the full time range automatically.</p>
           </div>
         </section>
 
@@ -195,80 +211,74 @@ export function PlanCreateClient({ plansEnabled, plansVisible }: PlanCreateClien
             </label>
             <div className="plan-form__row">
               <label>
-                <span>Category</span>
-                <input value={category} onChange={(event) => setCategory(event.target.value)} maxLength={80} />
+                <span>Plan date</span>
+                <input type="date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} required />
               </label>
               <label>
-                <span>Mode</span>
-                <select value={mode} onChange={(event) => setMode(event.target.value as 'local' | 'remote' | 'hybrid')}>
-                  <option value="local">In person</option>
-                  <option value="remote">Remote</option>
-                  <option value="hybrid">Hybrid</option>
-                </select>
+                <span>City / area</span>
+                <input value={locationLabel} onChange={(event) => setLocationLabel(event.target.value)} maxLength={160} placeholder="Paris" />
               </label>
             </div>
             <label>
-              <span>City / area</span>
-              <input value={locationLabel} onChange={(event) => setLocationLabel(event.target.value)} maxLength={160} />
+              <span>Category</span>
+              <input value={category} onChange={(event) => setCategory(event.target.value)} maxLength={80} placeholder="Culture" />
             </label>
-            <div className="plan-form__row">
-              <label>
-                <span>Starts at</span>
-                <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} required />
-              </label>
-              <label>
-                <span>Max participants</span>
-                <input type="number" min={1} max={100} value={maxParticipants} onChange={(event) => setMaxParticipants(event.target.value)} />
-              </label>
-            </div>
-            <label>
-              <span>Status</span>
-              <select value={status} onChange={(event) => setStatus(event.target.value as 'draft' | 'open')}>
-                <option value="open">Open for requests</option>
-                <option value="draft">Draft</option>
-              </select>
-            </label>
-
-            <PlanImagePicker
-              title={planMedia.length ? `${planMedia.length} Plan image${planMedia.length === 1 ? '' : 's'} selected` : 'Add Plan images'}
-              helper="Images attach to the Plan summary and remain internal while Plans are hidden."
-              media={planMedia}
-              uploading={uploadingPlanMedia}
-              onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadFiles(files, 'plan'); }}
-              onRemove={(mediaId) => setPlanMedia((current) => current.filter((item) => item.id !== mediaId))}
-            />
 
             <hr />
-            <h3>First place / stop</h3>
-            <label>
-              <span>Place title</span>
-              <input value={placeTitle} onChange={(event) => setPlaceTitle(event.target.value)} maxLength={120} />
-            </label>
-            <label>
-              <span>Public note</span>
-              <textarea value={placeNote} onChange={(event) => setPlaceNote(event.target.value)} maxLength={1000} />
-            </label>
-            <label>
-              <span>Public area</span>
-              <input value={placePublicAddress} onChange={(event) => setPlacePublicAddress(event.target.value)} maxLength={160} />
-            </label>
-            <label>
-              <span>Private exact detail</span>
-              <input value={placePrivateAddress} onChange={(event) => setPlacePrivateAddress(event.target.value)} maxLength={240} />
-            </label>
+            <div className="plan-form__section-title">
+              <div>
+                <h3>Places</h3>
+                <p className="meta">Use times only. If a later place time is earlier than the previous one, it automatically becomes the next day.</p>
+              </div>
+            </div>
 
-            <PlanImagePicker
-              title={placeMedia.length ? `${placeMedia.length} Place image${placeMedia.length === 1 ? '' : 's'} selected` : 'Add Place images'}
-              helper="Place images are shown with this stop. Private address text is still hidden until approval."
-              media={placeMedia}
-              uploading={uploadingPlaceMedia}
-              onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadFiles(files, 'place'); }}
-              onRemove={(mediaId) => setPlaceMedia((current) => current.filter((item) => item.id !== mediaId))}
-            />
+            {places.map((place, index) => (
+              <section className="plan-place-editor" key={place.id}>
+                <div className="plan-place-editor__header">
+                  <span className="semantic-badge instruction">Place {index + 1}</span>
+                  <div className="cta-row">
+                    <button type="button" className="button secondary" disabled={index === 0} onClick={() => movePlace(index, -1)}>Move up</button>
+                    <button type="button" className="button secondary" disabled={index === places.length - 1} onClick={() => movePlace(index, 1)}>Move down</button>
+                  </div>
+                </div>
+                <div className="plan-form__row">
+                  <label>
+                    <span>Time</span>
+                    <input type="time" value={place.time} onChange={(event) => updatePlace(index, { time: event.target.value })} required />
+                  </label>
+                  <label>
+                    <span>Place name</span>
+                    <input value={place.title} onChange={(event) => updatePlace(index, { title: event.target.value })} minLength={3} maxLength={120} required placeholder="Coffee near République" />
+                  </label>
+                </div>
+                <label>
+                  <span>Place address</span>
+                  <input value={place.address} onChange={(event) => updatePlace(index, { address: event.target.value })} maxLength={160} placeholder="Address or meeting area" />
+                </label>
+                <label>
+                  <span>Place notes / purpose</span>
+                  <textarea value={place.note} onChange={(event) => updatePlace(index, { note: event.target.value })} maxLength={1000} placeholder="What is this stop for?" />
+                </label>
+                <PlaceImagePicker
+                  place={place}
+                  onUpload={(event) => { const files = event.target.files; event.currentTarget.value = ''; void uploadPlaceImage(index, files); }}
+                  onRemove={() => updatePlace(index, { media: null })}
+                />
+                {places.length > 1 ? <button type="button" className="button secondary full" onClick={() => removePlace(index)}>Remove place</button> : null}
+              </section>
+            ))}
+
+            <button type="button" className="button secondary full" onClick={addPlace}>+ Add another place</button>
+
+            <hr />
+            <section className="plan-form__preview">
+              <h3>Feed deck preview</h3>
+              <PlanPreviewDeck title={title} description={description} rangeLabel={rangeLabel} places={places.map((place) => ({ id: place.id, title: place.title, note: place.note, address: place.address, time: place.time, media: place.media }))} />
+            </section>
 
             {message ? <p className="success-message">{message}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
-            <button className="button primary full" type="submit" disabled={saving || uploadingPlanMedia || uploadingPlaceMedia}>{saving ? 'Creating...' : 'Create hidden Plan'}</button>
+            <button className="button primary full" type="submit" disabled={saving || places.some((place) => place.uploading)}>{saving ? 'Creating...' : 'Create hidden Plan'}</button>
           </form>
         ) : null}
       </main>

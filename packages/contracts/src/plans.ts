@@ -37,8 +37,8 @@ export const createPlanRequestSchema = z.object({
   startsAt: z.string().datetime(),
   endsAt: z.string().datetime().optional(),
   maxParticipants: z.number().int().min(1).max(100).optional(),
-  joinApprovalMode: planJoinApprovalModeSchema.optional().default('owner_approval'),
-  status: z.enum(['draft', 'open']).optional().default('draft'),
+  joinApprovalMode: planJoinApprovalModeSchema.optional().default('automatic'),
+  status: z.enum(['draft', 'open']).optional().default('open'),
   mediaIds: z.array(z.string()).max(5).optional(),
   places: z.array(planPlaceInputSchema).max(12).optional(),
 }).refine((value) => {

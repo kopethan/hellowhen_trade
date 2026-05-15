@@ -18,7 +18,6 @@ import { usersHaveBlockBetween } from '../users/userBlocks.js';
 export const plansRoutes = Router();
 
 const publicPlanStatuses = ['open', 'full', 'started'] as const;
-const activeParticipantStatuses = ['pending', 'accepted'] as const;
 const userSummarySelect = {
   id: true,
   profile: { select: { displayName: true, handle: true, avatarUrl: true, countryCode: true } },
@@ -122,8 +121,8 @@ function planCreateData(ownerId: string, input: ReturnType<typeof createPlanRequ
     startsAt: new Date(input.startsAt),
     endsAt: input.endsAt ? new Date(input.endsAt) : null,
     maxParticipants: input.maxParticipants ?? null,
-    joinApprovalMode: input.joinApprovalMode ?? 'owner_approval',
-    status: input.status ?? 'draft',
+    joinApprovalMode: input.joinApprovalMode ?? 'automatic',
+    status: input.status ?? 'open',
   };
 }
 
@@ -256,18 +255,17 @@ plansRoutes.post('/:planId/join-requests', requireAuth, requireActiveAccount, as
   if (!plan || !publicPlanStatuses.includes(plan.status as any) || plan.owner?.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
   if (plan.ownerId === req.user!.id) return res.status(409).json({ error: 'owner_cannot_join', message: 'You already own this plan.' });
   if (await usersHaveBlockBetween(req.user!.id, plan.ownerId)) return res.status(403).json({ error: 'blocked_user', message: 'You cannot request to join this plan.' });
-  const acceptedCount = (plan.participants ?? []).filter((participant: any) => participant.status === 'accepted').length;
-  if (plan.maxParticipants && acceptedCount >= plan.maxParticipants) return res.status(409).json({ error: 'plan_full', message: 'This plan is full.' });
   const existing = (plan.participants ?? []).find((participant: any) => participant.userId === req.user!.id);
-  if (existing && activeParticipantStatuses.includes(existing.status as any)) return res.status(409).json({ error: 'join_request_exists', message: 'You already have an active join request for this plan.' });
+  if (existing?.status === 'accepted') return res.status(409).json({ error: 'already_joined', message: 'You already joined this plan.' });
+  if (existing?.status === 'removed') return res.status(403).json({ error: 'participant_removed', message: 'The owner removed you from this plan.' });
 
-  const nextStatus = plan.joinApprovalMode === 'automatic' ? 'accepted' : 'pending';
   const participant = await prisma.planParticipant.upsert({
     where: { planId_userId: { planId: plan.id, userId: req.user!.id } },
-    update: { message: input.message?.trim() || null, status: nextStatus as any, decidedAt: nextStatus === 'accepted' ? new Date() : null, decidedById: nextStatus === 'accepted' ? plan.ownerId : null },
-    create: { planId: plan.id, userId: req.user!.id, message: input.message?.trim() || null, status: nextStatus as any, decidedAt: nextStatus === 'accepted' ? new Date() : null, decidedById: nextStatus === 'accepted' ? plan.ownerId : null },
+    update: { message: input.message?.trim() || null, status: 'accepted' as any, decidedAt: new Date(), decidedById: plan.ownerId },
+    create: { planId: plan.id, userId: req.user!.id, message: input.message?.trim() || null, status: 'accepted' as any, decidedAt: new Date(), decidedById: plan.ownerId },
     include: { user: { select: userSummarySelect } },
   });
+  await syncPlanCapacityStatus(plan.id);
   res.status(201).json({ participant });
 }));
 

@@ -26,8 +26,14 @@ export function planDateTime(value?: string | null) {
   return formatWebDateTime(value, 'No time set');
 }
 
+export function planRangeLabel(plan: PlanDto) {
+  const start = planDateTime(plan.startsAt);
+  const end = plan.endsAt ? planDateTime(plan.endsAt) : '';
+  return end && end !== start ? `${start} → ${end}` : start;
+}
+
 export function planMetadata(plan: PlanDto) {
-  return [planDateTime(plan.startsAt), plan.locationLabel, planModeLabel(plan.mode), plan.category]
+  return [planRangeLabel(plan), plan.locationLabel, plan.category]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }
