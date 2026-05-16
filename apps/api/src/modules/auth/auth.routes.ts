@@ -20,6 +20,7 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { signAccessToken } from '../../lib/tokens.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { createRateLimiter, ipAndBodyFieldRateLimitKey } from '../../middleware/rateLimit.js';
 import { buildOtpAuthUrl, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotpCode } from './totp.js';
 
 export const authRoutes = Router();
@@ -31,6 +32,29 @@ const EMAIL_VERIFICATION_TOKEN_BYTES = 32;
 const TWO_FACTOR_CHALLENGE_BYTES = 32;
 const POLICY_VERSION = '2026-05-14';
 const ADULT_AGE_BUCKET = '18_plus';
+
+const authMutationRateLimit = createRateLimiter({
+  keyPrefix: 'auth:mutation',
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: 'Too many authentication requests. Please wait and try again.',
+});
+
+const loginRateLimit = createRateLimiter({
+  keyPrefix: 'auth:login',
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  keyGenerator: ipAndBodyFieldRateLimitKey('email'),
+  message: 'Too many login attempts. Please wait before trying again.',
+});
+
+const accountRecoveryRateLimit = createRateLimiter({
+  keyPrefix: 'auth:recovery',
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: ipAndBodyFieldRateLimitKey('email'),
+  message: 'Too many account recovery requests. Please wait before trying again.',
+});
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -203,7 +227,19 @@ async function issueTwoFactorChallenge(userId: string) {
   return rawToken;
 }
 
+function hasAdultLaunchUser(input: { ageConfirmedAt?: Date | null; declaredAgeBucket?: string | null }) {
+  return Boolean(input.ageConfirmedAt && input.declaredAgeBucket === ADULT_AGE_BUCKET);
+}
+
+function adultLaunchRequiredError() {
+  const error = new Error('Hellowhen Trade is 18+ for first launch. Confirm your age before continuing.');
+  Object.assign(error, { statusCode: 403, code: 'age_confirmation_required', publicMessage: error.message });
+  return error;
+}
+
 async function finishLogin(userId: string, userAgent?: string) {
+  const launchUser = await prisma.user.findUnique({ where: { id: userId }, select: { ageConfirmedAt: true, declaredAgeBucket: true } });
+  if (!launchUser || !hasAdultLaunchUser(launchUser)) throw adultLaunchRequiredError();
   const loggedInUser = await markLogin(userId);
   const { session, refreshToken } = await createSession(userId, userAgent);
   return authResponse(loggedInUser, session.id, refreshToken);
@@ -236,7 +272,7 @@ function freshAuthPayload() {
   return { ok: true as const, sensitiveActionExpiresAt: sensitiveActionExpiresAt().toISOString() };
 }
 
-authRoutes.post('/register', asyncRoute(async (req, res) => {
+authRoutes.post('/register', authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = registerRequestSchema.parse(req.body);
   const email = normalizeEmail(input.email);
   const passwordHash = await bcrypt.hash(input.password, 12);
@@ -267,7 +303,7 @@ authRoutes.post('/register', asyncRoute(async (req, res) => {
   res.status(201).json(authResponse(user, session.id, refreshToken));
 }));
 
-authRoutes.post('/login', asyncRoute(async (req, res) => {
+authRoutes.post('/login', loginRateLimit, asyncRoute(async (req, res) => {
   const input = loginRequestSchema.parse(req.body);
   const email = normalizeEmail(input.email);
   const user = await prisma.user.findUnique({ where: { email }, include: { profile: true } });
@@ -285,7 +321,7 @@ authRoutes.post('/login', asyncRoute(async (req, res) => {
   res.json(await finishLogin(user.id, req.headers['user-agent']));
 }));
 
-authRoutes.post('/login/2fa', asyncRoute(async (req, res) => {
+authRoutes.post('/login/2fa', loginRateLimit, asyncRoute(async (req, res) => {
   const input = twoFactorChallengeRequestSchema.parse(req.body);
   const challenge = await prisma.twoFactorChallenge.findUnique({ where: { tokenHash: hashToken(input.challengeToken) } });
   if (!challenge || challenge.usedAt || challenge.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
@@ -302,7 +338,10 @@ function hasAdultLaunchConfirmation(input: { acceptedTerms?: boolean; ageConfirm
   return input.acceptedTerms === true && input.ageConfirmed === true && input.declaredAgeBucket === ADULT_AGE_BUCKET;
 }
 
-authRoutes.post('/google', asyncRoute(async (req, res) => {
+authRoutes.post('/google', loginRateLimit, asyncRoute(async (req, res) => {
+  if (!env.googleSignInEnabled) {
+    return res.status(404).json({ error: 'google_sign_in_disabled', message: 'Google sign-in is disabled for the first Hellowhen Trade launch.' });
+  }
   const input = googleAuthRequestSchema.parse(req.body);
 
   let googleUser: Awaited<ReturnType<typeof verifyGoogleIdToken>>;
@@ -383,11 +422,12 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
   res.json(await finishLogin(userId, req.headers['user-agent']));
 }));
 
-authRoutes.post('/refresh', asyncRoute(async (req, res) => {
+authRoutes.post('/refresh', authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = refreshSessionRequestSchema.parse(req.body);
   const tokenHash = hashToken(input.refreshToken);
   const session = await prisma.session.findUnique({ where: { refreshToken: tokenHash }, include: { user: { include: publicUserInclude() } } });
   if (!session || session.revokedAt || session.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_refresh_token' });
+  if (!hasAdultLaunchUser(session.user)) return res.status(403).json({ error: 'age_confirmation_required', message: 'Hellowhen Trade is 18+ for first launch. Confirm your age before continuing.' });
   if (session.user.sessionRevokedAt && session.createdAt < session.user.sessionRevokedAt) return res.status(401).json({ error: 'session_revoked' });
   const nextRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
   const updated = await prisma.session.update({ where: { id: session.id }, data: { refreshToken: hashToken(nextRefreshToken), expiresAt: refreshTokenExpiresAt(), userAgent: req.headers['user-agent']?.slice(0, 300) || session.userAgent } });
@@ -402,7 +442,7 @@ authRoutes.post('/logout', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
-authRoutes.post('/forgot-password', asyncRoute(async (req, res) => {
+authRoutes.post('/forgot-password', accountRecoveryRateLimit, asyncRoute(async (req, res) => {
   const input = forgotPasswordRequestSchema.parse(req.body);
   const email = normalizeEmail(input.email);
   const neutralMessage = 'If that email exists, we sent a password reset link.';
@@ -423,7 +463,7 @@ authRoutes.post('/forgot-password', asyncRoute(async (req, res) => {
   res.json({ ok: true, message: neutralMessage, emailSent: emailResult.sent, devResetUrl });
 }));
 
-authRoutes.post('/reset-password', asyncRoute(async (req, res) => {
+authRoutes.post('/reset-password', authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = resetPasswordRequestSchema.parse(req.body);
   const tokenHash = hashToken(input.token);
   const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
@@ -456,7 +496,7 @@ authRoutes.get('/me', requireAuth, asyncRoute(async (req, res) => {
   res.json({ user });
 }));
 
-authRoutes.post('/verify-email/request', requireAuth, asyncRoute(async (req, res) => {
+authRoutes.post('/verify-email/request', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   if (user.emailVerifiedAt) return res.json({ ok: true, message: 'Email is already verified.', emailSent: false });
   await prisma.emailVerificationToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
@@ -469,7 +509,7 @@ authRoutes.post('/verify-email/request', requireAuth, asyncRoute(async (req, res
   res.json({ ok: true, message: 'If email delivery is configured, a verification link has been sent.', emailSent: emailResult.sent, devVerificationUrl });
 }));
 
-authRoutes.post('/verify-email/confirm', asyncRoute(async (req, res) => {
+authRoutes.post('/verify-email/confirm', authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = verifyEmailRequestSchema.parse(req.body);
   const token = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(input.token) } });
   if (!token || token.usedAt || token.expiresAt < new Date()) return res.status(400).json({ error: 'invalid_or_expired_verification_token', message: 'This email verification link is invalid or expired.' });
@@ -483,7 +523,7 @@ authRoutes.post('/verify-email/confirm', asyncRoute(async (req, res) => {
   res.json({ ok: true, message: 'Email verified.', user });
 }));
 
-authRoutes.post('/2fa/setup', requireAuth, asyncRoute(async (req, res) => {
+authRoutes.post('/2fa/setup', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   if (user.twoFactorEnabled) return res.status(409).json({ error: 'two_factor_already_enabled', message: 'Authenticator app verification is already enabled.' });
   const secret = generateTotpSecret();
@@ -491,7 +531,7 @@ authRoutes.post('/2fa/setup', requireAuth, asyncRoute(async (req, res) => {
   res.json({ secret, otpauthUrl: buildOtpAuthUrl(user.email, secret), message: 'Add this secret to an authenticator app, then confirm the 6-digit code.' });
 }));
 
-authRoutes.post('/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
+authRoutes.post('/2fa/enable', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = twoFactorCodeRequestSchema.parse(req.body);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   if (!user.twoFactorSecretEncrypted) return res.status(400).json({ error: 'two_factor_setup_required', message: 'Start two-step setup first.' });
@@ -503,7 +543,7 @@ authRoutes.post('/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
   res.json({ ok: true, recoveryCodes });
 }));
 
-authRoutes.post('/2fa/disable', requireAuth, asyncRoute(async (req, res) => {
+authRoutes.post('/2fa/disable', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = disableTwoFactorRequestSchema.parse(req.body);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   if (user.passwordHash) {
@@ -518,7 +558,7 @@ authRoutes.post('/2fa/disable', requireAuth, asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
-authRoutes.post('/reauthenticate', requireAuth, asyncRoute(async (req, res) => {
+authRoutes.post('/reauthenticate', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = reauthenticateRequestSchema.parse(req.body);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   let ok = false;

@@ -3,6 +3,8 @@ import { env } from '../config/env.js';
 import { verifyAccessToken, type AccessTokenPayload } from '../lib/tokens.js';
 import { prisma } from '../lib/prisma.js';
 
+const ADULT_AGE_BUCKET = '18_plus';
+
 declare global {
   namespace Express {
     interface Request {
@@ -26,9 +28,10 @@ async function resolveTokenUser(token: string) {
   const payload = verifyAccessToken(token);
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, email: true, sessionRevokedAt: true },
+    select: { id: true, email: true, sessionRevokedAt: true, ageConfirmedAt: true, declaredAgeBucket: true },
   });
   if (!user) return null;
+  if (!user.ageConfirmedAt || user.declaredAgeBucket !== ADULT_AGE_BUCKET) return null;
   if (tokenIssuedBeforeRevocation(payload, user.sessionRevokedAt)) return null;
 
   if (payload.sid) {

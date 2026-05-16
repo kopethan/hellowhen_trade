@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
@@ -15,9 +16,8 @@ fs.mkdirSync(env.uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
   destination: (_req, _file, callback) => callback(null, env.uploadDir),
-  filename: (_req, file, callback) => {
-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
-    callback(null, `${Date.now()}-${crypto.randomUUID()}${ext}`);
+  filename: (_req, _file, callback) => {
+    callback(null, `${Date.now()}-${crypto.randomUUID()}.upload`);
   }
 });
 
@@ -43,21 +43,57 @@ function uploadImage(req: Request, res: Response, next: NextFunction) {
   });
 }
 
+
+type VerifiedUpload = {
+  filename: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  sizeBytes: number;
+};
+
+function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType'> & { extension: '.jpg' | '.png' | '.webp' } | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mimeType: 'image/jpeg', extension: '.jpg' };
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mimeType: 'image/png', extension: '.png' };
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return { mimeType: 'image/webp', extension: '.webp' };
+  return null;
+}
+
+async function removeUploadedFile(filePath: string) {
+  await fsp.rm(filePath, { force: true }).catch(() => undefined);
+}
+
+async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedUpload | null> {
+  const buffer = await fsp.readFile(file.path);
+  const detected = detectImageType(buffer);
+  if (!detected || detected.mimeType !== file.mimetype) {
+    await removeUploadedFile(file.path);
+    return null;
+  }
+
+  const safeBase = path.basename(file.filename, path.extname(file.filename));
+  const verifiedFilename = `${safeBase}${detected.extension}`;
+  const verifiedPath = path.join(env.uploadDir, verifiedFilename);
+  if (verifiedPath !== file.path) await fsp.rename(file.path, verifiedPath);
+  return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: buffer.length };
+}
+
 export const mediaRoutes = Router();
 mediaRoutes.use(requireAuth);
 
 mediaRoutes.post('/image', requireActiveAccount, uploadImage, asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing_image', message: 'Choose a JPEG, PNG, or WEBP image first.' });
 
-  const url = `/uploads/${req.file.filename}`;
+  const verified = await verifyUploadedImage(req.file);
+  if (!verified) return res.status(415).json({ error: 'unsupported_image_type', message: 'Upload a valid JPEG, PNG, or WEBP image.' });
+
+  const url = `/uploads/${verified.filename}`;
   const media = await prisma.mediaAsset.create({
     data: {
       ownerId: req.user!.id,
       url,
-      storageKey: req.file.filename,
-      filename: req.file.originalname || req.file.filename,
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
+      storageKey: verified.filename,
+      filename: req.file.originalname || verified.filename,
+      mimeType: verified.mimeType,
+      sizeBytes: verified.sizeBytes,
       status: 'active'
     }
   });

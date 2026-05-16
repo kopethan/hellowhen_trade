@@ -39,6 +39,7 @@ export function createApp() {
     // Apply to existing files and fallthrough 404s so missing uploads report as
     // missing files instead of misleading browser CORP failures.
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     next();
   }, express.static(env.uploadDir, {
     maxAge: env.nodeEnv === 'production' ? '1d' : 0,
@@ -48,6 +49,7 @@ export function createApp() {
       // same-origin, which allows the upload to succeed but blocks the saved
       // image when the browser later renders it from /uploads.
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
     }
   }));
   app.use(routes);

@@ -1,8 +1,11 @@
 import { Router } from 'express';
 import { createReportRequestSchema, type ReportTargetType } from '@hellowhen/contracts';
+import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { usersHaveBlockBetween } from '../users/userBlocks.js';
+import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
 
 export const reportsRoutes = Router();
 
@@ -98,6 +101,120 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
   return media ? { type: targetType, id: media.id, label: media.filename || media.storageKey || 'Media asset', ownerId: media.ownerId, owner: media.owner, status: media.status, url: media.url } : null;
 }
 
+
+type ReportAccessDecision =
+  | { allowed: true }
+  | { allowed: false; status: number; error: string; message: string };
+
+const visiblePlanStatuses = ['open', 'full', 'started'] as const;
+
+async function canReportTarget(actorId: string, target: ReportTargetSummary): Promise<ReportAccessDecision> {
+  if (target.ownerId === actorId) {
+    return { allowed: false, status: 409, error: 'cannot_report_own_content', message: 'You cannot report your own profile or content here. Use support for help with your own trade.' };
+  }
+
+  if (target.ownerId && await usersHaveBlockBetween(actorId, target.ownerId)) {
+    return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'user' || target.type === 'profile') {
+    if (target.status === 'restricted') return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+    return { allowed: true };
+  }
+
+  if (target.type === 'trade') {
+    const trade = await prisma.trade.findFirst({
+      where: {
+        id: target.id,
+        OR: [
+          publicTradeVisibilityWhere(),
+          { ownerId: actorId },
+          { providerId: actorId },
+          { proposals: { some: { applicantId: actorId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    return trade ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'need') {
+    const visibleTrade = await prisma.trade.findFirst({ where: { needId: target.id, ...publicTradeVisibilityWhere() }, select: { id: true } });
+    return visibleTrade ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'offer') {
+    const visibleTrade = await prisma.trade.findFirst({ where: { offerId: target.id, ...publicTradeVisibilityWhere() }, select: { id: true } });
+    return visibleTrade ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'proposal') {
+    const proposal = await prisma.tradeProposal.findFirst({
+      where: {
+        id: target.id,
+        OR: [
+          { applicantId: actorId },
+          { trade: { ownerId: actorId } },
+          { trade: { providerId: actorId } },
+        ],
+      },
+      select: { id: true },
+    });
+    return proposal ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'message') {
+    const message = await prisma.proposalMessage.findFirst({
+      where: {
+        id: target.id,
+        proposal: {
+          OR: [
+            { applicantId: actorId },
+            { trade: { ownerId: actorId } },
+            { trade: { providerId: actorId } },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    return message ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'plan') {
+    if (!env.plansEnabled) return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+    const plan = await prisma.plan.findFirst({
+      where: {
+        id: target.id,
+        OR: [
+          { status: { in: [...visiblePlanStatuses] } },
+          { participants: { some: { userId: actorId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    return plan ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'plan_place') {
+    if (!env.plansEnabled) return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+    const place = await prisma.planPlace.findFirst({
+      where: {
+        id: target.id,
+        plan: {
+          OR: [
+            { status: { in: [...visiblePlanStatuses] } },
+            { participants: { some: { userId: actorId } } },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    return place ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+}
+
 export async function hydrateReports<T extends ReportRecord>(reports: T[]) {
   const targets = await Promise.all(reports.map((report) => findReportTarget(report.targetType, report.targetId)));
   return reports.map((report, index) => ({ ...report, target: targets[index] ?? null }));
@@ -141,7 +258,8 @@ reportsRoutes.post('/', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const target = await findReportTarget(input.targetType, input.targetId);
   if (!target) return res.status(404).json({ error: 'target_not_found', message: 'The reported item could not be found.' });
-  if (target.ownerId === actorId) return res.status(409).json({ error: 'cannot_report_own_content', message: 'You cannot report your own profile or content here. Use support for help with your own trade.' });
+  const access = await canReportTarget(actorId, target);
+  if (!access.allowed) return res.status(access.status).json({ error: access.error, message: access.message });
 
   const existing = await (prisma as any).report.findFirst({
     where: { reporterId: actorId, targetType: input.targetType, targetId: input.targetId, status: { in: unresolvedReportStatuses } },

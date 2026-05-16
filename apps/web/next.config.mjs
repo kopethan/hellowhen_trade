@@ -5,13 +5,29 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(repoRoot);
 
+const baseSecurityHeaders = [
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+];
+
+const productionSecurityHeaders = process.env.NODE_ENV === 'production'
+  ? [{ key: 'Strict-Transport-Security', value: 'max-age=15552000; includeSubDomains' }]
+  : [];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   turbopack: {
     root: repoRoot,
   },
   async headers() {
+    const securityHeaders = [...baseSecurityHeaders, ...productionSecurityHeaders];
     return [
+      {
+        source: '/:path*',
+        headers: securityHeaders,
+      },
       {
         source: '/admin/:path*',
         headers: [

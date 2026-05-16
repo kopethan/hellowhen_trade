@@ -1,0 +1,187 @@
+diff --git a/apps/api/src/middleware/rateLimit.ts b/apps/api/src/middleware/rateLimit.ts
+new file mode 100644
+index 0000000..1d64a97
+--- /dev/null
++++ b/apps/api/src/middleware/rateLimit.ts
+@@ -0,0 +1,89 @@
++import type { NextFunction, Request, RequestHandler, Response } from 'express';
++
++type RateLimitBucket = {
++  count: number;
++  resetAt: number;
++};
++
++type RateLimitKeyGenerator = (req: Request) => string;
++
++type RateLimitOptions = {
++  keyPrefix: string;
++  windowMs: number;
++  max: number;
++  message?: string;
++  keyGenerator?: RateLimitKeyGenerator;
++};
++
++const buckets = new Map<string, RateLimitBucket>();
++const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
++let lastCleanupAt = 0;
++
++function cleanupExpiredBuckets(now: number) {
++  if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) return;
++  lastCleanupAt = now;
++  for (const [key, bucket] of buckets.entries()) {
++    if (bucket.resetAt <= now) buckets.delete(key);
++  }
++}
++
++function headerValue(value: string | string[] | undefined) {
++  return Array.isArray(value) ? value[0] : value;
++}
++
++function clientIp(req: Request) {
++  const forwardedFor = headerValue(req.headers['x-forwarded-for']);
++  if (forwardedFor) return forwardedFor.split(',')[0]?.trim() || 'unknown';
++
++  const realIp = headerValue(req.headers['x-real-ip']);
++  if (realIp) return realIp.trim();
++
++  return req.ip || req.socket.remoteAddress || 'unknown';
++}
++
++function normalizeKeyPart(value: unknown) {
++  if (typeof value !== 'string') return 'missing';
++  const normalized = value.trim().toLowerCase();
++  return normalized || 'missing';
++}
++
++function defaultRateLimitKey(req: Request) {
++  return clientIp(req);
++}
++
++export function ipAndBodyFieldRateLimitKey(fieldName: string): RateLimitKeyGenerator {
++  return (req) => `${clientIp(req)}:${normalizeKeyPart(req.body?.[fieldName])}`;
++}
++
++export function createRateLimiter(options: RateLimitOptions): RequestHandler {
++  const keyGenerator = options.keyGenerator ?? defaultRateLimitKey;
++  const message = options.message ?? 'Too many requests. Please wait and try again.';
++
++  return (req: Request, res: Response, next: NextFunction) => {
++    const now = Date.now();
++    cleanupExpiredBuckets(now);
++
++    const bucketKey = `${options.keyPrefix}:${keyGenerator(req)}`;
++    const existing = buckets.get(bucketKey);
++    const bucket = existing && existing.resetAt > now
++      ? existing
++      : { count: 0, resetAt: now + options.windowMs };
++
++    bucket.count += 1;
++    buckets.set(bucketKey, bucket);
++
++    const remaining = Math.max(options.max - bucket.count, 0);
++    const retryAfterSeconds = Math.max(Math.ceil((bucket.resetAt - now) / 1000), 1);
++
++    res.setHeader('X-RateLimit-Limit', String(options.max));
++    res.setHeader('X-RateLimit-Remaining', String(remaining));
++    res.setHeader('X-RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
++
++    if (bucket.count > options.max) {
++      res.setHeader('Retry-After', String(retryAfterSeconds));
++      return res.status(429).json({ error: 'rate_limited', message });
++    }
++
++    return next();
++  };
++}
+diff --git a/package-lock.json b/package-lock.json
+index 866e9f9..aea5484 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -123,7 +123,7 @@
+     },
+     "apps/web/node_modules/next": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/next/-/next-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/next/-/next-16.2.6.tgz",
+       "integrity": "sha512-qOVgKJg1+At15NpeUP+eJgCHvTCgXsogweq87Ri/Ix7PkqQHg4sdaXmSFqKlgaIXE4kW0g25LE68W87UANlHtw==",
+       "license": "MIT",
+       "dependencies": {
+@@ -4513,13 +4513,13 @@
+     },
+     "node_modules/@next/env": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/env/-/env-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/env/-/env-16.2.6.tgz",
+       "integrity": "sha512-gd8HoHN4ufj73WmR3JmVolrpJR47ILK6LouP5xElPglaVxir6e1a7VzvTvDWkOoPXT9rkkTzyCxBu4yeZfZwcw==",
+       "license": "MIT"
+     },
+     "node_modules/@next/swc-darwin-arm64": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-darwin-arm64/-/swc-darwin-arm64-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-darwin-arm64/-/swc-darwin-arm64-16.2.6.tgz",
+       "integrity": "sha512-ZJGkkcNfYgrrMkqOdZ7zoLa1TOy0qpcMfk/z4Mh/FKUz40gVO+HNQWqmLxf67Z5WB64DRp0dhEbyHfel+6sJUg==",
+       "cpu": [
+         "arm64"
+@@ -4535,7 +4535,7 @@
+     },
+     "node_modules/@next/swc-darwin-x64": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-darwin-x64/-/swc-darwin-x64-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-darwin-x64/-/swc-darwin-x64-16.2.6.tgz",
+       "integrity": "sha512-v/YLBHIY132Ced3puBJ7YJKw1lqsCrgcNo2aRJlCEyQrrCeRJlvGlnmxhPxNQI3KE3N1DN5r9TPNPvka3nq5RQ==",
+       "cpu": [
+         "x64"
+@@ -4551,7 +4551,7 @@
+     },
+     "node_modules/@next/swc-linux-arm64-gnu": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-16.2.6.tgz",
+       "integrity": "sha512-RPOvqlYBbcQjkz9VQQDZ2T2bARIjXZV1KFlt+V2Mr6SW/e4I9fcKsaA0hdyf2FHoTlsV2xnBd5Y912rP/1Ce6w==",
+       "cpu": [
+         "arm64"
+@@ -4567,7 +4567,7 @@
+     },
+     "node_modules/@next/swc-linux-arm64-musl": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-16.2.6.tgz",
+       "integrity": "sha512-URUTu1+dMkxJsPFgm+OeEvq9wf5sujw0EvgYy80TDGHTSLTnIHeqb0Eu8A3sC95IRgjejQL+kC4mw+4yPxiAXA==",
+       "cpu": [
+         "arm64"
+@@ -4583,7 +4583,7 @@
+     },
+     "node_modules/@next/swc-linux-x64-gnu": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-16.2.6.tgz",
+       "integrity": "sha512-DOj182mPV8G3UkrayLoREM5YEYI+Dk5wv7Ox9xl1fFibAELEsFD0lDPfHIeILlutMMfdyhlzYPELG3peuKaurw==",
+       "cpu": [
+         "x64"
+@@ -4599,7 +4599,7 @@
+     },
+     "node_modules/@next/swc-linux-x64-musl": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.2.6.tgz",
+       "integrity": "sha512-HKQ5SP/V/ub73UvF7n/zeJlxk2kLmtL7Wzrg4WfmkjmNos5onJ2tKu7yZOPdL18A6Svfn3max29ym+ry7NkK4g==",
+       "cpu": [
+         "x64"
+@@ -4615,7 +4615,7 @@
+     },
+     "node_modules/@next/swc-win32-arm64-msvc": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-16.2.6.tgz",
+       "integrity": "sha512-LZXpTlPyS5v7HhSmnvsLGP3iIYgYOBnc8r8ArlT55sGHV89bR2HlDdBjWQ+PY6SJMmk8TuVGFuxalnP3k/0Dwg==",
+       "cpu": [
+         "arm64"
+@@ -4631,7 +4631,7 @@
+     },
+     "node_modules/@next/swc-win32-x64-msvc": {
+       "version": "16.2.6",
+-      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-16.2.6.tgz",
++      "resolved": "https://registry.npmjs.org/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-16.2.6.tgz",
+       "integrity": "sha512-F0+4i0h9J6C4eE3EAPWsoCk7UW/dbzOjyzxY0qnDUOYFu6FFmdZ6l97/XdV3/Nz3VYyO7UWjyEJUXkGqcoXfMA==",
+       "cpu": [
+         "x64"

@@ -56,6 +56,26 @@ export async function withOneSupportMessageMedia<T extends SupportMessageWithId>
 }
 
 
+async function canReferenceProposal(actorId: string, proposalId?: string) {
+  if (!proposalId) return null;
+  return prisma.tradeProposal.findFirst({
+    where: {
+      id: proposalId,
+      OR: [
+        { applicantId: actorId },
+        { trade: { ownerId: actorId } },
+        { trade: { providerId: actorId } },
+      ],
+    },
+    select: { id: true, tradeId: true },
+  });
+}
+
+async function canReferenceMedia(actorId: string, mediaId?: string) {
+  if (!mediaId) return null;
+  return prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: actorId, status: { not: 'removed' } }, select: { id: true } });
+}
+
 async function canReportTrade(actorId: string, tradeId?: string) {
   if (!tradeId) return null;
   return prisma.trade.findFirst({
@@ -89,6 +109,10 @@ supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const relatedTrade = await canReportTrade(actorId, input.relatedTradeId);
   if (input.relatedTradeId && !relatedTrade) return res.status(403).json({ error: 'forbidden', message: 'You can only report a trade you created, joined, or proposed to.' });
+  const relatedProposal = await canReferenceProposal(actorId, input.relatedProposalId);
+  if (input.relatedProposalId && !relatedProposal) return res.status(403).json({ error: 'forbidden', message: 'You can only reference a proposal you can access.' });
+  const relatedMedia = await canReferenceMedia(actorId, input.relatedMediaId);
+  if (input.relatedMediaId && !relatedMedia) return res.status(403).json({ error: 'forbidden', message: 'You can only reference your own uploaded media.' });
 
   const ticket = await prisma.$transaction(async (tx) => {
     const created = await tx.supportTicket.create({

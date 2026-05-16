@@ -1,0 +1,910 @@
+diff --git a/.env.example b/.env.example
+index 8b714ce..01431bd 100644
+--- a/.env.example
++++ b/.env.example
+@@ -55,8 +55,11 @@ AIRWALLEX_SANDBOX_PAYOUT_REASON=services
+ WEB_APP_URL=http://localhost:3000
+ MOBILE_APP_URL=hellowhen://
+ 
+-# Auth / password reset. Google sign-in is disabled in the first launch UI.
++# Auth / password reset. Google sign-in is disabled for the first launch.
+ # Keep these empty until a dedicated Google sign-in implementation scope re-enables OAuth.
++GOOGLE_SIGN_IN_ENABLED=false
++NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED=false
++EXPO_PUBLIC_GOOGLE_SIGN_IN_ENABLED=false
+ GOOGLE_WEB_CLIENT_ID=
+ GOOGLE_IOS_CLIENT_ID=
+ GOOGLE_ANDROID_CLIENT_ID=
+diff --git a/apps/api/src/app.ts b/apps/api/src/app.ts
+index 1fd2429..72fd1cf 100644
+--- a/apps/api/src/app.ts
++++ b/apps/api/src/app.ts
+@@ -39,6 +39,7 @@ export function createApp() {
+     // Apply to existing files and fallthrough 404s so missing uploads report as
+     // missing files instead of misleading browser CORP failures.
+     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
++    res.setHeader('X-Content-Type-Options', 'nosniff');
+     next();
+   }, express.static(env.uploadDir, {
+     maxAge: env.nodeEnv === 'production' ? '1d' : 0,
+@@ -48,6 +49,7 @@ export function createApp() {
+       // same-origin, which allows the upload to succeed but blocks the saved
+       // image when the browser later renders it from /uploads.
+       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
++      res.setHeader('X-Content-Type-Options', 'nosniff');
+     }
+   }));
+   app.use(routes);
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 340e325..be21767 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -68,6 +68,7 @@ export const env = {
+   airwallexSandboxPayoutReason: process.env.AIRWALLEX_SANDBOX_PAYOUT_REASON ?? 'services',
+   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
++  googleSignInEnabled: (process.env.GOOGLE_SIGN_IN_ENABLED ?? 'false').toLowerCase() === 'true',
+   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
+   googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID ?? '',
+   googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID ?? '',
+@@ -136,9 +137,13 @@ export function validateProductionEnv() {
+   const errors: string[] = [];
+   if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
+   if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
++  if (env.adminRequireTwoFactor && (!env.twoFactorEncryptionSecret || env.twoFactorEncryptionSecret.length < 32)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong secret when admin two-step verification is required.');
+   if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
+   if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
+   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
++  const googleClientIdsConfigured = Boolean(env.googleWebClientId || env.googleIosClientId || env.googleAndroidClientId);
++  if (env.googleSignInEnabled && !googleClientIdsConfigured) errors.push('GOOGLE_SIGN_IN_ENABLED=true requires at least one Google OAuth client ID.');
++  if (!env.googleSignInEnabled && googleClientIdsConfigured) errors.push('Google OAuth client IDs are configured while GOOGLE_SIGN_IN_ENABLED=false. Keep Google sign-in disabled for first launch or explicitly enable it later.');
+   const moneyConfigured = env.moneyProvider !== 'none' || env.moneyFeaturesVisible || env.walletVisible || env.payoutsVisible || env.moneyTradesEnabled || env.cashTradesEnabled;
+   if (moneyConfigured && !env.moneyProductionEnabled) {
+     errors.push('Money/wallet/payout features must stay disabled in production unless MONEY_PRODUCTION_ENABLED=true is explicitly set for a separate money launch.');
+diff --git a/apps/api/src/middleware/auth.ts b/apps/api/src/middleware/auth.ts
+index d73ee70..c3166a3 100644
+--- a/apps/api/src/middleware/auth.ts
++++ b/apps/api/src/middleware/auth.ts
+@@ -3,6 +3,8 @@ import { env } from '../config/env.js';
+ import { verifyAccessToken, type AccessTokenPayload } from '../lib/tokens.js';
+ import { prisma } from '../lib/prisma.js';
+ 
++const ADULT_AGE_BUCKET = '18_plus';
++
+ declare global {
+   namespace Express {
+     interface Request {
+@@ -26,9 +28,10 @@ async function resolveTokenUser(token: string) {
+   const payload = verifyAccessToken(token);
+   const user = await prisma.user.findUnique({
+     where: { id: payload.sub },
+-    select: { id: true, email: true, sessionRevokedAt: true },
++    select: { id: true, email: true, sessionRevokedAt: true, ageConfirmedAt: true, declaredAgeBucket: true },
+   });
+   if (!user) return null;
++  if (!user.ageConfirmedAt || user.declaredAgeBucket !== ADULT_AGE_BUCKET) return null;
+   if (tokenIssuedBeforeRevocation(payload, user.sessionRevokedAt)) return null;
+ 
+   if (payload.sid) {
+diff --git a/apps/api/src/modules/auth/auth.routes.ts b/apps/api/src/modules/auth/auth.routes.ts
+index 5d0eb1e..9ab2b0a 100644
+--- a/apps/api/src/modules/auth/auth.routes.ts
++++ b/apps/api/src/modules/auth/auth.routes.ts
+@@ -20,6 +20,7 @@ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { signAccessToken } from '../../lib/tokens.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { createRateLimiter, ipAndBodyFieldRateLimitKey } from '../../middleware/rateLimit.js';
+ import { buildOtpAuthUrl, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotpCode } from './totp.js';
+ 
+ export const authRoutes = Router();
+@@ -32,6 +33,29 @@ const TWO_FACTOR_CHALLENGE_BYTES = 32;
+ const POLICY_VERSION = '2026-05-14';
+ const ADULT_AGE_BUCKET = '18_plus';
+ 
++const authMutationRateLimit = createRateLimiter({
++  keyPrefix: 'auth:mutation',
++  windowMs: 15 * 60 * 1000,
++  max: 60,
++  message: 'Too many authentication requests. Please wait and try again.',
++});
++
++const loginRateLimit = createRateLimiter({
++  keyPrefix: 'auth:login',
++  windowMs: 15 * 60 * 1000,
++  max: 8,
++  keyGenerator: ipAndBodyFieldRateLimitKey('email'),
++  message: 'Too many login attempts. Please wait before trying again.',
++});
++
++const accountRecoveryRateLimit = createRateLimiter({
++  keyPrefix: 'auth:recovery',
++  windowMs: 60 * 60 * 1000,
++  max: 5,
++  keyGenerator: ipAndBodyFieldRateLimitKey('email'),
++  message: 'Too many account recovery requests. Please wait before trying again.',
++});
++
+ function normalizeEmail(email: string) {
+   return email.trim().toLowerCase();
+ }
+@@ -203,7 +227,19 @@ async function issueTwoFactorChallenge(userId: string) {
+   return rawToken;
+ }
+ 
++function hasAdultLaunchUser(input: { ageConfirmedAt?: Date | null; declaredAgeBucket?: string | null }) {
++  return Boolean(input.ageConfirmedAt && input.declaredAgeBucket === ADULT_AGE_BUCKET);
++}
++
++function adultLaunchRequiredError() {
++  const error = new Error('Hellowhen Trade is 18+ for first launch. Confirm your age before continuing.');
++  Object.assign(error, { statusCode: 403, code: 'age_confirmation_required', publicMessage: error.message });
++  return error;
++}
++
+ async function finishLogin(userId: string, userAgent?: string) {
++  const launchUser = await prisma.user.findUnique({ where: { id: userId }, select: { ageConfirmedAt: true, declaredAgeBucket: true } });
++  if (!launchUser || !hasAdultLaunchUser(launchUser)) throw adultLaunchRequiredError();
+   const loggedInUser = await markLogin(userId);
+   const { session, refreshToken } = await createSession(userId, userAgent);
+   return authResponse(loggedInUser, session.id, refreshToken);
+@@ -236,7 +272,7 @@ function freshAuthPayload() {
+   return { ok: true as const, sensitiveActionExpiresAt: sensitiveActionExpiresAt().toISOString() };
+ }
+ 
+-authRoutes.post('/register', asyncRoute(async (req, res) => {
++authRoutes.post('/register', authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = registerRequestSchema.parse(req.body);
+   const email = normalizeEmail(input.email);
+   const passwordHash = await bcrypt.hash(input.password, 12);
+@@ -267,7 +303,7 @@ authRoutes.post('/register', asyncRoute(async (req, res) => {
+   res.status(201).json(authResponse(user, session.id, refreshToken));
+ }));
+ 
+-authRoutes.post('/login', asyncRoute(async (req, res) => {
++authRoutes.post('/login', loginRateLimit, asyncRoute(async (req, res) => {
+   const input = loginRequestSchema.parse(req.body);
+   const email = normalizeEmail(input.email);
+   const user = await prisma.user.findUnique({ where: { email }, include: { profile: true } });
+@@ -285,7 +321,7 @@ authRoutes.post('/login', asyncRoute(async (req, res) => {
+   res.json(await finishLogin(user.id, req.headers['user-agent']));
+ }));
+ 
+-authRoutes.post('/login/2fa', asyncRoute(async (req, res) => {
++authRoutes.post('/login/2fa', loginRateLimit, asyncRoute(async (req, res) => {
+   const input = twoFactorChallengeRequestSchema.parse(req.body);
+   const challenge = await prisma.twoFactorChallenge.findUnique({ where: { tokenHash: hashToken(input.challengeToken) } });
+   if (!challenge || challenge.usedAt || challenge.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+@@ -302,7 +338,10 @@ function hasAdultLaunchConfirmation(input: { acceptedTerms?: boolean; ageConfirm
+   return input.acceptedTerms === true && input.ageConfirmed === true && input.declaredAgeBucket === ADULT_AGE_BUCKET;
+ }
+ 
+-authRoutes.post('/google', asyncRoute(async (req, res) => {
++authRoutes.post('/google', loginRateLimit, asyncRoute(async (req, res) => {
++  if (!env.googleSignInEnabled) {
++    return res.status(404).json({ error: 'google_sign_in_disabled', message: 'Google sign-in is disabled for the first Hellowhen Trade launch.' });
++  }
+   const input = googleAuthRequestSchema.parse(req.body);
+ 
+   let googleUser: Awaited<ReturnType<typeof verifyGoogleIdToken>>;
+@@ -383,11 +422,12 @@ authRoutes.post('/google', asyncRoute(async (req, res) => {
+   res.json(await finishLogin(userId, req.headers['user-agent']));
+ }));
+ 
+-authRoutes.post('/refresh', asyncRoute(async (req, res) => {
++authRoutes.post('/refresh', authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = refreshSessionRequestSchema.parse(req.body);
+   const tokenHash = hashToken(input.refreshToken);
+   const session = await prisma.session.findUnique({ where: { refreshToken: tokenHash }, include: { user: { include: publicUserInclude() } } });
+   if (!session || session.revokedAt || session.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_refresh_token' });
++  if (!hasAdultLaunchUser(session.user)) return res.status(403).json({ error: 'age_confirmation_required', message: 'Hellowhen Trade is 18+ for first launch. Confirm your age before continuing.' });
+   if (session.user.sessionRevokedAt && session.createdAt < session.user.sessionRevokedAt) return res.status(401).json({ error: 'session_revoked' });
+   const nextRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
+   const updated = await prisma.session.update({ where: { id: session.id }, data: { refreshToken: hashToken(nextRefreshToken), expiresAt: refreshTokenExpiresAt(), userAgent: req.headers['user-agent']?.slice(0, 300) || session.userAgent } });
+@@ -402,7 +442,7 @@ authRoutes.post('/logout', asyncRoute(async (req, res) => {
+   res.json({ ok: true });
+ }));
+ 
+-authRoutes.post('/forgot-password', asyncRoute(async (req, res) => {
++authRoutes.post('/forgot-password', accountRecoveryRateLimit, asyncRoute(async (req, res) => {
+   const input = forgotPasswordRequestSchema.parse(req.body);
+   const email = normalizeEmail(input.email);
+   const neutralMessage = 'If that email exists, we sent a password reset link.';
+@@ -423,7 +463,7 @@ authRoutes.post('/forgot-password', asyncRoute(async (req, res) => {
+   res.json({ ok: true, message: neutralMessage, emailSent: emailResult.sent, devResetUrl });
+ }));
+ 
+-authRoutes.post('/reset-password', asyncRoute(async (req, res) => {
++authRoutes.post('/reset-password', authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = resetPasswordRequestSchema.parse(req.body);
+   const tokenHash = hashToken(input.token);
+   const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
+@@ -456,7 +496,7 @@ authRoutes.get('/me', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ user });
+ }));
+ 
+-authRoutes.post('/verify-email/request', requireAuth, asyncRoute(async (req, res) => {
++authRoutes.post('/verify-email/request', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+   if (user.emailVerifiedAt) return res.json({ ok: true, message: 'Email is already verified.', emailSent: false });
+   await prisma.emailVerificationToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
+@@ -469,7 +509,7 @@ authRoutes.post('/verify-email/request', requireAuth, asyncRoute(async (req, res
+   res.json({ ok: true, message: 'If email delivery is configured, a verification link has been sent.', emailSent: emailResult.sent, devVerificationUrl });
+ }));
+ 
+-authRoutes.post('/verify-email/confirm', asyncRoute(async (req, res) => {
++authRoutes.post('/verify-email/confirm', authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = verifyEmailRequestSchema.parse(req.body);
+   const token = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(input.token) } });
+   if (!token || token.usedAt || token.expiresAt < new Date()) return res.status(400).json({ error: 'invalid_or_expired_verification_token', message: 'This email verification link is invalid or expired.' });
+@@ -483,7 +523,7 @@ authRoutes.post('/verify-email/confirm', asyncRoute(async (req, res) => {
+   res.json({ ok: true, message: 'Email verified.', user });
+ }));
+ 
+-authRoutes.post('/2fa/setup', requireAuth, asyncRoute(async (req, res) => {
++authRoutes.post('/2fa/setup', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+   if (user.twoFactorEnabled) return res.status(409).json({ error: 'two_factor_already_enabled', message: 'Authenticator app verification is already enabled.' });
+   const secret = generateTotpSecret();
+@@ -491,7 +531,7 @@ authRoutes.post('/2fa/setup', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ secret, otpauthUrl: buildOtpAuthUrl(user.email, secret), message: 'Add this secret to an authenticator app, then confirm the 6-digit code.' });
+ }));
+ 
+-authRoutes.post('/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
++authRoutes.post('/2fa/enable', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = twoFactorCodeRequestSchema.parse(req.body);
+   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+   if (!user.twoFactorSecretEncrypted) return res.status(400).json({ error: 'two_factor_setup_required', message: 'Start two-step setup first.' });
+@@ -503,7 +543,7 @@ authRoutes.post('/2fa/enable', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ ok: true, recoveryCodes });
+ }));
+ 
+-authRoutes.post('/2fa/disable', requireAuth, asyncRoute(async (req, res) => {
++authRoutes.post('/2fa/disable', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = disableTwoFactorRequestSchema.parse(req.body);
+   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+   if (user.passwordHash) {
+@@ -518,7 +558,7 @@ authRoutes.post('/2fa/disable', requireAuth, asyncRoute(async (req, res) => {
+   res.json({ ok: true });
+ }));
+ 
+-authRoutes.post('/reauthenticate', requireAuth, asyncRoute(async (req, res) => {
++authRoutes.post('/reauthenticate', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+   const input = reauthenticateRequestSchema.parse(req.body);
+   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+   let ok = false;
+diff --git a/apps/api/src/modules/media/media.routes.ts b/apps/api/src/modules/media/media.routes.ts
+index 567ec6b..e1495d5 100644
+--- a/apps/api/src/modules/media/media.routes.ts
++++ b/apps/api/src/modules/media/media.routes.ts
+@@ -1,5 +1,6 @@
+ import crypto from 'node:crypto';
+ import fs from 'node:fs';
++import { promises as fsp } from 'node:fs';
+ import path from 'node:path';
+ import { Router } from 'express';
+ import type { NextFunction, Request, Response } from 'express';
+@@ -15,9 +16,8 @@ fs.mkdirSync(env.uploadDir, { recursive: true });
+ 
+ const storage = multer.diskStorage({
+   destination: (_req, _file, callback) => callback(null, env.uploadDir),
+-  filename: (_req, file, callback) => {
+-    const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+-    callback(null, `${Date.now()}-${crypto.randomUUID()}${ext}`);
++  filename: (_req, _file, callback) => {
++    callback(null, `${Date.now()}-${crypto.randomUUID()}.upload`);
+   }
+ });
+ 
+@@ -43,21 +43,57 @@ function uploadImage(req: Request, res: Response, next: NextFunction) {
+   });
+ }
+ 
++
++type VerifiedUpload = {
++  filename: string;
++  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
++  sizeBytes: number;
++};
++
++function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType'> & { extension: '.jpg' | '.png' | '.webp' } | null {
++  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mimeType: 'image/jpeg', extension: '.jpg' };
++  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mimeType: 'image/png', extension: '.png' };
++  if (buffer.length >= 12 && buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return { mimeType: 'image/webp', extension: '.webp' };
++  return null;
++}
++
++async function removeUploadedFile(filePath: string) {
++  await fsp.rm(filePath, { force: true }).catch(() => undefined);
++}
++
++async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedUpload | null> {
++  const buffer = await fsp.readFile(file.path);
++  const detected = detectImageType(buffer);
++  if (!detected || detected.mimeType !== file.mimetype) {
++    await removeUploadedFile(file.path);
++    return null;
++  }
++
++  const safeBase = path.basename(file.filename, path.extname(file.filename));
++  const verifiedFilename = `${safeBase}${detected.extension}`;
++  const verifiedPath = path.join(env.uploadDir, verifiedFilename);
++  if (verifiedPath !== file.path) await fsp.rename(file.path, verifiedPath);
++  return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: buffer.length };
++}
++
+ export const mediaRoutes = Router();
+ mediaRoutes.use(requireAuth);
+ 
+ mediaRoutes.post('/image', requireActiveAccount, uploadImage, asyncRoute(async (req, res) => {
+   if (!req.file) return res.status(400).json({ error: 'missing_image', message: 'Choose a JPEG, PNG, or WEBP image first.' });
+ 
+-  const url = `/uploads/${req.file.filename}`;
++  const verified = await verifyUploadedImage(req.file);
++  if (!verified) return res.status(415).json({ error: 'unsupported_image_type', message: 'Upload a valid JPEG, PNG, or WEBP image.' });
++
++  const url = `/uploads/${verified.filename}`;
+   const media = await prisma.mediaAsset.create({
+     data: {
+       ownerId: req.user!.id,
+       url,
+-      storageKey: req.file.filename,
+-      filename: req.file.originalname || req.file.filename,
+-      mimeType: req.file.mimetype,
+-      sizeBytes: req.file.size,
++      storageKey: verified.filename,
++      filename: req.file.originalname || verified.filename,
++      mimeType: verified.mimeType,
++      sizeBytes: verified.sizeBytes,
+       status: 'active'
+     }
+   });
+diff --git a/apps/api/src/modules/reports/reports.routes.ts b/apps/api/src/modules/reports/reports.routes.ts
+index 9dff520..98cb7b9 100644
+--- a/apps/api/src/modules/reports/reports.routes.ts
++++ b/apps/api/src/modules/reports/reports.routes.ts
+@@ -1,8 +1,11 @@
+ import { Router } from 'express';
+ import { createReportRequestSchema, type ReportTargetType } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { usersHaveBlockBetween } from '../users/userBlocks.js';
++import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
+ 
+ export const reportsRoutes = Router();
+ 
+@@ -98,6 +101,120 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
+   return media ? { type: targetType, id: media.id, label: media.filename || media.storageKey || 'Media asset', ownerId: media.ownerId, owner: media.owner, status: media.status, url: media.url } : null;
+ }
+ 
++
++type ReportAccessDecision =
++  | { allowed: true }
++  | { allowed: false; status: number; error: string; message: string };
++
++const visiblePlanStatuses = ['open', 'full', 'started'] as const;
++
++async function canReportTarget(actorId: string, target: ReportTargetSummary): Promise<ReportAccessDecision> {
++  if (target.ownerId === actorId) {
++    return { allowed: false, status: 409, error: 'cannot_report_own_content', message: 'You cannot report your own profile or content here. Use support for help with your own trade.' };
++  }
++
++  if (target.ownerId && await usersHaveBlockBetween(actorId, target.ownerId)) {
++    return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'user' || target.type === 'profile') {
++    if (target.status === 'restricted') return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++    return { allowed: true };
++  }
++
++  if (target.type === 'trade') {
++    const trade = await prisma.trade.findFirst({
++      where: {
++        id: target.id,
++        OR: [
++          publicTradeVisibilityWhere(),
++          { ownerId: actorId },
++          { providerId: actorId },
++          { proposals: { some: { applicantId: actorId } } },
++        ],
++      },
++      select: { id: true },
++    });
++    return trade ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'need') {
++    const visibleTrade = await prisma.trade.findFirst({ where: { needId: target.id, ...publicTradeVisibilityWhere() }, select: { id: true } });
++    return visibleTrade ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'offer') {
++    const visibleTrade = await prisma.trade.findFirst({ where: { offerId: target.id, ...publicTradeVisibilityWhere() }, select: { id: true } });
++    return visibleTrade ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'proposal') {
++    const proposal = await prisma.tradeProposal.findFirst({
++      where: {
++        id: target.id,
++        OR: [
++          { applicantId: actorId },
++          { trade: { ownerId: actorId } },
++          { trade: { providerId: actorId } },
++        ],
++      },
++      select: { id: true },
++    });
++    return proposal ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'message') {
++    const message = await prisma.proposalMessage.findFirst({
++      where: {
++        id: target.id,
++        proposal: {
++          OR: [
++            { applicantId: actorId },
++            { trade: { ownerId: actorId } },
++            { trade: { providerId: actorId } },
++          ],
++        },
++      },
++      select: { id: true },
++    });
++    return message ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'plan') {
++    if (!env.plansEnabled) return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++    const plan = await prisma.plan.findFirst({
++      where: {
++        id: target.id,
++        OR: [
++          { status: { in: [...visiblePlanStatuses] } },
++          { participants: { some: { userId: actorId } } },
++        ],
++      },
++      select: { id: true },
++    });
++    return plan ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  if (target.type === 'plan_place') {
++    if (!env.plansEnabled) return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++    const place = await prisma.planPlace.findFirst({
++      where: {
++        id: target.id,
++        plan: {
++          OR: [
++            { status: { in: [...visiblePlanStatuses] } },
++            { participants: { some: { userId: actorId } } },
++          ],
++        },
++      },
++      select: { id: true },
++    });
++    return place ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
++  return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++}
++
+ export async function hydrateReports<T extends ReportRecord>(reports: T[]) {
+   const targets = await Promise.all(reports.map((report) => findReportTarget(report.targetType, report.targetId)));
+   return reports.map((report, index) => ({ ...report, target: targets[index] ?? null }));
+@@ -141,7 +258,8 @@ reportsRoutes.post('/', asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const target = await findReportTarget(input.targetType, input.targetId);
+   if (!target) return res.status(404).json({ error: 'target_not_found', message: 'The reported item could not be found.' });
+-  if (target.ownerId === actorId) return res.status(409).json({ error: 'cannot_report_own_content', message: 'You cannot report your own profile or content here. Use support for help with your own trade.' });
++  const access = await canReportTarget(actorId, target);
++  if (!access.allowed) return res.status(access.status).json({ error: access.error, message: access.message });
+ 
+   const existing = await (prisma as any).report.findFirst({
+     where: { reporterId: actorId, targetType: input.targetType, targetId: input.targetId, status: { in: unresolvedReportStatuses } },
+diff --git a/apps/api/src/modules/support/support.routes.ts b/apps/api/src/modules/support/support.routes.ts
+index 7d9dc79..b373b38 100644
+--- a/apps/api/src/modules/support/support.routes.ts
++++ b/apps/api/src/modules/support/support.routes.ts
+@@ -56,6 +56,26 @@ export async function withOneSupportMessageMedia<T extends SupportMessageWithId>
+ }
+ 
+ 
++async function canReferenceProposal(actorId: string, proposalId?: string) {
++  if (!proposalId) return null;
++  return prisma.tradeProposal.findFirst({
++    where: {
++      id: proposalId,
++      OR: [
++        { applicantId: actorId },
++        { trade: { ownerId: actorId } },
++        { trade: { providerId: actorId } },
++      ],
++    },
++    select: { id: true, tradeId: true },
++  });
++}
++
++async function canReferenceMedia(actorId: string, mediaId?: string) {
++  if (!mediaId) return null;
++  return prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: actorId, status: { not: 'removed' } }, select: { id: true } });
++}
++
+ async function canReportTrade(actorId: string, tradeId?: string) {
+   if (!tradeId) return null;
+   return prisma.trade.findFirst({
+@@ -89,6 +109,10 @@ supportRoutes.post('/tickets', asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const relatedTrade = await canReportTrade(actorId, input.relatedTradeId);
+   if (input.relatedTradeId && !relatedTrade) return res.status(403).json({ error: 'forbidden', message: 'You can only report a trade you created, joined, or proposed to.' });
++  const relatedProposal = await canReferenceProposal(actorId, input.relatedProposalId);
++  if (input.relatedProposalId && !relatedProposal) return res.status(403).json({ error: 'forbidden', message: 'You can only reference a proposal you can access.' });
++  const relatedMedia = await canReferenceMedia(actorId, input.relatedMediaId);
++  if (input.relatedMediaId && !relatedMedia) return res.status(403).json({ error: 'forbidden', message: 'You can only reference your own uploaded media.' });
+ 
+   const ticket = await prisma.$transaction(async (tx) => {
+     const created = await tx.supportTicket.create({
+diff --git a/apps/web/next.config.mjs b/apps/web/next.config.mjs
+index ecd50b3..cac1005 100644
+--- a/apps/web/next.config.mjs
++++ b/apps/web/next.config.mjs
+@@ -5,13 +5,29 @@ const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+ const { loadEnvConfig } = nextEnv;
+ loadEnvConfig(repoRoot);
+ 
++const baseSecurityHeaders = [
++  { key: 'X-Content-Type-Options', value: 'nosniff' },
++  { key: 'X-Frame-Options', value: 'DENY' },
++  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
++  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
++];
++
++const productionSecurityHeaders = process.env.NODE_ENV === 'production'
++  ? [{ key: 'Strict-Transport-Security', value: 'max-age=15552000; includeSubDomains' }]
++  : [];
++
+ /** @type {import('next').NextConfig} */
+ const nextConfig = {
+   turbopack: {
+     root: repoRoot,
+   },
+   async headers() {
++    const securityHeaders = [...baseSecurityHeaders, ...productionSecurityHeaders];
+     return [
++      {
++        source: '/:path*',
++        headers: securityHeaders,
++      },
+       {
+         source: '/admin/:path*',
+         headers: [
+diff --git a/package-lock.json b/package-lock.json
+index 1b0b8f7..866e9f9 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -101,126 +101,6 @@
+         "typescript": "^5.4.5"
+       }
+     },
+-    "apps/web/node_modules/@next/swc-darwin-arm64": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-darwin-arm64/-/swc-darwin-arm64-16.2.5.tgz",
+-      "integrity": "sha512-BW+8PGVmsruomXHsitD8JG6gny9lEdobctjBwvtPF8AKtxGDR7nR35FOl/oK9UAPXBOBm+vx0k8qtpeHOXQMGQ==",
+-      "cpu": [
+-        "arm64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "darwin"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-darwin-x64": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-darwin-x64/-/swc-darwin-x64-16.2.5.tgz",
+-      "integrity": "sha512-ZoCGnCl9LlQJWmqXrZAUlNxvuNmclvE+7zUif+nDydkkehl9FKxHJ+wxSQMj+C37BYFerKiEdX9s9o02ir975Q==",
+-      "cpu": [
+-        "x64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "darwin"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-linux-arm64-gnu": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-16.2.5.tgz",
+-      "integrity": "sha512-AwcZzMChaWkOTZt3vu+2ZMIj8g4dYQY+B8VUVhlFSQ2JtvyZpefyYHTe00D6b6L7BysYw7vl3zsvs9jix8tl5Q==",
+-      "cpu": [
+-        "arm64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "linux"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-linux-arm64-musl": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-16.2.5.tgz",
+-      "integrity": "sha512-QqMgqWbCBFsfiQ7BF3dUlW8HJy1LWhpcqbTpoHMWA9IV+TnWwDKozQJA5NdIAHjQ00yX2Q7AUkLr/XK4n77q8A==",
+-      "cpu": [
+-        "arm64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "linux"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-linux-x64-gnu": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-16.2.5.tgz",
+-      "integrity": "sha512-3hzeiFGZtyATVx9pCeuzTshXmh50vHZitqaeZiyJZaUmjQyrfjsVUgS8apOj1vEJCIpKJM/55F45yPAV2kpjsA==",
+-      "cpu": [
+-        "x64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "linux"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-linux-x64-musl": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.2.5.tgz",
+-      "integrity": "sha512-0mzZV/mAt7Qj2tYNdTB6AqrS8dwng/AQLSYC5Z1YLpZdi2wxqKDPK7RY2RvjB1fXyJfOfdA3l/yTF5yLi+WfuQ==",
+-      "cpu": [
+-        "x64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "linux"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-win32-arm64-msvc": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-16.2.5.tgz",
+-      "integrity": "sha512-f/H4nZ2zJBvA8/+HpsB9mNonF9zfQoAU6D0WxJrfzhJDvJLfngVN85oqxUyrDVK99DIFfFYhLpGa5K+c5uotSw==",
+-      "cpu": [
+-        "arm64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "win32"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+-    "apps/web/node_modules/@next/swc-win32-x64-msvc": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-16.2.5.tgz",
+-      "integrity": "sha512-nuP7DHs4koAojsIxVPkihNgKiRUKtCU65j5X6DAbSy8VBrfT/o90bCLLHPf51JEdOZwZMFzM6e0NiGWfIWjVAg==",
+-      "cpu": [
+-        "x64"
+-      ],
+-      "optional": true,
+-      "os": [
+-        "win32"
+-      ],
+-      "engines": {
+-        "node": ">= 10"
+-      }
+-    },
+     "apps/web/node_modules/@types/react": {
+       "version": "19.1.17",
+       "resolved": "https://registry.npmjs.org/@types/react/-/react-19.1.17.tgz",
+@@ -242,12 +122,12 @@
+       }
+     },
+     "apps/web/node_modules/next": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/next/-/next-16.2.5.tgz",
+-      "integrity": "sha512-TkVTm9F2WEulkgGljm4wPwNgvCCWCVw6StUHsZb8WZpHFRjepoUWg3d7L4IMg7IyjcJ4Co9eVhpro8e8O+KarQ==",
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/next/-/next-16.2.6.tgz",
++      "integrity": "sha512-qOVgKJg1+At15NpeUP+eJgCHvTCgXsogweq87Ri/Ix7PkqQHg4sdaXmSFqKlgaIXE4kW0g25LE68W87UANlHtw==",
+       "license": "MIT",
+       "dependencies": {
+-        "@next/env": "16.2.5",
++        "@next/env": "16.2.6",
+         "@swc/helpers": "0.5.15",
+         "baseline-browser-mapping": "^2.9.19",
+         "caniuse-lite": "^1.0.30001579",
+@@ -261,14 +141,14 @@
+         "node": ">=20.9.0"
+       },
+       "optionalDependencies": {
+-        "@next/swc-darwin-arm64": "16.2.5",
+-        "@next/swc-darwin-x64": "16.2.5",
+-        "@next/swc-linux-arm64-gnu": "16.2.5",
+-        "@next/swc-linux-arm64-musl": "16.2.5",
+-        "@next/swc-linux-x64-gnu": "16.2.5",
+-        "@next/swc-linux-x64-musl": "16.2.5",
+-        "@next/swc-win32-arm64-msvc": "16.2.5",
+-        "@next/swc-win32-x64-msvc": "16.2.5",
++        "@next/swc-darwin-arm64": "16.2.6",
++        "@next/swc-darwin-x64": "16.2.6",
++        "@next/swc-linux-arm64-gnu": "16.2.6",
++        "@next/swc-linux-arm64-musl": "16.2.6",
++        "@next/swc-linux-x64-gnu": "16.2.6",
++        "@next/swc-linux-x64-musl": "16.2.6",
++        "@next/swc-win32-arm64-msvc": "16.2.6",
++        "@next/swc-win32-x64-msvc": "16.2.6",
+         "sharp": "^0.34.5"
+       },
+       "peerDependencies": {
+@@ -4632,11 +4512,139 @@
+       }
+     },
+     "node_modules/@next/env": {
+-      "version": "16.2.5",
+-      "resolved": "https://registry.npmjs.org/@next/env/-/env-16.2.5.tgz",
+-      "integrity": "sha512-Lb9ElHD2klcyeVD25vW+siPFqz9QMzDUSgvFZNO+dZEKoMHex4viJhVuzBhrXKqb+UKnih7mVYbt50/7KLsSCA==",
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/env/-/env-16.2.6.tgz",
++      "integrity": "sha512-gd8HoHN4ufj73WmR3JmVolrpJR47ILK6LouP5xElPglaVxir6e1a7VzvTvDWkOoPXT9rkkTzyCxBu4yeZfZwcw==",
+       "license": "MIT"
+     },
++    "node_modules/@next/swc-darwin-arm64": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-darwin-arm64/-/swc-darwin-arm64-16.2.6.tgz",
++      "integrity": "sha512-ZJGkkcNfYgrrMkqOdZ7zoLa1TOy0qpcMfk/z4Mh/FKUz40gVO+HNQWqmLxf67Z5WB64DRp0dhEbyHfel+6sJUg==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-darwin-x64": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-darwin-x64/-/swc-darwin-x64-16.2.6.tgz",
++      "integrity": "sha512-v/YLBHIY132Ced3puBJ7YJKw1lqsCrgcNo2aRJlCEyQrrCeRJlvGlnmxhPxNQI3KE3N1DN5r9TPNPvka3nq5RQ==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-arm64-gnu": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-arm64-gnu/-/swc-linux-arm64-gnu-16.2.6.tgz",
++      "integrity": "sha512-RPOvqlYBbcQjkz9VQQDZ2T2bARIjXZV1KFlt+V2Mr6SW/e4I9fcKsaA0hdyf2FHoTlsV2xnBd5Y912rP/1Ce6w==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-arm64-musl": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-arm64-musl/-/swc-linux-arm64-musl-16.2.6.tgz",
++      "integrity": "sha512-URUTu1+dMkxJsPFgm+OeEvq9wf5sujw0EvgYy80TDGHTSLTnIHeqb0Eu8A3sC95IRgjejQL+kC4mw+4yPxiAXA==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-x64-gnu": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-x64-gnu/-/swc-linux-x64-gnu-16.2.6.tgz",
++      "integrity": "sha512-DOj182mPV8G3UkrayLoREM5YEYI+Dk5wv7Ox9xl1fFibAELEsFD0lDPfHIeILlutMMfdyhlzYPELG3peuKaurw==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-linux-x64-musl": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-linux-x64-musl/-/swc-linux-x64-musl-16.2.6.tgz",
++      "integrity": "sha512-HKQ5SP/V/ub73UvF7n/zeJlxk2kLmtL7Wzrg4WfmkjmNos5onJ2tKu7yZOPdL18A6Svfn3max29ym+ry7NkK4g==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-win32-arm64-msvc": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-win32-arm64-msvc/-/swc-win32-arm64-msvc-16.2.6.tgz",
++      "integrity": "sha512-LZXpTlPyS5v7HhSmnvsLGP3iIYgYOBnc8r8ArlT55sGHV89bR2HlDdBjWQ+PY6SJMmk8TuVGFuxalnP3k/0Dwg==",
++      "cpu": [
++        "arm64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
++    "node_modules/@next/swc-win32-x64-msvc": {
++      "version": "16.2.6",
++      "resolved": "https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public/@next/swc-win32-x64-msvc/-/swc-win32-x64-msvc-16.2.6.tgz",
++      "integrity": "sha512-F0+4i0h9J6C4eE3EAPWsoCk7UW/dbzOjyzxY0qnDUOYFu6FFmdZ6l97/XdV3/Nz3VYyO7UWjyEJUXkGqcoXfMA==",
++      "cpu": [
++        "x64"
++      ],
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">= 10"
++      }
++    },
+     "node_modules/@nodelib/fs.scandir": {
+       "version": "2.1.5",
+       "resolved": "https://registry.npmjs.org/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz",
+diff --git a/package.json b/package.json
+index 27f5447..80816f7 100644
+--- a/package.json
++++ b/package.json
+@@ -13,6 +13,7 @@
+     "stop:dev": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
+     "build": "npm run build --workspaces --if-present",
+     "typecheck": "npm run typecheck --workspaces --if-present",
++    "lint": "npm run typecheck",
+     "prisma:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
+     "prisma:migrate": "prisma migrate dev --schema apps/api/prisma/schema.prisma",
+     "prisma:validate": "prisma validate --schema apps/api/prisma/schema.prisma",

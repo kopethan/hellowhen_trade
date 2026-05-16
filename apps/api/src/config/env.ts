@@ -68,6 +68,7 @@ export const env = {
   airwallexSandboxPayoutReason: process.env.AIRWALLEX_SANDBOX_PAYOUT_REASON ?? 'services',
   webAppUrl: process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:3000',
   mobileAppUrl: process.env.MOBILE_APP_URL ?? 'hellowhen://',
+  googleSignInEnabled: (process.env.GOOGLE_SIGN_IN_ENABLED ?? 'false').toLowerCase() === 'true',
   googleWebClientId: process.env.GOOGLE_WEB_CLIENT_ID ?? '',
   googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID ?? '',
   googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID ?? '',
@@ -136,9 +137,13 @@ export function validateProductionEnv() {
   const errors: string[] = [];
   if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
   if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
+  if (env.adminRequireTwoFactor && (!env.twoFactorEncryptionSecret || env.twoFactorEncryptionSecret.length < 32)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong secret when admin two-step verification is required.');
   if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
   if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
+  const googleClientIdsConfigured = Boolean(env.googleWebClientId || env.googleIosClientId || env.googleAndroidClientId);
+  if (env.googleSignInEnabled && !googleClientIdsConfigured) errors.push('GOOGLE_SIGN_IN_ENABLED=true requires at least one Google OAuth client ID.');
+  if (!env.googleSignInEnabled && googleClientIdsConfigured) errors.push('Google OAuth client IDs are configured while GOOGLE_SIGN_IN_ENABLED=false. Keep Google sign-in disabled for first launch or explicitly enable it later.');
   const moneyConfigured = env.moneyProvider !== 'none' || env.moneyFeaturesVisible || env.walletVisible || env.payoutsVisible || env.moneyTradesEnabled || env.cashTradesEnabled;
   if (moneyConfigured && !env.moneyProductionEnabled) {
     errors.push('Money/wallet/payout features must stay disabled in production unless MONEY_PRODUCTION_ENABLED=true is explicitly set for a separate money launch.');
