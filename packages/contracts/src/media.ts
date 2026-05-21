@@ -41,11 +41,8 @@ export const adminListMediaQuerySchema = z.object({
 export const updateMediaStatusRequestSchema = z.object({
   status: mediaAssetStatusSchema,
   reviewNote: z.string().trim().max(500).optional(),
-}).refine((value) => {
-  if (!['flagged', 'removed'].includes(value.status)) return true;
-  return Boolean(value.reviewNote && value.reviewNote.length >= 3);
-}, {
-  message: 'Add a short review note when flagging or removing an image.',
+}).refine((value) => Boolean(value.reviewNote && value.reviewNote.length >= 3), {
+  message: 'Add a short review note before changing an image moderation status.',
   path: ['reviewNote'],
 });
 

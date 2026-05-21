@@ -60,6 +60,7 @@ export default function AdminSupportPage() {
   const [selectedTicket, setSelectedTicket] = useState<AdminTicketItem | null>(null);
   const [deepLinkTicketId, setDeepLinkTicketId] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
+  const [ticketNote, setTicketNote] = useState('');
   const [internal, setInternal] = useState(false);
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -119,6 +120,7 @@ export default function AdminSupportPage() {
       if (!response.ok) throw new Error('Could not open support ticket. It may have been deleted or your admin session may need refreshing.');
       const data = await response.json() as TicketResponse;
       setSelectedTicket(data.ticket);
+      setTicketNote('');
       setTickets((current) => current.some((item) => item.id === data.ticket.id) ? current.map((item) => item.id === data.ticket.id ? data.ticket : item) : [data.ticket, ...current]);
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not open ticket.' });
@@ -129,14 +131,19 @@ export default function AdminSupportPage() {
 
   async function updateTicket(next: { status?: SupportTicketStatus; priority?: SupportTicketPriority; assignedAdminId?: string | null }) {
     if (!token || !selectedTicket) return;
+    if (next.status && next.status !== selectedTicket.status && !ticketNote.trim()) {
+      setNotice({ tone: 'warning', body: 'Add an internal note before changing or reopening ticket status.' });
+      return;
+    }
     setLoading(true);
     setNotice(null);
     try {
-      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}`, { method: 'PATCH', headers, body: JSON.stringify(next) });
+      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}`, { method: 'PATCH', headers, body: JSON.stringify({ ...next, note: ticketNote.trim() || undefined }) });
       if (!response.ok) throw new Error('Could not update support ticket.');
       const data = await response.json() as TicketResponse;
       setSelectedTicket(data.ticket);
       setTickets((current) => current.map((item) => item.id === data.ticket.id ? data.ticket : item));
+      if (next.status && next.status !== selectedTicket.status) setTicketNote('');
       setNotice({ tone: 'success', body: 'Support ticket updated and written to the admin audit log.' });
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update ticket.' });
@@ -230,7 +237,9 @@ export default function AdminSupportPage() {
                 {selectedTicket.relatedProposalId ? <span className="semantic-badge proposal">Proposal {selectedTicket.relatedProposalId}</span> : null}
                 {selectedTicket.relatedMediaId ? <span className="semantic-badge warning">Media {selectedTicket.relatedMediaId}</span> : null}
               </div>
+              <textarea value={ticketNote} onChange={(event) => setTicketNote(event.target.value)} placeholder="Internal admin note. Required before changing or reopening ticket status." rows={3} />
               <div className="admin-action-grid">
+                <button type="button" className="success" onClick={() => { void updateTicket({ status: 'open' }); }} disabled={loading || selectedTicket.status === 'open'}>Reopen</button>
                 <button type="button" className="warning" onClick={() => { void updateTicket({ status: 'in_review' }); }} disabled={loading}>Mark in review</button>
                 <button type="button" className="secondary" onClick={() => { void updateTicket({ status: 'waiting_for_user' }); }} disabled={loading}>Waiting for user</button>
                 <button type="button" className="success" onClick={() => { void updateTicket({ status: 'resolved' }); }} disabled={loading}>Resolve</button>
@@ -240,6 +249,7 @@ export default function AdminSupportPage() {
                 <button type="button" className="secondary" onClick={() => { void updateTicket({ assignedAdminId: currentAdminId }); }} disabled={loading || !currentAdminId}>Claim ticket</button>
                 <button type="button" className="secondary" onClick={() => { void updateTicket({ assignedAdminId: null }); }} disabled={loading}>Unassign</button>
               </div>
+              <p className="notice-box info">Status changes are reversible. Reopen resolved or closed tickets with a note instead of deleting ticket history.</p>
               <div className="support-thread">
                 {selectedTicket.messages?.map((item) => (
                   <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}>

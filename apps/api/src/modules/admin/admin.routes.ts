@@ -377,19 +377,23 @@ adminRoutes.patch('/reports/:reportId/action', asyncRoute(async (req, res) => {
   const note = input.note?.trim();
   const now = new Date();
 
+  const noteRequiredActions = new Set(['reopen', 'resolve', 'dismiss', 'hide_target', 'restore_target', 'suspend_target_owner', 'unsuspend_target_owner', 'escalate_to_support']);
+  if (noteRequiredActions.has(input.action) && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before resolving, dismissing, reopening, restoring, escalating, hiding content, or changing user restrictions.' });
+  }
+
   if (input.action === 'escalate_to_support') {
-    if (!note) return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before escalating a report to support.' });
     const { report, supportTicket } = await escalateReportToSupportTicket(existing, req.user!.id, note);
     const [hydrated] = await hydrateReports([report]);
     return res.json({ report: hydrated, supportTicket: supportTicket ? await withOneSupportTicketMedia(supportTicket, 'admin') : null });
   }
 
-  if (input.action === 'hide_target' || input.action === 'suspend_target_owner') {
-    const moderated = await moderateReportedTarget(existing.targetType, existing.targetId, input.action, req.user!.id);
+  if (input.action === 'hide_target' || input.action === 'restore_target' || input.action === 'suspend_target_owner' || input.action === 'unsuspend_target_owner') {
+    const moderated = await moderateReportedTarget(existing.targetType, existing.targetId, input.action, req.user!.id, note);
     if (!moderated) return res.status(409).json({ error: 'report_target_action_not_supported', message: 'This report target cannot be moderated with that action.' });
   }
 
-  const nextStatus = input.action === 'mark_reviewing' ? 'reviewing' : input.action === 'dismiss' ? 'dismissed' : 'resolved';
+  const nextStatus = input.action === 'mark_reviewing' ? 'reviewing' : input.action === 'reopen' ? 'pending' : input.action === 'dismiss' ? 'dismissed' : 'resolved';
   const updated = await prisma.$transaction(async (tx: any) => {
     const report = await (tx as any).report.update({
       where: { id: existing.id },
@@ -648,7 +652,10 @@ adminRoutes.patch('/users/:userId/moderation', asyncRoute(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
   const now = new Date();
-  const note = input.note?.trim() || (input.action === 'suspend' ? 'Suspended by admin moderation action.' : undefined);
+  const note = input.note?.trim();
+  if (['suspend', 'restore', 'force_logout'].includes(input.action) && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before suspending, restoring, or force-logging-out a user.' });
+  }
   const nextTrustTier = input.action === 'suspend'
     ? 'restricted'
     : input.action === 'restore'
@@ -749,6 +756,9 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
   const note = input.note?.trim();
   const contentId = req.params.contentId;
   if (!contentId) return res.status(400).json({ error: 'content_id_required' });
+  if (['hide', 'restore', 'close'].includes(input.action) && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before hiding, restoring, or closing content.' });
+  }
 
   const existing = await loadAdminContentItem(type, contentId);
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -1800,6 +1810,10 @@ adminRoutes.patch('/support/tickets/:ticketId', asyncRoute(async (req, res) => {
   const existing = await prisma.supportTicket.findUnique({ where: { id: req.params.ticketId } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const status = input.status ?? existing.status;
+  const note = input.note?.trim();
+  if (input.status && input.status !== existing.status && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before changing support ticket status.' });
+  }
   const updated = await prisma.supportTicket.update({
     where: { id: existing.id },
     data: {
@@ -1814,8 +1828,9 @@ adminRoutes.patch('/support/tickets/:ticketId', asyncRoute(async (req, res) => {
     action: 'support.ticket.update',
     targetType: 'support_ticket',
     targetId: existing.id,
-    previousValue: { status: existing.status, priority: existing.priority, assignedAdminId: existing.assignedAdminId },
-    nextValue: { status: updated.status, priority: updated.priority, assignedAdminId: updated.assignedAdminId },
+    reason: note,
+    previousValue: { status: existing.status, priority: existing.priority, assignedAdminId: existing.assignedAdminId, resolvedAt: existing.resolvedAt },
+    nextValue: { status: updated.status, priority: updated.priority, assignedAdminId: updated.assignedAdminId, resolvedAt: updated.resolvedAt },
   });
   res.json({ ticket: await withOneSupportTicketMedia(updated, 'admin') });
 }));

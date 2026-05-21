@@ -190,8 +190,8 @@ export default function AdminHomePage() {
 
   async function moderateUser(action: 'suspend' | 'restore' | 'mark_reviewed' | 'force_logout', restoreTier: UserTrustTier = 'new') {
     if (!token || !selectedUser) return;
-    if ((action === 'suspend' || action === 'restore') && !note.trim()) {
-      setNotice({ tone: 'warning', body: 'Add an internal note before suspending or restoring a user.' });
+    if ((action === 'suspend' || action === 'restore' || action === 'force_logout') && !note.trim()) {
+      setNotice({ tone: 'warning', body: 'Add an internal note before suspending, restoring, or force-logging-out a user.' });
       return;
     }
     setLoading(true);
@@ -442,7 +442,7 @@ export default function AdminHomePage() {
                   <Link className="button secondary" href={`/users/${selectedUser.id}`}>View public profile</Link>
                 </div>
               </div>
-              <p className="notice-box warning">Do not delete users for launch moderation. Suspend first, add an internal note, then review related support/media/trade/content history.</p>
+              <p className="notice-box warning">Do not delete users for launch moderation. Suspend/restore users with internal notes only; every restriction and reversal stays visible in the audit log.</p>
             </>
           ) : (
             <>

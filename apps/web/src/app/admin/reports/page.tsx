@@ -34,8 +34,11 @@ function reportTone(report: ReportDto) {
 
 function actionHelp(action: ReportAction) {
   if (action === 'hide_target') return 'Hides the reported trade, closes the reported need/offer, or removes the reported media, then resolves the report.';
+  if (action === 'restore_target') return 'Restores the reported content/media when a previous hide or removal should be reversed, then resolves the report.';
   if (action === 'suspend_target_owner') return 'Restricts the target owner account, revokes active sessions, then resolves the report.';
+  if (action === 'unsuspend_target_owner') return 'Restores the target owner to a non-restricted launch tier when a suspension should be reversed, then resolves the report.';
   if (action === 'escalate_to_support') return 'Creates a support ticket for reporter follow-up and moves the report to reviewing.';
+  if (action === 'reopen') return 'Reopens a resolved or dismissed report back to pending for another review.';
   if (action === 'dismiss') return 'Dismisses the report without changing the target.';
   if (action === 'resolve') return 'Marks the report resolved after manual review.';
   return 'Moves the report to reviewing so another admin knows it is being checked.';
@@ -89,8 +92,8 @@ export default function AdminReportsPage() {
 
   async function applyAction(action: ReportAction) {
     if (!token || !selectedReport) return;
-    if (['hide_target', 'suspend_target_owner', 'dismiss', 'resolve', 'escalate_to_support'].includes(action) && !note.trim()) {
-      setNotice({ tone: 'warning', body: 'Add an internal note before resolving, dismissing, escalating, hiding content, or suspending a user.' });
+    if (['reopen', 'hide_target', 'restore_target', 'suspend_target_owner', 'unsuspend_target_owner', 'dismiss', 'resolve', 'escalate_to_support'].includes(action) && !note.trim()) {
+      setNotice({ tone: 'warning', body: 'Add an internal note before resolving, dismissing, reopening, restoring, escalating, hiding content, or changing user restrictions.' });
       return;
     }
     setLoading(true);
@@ -183,16 +186,19 @@ export default function AdminReportsPage() {
               <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Internal admin note. Required before final report decisions." rows={4} />
               <div className="admin-action-grid">
                 <button type="button" className="warning" onClick={() => { void applyAction('mark_reviewing'); }} disabled={loading || !token}>Mark reviewing</button>
+                <button type="button" className="warning" onClick={() => { void applyAction('reopen'); }} disabled={loading || !token || selectedReport.status === 'pending'}>Reopen</button>
                 <button type="button" className="success" onClick={() => { void applyAction('resolve'); }} disabled={loading || !token}>Resolve</button>
                 <button type="button" className="secondary" onClick={() => { void applyAction('dismiss'); }} disabled={loading || !token}>Dismiss</button>
                 <button type="button" className="warning" onClick={() => { void applyAction('escalate_to_support'); }} disabled={loading || !token || Boolean(selectedReport.escalatedSupportTicketId)}>Escalate to support</button>
                 <button type="button" className="danger" onClick={() => { void applyAction('hide_target'); }} disabled={loading || !token}>Hide target</button>
+                <button type="button" className="success" onClick={() => { void applyAction('restore_target'); }} disabled={loading || !token}>Restore target</button>
                 <button type="button" className="danger" onClick={() => { void applyAction('suspend_target_owner'); }} disabled={loading || !token}>Suspend owner</button>
+                <button type="button" className="success" onClick={() => { void applyAction('unsuspend_target_owner'); }} disabled={loading || !token}>Unsuspend owner</button>
                 {selectedReport.escalatedSupportTicketId ? <Link className="button secondary" href={`/admin/support?ticketId=${selectedReport.escalatedSupportTicketId}`}>Open support ticket</Link> : null}
                 {selectedReport.target?.url?.startsWith('/') ? <Link className="button secondary" href={selectedReport.target.url}>Open target</Link> : null}
                 {selectedReport.target?.ownerId ? <Link className="button secondary" href={`/users/${selectedReport.target.ownerId}`}>Open owner profile</Link> : null}
               </div>
-              <p className="notice-box warning">{actionHelp('escalate_to_support')} {actionHelp('hide_target')} {actionHelp('suspend_target_owner')}</p>
+              <p className="notice-box warning">Report actions are reversible: reopen reports, restore targets, or unsuspend owners with an internal note. {actionHelp('hide_target')} {actionHelp('suspend_target_owner')}</p>
             </>
           ) : (
             <>

@@ -76,7 +76,7 @@ export const adminListReportsQuerySchema = z.object({
 });
 
 export const adminReportActionRequestSchema = z.object({
-  action: z.enum(['mark_reviewing', 'resolve', 'dismiss', 'hide_target', 'suspend_target_owner', 'escalate_to_support']),
+  action: z.enum(['mark_reviewing', 'reopen', 'resolve', 'dismiss', 'hide_target', 'restore_target', 'suspend_target_owner', 'unsuspend_target_owner', 'escalate_to_support']),
   note: z.string().trim().min(3).max(1200).optional(),
 });
 

@@ -220,35 +220,74 @@ export async function hydrateReports<T extends ReportRecord>(reports: T[]) {
   return reports.map((report, index) => ({ ...report, target: targets[index] ?? null }));
 }
 
-export async function moderateReportedTarget(targetType: ReportTargetType, targetId: string, action: 'hide_target' | 'suspend_target_owner', adminId: string) {
+export async function moderateReportedTarget(targetType: ReportTargetType, targetId: string, action: 'hide_target' | 'restore_target' | 'suspend_target_owner' | 'unsuspend_target_owner', adminId: string, note?: string | null) {
   const target = await findReportTarget(targetType, targetId);
   if (!target) return null;
+  const reason = note?.trim() || 'Admin report queue moderation action.';
 
-  if (action === 'suspend_target_owner') {
+  if (action === 'suspend_target_owner' || action === 'unsuspend_target_owner') {
     if (!target.ownerId) return null;
+    const existingOwner = await prisma.user.findUnique({ where: { id: target.ownerId }, select: { id: true, role: true, trustTier: true, trustTierNote: true, sessionRevokedAt: true } });
+    if (!existingOwner || existingOwner.role === 'admin' || existingOwner.id === adminId) return null;
     const now = new Date();
+    const restoring = action === 'unsuspend_target_owner';
+    const nextTrustTier = restoring ? 'new' : 'restricted';
     await prisma.$transaction(async (tx: any) => {
-      await tx.user.update({ where: { id: target.ownerId! }, data: { trustTier: 'restricted', trustTierUpdatedAt: now, trustTierNote: 'Restricted from admin report queue.', sessionRevokedAt: now, sensitiveActionVerifiedAt: null } });
-      await tx.session.updateMany({ where: { userId: target.ownerId!, revokedAt: null }, data: { revokedAt: now } });
-      await (tx as any).adminAuditLog?.create({ data: { adminId, action: 'report.target_owner.suspend', targetType: 'user', targetId: target.ownerId, reason: 'Suspended from report queue.', previousValue: { targetType, targetId }, nextValue: { trustTier: 'restricted' } } });
+      await tx.user.update({
+        where: { id: target.ownerId! },
+        data: {
+          trustTier: nextTrustTier,
+          trustTierUpdatedAt: now,
+          trustTierNote: reason,
+          ...(!restoring ? { sessionRevokedAt: now, sensitiveActionVerifiedAt: null } : {}),
+        },
+      });
+      if (!restoring) await tx.session.updateMany({ where: { userId: target.ownerId!, revokedAt: null }, data: { revokedAt: now } });
+      await (tx as any).adminAuditLog?.create({
+        data: {
+          adminId,
+          action: restoring ? 'report.target_owner.unsuspend' : 'report.target_owner.suspend',
+          targetType: 'user',
+          targetId: target.ownerId,
+          reason,
+          previousValue: { trustTier: existingOwner.trustTier, trustTierNote: existingOwner.trustTierNote, sessionRevokedAt: existingOwner.sessionRevokedAt, targetType, targetId },
+          nextValue: { trustTier: nextTrustTier, trustTierNote: reason, sessionRevokedAt: restoring ? existingOwner.sessionRevokedAt : now },
+        },
+      });
     });
     return findReportTarget(targetType, targetId);
   }
 
-  if (targetType === 'trade') await prisma.trade.update({ where: { id: targetId }, data: { isPublic: false } });
-  else if (targetType === 'need') await prisma.need.update({ where: { id: targetId }, data: { status: 'closed' } });
-  else if (targetType === 'offer') await prisma.offer.update({ where: { id: targetId }, data: { status: 'closed' } });
-  else if (targetType === 'plan') await prisma.plan.update({ where: { id: targetId }, data: { status: 'hidden' } });
+  if (targetType === 'trade') {
+    await prisma.trade.update({
+      where: { id: targetId },
+      data: action === 'restore_target' ? { isPublic: true, ...(target.status === 'closed' || target.status === 'expired' ? { status: 'active' as const, closedAt: null } : {}) } : { isPublic: false },
+    });
+  }
+  else if (targetType === 'need') await prisma.need.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'active' : 'closed' } });
+  else if (targetType === 'offer') await prisma.offer.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'active' : 'closed' } });
+  else if (targetType === 'plan') await prisma.plan.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'open' : 'hidden' } });
   else if (targetType === 'plan_place') {
     const place = await prisma.planPlace.findUnique({ where: { id: targetId }, select: { planId: true } });
     if (!place) return null;
-    await prisma.plan.update({ where: { id: place.planId }, data: { status: 'hidden' } });
+    await prisma.plan.update({ where: { id: place.planId }, data: { status: action === 'restore_target' ? 'open' : 'hidden' } });
   }
-  else if (targetType === 'media') await prisma.mediaAsset.update({ where: { id: targetId }, data: { status: 'removed', reviewedAt: new Date(), reviewerId: adminId, reviewNote: 'Removed from admin report queue.' } });
+  else if (targetType === 'media') await prisma.mediaAsset.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'active' : 'removed', reviewedAt: new Date(), reviewerId: adminId, reviewNote: reason } });
   else return null;
 
-  await (prisma as any).adminAuditLog?.create({ data: { adminId, action: `report.target.${targetType}.hide`, targetType, targetId, reason: 'Hidden from report queue.', previousValue: { status: target.status, isPublic: target.isPublic }, nextValue: await findReportTarget(targetType, targetId) } });
-  return findReportTarget(targetType, targetId);
+  const updatedTarget = await findReportTarget(targetType, targetId);
+  await (prisma as any).adminAuditLog?.create({
+    data: {
+      adminId,
+      action: action === 'restore_target' ? `report.target.${targetType}.restore` : `report.target.${targetType}.hide`,
+      targetType,
+      targetId,
+      reason,
+      previousValue: { status: target.status, isPublic: target.isPublic },
+      nextValue: updatedTarget,
+    },
+  });
+  return updatedTarget;
 }
 
 reportsRoutes.use(requireAuth);

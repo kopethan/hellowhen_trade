@@ -39,6 +39,7 @@ export const adminUpdateSupportTicketRequestSchema = z.object({
   status: supportTicketStatusSchema.optional(),
   priority: supportTicketPrioritySchema.optional(),
   assignedAdminId: z.string().nullable().optional(),
+  note: z.string().trim().min(3).max(1200).optional(),
 });
 
 export const adminCreateSupportMessageRequestSchema = z.object({

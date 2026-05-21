@@ -31,6 +31,7 @@ export default function AdminMediaPage() {
   const { token, headers } = useAdminSessionToken();
   const [status, setStatus] = useState<MediaAssetStatus | 'all'>('active');
   const [items, setItems] = useState<AdminMediaItem[]>([]);
+  const [reviewNote, setReviewNote] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -49,15 +50,12 @@ export default function AdminMediaPage() {
 
   async function updateStatus(mediaId: string, nextStatus: MediaAssetStatus) {
     if (!token) return;
+    if (!reviewNote.trim()) { setMessage('Add an internal review note before flagging, removing, or restoring media.'); return; }
     setLoading(true); setMessage(null);
     try {
-      const reviewNote = nextStatus === 'flagged'
-        ? 'Flagged during beta media moderation.'
-        : nextStatus === 'removed'
-          ? 'Removed during beta media moderation.'
-          : undefined;
-      const response = await fetch(`${apiBase}/admin/media/${mediaId}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus, reviewNote }) });
+      const response = await fetch(`${apiBase}/admin/media/${mediaId}/status`, { method: 'PATCH', headers, body: JSON.stringify({ status: nextStatus, reviewNote: reviewNote.trim() }) });
       if (!response.ok) throw new Error('Could not update media status');
+      setReviewNote('');
       await loadMedia();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update media'); }
     finally { setLoading(false); }
@@ -76,6 +74,8 @@ export default function AdminMediaPage() {
           </select>
           <button className="secondary" onClick={() => { void loadMedia(); }} disabled={loading}>Load media</button>
         </div>
+        <textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="Internal review note. Required before flagging, removing, or restoring media." rows={3} style={{ marginTop: 12 }} />
+        <p className="notice-box info">Media moderation is reversible: Restore moves an item back to active, but every change remains in the audit log.</p>
         {message ? <p className="notice-box info">{message}</p> : null}
       </div>
       <div className="media-grid">
