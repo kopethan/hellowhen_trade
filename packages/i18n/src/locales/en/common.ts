@@ -77,5 +77,8 @@ export const common = {
     chooseOneOption: 'Choose one option',
     webAppLabel: 'Hellowhen Trade web app',
     profileUnavailable: 'This public profile could not be loaded.',
+    accountRestrictedTitle: 'Account restricted',
+    accountRestrictedBody: 'Some actions are disabled while the moderation team reviews this account. Contact support if you think this is a mistake.',
+    contactSupport: 'Contact support',
   },
 } as const;

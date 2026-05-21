@@ -1867,3 +1867,58 @@ html[data-theme="dark"] .inventory-empty-state__plus {
   .plan-preview-card, .plan-place-card { grid-template-columns: 1fr; }
   .plan-form__row, .plan-stat-grid, .plan-media-grid, .plan-media-gallery, .plan-feed-card--place { grid-template-columns: 1fr; }
 }
+
+/* Admin session clarity + bulk moderation polish */
+.admin-bulk-bar {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.admin-selectable-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: stretch;
+}
+.admin-selectable-row.is-active .admin-user-row {
+  border-color: var(--proposal-border);
+  background: color-mix(in srgb, var(--proposal-bg) 38%, var(--app-surface));
+}
+.admin-row-check {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+  background: var(--app-surface-soft);
+  cursor: pointer;
+}
+.admin-row-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--proposal-text);
+}
+.notice-box ul {
+  margin: 8px 0 0 18px;
+  padding: 0;
+}
+.notice-box li {
+  margin-top: 4px;
+}
+@media (max-width: 720px) {
+  .admin-bulk-bar { grid-template-columns: 1fr; }
+  .admin-selectable-row { grid-template-columns: 1fr; }
+  .admin-row-check { min-height: 42px; }
+}
+
+/* Admin/report clarity and restricted-account visibility */
+.auth-back-button { justify-self: start; min-height: 36px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 0 13px; font-size: 13px; font-weight: 900; cursor: pointer; }
+.auth-back-button:hover, .auth-back-button:focus-visible { border-color: var(--app-border-strong); background: var(--app-surface); }
+.report-login-callout { display: grid; gap: 10px; border: 1px solid var(--warning-border); border-radius: 18px; background: var(--warning-bg); color: var(--warning-text); padding: 12px; }
+.report-login-callout .meta { color: inherit; }
+.account-restricted-banner { display: grid; gap: 8px; margin: 0 0 16px; border: 1px solid var(--danger-border); border-radius: 24px; background: var(--danger-bg); color: var(--danger-text); padding: 14px; }
+.account-restricted-banner p { margin: 0; color: inherit; font-size: 13px; font-weight: 750; line-height: 1.45; }
+.account-restricted-banner .button { justify-self: start; }

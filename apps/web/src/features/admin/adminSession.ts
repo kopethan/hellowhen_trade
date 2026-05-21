@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { clearAuthTokens, getAccessToken } from '../../lib/webTokenStore';
+import { AUTH_TOKENS_CHANGED_EVENT, clearAuthTokens, getAccessToken } from '../../lib/webTokenStore';
 
 const legacyAdminTokenKey = 'hellowhen:admin_access_token';
 
@@ -26,9 +26,11 @@ export function useAdminSessionToken() {
     refreshToken();
     window.addEventListener('storage', refreshToken);
     window.addEventListener('focus', refreshToken);
+    window.addEventListener(AUTH_TOKENS_CHANGED_EVENT, refreshToken);
     return () => {
       window.removeEventListener('storage', refreshToken);
       window.removeEventListener('focus', refreshToken);
+      window.removeEventListener(AUTH_TOKENS_CHANGED_EVENT, refreshToken);
     };
   }, [refreshToken]);
 

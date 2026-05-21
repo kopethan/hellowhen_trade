@@ -1,15 +1,18 @@
 'use client';
 
+import Link from 'next/link';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { isUtilityRoute } from '../lib/webRoutes';
 import { WebBottomTabs } from './WebBottomTabs';
 import { WebTopHeader } from './WebTopHeader';
 import { useWebTranslation } from '../providers/WebI18nProvider';
+import { useWebAuth } from '../providers/WebAuthProvider';
 
 export function WebMobileShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '/';
   const { t } = useWebTranslation();
+  const auth = useWebAuth();
   const utility = isUtilityRoute(pathname);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -42,7 +45,16 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
     <main className="web-app-viewport">
       <section className="web-app-shell" aria-label={t('common.messages.webAppLabel')}>
         <WebTopHeader />
-        <div ref={scrollAreaRef} className="web-scroll-area">{children}</div>
+        <div ref={scrollAreaRef} className="web-scroll-area">
+          {auth.user?.trustTier === 'restricted' ? (
+            <section className="account-restricted-banner" role="status">
+              <strong>{t('common.messages.accountRestrictedTitle')}</strong>
+              <p>{t('common.messages.accountRestrictedBody')}</p>
+              <Link className="button secondary" href="/support">{t('common.messages.contactSupport')}</Link>
+            </section>
+          ) : null}
+          {children}
+        </div>
         <button
           type="button"
           className={showScrollTop ? 'web-scroll-top-button is-visible' : 'web-scroll-top-button'}

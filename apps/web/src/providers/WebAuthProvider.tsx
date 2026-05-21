@@ -65,6 +65,12 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
+  const clearAuthenticatedState = useCallback(() => {
+    clearAuthTokens();
+    saveCachedUser(null);
+    setUser(null);
+  }, []);
+
   const applyAuthResult = useCallback(async (result: AuthMeResponse) => {
     persistReturnedTokens(result);
     setUser(result.user);
@@ -89,12 +95,19 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
       await applyAuthResult(result);
     } catch (error) {
       if (isAuthError(error)) {
-        const refreshed = await refreshSession();
-        if (refreshed) return;
+        try {
+          const refreshed = await refreshSession();
+          if (refreshed) return;
+        } catch {
+          clearAuthenticatedState();
+          return;
+        }
+        clearAuthenticatedState();
+        return;
       }
       throw error;
     }
-  }, [applyAuthResult, refreshSession]);
+  }, [applyAuthResult, clearAuthenticatedState, refreshSession]);
 
   useEffect(() => {
     let mounted = true;
@@ -131,6 +144,28 @@ export function WebAuthProvider({ children }: { children: React.ReactNode }) {
     void hydrateSession();
     return () => { mounted = false; };
   }, [applyAuthResult]);
+
+
+  useEffect(() => {
+    if (!hydrated || !user) return undefined;
+
+    const refreshActiveSession = () => {
+      void refreshMe().catch(() => undefined);
+    };
+    const refreshOnVisibility = () => {
+      if (document.visibilityState === 'visible') refreshActiveSession();
+    };
+
+    const interval = window.setInterval(refreshActiveSession, 5 * 60 * 1000);
+    window.addEventListener('focus', refreshActiveSession);
+    document.addEventListener('visibilitychange', refreshOnVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshActiveSession);
+      document.removeEventListener('visibilitychange', refreshOnVisibility);
+    };
+  }, [hydrated, refreshMe, user?.id]);
 
   const value = useMemo<AuthContextValue>(() => ({
     user,

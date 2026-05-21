@@ -77,5 +77,8 @@ export const common = {
     chooseOneOption: 'Choisissez une option',
     webAppLabel: 'Application web Hellowhen Trade',
     profileUnavailable: 'Ce profil public n’a pas pu être chargé.',
+    accountRestrictedTitle: 'Compte restreint',
+    accountRestrictedBody: 'Certaines actions sont désactivées pendant l’examen de ce compte par la modération. Contacte l’assistance si tu penses qu’il s’agit d’une erreur.',
+    contactSupport: 'Contacter l’assistance',
   },
 } as const;

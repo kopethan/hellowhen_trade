@@ -13,8 +13,10 @@ type TicketsResponse = { tickets: AdminTicketItem[] };
 type TicketResponse = { ticket: AdminTicketItem };
 type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
 type AssignedFilter = 'all' | 'unassigned' | 'mine';
+type LastAction = { tone: NoticeTone; title: string; body: string; details?: string[] };
 
 const statuses: Array<SupportTicketStatus | 'all'> = ['all', 'open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
+const bulkStatuses: SupportTicketStatus[] = ['open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
 const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
 const priorities: Array<SupportTicketPriority | 'all'> = ['all', 'low', 'normal', 'high', 'urgent'];
 const assignedFilters: AssignedFilter[] = ['all', 'unassigned', 'mine'];
@@ -58,12 +60,16 @@ export default function AdminSupportPage() {
   const [query, setQuery] = useState('');
   const [tickets, setTickets] = useState<AdminTicketItem[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<AdminTicketItem | null>(null);
+  const [selectedTicketIds, setSelectedTicketIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<SupportTicketStatus>('in_review');
   const [deepLinkTicketId, setDeepLinkTicketId] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
   const [ticketNote, setTicketNote] = useState('');
   const [internal, setInternal] = useState(false);
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
+  const [lastAction, setLastAction] = useState<LastAction | null>(null);
   const [loading, setLoading] = useState(false);
+
   useEffect(() => {
     const ticketId = new URLSearchParams(window.location.search).get('ticketId');
     if (ticketId) setDeepLinkTicketId(ticketId);
@@ -80,6 +86,8 @@ export default function AdminSupportPage() {
     clearAdminBrowserSession();
     setTickets([]);
     setSelectedTicket(null);
+    setSelectedTicketIds([]);
+    setLastAction(null);
     setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
   }
 
@@ -94,6 +102,11 @@ export default function AdminSupportPage() {
     return text ? `?${text}` : '';
   }
 
+  function upsertTicket(nextTicket: AdminTicketItem) {
+    setSelectedTicket((current) => (current?.id === nextTicket.id ? nextTicket : current));
+    setTickets((current) => current.some((item) => item.id === nextTicket.id) ? current.map((item) => (item.id === nextTicket.id ? nextTicket : item)) : [nextTicket, ...current]);
+  }
+
   async function loadTickets() {
     if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
@@ -103,7 +116,9 @@ export default function AdminSupportPage() {
       if (!response.ok) throw new Error('Could not load support tickets. Make sure this account has admin role and satisfies 2FA requirements.');
       const data = await response.json() as TicketsResponse;
       setTickets(data.tickets);
+      setSelectedTicketIds([]);
       if (selectedTicket) setSelectedTicket(data.tickets.find((item) => item.id === selectedTicket.id) ?? selectedTicket);
+      setNotice({ tone: 'success', body: `Loaded ${data.tickets.length} ticket${data.tickets.length === 1 ? '' : 's'}. Select one for details or select multiple for a bulk status update.` });
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load tickets.' });
     } finally {
@@ -121,12 +136,21 @@ export default function AdminSupportPage() {
       const data = await response.json() as TicketResponse;
       setSelectedTicket(data.ticket);
       setTicketNote('');
-      setTickets((current) => current.some((item) => item.id === data.ticket.id) ? current.map((item) => item.id === data.ticket.id ? data.ticket : item) : [data.ticket, ...current]);
+      upsertTicket(data.ticket);
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not open ticket.' });
     } finally {
       setLoading(false);
     }
+  }
+
+  async function patchTicket(ticketId: string, next: { status?: SupportTicketStatus; priority?: SupportTicketPriority; assignedAdminId?: string | null }) {
+    const response = await fetch(`${apiBase}/admin/support/tickets/${ticketId}`, { method: 'PATCH', headers, body: JSON.stringify({ ...next, note: ticketNote.trim() || undefined }) });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { message?: string } | null;
+      throw new Error(body?.message || 'Could not update support ticket.');
+    }
+    return response.json() as Promise<TicketResponse>;
   }
 
   async function updateTicket(next: { status?: SupportTicketStatus; priority?: SupportTicketPriority; assignedAdminId?: string | null }) {
@@ -138,15 +162,60 @@ export default function AdminSupportPage() {
     setLoading(true);
     setNotice(null);
     try {
-      const response = await fetch(`${apiBase}/admin/support/tickets/${selectedTicket.id}`, { method: 'PATCH', headers, body: JSON.stringify({ ...next, note: ticketNote.trim() || undefined }) });
-      if (!response.ok) throw new Error('Could not update support ticket.');
-      const data = await response.json() as TicketResponse;
-      setSelectedTicket(data.ticket);
-      setTickets((current) => current.map((item) => item.id === data.ticket.id ? data.ticket : item));
+      const data = await patchTicket(selectedTicket.id, next);
+      upsertTicket(data.ticket);
       if (next.status && next.status !== selectedTicket.status) setTicketNote('');
-      setNotice({ tone: 'success', body: 'Support ticket updated and written to the admin audit log.' });
+      const changed = next.status ? `Status is now ${labelize(data.ticket.status)}.` : next.priority ? `Priority is now ${labelize(data.ticket.priority)}.` : `Assigned admin is now ${personLabel(data.ticket.assignedAdmin)}.`;
+      setLastAction({ tone: 'success', title: 'Support ticket updated', body: changed, details: ['The change was written to the admin audit log.', 'Ticket history was kept; no user data was deleted.'] });
+      setNotice({ tone: 'success', body: `Support ticket updated. ${changed}` });
     } catch (error) {
+      setLastAction({ tone: 'danger', title: 'Support update failed', body: error instanceof Error ? error.message : 'Could not update ticket.' });
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update ticket.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleTicketSelection(ticketId: string) {
+    setSelectedTicketIds((current) => (current.includes(ticketId) ? current.filter((id) => id !== ticketId) : [...current, ticketId]));
+  }
+
+  function toggleAllVisibleTickets() {
+    if (selectedTicketIds.length === tickets.length) setSelectedTicketIds([]);
+    else setSelectedTicketIds(tickets.map((ticket) => ticket.id));
+  }
+
+  async function applyBulkStatus() {
+    if (!token) return;
+    const ids = selectedTicketIds.filter((id) => tickets.some((ticket) => ticket.id === id));
+    if (ids.length === 0) {
+      setNotice({ tone: 'warning', body: 'Select at least one support ticket before applying a bulk status update.' });
+      return;
+    }
+    if (!ticketNote.trim()) {
+      setNotice({ tone: 'warning', body: 'Add one internal note before changing multiple ticket statuses.' });
+      return;
+    }
+    setLoading(true);
+    setNotice(null);
+    let successCount = 0;
+    const errors: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          const data = await patchTicket(id, { status: bulkStatus });
+          upsertTicket(data.ticket);
+          successCount += 1;
+        } catch (error) {
+          errors.push(`${id}: ${error instanceof Error ? error.message : 'failed'}`);
+        }
+      }
+      if (successCount > 0) setSelectedTicketIds((current) => current.filter((id) => !ids.includes(id)));
+      if (successCount > 0 && errors.length === 0) setTicketNote('');
+      const tone: NoticeTone = errors.length ? (successCount ? 'warning' : 'danger') : 'success';
+      const body = `Bulk status update finished: ${successCount}/${ids.length} ticket${ids.length === 1 ? '' : 's'} moved to ${labelize(bulkStatus)}${errors.length ? `, ${errors.length} failed.` : '.'}`;
+      setLastAction({ tone, title: 'Bulk support update finished', body, details: errors.slice(0, 4) });
+      setNotice({ tone, body });
     } finally {
       setLoading(false);
     }
@@ -166,8 +235,11 @@ export default function AdminSupportPage() {
       setReplyBody('');
       await openTicket(selectedTicket.id);
       await loadTickets();
-      setNotice({ tone: 'success', body: internal ? 'Internal note added.' : 'Reply sent to the user and ticket marked waiting for user.' });
+      const body = internal ? 'Internal note added. Users cannot see it.' : 'Reply sent to the user and ticket marked waiting for user.';
+      setLastAction({ tone: 'success', title: internal ? 'Internal note saved' : 'Support reply sent', body });
+      setNotice({ tone: 'success', body });
     } catch (error) {
+      setLastAction({ tone: 'danger', title: 'Support message failed', body: error instanceof Error ? error.message : 'Could not send reply.' });
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not send reply.' });
     } finally {
       setLoading(false);
@@ -185,18 +257,25 @@ export default function AdminSupportPage() {
         <div>
           <p className="eyebrow">Phase 24.3</p>
           <h1>Support inbox</h1>
-          <p>Handle user tickets, internal notes, report escalations, and safety follow-up without exposing internal moderation details to users.</p>
+          <p>Handle user tickets, internal notes, report escalations, and safety follow-up. Batch simple ticket status changes while keeping every decision reversible.</p>
         </div>
         <div className="admin-console__login-grid">
-          <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+          <p className="notice-box info">Admin sessions now refresh while this browser tab is active. If actions fail after a long break, reload once and sign in again.</p>
           <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
         </div>
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+        {lastAction ? (
+          <div className={`notice-box ${lastAction.tone}`} role="status" aria-live="polite">
+            <strong>{lastAction.title}</strong>
+            <p>{lastAction.body}</p>
+            {lastAction.details?.length ? <ul>{lastAction.details.map((detail) => <li key={detail}>{detail}</li>)}</ul> : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="admin-detail-grid">
         <article className="app-card admin-action-card">
-          <div className="status-row"><span className="semantic-badge info">Inbox</span><span className="semantic-badge admin">No deletes</span></div>
+          <div className="status-row"><span className="semantic-badge info">Inbox</span><span className="semantic-badge admin">{tickets.length} loaded</span><span className="semantic-badge warning">{selectedTicketIds.length} selected</span></div>
           <h2>Tickets</h2>
           <div className="admin-trust-controls">
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search subject, message, user, ticket ID" />
@@ -206,16 +285,27 @@ export default function AdminSupportPage() {
             <select value={assigned} onChange={(event) => setAssigned(event.target.value as AssignedFilter)}>{assignedFilters.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
             <button type="button" onClick={() => { void loadTickets(); }} disabled={loading || !token}>Load tickets</button>
           </div>
+          <div className="admin-bulk-bar">
+            <button type="button" className="secondary" onClick={toggleAllVisibleTickets} disabled={loading || tickets.length === 0}>{selectedTicketIds.length === tickets.length && tickets.length > 0 ? 'Clear selection' : 'Select all loaded'}</button>
+            <select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as SupportTicketStatus)}>{bulkStatuses.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}</select>
+            <button type="button" onClick={() => { void applyBulkStatus(); }} disabled={loading || !token || selectedTicketIds.length === 0}>Apply status to selected</button>
+          </div>
+          <p className="notice-box info">Bulk ticket updates only change status. Add one internal note explaining the batch decision.</p>
           <div className="admin-user-list">
             {tickets.map((ticket) => (
-              <button type="button" key={ticket.id} className={selectedTicket?.id === ticket.id ? 'admin-user-row is-active' : 'admin-user-row'} onClick={() => { void openTicket(ticket.id); }}>
-                <span>
-                  <strong>{ticket.subject}</strong>
-                  <small>{personLabel(ticket.user)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
-                  <small>{formatWebDateTime(ticket.updatedAt)} · {ticket.id}</small>
-                </span>
-                <em className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</em>
-              </button>
+              <div key={ticket.id} className={selectedTicket?.id === ticket.id ? 'admin-selectable-row is-active' : 'admin-selectable-row'}>
+                <label className="admin-row-check" title="Select for bulk action">
+                  <input type="checkbox" checked={selectedTicketIds.includes(ticket.id)} onChange={() => toggleTicketSelection(ticket.id)} />
+                </label>
+                <button type="button" className="admin-user-row" onClick={() => { void openTicket(ticket.id); }}>
+                  <span>
+                    <strong>{ticket.subject}</strong>
+                    <small>{personLabel(ticket.user)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
+                    <small>{formatWebDateTime(ticket.updatedAt)} · {ticket.id}</small>
+                  </span>
+                  <em className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</em>
+                </button>
+              </div>
             ))}
             {tickets.length === 0 ? <p>No support tickets loaded yet.</p> : null}
           </div>
@@ -237,7 +327,7 @@ export default function AdminSupportPage() {
                 {selectedTicket.relatedProposalId ? <span className="semantic-badge proposal">Proposal {selectedTicket.relatedProposalId}</span> : null}
                 {selectedTicket.relatedMediaId ? <span className="semantic-badge warning">Media {selectedTicket.relatedMediaId}</span> : null}
               </div>
-              <textarea value={ticketNote} onChange={(event) => setTicketNote(event.target.value)} placeholder="Internal admin note. Required before changing or reopening ticket status." rows={3} />
+              <textarea value={ticketNote} onChange={(event) => setTicketNote(event.target.value)} placeholder="Internal admin note. Required before changing or reopening ticket status, including bulk updates." rows={3} />
               <div className="admin-action-grid">
                 <button type="button" className="success" onClick={() => { void updateTicket({ status: 'open' }); }} disabled={loading || selectedTicket.status === 'open'}>Reopen</button>
                 <button type="button" className="warning" onClick={() => { void updateTicket({ status: 'in_review' }); }} disabled={loading}>Mark in review</button>

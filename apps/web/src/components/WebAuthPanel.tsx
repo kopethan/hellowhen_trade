@@ -74,6 +74,14 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
     setTwoFactorCode('');
   }
 
+  function goBack() {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.replace(redirectTo || '/trades');
+  }
+
   function validateLocalForm() {
     if (!email.trim()) return t('auth.errors.emailRequired');
     if (twoFactorChallenge && twoFactorCode.trim().length < 6) return t('auth.errors.twoFactorCodeRequired');
@@ -140,6 +148,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
 
   return (
     <section className="mobile-card auth-panel">
+      <button type="button" className="auth-back-button" onClick={goBack}>{t('common.actions.back')}</button>
       <div className="auth-brand-block">
         <span className="semantic-badge trade">{t('auth.brandBadge')}</span>
         <h1>Hellowhen</h1>
