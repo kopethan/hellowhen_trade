@@ -31,13 +31,13 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
 
   if (auth.user?.role !== 'admin') return <GenericNotFound />;
 
-  if (auth.user.forceTwoFactor && !auth.user.twoFactorEnabled) {
+  if (!auth.user.twoFactorEnabled) {
     return (
       <main className="utility-shell admin-hidden-page" aria-label="Secure admin setup required">
         <section className="app-card">
           <span className="semantic-badge warning">Two-step verification required</span>
           <h1>Secure setup required</h1>
-          <p>Enable authenticator app two-step verification on this admin account before opening internal tools.</p>
+          <p>Enable authenticator app two-step verification from Account → Settings before opening internal tools.</p>
         </section>
       </main>
     );

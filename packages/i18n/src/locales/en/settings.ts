@@ -54,6 +54,8 @@ export const settings = {
     off: 'Off',
     setupAuthenticator: 'Set up authenticator',
     authenticatorSecret: 'Authenticator secret',
+    passwordForSetup: 'Enter your password before starting two-step setup',
+    passwordRequiredForSetup: 'Enter your password before starting two-step setup.',
     code6Digit: '6-digit code',
     enableTwoStep: 'Enable two-step verification',
     disableTwoStep: 'Disable two-step verification',

@@ -54,6 +54,8 @@ export const settings = {
     off: 'Désactivée',
     setupAuthenticator: 'Configurer l’authentification',
     authenticatorSecret: 'Secret d’authentification',
+    passwordForSetup: 'Saisissez votre mot de passe avant de configurer la vérification en deux étapes',
+    passwordRequiredForSetup: 'Saisissez votre mot de passe avant de configurer la vérification en deux étapes.',
     code6Digit: 'Code à 6 chiffres',
     enableTwoStep: 'Activer la vérification en deux étapes',
     disableTwoStep: 'Désactiver la vérification en deux étapes',

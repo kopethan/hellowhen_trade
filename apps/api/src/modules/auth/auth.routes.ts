@@ -19,7 +19,7 @@ import { env, isValidEmailSender } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { signAccessToken } from '../../lib/tokens.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
 import { createRateLimiter, ipAndBodyFieldRateLimitKey } from '../../middleware/rateLimit.js';
 import { buildOtpAuthUrl, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotpCode } from './totp.js';
 
@@ -284,8 +284,13 @@ async function finishLogin(userId: string, userAgent?: string) {
   return authResponse(loggedInUser, session.id, refreshToken);
 }
 
-function needsTwoFactor(user: { twoFactorEnabled: boolean; role: 'user' | 'admin'; forceTwoFactor: boolean }) {
-  return user.twoFactorEnabled || user.forceTwoFactor || (user.role === 'admin' && env.adminRequireTwoFactor);
+function requiresTwoFactorChallenge(user: { twoFactorEnabled: boolean }) {
+  return user.twoFactorEnabled;
+}
+
+
+function cannotDisableTwoFactor(user: { role: 'user' | 'admin'; forceTwoFactor: boolean }) {
+  return user.forceTwoFactor || (user.role === 'admin' && env.adminRequireTwoFactor);
 }
 
 async function verifyUserTwoFactor(user: { id: string; twoFactorSecretEncrypted: string | null; twoFactorLastUsedStep: number | null; twoFactorRecoveryCodes: unknown }, code: string) {
@@ -305,6 +310,15 @@ async function verifyUserTwoFactor(user: { id: string; twoFactorSecretEncrypted:
   if (!result.ok || result.step === null) return false;
   await prisma.user.update({ where: { id: user.id }, data: { twoFactorLastUsedStep: result.step } });
   return true;
+}
+
+
+async function consumeTwoFactorChallenge(challengeId: string) {
+  const result = await prisma.twoFactorChallenge.updateMany({
+    where: { id: challengeId, usedAt: null, expiresAt: { gt: new Date() } },
+    data: { usedAt: new Date() },
+  });
+  return result.count === 1;
 }
 
 function freshAuthPayload() {
@@ -351,8 +365,7 @@ authRoutes.post('/login', loginRateLimit, asyncRoute(async (req, res) => {
     return res.status(401).json({ error: 'invalid_credentials' });
   }
 
-  if (needsTwoFactor(user)) {
-    if (!user.twoFactorEnabled) return res.status(403).json({ error: 'two_factor_required', message: 'Authenticator app verification is required before this account can continue.' });
+  if (requiresTwoFactorChallenge(user)) {
     const challengeToken = await issueTwoFactorChallenge(user.id);
     return res.json({ requiresTwoFactor: true, challengeToken, message: 'Enter your authenticator app code to finish logging in.' });
   }
@@ -364,11 +377,13 @@ authRoutes.post('/login/2fa', loginRateLimit, asyncRoute(async (req, res) => {
   const input = twoFactorChallengeRequestSchema.parse(req.body);
   const challenge = await prisma.twoFactorChallenge.findUnique({ where: { tokenHash: hashToken(input.challengeToken) } });
   if (!challenge || challenge.usedAt || challenge.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+  if (!(await consumeTwoFactorChallenge(challenge.id))) {
+    return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+  }
   const user = await prisma.user.findUnique({ where: { id: challenge.userId } });
   if (!user || !user.twoFactorEnabled) return res.status(401).json({ error: 'invalid_two_factor_challenge' });
   const ok = await verifyUserTwoFactor(user, input.code);
-  if (!ok) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted.' });
-  await prisma.twoFactorChallenge.update({ where: { id: challenge.id }, data: { usedAt: new Date() } });
+  if (!ok) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted. Log in again to request a new challenge.' });
   res.json(await finishLogin(user.id, req.headers['user-agent']));
 }));
 
@@ -448,8 +463,7 @@ authRoutes.post('/google', loginRateLimit, asyncRoute(async (req, res) => {
 
   if (!userId) throw new Error('auth_google_user_missing');
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  if (needsTwoFactor(user)) {
-    if (!user.twoFactorEnabled) return res.status(403).json({ error: 'two_factor_required', message: 'Authenticator app verification is required before this account can continue.' });
+  if (requiresTwoFactorChallenge(user)) {
     const challengeToken = await issueTwoFactorChallenge(user.id);
     return res.json({ requiresTwoFactor: true, challengeToken, message: 'Enter your authenticator app code to finish logging in.' });
   }
@@ -584,7 +598,7 @@ authRoutes.post('/verify-email/confirm', authMutationRateLimit, asyncRoute(async
   res.json({ ok: true, message: 'Email verified.', user: publicAuthUser(user) });
 }));
 
-authRoutes.post('/2fa/setup', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+authRoutes.post('/2fa/setup', requireAuth, requireFreshSensitiveAction, authMutationRateLimit, asyncRoute(async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
   if (user.twoFactorEnabled) return res.status(409).json({ error: 'two_factor_already_enabled', message: 'Authenticator app verification is already enabled.' });
   const secret = generateTotpSecret();
@@ -600,13 +614,19 @@ authRoutes.post('/2fa/enable', requireAuth, authMutationRateLimit, asyncRoute(as
   const result = verifyTotpCode(secret, input.code, user.twoFactorLastUsedStep);
   if (!result.ok || result.step === null) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted.' });
   const recoveryCodes = generateRecoveryCodes();
-  await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true, twoFactorConfirmedAt: new Date(), twoFactorLastUsedStep: result.step, twoFactorRecoveryCodes: recoveryCodes.map(hashRecoveryCode) } });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: true, twoFactorConfirmedAt: new Date(), twoFactorLastUsedStep: result.step, twoFactorRecoveryCodes: recoveryCodes.map(hashRecoveryCode), sensitiveActionVerifiedAt: null } }),
+    prisma.session.updateMany({ where: { userId: user.id, revokedAt: null, ...(req.user?.sessionId ? { id: { not: req.user.sessionId } } : {}) }, data: { revokedAt: new Date() } }),
+  ]);
   res.json({ ok: true, recoveryCodes });
 }));
 
 authRoutes.post('/2fa/disable', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = disableTwoFactorRequestSchema.parse(req.body);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (cannotDisableTwoFactor(user)) {
+    return res.status(403).json({ error: 'two_factor_required', message: 'This account must keep authenticator app two-step verification enabled.' });
+  }
   if (user.passwordHash) {
     if (!input.password || !(await bcrypt.compare(input.password, user.passwordHash))) return res.status(401).json({ error: 'invalid_credentials', message: 'Enter your password to disable two-step verification.' });
   }
@@ -615,7 +635,10 @@ authRoutes.post('/2fa/disable', requireAuth, authMutationRateLimit, asyncRoute(a
     const ok = await verifyUserTwoFactor(user, input.code);
     if (!ok) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted.' });
   }
-  await prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecretEncrypted: null, twoFactorConfirmedAt: null, twoFactorRecoveryCodes: [], twoFactorLastUsedStep: null } });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { twoFactorEnabled: false, twoFactorSecretEncrypted: null, twoFactorConfirmedAt: null, twoFactorRecoveryCodes: [], twoFactorLastUsedStep: null, sensitiveActionVerifiedAt: null } }),
+    prisma.session.updateMany({ where: { userId: user.id, revokedAt: null, ...(req.user?.sessionId ? { id: { not: req.user.sessionId } } : {}) }, data: { revokedAt: new Date() } }),
+  ]);
   res.json({ ok: true });
 }));
 

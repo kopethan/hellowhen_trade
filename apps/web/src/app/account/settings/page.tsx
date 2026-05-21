@@ -74,6 +74,11 @@ export default function AccountSettingsPage() {
     setError(null);
     setRecoveryCodes([]);
     try {
+      if (!twoFactorPassword.trim()) {
+        setError(t('settings.security.passwordRequiredForSetup'));
+        return;
+      }
+      await auth.reauthenticate({ password: twoFactorPassword.trim() });
       const response = await api.auth.twoFactorSetup() as { secret: string; otpauthUrl: string; message: string };
       setTwoFactorSecret(response.secret);
       setMessage(t('settings.security.setupStarted'));
@@ -93,6 +98,7 @@ export default function AccountSettingsPage() {
       setRecoveryCodes(response.recoveryCodes ?? []);
       setTwoFactorSecret('');
       setTwoFactorCode('');
+      setTwoFactorPassword('');
       setMessage(t('settings.security.twoFactorEnabled'));
       await auth.refreshMe().catch(() => undefined);
     } catch (caughtError) {
@@ -225,6 +231,12 @@ export default function AccountSettingsPage() {
           <span><strong>{auth.user?.emailVerifiedAt ? t('settings.security.verified') : t('settings.security.notVerified')}</strong><small>{t('settings.security.email')}</small></span>
           <span><strong>{auth.user?.twoFactorEnabled ? t('settings.security.enabled') : t('settings.security.off')}</strong><small>{t('settings.security.authenticator')}</small></span>
         </div>
+        {!auth.user?.twoFactorEnabled ? (
+          <label className="field-label">
+            {t('settings.security.passwordForSetup')}
+            <input value={twoFactorPassword} onChange={(event) => setTwoFactorPassword(event.target.value)} type="password" autoComplete="current-password" />
+          </label>
+        ) : null}
         <div className="button-row">
           <button type="button" className="secondary" disabled={saving || !auth.isAuthenticated || Boolean(auth.user?.emailVerifiedAt)} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
           <button type="button" className="secondary" disabled={saving || !auth.isAuthenticated || Boolean(auth.user?.twoFactorEnabled)} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
