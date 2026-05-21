@@ -68,6 +68,30 @@ function publicUserInclude() {
   return { profile: true, settings: true, wallet: true } as const;
 }
 
+function publicAuthUser(user: any) {
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    trustTier: user.trustTier,
+    emailVerifiedAt: user.emailVerifiedAt,
+    ageConfirmedAt: user.ageConfirmedAt,
+    declaredAgeBucket: user.declaredAgeBucket,
+    twoFactorEnabled: user.twoFactorEnabled,
+    forceTwoFactor: user.forceTwoFactor,
+    lastLoginAt: user.lastLoginAt,
+    profile: user.profile ? {
+      displayName: user.profile.displayName,
+      handle: user.profile.handle,
+      avatarUrl: user.profile.avatarUrl,
+      bio: user.profile.bio,
+      avatarMediaId: user.profile.avatarMediaId,
+      countryCode: user.profile.countryCode,
+      preferredCurrency: user.profile.preferredCurrency,
+    } : null,
+  };
+}
+
 function refreshTokenExpiresAt() {
   return new Date(Date.now() + env.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
 }
@@ -101,7 +125,7 @@ function authResponse(user: any, sessionId: string, refreshToken?: string) {
   return {
     accessToken: signAccessToken({ sub: user.id, email: user.email, sid: sessionId }),
     refreshToken,
-    user,
+    user: publicAuthUser(user),
   };
 }
 
@@ -241,9 +265,20 @@ function adultLaunchRequiredError() {
   return error;
 }
 
+function accountRestrictedError() {
+  const error = new Error('This account is restricted. Contact support if you think this is a mistake.');
+  Object.assign(error, { statusCode: 403, code: 'account_restricted', publicMessage: error.message });
+  return error;
+}
+
+function isRestrictedLaunchUser(input: { trustTier?: string | null }) {
+  return input.trustTier === 'restricted';
+}
+
 async function finishLogin(userId: string, userAgent?: string) {
-  const launchUser = await prisma.user.findUnique({ where: { id: userId }, select: { ageConfirmedAt: true, declaredAgeBucket: true } });
+  const launchUser = await prisma.user.findUnique({ where: { id: userId }, select: { ageConfirmedAt: true, declaredAgeBucket: true, trustTier: true } });
   if (!launchUser || !hasAdultLaunchUser(launchUser)) throw adultLaunchRequiredError();
+  if (isRestrictedLaunchUser(launchUser)) throw accountRestrictedError();
   const loggedInUser = await markLogin(userId);
   const { session, refreshToken } = await createSession(userId, userAgent);
   return authResponse(loggedInUser, session.id, refreshToken);
@@ -432,6 +467,7 @@ authRoutes.post('/refresh', authMutationRateLimit, asyncRoute(async (req, res) =
   const session = await prisma.session.findUnique({ where: { refreshToken: tokenHash }, include: { user: { include: publicUserInclude() } } });
   if (!session || session.revokedAt || session.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_refresh_token' });
   if (!hasAdultLaunchUser(session.user)) return res.status(403).json({ error: 'age_confirmation_required', message: 'Hellowhen Trade is 18+ for first launch. Confirm your age before continuing.' });
+  if (isRestrictedLaunchUser(session.user)) return res.status(403).json({ error: 'account_restricted', message: 'This account is restricted. Contact support if you think this is a mistake.' });
   if (session.user.sessionRevokedAt && session.createdAt < session.user.sessionRevokedAt) return res.status(401).json({ error: 'session_revoked' });
   const nextRefreshToken = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('base64url');
   const updated = await prisma.session.update({ where: { id: session.id }, data: { refreshToken: hashToken(nextRefreshToken), expiresAt: refreshTokenExpiresAt(), userAgent: req.headers['user-agent']?.slice(0, 300) || session.userAgent } });
@@ -470,22 +506,30 @@ authRoutes.post('/forgot-password', accountRecoveryRateLimit, asyncRoute(async (
 authRoutes.post('/reset-password', authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = resetPasswordRequestSchema.parse(req.body);
   const tokenHash = hashToken(input.token);
+  const now = new Date();
   const resetToken = await prisma.passwordResetToken.findUnique({ where: { tokenHash } });
 
-  if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+  if (!resetToken || resetToken.usedAt || resetToken.expiresAt < now) {
     return res.status(400).json({ error: 'invalid_or_expired_reset_token', message: 'This reset link is invalid or expired. Request a new one from the login screen.' });
   }
 
   const passwordHash = await bcrypt.hash(input.password, 12);
-  const user = await prisma.user.findUnique({ where: { id: resetToken.userId } });
-  if (!user) return res.status(400).json({ error: 'invalid_or_expired_reset_token', message: 'This reset link is invalid or expired. Request a new one from the login screen.' });
+  const resetSucceeded = await prisma.$transaction(async (tx: any) => {
+    const claimedToken = await tx.passwordResetToken.updateMany({ where: { id: resetToken.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+    if (claimedToken.count !== 1) return false;
 
-  await prisma.$transaction([
-    prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash, sessionRevokedAt: new Date(), sensitiveActionVerifiedAt: null } }),
-    prisma.session.updateMany({ where: { userId: resetToken.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
-    prisma.userIdentity.upsert({ where: { provider_providerUserId: { provider: 'email', providerUserId: user.email } }, update: { userId: user.id, email: user.email }, create: { userId: user.id, provider: 'email', providerUserId: user.email, email: user.email } }),
-    prisma.passwordResetToken.update({ where: { id: resetToken.id }, data: { usedAt: new Date() } })
-  ]);
+    const user = await tx.user.findUnique({ where: { id: resetToken.userId } });
+    if (!user) return false;
+
+    await tx.user.update({ where: { id: resetToken.userId }, data: { passwordHash, sessionRevokedAt: now, sensitiveActionVerifiedAt: null } });
+    await tx.session.updateMany({ where: { userId: resetToken.userId, revokedAt: null }, data: { revokedAt: now } });
+    await tx.userIdentity.upsert({ where: { provider_providerUserId: { provider: 'email', providerUserId: user.email } }, update: { userId: user.id, email: user.email }, create: { userId: user.id, provider: 'email', providerUserId: user.email, email: user.email } });
+    return true;
+  });
+
+  if (!resetSucceeded) {
+    return res.status(400).json({ error: 'invalid_or_expired_reset_token', message: 'This reset link is invalid or expired. Request a new one from the login screen.' });
+  }
 
   res.json({ ok: true, message: 'Password reset. You can now log in with your new password.' });
 }));
@@ -497,7 +541,7 @@ authRoutes.get('/me', requireAuth, asyncRoute(async (req, res) => {
   });
 
   if (!user) return res.status(401).json({ error: 'unauthorized' });
-  res.json({ user });
+  res.json({ user: publicAuthUser(user) });
 }));
 
 authRoutes.post('/verify-email/request', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
@@ -515,16 +559,29 @@ authRoutes.post('/verify-email/request', requireAuth, authMutationRateLimit, asy
 
 authRoutes.post('/verify-email/confirm', authMutationRateLimit, asyncRoute(async (req, res) => {
   const input = verifyEmailRequestSchema.parse(req.body);
-  const token = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(input.token) } });
-  if (!token || token.usedAt || token.expiresAt < new Date()) return res.status(400).json({ error: 'invalid_or_expired_verification_token', message: 'This email verification link is invalid or expired.' });
   const now = new Date();
-  const user = await prisma.user.update({
-    where: { id: token.userId },
-    data: { emailVerifiedAt: now, trustTier: 'email_verified', trustTierUpdatedAt: now, trustTierNote: 'Email verified.' },
-    include: publicUserInclude()
+  const token = await prisma.emailVerificationToken.findUnique({ where: { tokenHash: hashToken(input.token) } });
+  if (!token || token.usedAt || token.expiresAt < now) return res.status(400).json({ error: 'invalid_or_expired_verification_token', message: 'This email verification link is invalid or expired.' });
+
+  const user = await prisma.$transaction(async (tx: any) => {
+    const claimedToken = await tx.emailVerificationToken.updateMany({ where: { id: token.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } });
+    if (claimedToken.count !== 1) return null;
+
+    const existingUser = await tx.user.findUnique({ where: { id: token.userId }, select: { trustTier: true } });
+    if (!existingUser) return null;
+    const trustUpdate = isRestrictedLaunchUser(existingUser)
+      ? {}
+      : { trustTier: 'email_verified' as const, trustTierUpdatedAt: now, trustTierNote: 'Email verified.' };
+
+    return tx.user.update({
+      where: { id: token.userId },
+      data: { emailVerifiedAt: now, ...trustUpdate },
+      include: publicUserInclude()
+    });
   });
-  await prisma.emailVerificationToken.update({ where: { id: token.id }, data: { usedAt: now } });
-  res.json({ ok: true, message: 'Email verified.', user });
+
+  if (!user) return res.status(400).json({ error: 'invalid_or_expired_verification_token', message: 'This email verification link is invalid or expired.' });
+  res.json({ ok: true, message: 'Email verified.', user: publicAuthUser(user) });
 }));
 
 authRoutes.post('/2fa/setup', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
