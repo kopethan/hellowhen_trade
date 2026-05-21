@@ -15,7 +15,7 @@ import {
   twoFactorCodeRequestSchema,
   verifyEmailRequestSchema,
 } from '@hellowhen/contracts';
-import { env } from '../../config/env.js';
+import { env, isValidEmailSender } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { signAccessToken } from '../../lib/tokens.js';
@@ -144,6 +144,10 @@ async function markLogin(userId: string) {
 
 async function sendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text: string }) {
   if (!env.resendApiKey) return { sent: false, reason: 'resend_not_configured' };
+  if (!isValidEmailSender(env.emailFrom)) {
+    console.error('Email sender is invalid. Set EMAIL_FROM to a verified sender such as Hellowhen <support@mail.hellowhen.com>.');
+    return { sent: false, reason: 'email_from_invalid' };
+  }
   let response: Response;
   try {
     response = await fetch('https://api.resend.com/emails', {

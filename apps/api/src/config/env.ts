@@ -73,7 +73,7 @@ export const env = {
   googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID ?? '',
   googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID ?? '',
   resendApiKey: process.env.RESEND_API_KEY ?? '',
-  emailFrom: process.env.EMAIL_FROM ?? 'Hellowhen <support@hellowhen.app>',
+  emailFrom: process.env.EMAIL_FROM ?? 'Hellowhen <support@mail.hellowhen.com>',
   passwordResetTtlMinutes: Number(process.env.PASSWORD_RESET_TTL_MINUTES ?? 45),
   refreshTokenTtlDays: Number(process.env.REFRESH_TOKEN_TTL_DAYS ?? 30),
   emailVerificationTtlMinutes: Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES ?? 60),
@@ -132,6 +132,28 @@ function isLocalUrl(value: string) {
   }
 }
 
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function getEmailAddress(value: string) {
+  const trimmed = value.trim();
+  const bracketMatch = trimmed.match(/<([^<>]+)>/);
+  return (bracketMatch?.[1] ?? trimmed).trim();
+}
+
+function isValidEmailAddress(value: string) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value);
+}
+
+export function isValidEmailSender(value: string) {
+  return isValidEmailAddress(getEmailAddress(value));
+}
+
 export function validateProductionEnv() {
   if (env.nodeEnv !== 'production') return;
   const errors: string[] = [];
@@ -140,6 +162,10 @@ export function validateProductionEnv() {
   if (env.adminRequireTwoFactor && (!env.twoFactorEncryptionSecret || env.twoFactorEncryptionSecret.length < 32)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong secret when admin two-step verification is required.');
   if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
   if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
+  if (!isHttpsUrl(env.webOrigin)) errors.push('WEB_ORIGIN must use https:// in production.');
+  if (!isHttpsUrl(env.webAppUrl)) errors.push('WEB_APP_URL must use https:// in production so password reset and email verification links are public and secure.');
+  if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
+  if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
   const googleClientIdsConfigured = Boolean(env.googleWebClientId || env.googleIosClientId || env.googleAndroidClientId);
   if (env.googleSignInEnabled && !googleClientIdsConfigured) errors.push('GOOGLE_SIGN_IN_ENABLED=true requires at least one Google OAuth client ID.');
