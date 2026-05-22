@@ -9,6 +9,18 @@ function parseCsv(value: string | undefined) {
   return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+function enabled(value: string | undefined, defaultValue = false) {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return defaultValue;
+  return raw === 'true' || raw === '1' || raw === 'yes';
+}
+
+function disabled(value: string | undefined, defaultValue = false) {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return defaultValue;
+  return raw === 'false' || raw === '0' || raw === 'no';
+}
+
 const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
 const airwallexEnvironments = new Set(['demo', 'production']);
 
@@ -120,7 +132,8 @@ export const env = {
   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true',
   plansEnabled: (process.env.PLANS_ENABLED ?? 'false').toLowerCase() === 'true',
-  plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true'
+  plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true',
+  firstLaunchGuardsEnabled: !disabled(process.env.FIRST_LAUNCH_GUARDS_ENABLED, false)
 };
 
 function isLoopbackHostname(hostname: string) {
@@ -176,12 +189,100 @@ export function isValidEmailSender(value: string) {
   return isValidEmailAddress(getEmailAddress(value));
 }
 
+function publicFlagEnabled(name: string) {
+  return enabled(process.env[name]);
+}
+
+function publicFlagValue(name: string) {
+  return (process.env[name] ?? '').trim().toLowerCase();
+}
+
+function hasConfiguredValue(value: string | undefined) {
+  const raw = (value ?? '').trim();
+  return Boolean(raw) && !raw.includes('replace_me') && !raw.includes('change-me') && !raw.includes('dev-change-me');
+}
+
+function isWeakProductionSecret(value: string | undefined) {
+  const raw = (value ?? '').trim().toLowerCase();
+  if (raw.length < 32) return true;
+  return raw.includes('dev-change') || raw.includes('change-me') || raw.includes('password') || raw.includes('replace_me');
+}
+
+function pushFirstLaunchGuardErrors(errors: string[]) {
+  if (!env.firstLaunchGuardsEnabled) return;
+
+  if (!env.adminRequireTwoFactor) {
+    errors.push('ADMIN_REQUIRE_TWO_FACTOR must stay true for first-launch production.');
+  }
+
+  if (env.googleSignInEnabled || publicFlagEnabled('NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_GOOGLE_SIGN_IN_ENABLED')) {
+    errors.push('Google sign-in must stay disabled for first launch. Keep GOOGLE_SIGN_IN_ENABLED, NEXT_PUBLIC_GOOGLE_SIGN_IN_ENABLED, and EXPO_PUBLIC_GOOGLE_SIGN_IN_ENABLED false.');
+  }
+
+  const moneyProviderFlag = publicFlagValue('NEXT_PUBLIC_MONEY_PROVIDER');
+  const mobileMoneyProviderFlag = publicFlagValue('EXPO_PUBLIC_MONEY_PROVIDER');
+  if (env.moneyProvider !== 'none' || (moneyProviderFlag && moneyProviderFlag !== 'none') || (mobileMoneyProviderFlag && mobileMoneyProviderFlag !== 'none')) {
+    errors.push('Money providers must stay set to none for first launch. Keep MONEY_PROVIDER, NEXT_PUBLIC_MONEY_PROVIDER, and EXPO_PUBLIC_MONEY_PROVIDER as none.');
+  }
+
+  const providerRuntimeEnabled = env.moneyProviderAccountCreationEnabled
+    || env.moneyProviderWalletSyncEnabled
+    || env.moneyProviderPayinsEnabled
+    || env.moneyProviderTradeMoneyEnabled
+    || env.moneyProviderPayoutsEnabled
+    || env.moneyProviderWebhooksEnabled
+    || env.stripeConnectEnabled
+    || env.stripeConnectTransferMode
+    || env.airwallexEnabled
+    || env.airwallexConnectedAccountsEnabled;
+  if (providerRuntimeEnabled) {
+    errors.push('Stripe/Airwallex provider runtime flags must stay disabled for first launch.');
+  }
+
+  const providerSecretsConfigured = hasConfiguredValue(env.stripeSecretKey)
+    || hasConfiguredValue(env.stripeWebhookSecret)
+    || hasConfiguredValue(env.airwallexClientId)
+    || hasConfiguredValue(env.airwallexApiKey)
+    || hasConfiguredValue(env.airwallexWebhookSecret)
+    || hasConfiguredValue(env.airwallexPlatformAccountId);
+  if (providerSecretsConfigured) {
+    errors.push('Stripe/Airwallex credentials must not be configured in the first-launch production environment.');
+  }
+
+  const moneyUiEnabled = env.moneyFeaturesVisible
+    || env.walletVisible
+    || env.payoutsVisible
+    || env.moneyTradesEnabled
+    || env.cashTradesEnabled
+    || publicFlagEnabled('NEXT_PUBLIC_MONEY_FEATURES_VISIBLE')
+    || publicFlagEnabled('NEXT_PUBLIC_WALLET_VISIBLE')
+    || publicFlagEnabled('NEXT_PUBLIC_PAYOUTS_VISIBLE')
+    || publicFlagEnabled('NEXT_PUBLIC_MONEY_TRADES_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_CASH_TRADES_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_MONEY_FEATURES_VISIBLE')
+    || publicFlagEnabled('EXPO_PUBLIC_WALLET_VISIBLE')
+    || publicFlagEnabled('EXPO_PUBLIC_PAYOUTS_VISIBLE')
+    || publicFlagEnabled('EXPO_PUBLIC_MONEY_TRADES_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_CASH_TRADES_ENABLED');
+  if (moneyUiEnabled || env.moneyLaunchMode !== 'disabled' || env.moneyProductionEnabled) {
+    errors.push('Money, wallet, payout, cash-trade, and money-trade flags must stay disabled/hidden for first launch.');
+  }
+
+  if (env.businessAccountsVisible || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')) {
+    errors.push('Business/brand accounts must stay hidden for first launch.');
+  }
+
+  if (env.plansEnabled || env.plansVisible || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE')) {
+    errors.push('Plans must stay disabled and hidden for first launch.');
+  }
+}
+
 export function validateProductionEnv() {
   if (env.nodeEnv !== 'production') return;
   const errors: string[] = [];
   if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
-  if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
-  if (env.adminRequireTwoFactor && (!env.twoFactorEncryptionSecret || env.twoFactorEncryptionSecret.length < 32)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong secret when admin two-step verification is required.');
+  if (isWeakProductionSecret(env.jwtSecret)) errors.push('JWT_SECRET must be a strong production secret, not a development placeholder.');
+  if (env.adminRequireTwoFactor && isWeakProductionSecret(env.twoFactorEncryptionSecret)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong production secret when admin two-step verification is required.');
   if (isLocalOrPrivateUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost or a private LAN address in production.');
   if (isLocalOrPrivateUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost or a private LAN address in production.');
   if (env.mobileOrigin && isLocalOrPrivateUrl(env.mobileOrigin)) errors.push('MOBILE_ORIGIN must not point to Expo, localhost, or a private LAN address in production. Leave it empty if native requests do not send an Origin header.');
@@ -198,6 +299,7 @@ export function validateProductionEnv() {
   if (moneyConfigured && !env.moneyProductionEnabled) {
     errors.push('Money/wallet/payout features must stay disabled in production unless MONEY_PRODUCTION_ENABLED=true is explicitly set for a separate money launch.');
   }
+  pushFirstLaunchGuardErrors(errors);
   if (errors.length) {
     throw new Error(`Invalid Hellowhen production configuration:\n- ${errors.join('\n- ')}`);
   }

@@ -20,6 +20,7 @@ const productionSecurityHeaders = process.env.NODE_ENV === 'production'
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  poweredByHeader: false,
   turbopack: {
     root: repoRoot,
   },

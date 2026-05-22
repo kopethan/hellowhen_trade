@@ -1,15 +1,22 @@
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
+const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
+const firstLaunchGuardsEnabled = !disabled(process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
+const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
+
+const rawMoneyProvider = (process.env.NEXT_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
+const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
+const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
 
 export const betaFeatures = {
-  moneyProvider: (process.env.NEXT_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex',
-  moneyFeaturesVisible: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE),
-  walletVisible: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_WALLET_VISIBLE),
-  payoutsVisible: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_PAYOUTS_VISIBLE),
-  moneyTradesEnabled: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
-  cashTradesEnabled: enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE) && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
-  businessAccountsVisible: enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
-  plansEnabled: enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED),
-  plansVisible: enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED) && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE),
+  moneyProvider: forceFirstLaunchSafeFlags ? 'none' : rawMoneyProvider,
+  moneyFeaturesVisible,
+  walletVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_WALLET_VISIBLE),
+  payoutsVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_PAYOUTS_VISIBLE),
+  moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
+  cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
+  businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+  plansEnabled,
+  plansVisible: plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE),
 } as const;
 
 export function MoneyOffNotice({ title = 'Need + Offer beta' }: { title?: string }) {

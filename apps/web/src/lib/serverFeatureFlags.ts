@@ -47,7 +47,19 @@ function enabled(value: string | undefined) {
   return value?.toLowerCase() === 'true';
 }
 
+function disabled(value: string | undefined) {
+  return value?.toLowerCase() === 'false';
+}
+
+function forceFirstLaunchSafeFlags() {
+  return process.env.NODE_ENV === 'production' && !disabled(rootEnvValue('NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED'));
+}
+
 export function getPlansWebFlags() {
+  if (forceFirstLaunchSafeFlags()) {
+    return { plansEnabled: false, plansVisible: false };
+  }
+
   const plansEnabled = enabled(rootEnvValue('NEXT_PUBLIC_PLANS_ENABLED'));
   return {
     plansEnabled,
