@@ -72,10 +72,10 @@ export function getNativeRailPose(visualOffset: number, cardSize: number) {
   const motionInput = [-1, -0.72, -0.28, -0.08, 0, 1, 2, 3, 4];
 
   return {
-    x: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 7, 14, 21, 28]),
-    y: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 7, 14, 21, 28]),
-    scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952]),
-    opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.86, 0.98, 1, 1, 1, 0.94, 0]),
+    x: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 8, 15, 22, 28]),
+    y: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 8, 15, 22, 28]),
+    scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.986, 0.972, 0.958, 0.944]),
+    opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.86, 0.98, 1, 1, 0.98, 0.9, 0]),
     rotate: interpolate(clampedOffset, [-1, -0.28, 0, 4], [-5, -2, 0, 0]),
   };
 }

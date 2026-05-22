@@ -1109,9 +1109,10 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
 }
 
 @media (max-width: 759px) {
-  .square-stack-deck { padding: 10px 24px 30px 0; }
+  .square-stack-deck { padding: 10px 16px 34px; }
   .square-stack-deck__control { display: none !important; width: 42px; height: 42px; }
   .square-stack-deck__control--prev { top: -13px; left: -13px; }
+  .square-stack-deck__dots { right: 16px; left: 16px; bottom: 12px; }
   .square-stack-deck--native-mobile .square-stack-deck__surface { touch-action: none; overscroll-behavior: contain; }
 }
 

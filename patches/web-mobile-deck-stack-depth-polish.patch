@@ -1,0 +1,36 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 7cece89..01492db 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1004,10 +1004,10 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+ }
+ 
+ @media (max-width: 759px) {
+-  .square-stack-deck { padding: 10px 12px 30px; }
++  .square-stack-deck { padding: 10px 16px 34px; }
+   .square-stack-deck__control { display: none !important; width: 42px; height: 42px; }
+   .square-stack-deck__control--prev { top: -13px; left: -13px; }
+-  .square-stack-deck__dots { right: 12px; left: 12px; }
++  .square-stack-deck__dots { right: 16px; left: 16px; bottom: 12px; }
+   .square-stack-deck--native-mobile .square-stack-deck__surface { touch-action: none; overscroll-behavior: contain; }
+ }
+ 
+diff --git a/apps/web/src/features/deck/squareDeckMotion.ts b/apps/web/src/features/deck/squareDeckMotion.ts
+index 617629b..f2cab96 100644
+--- a/apps/web/src/features/deck/squareDeckMotion.ts
++++ b/apps/web/src/features/deck/squareDeckMotion.ts
+@@ -72,10 +72,10 @@ export function getNativeRailPose(visualOffset: number, cardSize: number) {
+   const motionInput = [-1, -0.72, -0.28, -0.08, 0, 1, 2, 3, 4];
+ 
+   return {
+-    x: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 5, 10, 15, 20]),
+-    y: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 5, 10, 15, 20]),
+-    scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.988, 0.976, 0.964, 0.952]),
+-    opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.86, 0.98, 1, 1, 1, 0.94, 0]),
++    x: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 8, 15, 22, 28]),
++    y: interpolate(clampedOffset, motionInput, [-cardSize * 0.74, -cardSize * 0.52, -cardSize * 0.16, 0, 0, 8, 15, 22, 28]),
++    scale: interpolate(clampedOffset, motionInput, [0.88, 0.925, 0.975, 0.998, 1, 0.986, 0.972, 0.958, 0.944]),
++    opacity: interpolate(clampedOffset, motionInput, [0, 0.18, 0.86, 0.98, 1, 1, 0.98, 0.9, 0]),
+     rotate: interpolate(clampedOffset, [-1, -0.28, 0, 4], [-5, -2, 0, 0]),
+   };
+ }
