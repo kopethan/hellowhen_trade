@@ -1,6 +1,20 @@
 export const auth = {
   checkingAccess: 'Vérification de l’accès à votre compte…',
   brandBadge: 'Échange',
+  titles: {
+    login: 'Bon retour',
+    register: 'Créer votre compte',
+    forgot: 'Réinitialiser le mot de passe',
+  },
+  info: {
+    ariaLabel: 'Aide à la connexion et informations de sécurité',
+    title: 'Échangez avec des règles plus claires.',
+    body: 'Hellowhen Trade aide les adultes à publier des besoins, offres et échanges service-contre-service avec assistance et modération à portée de main.',
+    adultsOnly: '18+ uniquement pour le premier lancement.',
+    emailAndTwoFactor: 'Connexion par e-mail avec protection optionnelle par application d’authentification.',
+    reportsAndSupport: 'Signalements, assistance et règles de sécurité restent disponibles avant et après connexion.',
+    policyLinksLabel: 'Liens de politique de la page de connexion',
+  },
   subtitles: {
     login: 'Connectez-vous pour créer des besoins, offres, échanges et propositions.',
     register: 'Créez votre compte et définissez les préférences locales pour la bêta.',
@@ -51,6 +65,19 @@ export const auth = {
   twoFactorRecoveryHint: 'Vous pouvez réessayer un mauvais code jusqu’à l’expiration de cette connexion. Vous pouvez aussi utiliser un code de récupération enregistré.',
   twoFactorLostAccessPrefix: 'Vous avez perdu votre application d’authentification et vos codes de récupération ?',
   twoFactorLostAccessLink: 'Contactez le support pour récupérer le compte',
+  accountHelp: {
+    badge: 'Aide compte',
+    title: 'Impossible d’accéder à votre compte ?',
+    body: 'Utilisez l’assistance invité si vous avez perdu la vérification en deux étapes, ne pouvez pas réinitialiser le mot de passe ou avez besoin d’aide avant connexion.',
+    lostTwoFactor: 'Application d’authentification ou codes de récupération perdus',
+    passwordProblem: 'Problème de réinitialisation du mot de passe ou d’accès email',
+    accountDeletion: 'Demande de suppression, confidentialité ou sécurité',
+    action: 'Obtenir de l’aide pour se connecter',
+    privacyNote: 'L’assistance crée seulement une demande à examiner. Elle ne confirme pas si un email appartient à un compte.',
+    shortTitle: 'Impossible d’accéder au compte ?',
+    shortBody: 'Vérification en deux étapes ou codes perdus ?',
+    shortAction: 'Obtenir de l’aide',
+  },
   errors: {
     signIn: 'Erreur de connexion',
     emailRequired: 'Saisissez votre e-mail.',
@@ -88,6 +115,8 @@ export const auth = {
     missingToken: 'Jeton de réinitialisation manquant. Ouvrez le lien depuis votre e-mail ou demandez un nouveau lien.',
     missingTokenError: 'Jeton de réinitialisation manquant. Demandez un nouveau lien depuis l’écran de connexion.',
     success: 'Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.',
+    stillLockedOut: 'Toujours impossible d’accéder à votre compte ?',
+    contactSupport: 'Contacter l’assistance',
   },
   emailVerification: {
     eyebrow: 'Vérification e-mail',

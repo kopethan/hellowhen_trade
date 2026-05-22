@@ -1,6 +1,20 @@
 export const auth = {
   checkingAccess: 'Checking your account access...',
   brandBadge: 'Trade',
+  titles: {
+    login: 'Welcome back',
+    register: 'Create your account',
+    forgot: 'Reset your password',
+  },
+  info: {
+    ariaLabel: 'Authentication help and safety information',
+    title: 'Trade with clearer boundaries.',
+    body: 'Hellowhen Trade helps adults publish needs, offers, and service-for-service trades with support and moderation tools nearby.',
+    adultsOnly: '18+ only for the first launch.',
+    emailAndTwoFactor: 'Email login with optional authenticator app protection.',
+    reportsAndSupport: 'Reports, support, and safety policies stay available before and after sign-in.',
+    policyLinksLabel: 'Auth page policy links',
+  },
   subtitles: {
     login: 'Sign in to create needs, offers, trades, and proposals.',
     register: 'Create your account and set local display preferences for the beta.',
@@ -51,6 +65,19 @@ export const auth = {
   twoFactorRecoveryHint: 'Wrong codes can be retried until this login challenge expires. You can also use one saved recovery code.',
   twoFactorLostAccessPrefix: 'Lost your authenticator app and recovery codes?',
   twoFactorLostAccessLink: 'Contact support for account recovery',
+  accountHelp: {
+    badge: 'Account help',
+    title: 'Can’t access your account?',
+    body: 'Use guest support if you lost two-step verification, cannot reset your password, or need account help before signing in.',
+    lostTwoFactor: 'Lost your authenticator app or recovery codes',
+    passwordProblem: 'Password reset or email access problem',
+    accountDeletion: 'Account deletion, privacy, or safety request',
+    action: 'Get help signing in',
+    privacyNote: 'Support creates a review request only. It does not confirm whether an email belongs to an account.',
+    shortTitle: 'Can’t access your account?',
+    shortBody: 'Lost two-step verification or recovery codes?',
+    shortAction: 'Get help signing in',
+  },
   errors: {
     signIn: 'Sign-in error',
     emailRequired: 'Enter your email.',
@@ -88,6 +115,8 @@ export const auth = {
     missingToken: 'Missing reset token. Open the link from your email or request a new reset link.',
     missingTokenError: 'Missing reset token. Request a new link from the login screen.',
     success: 'Password reset. You can now log in.',
+    stillLockedOut: 'Still can’t access your account?',
+    contactSupport: 'Contact support',
   },
   emailVerification: {
     eyebrow: 'Email verification',

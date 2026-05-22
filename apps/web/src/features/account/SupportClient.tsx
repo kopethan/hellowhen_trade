@@ -21,6 +21,7 @@ const categoryOptions: CategoryOption[] = [
   { value: 'media_issue', key: 'media_issue' },
   { value: 'bug_report', key: 'bug_report' },
   { value: 'account_issue', key: 'account_issue' },
+  { value: 'account_recovery', key: 'account_recovery' },
   { value: 'safety_concern', key: 'safety_concern' },
 ];
 

@@ -1,0 +1,556 @@
+diff --git a/apps/api/prisma/migrations/20260522130000_guest_support_account_recovery/migration.sql b/apps/api/prisma/migrations/20260522130000_guest_support_account_recovery/migration.sql
+new file mode 100644
+index 0000000..be8c3a0
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260522130000_guest_support_account_recovery/migration.sql
+@@ -0,0 +1,14 @@
++ALTER TYPE "SupportTicketCategory" ADD VALUE IF NOT EXISTS 'account_recovery';
++
++ALTER TABLE "SupportTicket"
++  ALTER COLUMN "userId" DROP NOT NULL,
++  ADD COLUMN "guestEmail" TEXT,
++  ADD COLUMN "guestAccountEmail" TEXT,
++  ADD COLUMN "guestName" TEXT,
++  ADD COLUMN "guestUserAgent" TEXT;
++
++ALTER TABLE "SupportTicketMessage"
++  ALTER COLUMN "senderId" DROP NOT NULL;
++
++CREATE INDEX "SupportTicket_guestEmail_status_createdAt_idx" ON "SupportTicket"("guestEmail", "status", "createdAt");
++CREATE INDEX "SupportTicket_guestAccountEmail_status_createdAt_idx" ON "SupportTicket"("guestAccountEmail", "status", "createdAt");
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 219aac2..cba0043 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -129,6 +129,7 @@ enum SupportTicketCategory {
+   media_issue
+   bug_report
+   account_issue
++  account_recovery
+   safety_concern
+ }
+ 
+@@ -759,7 +760,7 @@ model CreditPurchase {
+ 
+ model SupportTicket {
+   id                String                @id @default(cuid())
+-  userId            String
++  userId            String?
+   category          SupportTicketCategory
+   subject           String
+   message           String
+@@ -769,11 +770,15 @@ model SupportTicket {
+   relatedProposalId String?
+   relatedMediaId    String?
+   assignedAdminId   String?
++  guestEmail        String?
++  guestAccountEmail String?
++  guestName         String?
++  guestUserAgent    String?
+   createdAt         DateTime              @default(now())
+   updatedAt         DateTime              @updatedAt
+   resolvedAt        DateTime?
+ 
+-  user          User                   @relation("OwnedSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
++  user          User?                  @relation("OwnedSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+   assignedAdmin User?                  @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+   messages      SupportTicketMessage[]
+ 
+@@ -781,19 +786,21 @@ model SupportTicket {
+   @@index([status, priority, createdAt])
+   @@index([category, status])
+   @@index([assignedAdminId, status])
++  @@index([guestEmail, status, createdAt])
++  @@index([guestAccountEmail, status, createdAt])
+ }
+ 
+ model SupportTicketMessage {
+   id         String                   @id @default(cuid())
+   ticketId   String
+-  senderId   String
++  senderId   String?
+   senderRole SupportMessageSenderRole @default(user)
+   body       String
+   internal   Boolean                  @default(false)
+   createdAt  DateTime                 @default(now())
+ 
+   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+-  sender User          @relation("SentSupportMessages", fields: [senderId], references: [id], onDelete: Cascade)
++  sender User?         @relation("SentSupportMessages", fields: [senderId], references: [id], onDelete: Cascade)
+ 
+   @@index([ticketId, createdAt])
+   @@index([senderId, createdAt])
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index d6ad6b9..07d6e40 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1785,6 +1785,9 @@ adminRoutes.get('/support/tickets', asyncRoute(async (req, res) => {
+         { message: { contains: q, mode: 'insensitive' as const } },
+         { id: { contains: q, mode: 'insensitive' as const } },
+         { user: { is: { email: { contains: q, mode: 'insensitive' as const } } } },
++        { guestEmail: { contains: q, mode: 'insensitive' as const } },
++        { guestAccountEmail: { contains: q, mode: 'insensitive' as const } },
++        { guestName: { contains: q, mode: 'insensitive' as const } },
+         { user: { is: { profile: { is: { displayName: { contains: q, mode: 'insensitive' as const } } } } } },
+         { user: { is: { profile: { is: { handle: { contains: q, mode: 'insensitive' as const } } } } } },
+       ],
+diff --git a/apps/api/src/modules/support/support.routes.ts b/apps/api/src/modules/support/support.routes.ts
+index b373b38..ca6c94f 100644
+--- a/apps/api/src/modules/support/support.routes.ts
++++ b/apps/api/src/modules/support/support.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import {
++  createGuestSupportTicketRequestSchema,
+   createSupportMessageRequestSchema,
+   createSupportTicketRequestSchema,
+   updateSupportTicketStatusRequestSchema,
+@@ -7,12 +8,34 @@ import {
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
++import { createRateLimiter, ipAndBodyFieldRateLimitKey } from '../../middleware/rateLimit.js';
+ import { attachUploadedMediaToEntity, loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+ 
+ export const supportRoutes = Router();
+-supportRoutes.use(requireAuth);
++
++const guestSupportRateLimit = createRateLimiter({
++  keyPrefix: 'support:guest',
++  windowMs: 60 * 60 * 1000,
++  max: 5,
++  keyGenerator: ipAndBodyFieldRateLimitKey('email'),
++  message: 'Too many support requests. Please wait before trying again.',
++});
+ 
+ const supportUserSelect = { id: true, email: true, profile: true } as const;
++
++function normalizeEmail(value: string) {
++  return value.trim().toLowerCase();
++}
++
++function optionalText(value?: string | null) {
++  const trimmed = value?.trim();
++  return trimmed || null;
++}
++
++function guestSupportPriority(category: string) {
++  if (category === 'account_recovery' || category === 'safety_concern') return 'high' as const;
++  return 'normal' as const;
++}
+ const ticketIncludeForUser = {
+   messages: {
+     where: { internal: false },
+@@ -95,6 +118,37 @@ function shouldFreezeTrade(category: string) {
+   return category === 'trade_issue' || category === 'safety_concern';
+ }
+ 
++supportRoutes.post('/guest/tickets', guestSupportRateLimit, asyncRoute(async (req, res) => {
++  const input = createGuestSupportTicketRequestSchema.parse(req.body);
++  const guestEmail = normalizeEmail(input.email);
++  const guestAccountEmail = input.accountEmail ? normalizeEmail(input.accountEmail) : null;
++  const guestName = optionalText(input.name);
++  const guestUserAgent = optionalText(req.get('user-agent'))?.slice(0, 500) ?? null;
++
++  const ticket = await prisma.supportTicket.create({
++    data: {
++      userId: null,
++      category: input.category,
++      subject: input.subject.trim(),
++      message: input.message.trim(),
++      priority: guestSupportPriority(input.category),
++      guestEmail,
++      guestAccountEmail,
++      guestName,
++      guestUserAgent,
++      messages: { create: { senderId: null, senderRole: 'user', body: input.message.trim() } },
++    },
++    select: { id: true, category: true, status: true, priority: true, createdAt: true },
++  });
++
++  return res.status(201).json({
++    ticket,
++    message: 'Support request received. If this email matches an account, we will review the request and reply with next steps.',
++  });
++}));
++
++supportRoutes.use(requireAuth);
++
+ supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
+   const tickets = await prisma.supportTicket.findMany({
+     where: { userId: req.user!.id },
+diff --git a/apps/mobile/src/features/account/SupportCenterScreen.tsx b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+index 54917af..04233d5 100644
+--- a/apps/mobile/src/features/account/SupportCenterScreen.tsx
++++ b/apps/mobile/src/features/account/SupportCenterScreen.tsx
+@@ -21,13 +21,13 @@ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpl
+ type TicketsResponse = { tickets: SupportTicketDto[] };
+ type CreateTicketResponse = { ticket: SupportTicketDto };
+ 
+-const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
++const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'media_issue', 'bug_report', 'account_issue', 'account_recovery', 'safety_concern'];
+ const priorities: SupportTicketPriority[] = ['low', 'normal', 'high', 'urgent'];
+ 
+ function categoryTone(category: SupportTicketCategory) {
+   if (category === 'trade_issue') return 'trade' as const;
+   if (category === 'media_issue') return 'warning' as const;
+-  if (category === 'safety_concern') return 'danger' as const;
++  if (category === 'account_recovery' || category === 'safety_concern') return 'danger' as const;
+   if (category === 'bug_report') return 'instruction' as const;
+   return 'info' as const;
+ }
+diff --git a/apps/web/src/app/admin/support/page.tsx b/apps/web/src/app/admin/support/page.tsx
+index 04fc416..9f65c86 100644
+--- a/apps/web/src/app/admin/support/page.tsx
++++ b/apps/web/src/app/admin/support/page.tsx
+@@ -8,7 +8,7 @@ import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionT
+ import { useWebAuth } from '../../../providers/WebAuthProvider';
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+-type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; _count?: { messages: number } };
++type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; guestEmail?: string | null; guestAccountEmail?: string | null; guestName?: string | null; _count?: { messages: number } };
+ type TicketsResponse = { tickets: AdminTicketItem[] };
+ type TicketResponse = { ticket: AdminTicketItem };
+ type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
+@@ -17,7 +17,7 @@ type LastAction = { tone: NoticeTone; title: string; body: string; details?: str
+ 
+ const statuses: Array<SupportTicketStatus | 'all'> = ['all', 'open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
+ const bulkStatuses: SupportTicketStatus[] = ['open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
+-const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
++const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'account_recovery', 'safety_concern'];
+ const priorities: Array<SupportTicketPriority | 'all'> = ['all', 'low', 'normal', 'high', 'urgent'];
+ const assignedFilters: AssignedFilter[] = ['all', 'unassigned', 'mine'];
+ 
+@@ -25,6 +25,11 @@ function labelize(value?: string | null) { return value ? value.replaceAll('_',
+ function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
+   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
+ }
++function ticketRequesterLabel(ticket?: Pick<AdminTicketItem, 'user' | 'guestEmail' | 'guestAccountEmail' | 'guestName'> | null) {
++  if (!ticket) return 'Unknown user';
++  if (ticket.user) return personLabel(ticket.user);
++  return ticket.guestName || ticket.guestAccountEmail || ticket.guestEmail || 'Guest requester';
++}
+ function statusTone(status: SupportTicketStatus | 'all') {
+   if (status === 'resolved') return 'success';
+   if (status === 'waiting_for_user') return 'instruction';
+@@ -43,6 +48,7 @@ function categoryTone(category: SupportTicketCategory | 'all') {
+   if (category === 'trade_issue') return 'trade';
+   if (category === 'credits_issue') return 'credits';
+   if (category === 'media_issue') return 'warning';
++  if (category === 'account_recovery') return 'danger';
+   if (category === 'safety_concern') return 'danger';
+   if (category === 'bug_report') return 'instruction';
+   return 'info';
+@@ -300,7 +306,7 @@ export default function AdminSupportPage() {
+                 <button type="button" className="admin-user-row" onClick={() => { void openTicket(ticket.id); }}>
+                   <span>
+                     <strong>{ticket.subject}</strong>
+-                    <small>{personLabel(ticket.user)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
++                    <small>{ticketRequesterLabel(ticket)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
+                     <small>{formatWebDateTime(ticket.updatedAt)} · {ticket.id}</small>
+                   </span>
+                   <em className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</em>
+@@ -320,7 +326,8 @@ export default function AdminSupportPage() {
+                 <span className={`semantic-badge ${priorityTone(selectedTicket.priority)}`}>{labelize(selectedTicket.priority)}</span>
+               </div>
+               <h2>{selectedTicket.subject}</h2>
+-              <p className="meta">User: {personLabel(selectedTicket.user)} · Assigned: {personLabel(selectedTicket.assignedAdmin)} · Updated {formatWebDateTime(selectedTicket.updatedAt)}</p>
++              <p className="meta">Requester: {ticketRequesterLabel(selectedTicket)} · Assigned: {personLabel(selectedTicket.assignedAdmin)} · Updated {formatWebDateTime(selectedTicket.updatedAt)}</p>
++              {!selectedTicket.user ? <p className="notice-box warning">Guest support request. Reply outside the app using the guest contact email: {selectedTicket.guestEmail || 'not provided'}{selectedTicket.guestAccountEmail ? ` · Account email: ${selectedTicket.guestAccountEmail}` : ''}</p> : null}
+               <p>{selectedTicket.message}</p>
+               <div className="status-row">
+                 {selectedTicket.relatedTradeId ? <Link className="semantic-badge trade" href={`/trades/${selectedTicket.relatedTradeId}`}>Trade {selectedTicket.relatedTradeId}</Link> : null}
+@@ -344,7 +351,7 @@ export default function AdminSupportPage() {
+                 {selectedTicket.messages?.map((item) => (
+                   <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}>
+                     <div className="status-row">
+-                      <span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : personLabel(item.sender)}</span>
++                      <span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender ? personLabel(item.sender) : ticketRequesterLabel(selectedTicket))}</span>
+                       {item.internal ? <span className="semantic-badge warning">internal note</span> : null}
+                     </div>
+                     <p>{item.body}</p>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index eb9bd55..fd9a7e9 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -228,6 +228,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .auth-toggle { min-height: 38px; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 0 10px; font-size: 13px; }
+ .auth-toggle--active { background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
+ .form-stack { display: grid; gap: 12px; }
++.form-grid { display: grid; gap: 13px; }
+ .field-label { display: grid; gap: 7px; color: var(--app-text); font-size: 13px; font-weight: 900; }
+ .field-label input, .field-label select, .field-label textarea { font-size: 16px; font-weight: 650; }
+ .field-help { color: var(--app-muted); font-size: 12px; font-weight: 750; line-height: 1.45; }
+diff --git a/apps/web/src/features/account/PublicSupportClient.tsx b/apps/web/src/features/account/PublicSupportClient.tsx
+index 1ddb758..a66887f 100644
+--- a/apps/web/src/features/account/PublicSupportClient.tsx
++++ b/apps/web/src/features/account/PublicSupportClient.tsx
+@@ -1,14 +1,106 @@
+ 'use client';
+ 
+ import Link from 'next/link';
++import { useState } from 'react';
++import type { FormEvent } from 'react';
++import type { CreateGuestSupportTicketRequest } from '@hellowhen/contracts';
+ import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ 
++type GuestSupportCategory = CreateGuestSupportTicketRequest['category'];
++
++const guestCategories: GuestSupportCategory[] = [
++  'account_recovery',
++  'account_issue',
++  'safety_concern',
++  'bug_report',
++  'general_feedback',
++];
++
+ export function PublicSupportClient() {
+   const { t } = useWebTranslation();
++  const [email, setEmail] = useState('');
++  const [accountEmail, setAccountEmail] = useState('');
++  const [name, setName] = useState('');
++  const [category, setCategory] = useState<GuestSupportCategory>('account_recovery');
++  const [subject, setSubject] = useState('');
++  const [message, setMessage] = useState('');
++  const [submitting, setSubmitting] = useState(false);
++  const [notice, setNotice] = useState('');
++  const [error, setError] = useState('');
++
++  async function submitGuestSupport(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    setNotice('');
++    setError('');
++    setSubmitting(true);
++    try {
++      await api.support.createGuestTicket({
++        email: email.trim(),
++        accountEmail: accountEmail.trim() || undefined,
++        name: name.trim() || undefined,
++        category,
++        subject: subject.trim(),
++        message: message.trim(),
++      });
++      setNotice(t('support.public.guestSuccess'));
++      setEmail('');
++      setAccountEmail('');
++      setName('');
++      setCategory('account_recovery');
++      setSubject('');
++      setMessage('');
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSubmitting(false);
++    }
++  }
++
+   return (
+     <MobilePage>
+       <PageIntro eyebrow={t('support.public.eyebrow')} title={t('support.public.title')} body={t('support.public.body')} />
++      {notice ? <p className="notice-box success">{notice}</p> : null}
++      {error ? <p className="notice-box danger">{error}</p> : null}
++
++      <section className="mobile-card mobile-card--soft">
++        <span className="semantic-badge warning">{t('support.public.guestBadge')}</span>
++        <h3>{t('support.public.guestTitle')}</h3>
++        <p>{t('support.public.guestBody')}</p>
++        <form onSubmit={submitGuestSupport} className="form-grid">
++          <label className="field-label">
++            {t('support.public.contactEmail')}
++            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder={t('support.public.contactEmailPlaceholder')} />
++          </label>
++          <label className="field-label">
++            {t('support.public.accountEmail')}
++            <input value={accountEmail} onChange={(event) => setAccountEmail(event.target.value)} type="email" autoComplete="email" placeholder={t('support.public.accountEmailPlaceholder')} />
++          </label>
++          <label className="field-label">
++            {t('support.public.name')}
++            <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder={t('support.public.namePlaceholder')} />
++          </label>
++          <label className="field-label">
++            {t('support.category')}
++            <select value={category} onChange={(event) => setCategory(event.target.value as GuestSupportCategory)}>
++              {guestCategories.map((item) => <option key={item} value={item}>{t(`support.categories.${item}`)}</option>)}
++            </select>
++          </label>
++          <label className="field-label">
++            {t('support.subject')}
++            <input value={subject} onChange={(event) => setSubject(event.target.value)} required minLength={3} maxLength={140} placeholder={t('support.public.subjectPlaceholder')} />
++          </label>
++          <label className="field-label">
++            {t('support.message')}
++            <textarea value={message} onChange={(event) => setMessage(event.target.value)} required minLength={10} maxLength={4000} rows={6} placeholder={t('support.public.messagePlaceholder')} />
++          </label>
++          <p className="notice-box info">{t('support.public.guestPrivacy')}</p>
++          <button type="submit" disabled={submitting || !email.trim() || !subject.trim() || message.trim().length < 10}>{submitting ? t('support.creatingTicket') : t('support.public.submitGuest')}</button>
++        </form>
++      </section>
++
+       <section className="mobile-card mobile-card--soft">
+         <span className="semantic-badge success">{t('support.title')}</span>
+         <h3>{t('support.public.privateTitle')}</h3>
+diff --git a/apps/web/src/features/account/SupportClient.tsx b/apps/web/src/features/account/SupportClient.tsx
+index 4af86f9..213ca3c 100644
+--- a/apps/web/src/features/account/SupportClient.tsx
++++ b/apps/web/src/features/account/SupportClient.tsx
+@@ -21,6 +21,7 @@ const categoryOptions: CategoryOption[] = [
+   { value: 'media_issue', key: 'media_issue' },
+   { value: 'bug_report', key: 'bug_report' },
+   { value: 'account_issue', key: 'account_issue' },
++  { value: 'account_recovery', key: 'account_recovery' },
+   { value: 'safety_concern', key: 'safety_concern' },
+ ];
+ 
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 68cd49b..a7cd8aa 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -31,7 +31,7 @@ export function createApiClient(options: ApiClientOptions) {
+     admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: () => requestJson(options, '/admin/business-profiles'), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     account: { deletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request'), requestDeletion: (body?: CreateAccountDeletionRequest) => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request', { method: 'POST', body: JSON.stringify(body ?? {}) }), cancelDeletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request/cancel', { method: 'PATCH' }) },
+-    support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
++    support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), createGuestTicket: (body: CreateGuestSupportTicketRequest) => requestJson(options, '/support/guest/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     wallet: { me: () => requestJson(options, '/wallet/me'), ledger: () => requestJson(options, '/wallet/ledger'), limits: () => requestJson(options, '/wallet/limits'), moneySafety: () => requestJson(options, '/wallet/money-safety'), acknowledgeMoneySafety: (body: AcknowledgeMoneySafetyRequest) => requestJson(options, '/wallet/money-safety/acknowledge', { method: 'POST', body: JSON.stringify(body) }), payouts: () => requestJson(options, '/wallet/payouts'), demoTopUp: (body: DemoTopUpRequest) => requestJson(options, '/wallet/demo-top-up', { method: 'POST', body: JSON.stringify(body) }), connectDemoPayoutAccount: () => requestJson(options, '/wallet/demo-payout-account', { method: 'POST' }), requestDemoPayout: (body: DemoPayoutRequest) => requestJson(options, '/wallet/demo-payout-request', { method: 'POST', body: JSON.stringify(body) }), stripeConnect: () => requestJson(options, '/wallet/stripe-connect'), createStripeConnectAccountLink: () => requestJson(options, '/wallet/stripe-connect/account-link', { method: 'POST' }), syncStripeConnect: () => requestJson(options, '/wallet/stripe-connect/sync', { method: 'POST' }), providerAccount: () => requestJson(options, '/wallet/provider-account'), createProviderOnboardingLink: (body?: MoneyProviderOnboardingLinkRequest) => requestJson(options, '/wallet/provider-account/onboarding-link', { method: 'POST', body: JSON.stringify(body ?? {}) }), syncProviderAccount: () => requestJson(options, '/wallet/provider-account/sync', { method: 'POST' }), providerBalances: () => requestJson(options, '/wallet/provider-balances'), syncProviderBalances: (body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, '/wallet/provider-balances/sync', { method: 'POST', body: JSON.stringify(body ?? {}) }) }
+   };
+ }
+diff --git a/packages/contracts/src/support.ts b/packages/contracts/src/support.ts
+index ae20841..e727d91 100644
+--- a/packages/contracts/src/support.ts
++++ b/packages/contracts/src/support.ts
+@@ -8,6 +8,7 @@ export const supportTicketCategorySchema = z.enum([
+   'media_issue',
+   'bug_report',
+   'account_issue',
++  'account_recovery',
+   'safety_concern',
+ ]);
+ 
+@@ -26,6 +27,16 @@ export const createSupportTicketRequestSchema = z.object({
+   mediaIds: z.array(z.string()).max(5).optional(),
+ });
+ 
++
++export const createGuestSupportTicketRequestSchema = z.object({
++  email: z.string().email().max(254),
++  accountEmail: z.string().email().max(254).optional(),
++  name: z.string().trim().max(120).optional(),
++  category: z.enum(['account_recovery', 'account_issue', 'bug_report', 'safety_concern', 'general_feedback']),
++  subject: z.string().min(3).max(140),
++  message: z.string().min(10).max(4000),
++});
++
+ export const createSupportMessageRequestSchema = z.object({
+   body: z.string().min(1).max(4000),
+   mediaIds: z.array(z.string()).max(5).optional(),
+@@ -58,7 +69,7 @@ export const supportUserPreviewSchema = z.object({
+ export const supportTicketMessageSchema = z.object({
+   id: z.string(),
+   ticketId: z.string(),
+-  senderId: z.string(),
++  senderId: z.string().nullable().optional(),
+   senderRole: supportMessageSenderRoleSchema,
+   body: z.string(),
+   internal: z.boolean(),
+@@ -69,7 +80,7 @@ export const supportTicketMessageSchema = z.object({
+ 
+ export const supportTicketSchema = z.object({
+   id: z.string(),
+-  userId: z.string(),
++  userId: z.string().nullable().optional(),
+   category: supportTicketCategorySchema,
+   subject: z.string(),
+   message: z.string(),
+@@ -79,6 +90,9 @@ export const supportTicketSchema = z.object({
+   relatedProposalId: z.string().nullable().optional(),
+   relatedMediaId: z.string().nullable().optional(),
+   assignedAdminId: z.string().nullable().optional(),
++  guestEmail: z.string().nullable().optional(),
++  guestAccountEmail: z.string().nullable().optional(),
++  guestName: z.string().nullable().optional(),
+   createdAt: z.string(),
+   updatedAt: z.string(),
+   resolvedAt: z.string().nullable().optional(),
+@@ -93,6 +107,7 @@ export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
+ export type SupportTicketPriority = z.infer<typeof supportTicketPrioritySchema>;
+ export type SupportMessageSenderRole = z.infer<typeof supportMessageSenderRoleSchema>;
+ export type CreateSupportTicketRequest = z.infer<typeof createSupportTicketRequestSchema>;
++export type CreateGuestSupportTicketRequest = z.infer<typeof createGuestSupportTicketRequestSchema>;
+ export type CreateSupportMessageRequest = z.infer<typeof createSupportMessageRequestSchema>;
+ export type UpdateSupportTicketStatusRequest = z.infer<typeof updateSupportTicketStatusRequestSchema>;
+ export type AdminUpdateSupportTicketRequest = z.infer<typeof adminUpdateSupportTicketRequestSchema>;
+diff --git a/packages/i18n/src/locales/en/support.ts b/packages/i18n/src/locales/en/support.ts
+index 8eb1a52..8dde5a8 100644
+--- a/packages/i18n/src/locales/en/support.ts
++++ b/packages/i18n/src/locales/en/support.ts
+@@ -7,6 +7,20 @@ export const support = {
+     privateBody: 'Sign in to create a private support ticket, attach screenshots, and follow replies from the Hellowhen team.',
+     openSupport: 'Open support',
+     deletionBody: 'Members can request account deletion from the account area. Some support, safety, and moderation records may be retained when needed to protect the service or handle active issues.',
++    guestBadge: 'Account access',
++    guestTitle: 'Can’t sign in?',
++    guestBody: 'Use this limited public form for lost two-step verification, password or email problems, account access, safety, or legal contact. It does not reset your account automatically.',
++    contactEmail: 'Contact email',
++    contactEmailPlaceholder: 'Where support can reply',
++    accountEmail: 'Account email, if different',
++    accountEmailPlaceholder: 'Email used on your Hellowhen account',
++    name: 'Name, optional',
++    namePlaceholder: 'Your name',
++    subjectPlaceholder: 'What do you need help with?',
++    messagePlaceholder: 'Explain what happened. For lost two-step verification, mention whether you still have recovery codes.',
++    guestPrivacy: 'For security, this form only creates a support request. We will not confirm whether an email belongs to an account, and admins must review account recovery manually.',
++    submitGuest: 'Send support request',
++    guestSuccess: 'Support request received. If this email matches an account, we’ll review it and reply with next steps.',
+   },
+   defaultTradeIssueMessage: 'I need admin help with this trade.',
+   title: 'Support',
+@@ -75,6 +89,7 @@ export const support = {
+     media_issue: 'Image/content issue',
+     bug_report: 'Bug report',
+     account_issue: 'Account issue',
++    account_recovery: 'Lost two-step verification / account recovery',
+     safety_concern: 'Safety concern',
+   },
+   priorities: {
+diff --git a/packages/i18n/src/locales/fr/support.ts b/packages/i18n/src/locales/fr/support.ts
+index 5ea6bf9..16a0fb7 100644
+--- a/packages/i18n/src/locales/fr/support.ts
++++ b/packages/i18n/src/locales/fr/support.ts
+@@ -7,6 +7,20 @@ export const support = {
+     privateBody: 'Connectez-vous pour créer un ticket privé, joindre des captures et suivre les réponses de l’équipe Hellowhen.',
+     openSupport: 'Ouvrir l’assistance',
+     deletionBody: 'Les membres peuvent demander la suppression du compte depuis l’espace compte. Certains dossiers d’assistance, sécurité et modération peuvent être conservés si nécessaire pour protéger le service ou traiter des problèmes actifs.',
++    guestBadge: 'Accès au compte',
++    guestTitle: 'Impossible de vous connecter ?',
++    guestBody: 'Utilisez ce formulaire public limité pour une vérification en deux étapes perdue, un problème de mot de passe ou d’email, l’accès au compte, la sécurité ou un contact légal. Il ne réinitialise pas votre compte automatiquement.',
++    contactEmail: 'Email de contact',
++    contactEmailPlaceholder: 'Où l’assistance peut répondre',
++    accountEmail: 'Email du compte, si différent',
++    accountEmailPlaceholder: 'Email utilisé sur votre compte Hellowhen',
++    name: 'Nom, optionnel',
++    namePlaceholder: 'Votre nom',
++    subjectPlaceholder: 'De quoi avez-vous besoin ?',
++    messagePlaceholder: 'Expliquez ce qui s’est passé. Pour une vérification en deux étapes perdue, indiquez si vous avez encore des codes de récupération.',
++    guestPrivacy: 'Par sécurité, ce formulaire crée seulement une demande d’assistance. Nous ne confirmons pas si un email appartient à un compte, et la récupération doit être vérifiée manuellement par l’équipe.',
++    submitGuest: 'Envoyer la demande',
++    guestSuccess: 'Demande reçue. Si cet email correspond à un compte, nous l’examinerons et répondrons avec les prochaines étapes.',
+   },
+   defaultTradeIssueMessage: 'J’ai besoin d’aide de l’équipe avec cet échange.',
+   title: 'Assistance',
+@@ -75,6 +89,7 @@ export const support = {
+     media_issue: 'Image/contenu',
+     bug_report: 'Bug',
+     account_issue: 'Problème de compte',
++    account_recovery: 'Vérification en deux étapes perdue / récupération du compte',
+     safety_concern: 'Sécurité',
+   },
+   priorities: {

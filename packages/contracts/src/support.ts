@@ -8,6 +8,7 @@ export const supportTicketCategorySchema = z.enum([
   'media_issue',
   'bug_report',
   'account_issue',
+  'account_recovery',
   'safety_concern',
 ]);
 
@@ -24,6 +25,16 @@ export const createSupportTicketRequestSchema = z.object({
   relatedProposalId: z.string().min(1).optional(),
   relatedMediaId: z.string().min(1).optional(),
   mediaIds: z.array(z.string()).max(5).optional(),
+});
+
+
+export const createGuestSupportTicketRequestSchema = z.object({
+  email: z.string().email().max(254),
+  accountEmail: z.string().email().max(254).optional(),
+  name: z.string().trim().max(120).optional(),
+  category: z.enum(['account_recovery', 'account_issue', 'bug_report', 'safety_concern', 'general_feedback']),
+  subject: z.string().min(3).max(140),
+  message: z.string().min(10).max(4000),
 });
 
 export const createSupportMessageRequestSchema = z.object({
@@ -58,7 +69,7 @@ export const supportUserPreviewSchema = z.object({
 export const supportTicketMessageSchema = z.object({
   id: z.string(),
   ticketId: z.string(),
-  senderId: z.string(),
+  senderId: z.string().nullable().optional(),
   senderRole: supportMessageSenderRoleSchema,
   body: z.string(),
   internal: z.boolean(),
@@ -69,7 +80,7 @@ export const supportTicketMessageSchema = z.object({
 
 export const supportTicketSchema = z.object({
   id: z.string(),
-  userId: z.string(),
+  userId: z.string().nullable().optional(),
   category: supportTicketCategorySchema,
   subject: z.string(),
   message: z.string(),
@@ -79,6 +90,9 @@ export const supportTicketSchema = z.object({
   relatedProposalId: z.string().nullable().optional(),
   relatedMediaId: z.string().nullable().optional(),
   assignedAdminId: z.string().nullable().optional(),
+  guestEmail: z.string().nullable().optional(),
+  guestAccountEmail: z.string().nullable().optional(),
+  guestName: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   resolvedAt: z.string().nullable().optional(),
@@ -93,6 +107,7 @@ export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 export type SupportTicketPriority = z.infer<typeof supportTicketPrioritySchema>;
 export type SupportMessageSenderRole = z.infer<typeof supportMessageSenderRoleSchema>;
 export type CreateSupportTicketRequest = z.infer<typeof createSupportTicketRequestSchema>;
+export type CreateGuestSupportTicketRequest = z.infer<typeof createGuestSupportTicketRequestSchema>;
 export type CreateSupportMessageRequest = z.infer<typeof createSupportMessageRequestSchema>;
 export type UpdateSupportTicketStatusRequest = z.infer<typeof updateSupportTicketStatusRequestSchema>;
 export type AdminUpdateSupportTicketRequest = z.infer<typeof adminUpdateSupportTicketRequestSchema>;

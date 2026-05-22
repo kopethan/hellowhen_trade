@@ -1,0 +1,272 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index e4eea7a..34f4df0 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -219,30 +219,118 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ @media (max-width: 900px) { .support-layout { grid-template-columns: 1fr; } }
+ @media (max-width: 760px) { .form-row { grid-template-columns: 1fr; } }
+ 
+-.auth-page-shell { min-height: calc(100dvh - 72px); display: grid; place-items: center; padding: 18px; }
+-.auth-layout { display: grid; gap: 16px; width: min(100%, 520px); margin: 0 auto; }
+-.auth-panel { display: grid; gap: 18px; width: 100%; margin: 0 auto; }
+-.auth-help-panel { display: grid; gap: 12px; align-self: start; }
+-.auth-help-panel h2 { margin: 0; }
+-.auth-help-list { display: grid; gap: 8px; margin: 0; padding-left: 18px; color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
+-.auth-inline-help { display: grid; gap: 4px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface-soft); padding: 13px; font-size: 13px; line-height: 1.4; }
+-.auth-inline-help strong { color: var(--app-text); }
+-.auth-inline-help span { color: var(--app-text-muted); font-weight: 750; }
+-.auth-inline-help a { font-weight: 950; }
+-.auth-recovery-links { display: grid; gap: 10px; }
+-@media (min-width: 860px) {
+-  .auth-layout { grid-template-columns: minmax(420px, 520px) minmax(260px, 320px); width: min(100%, 880px); align-items: start; }
+-  .auth-inline-help { display: none; }
++
++.auth-page-shell {
++  min-height: calc(100dvh - 72px);
++  display: grid;
++  align-items: start;
++  justify-items: center;
++  padding: clamp(24px, 6vh, 72px) 18px 32px;
+ }
+-@media (max-width: 859px) {
+-  .auth-help-panel { display: none; }
++.auth-layout {
++  display: grid;
++  gap: 28px;
++  width: min(100%, 980px);
++  margin: 0 auto;
++}
++.auth-panel {
++  order: 1;
++  display: grid;
++  gap: 18px;
++  width: 100%;
++  max-width: 520px;
++  margin: 0 auto;
++}
++.auth-info-panel {
++  order: 2;
++  display: grid;
++  gap: 22px;
++  width: 100%;
++  max-width: 520px;
++  margin: 0 auto;
++  padding-top: 8px;
++}
++.auth-info-brand,
++.auth-account-help {
++  display: grid;
++  gap: 10px;
++}
++.auth-info-brand h2,
++.auth-account-help h3 {
++  margin: 0;
+ }
++.auth-info-brand h2 {
++  max-width: 11ch;
++  font-size: clamp(32px, 6vw, 58px);
++  line-height: 0.95;
++  letter-spacing: -0.075em;
++}
++.auth-info-brand p,
++.auth-account-help p {
++  margin: 0;
++}
++.auth-trust-list {
++  display: grid;
++  gap: 10px;
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++.auth-trust-list li {
++  position: relative;
++  padding-left: 24px;
++  color: var(--app-text);
++  font-size: 14px;
++  font-weight: 850;
++  line-height: 1.4;
++}
++.auth-trust-list li::before {
++  content: '✓';
++  position: absolute;
++  left: 0;
++  top: 0;
++  color: var(--success-text);
++  font-weight: 1000;
++}
++.auth-account-help {
++  border-top: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
++  padding-top: 18px;
++}
++.auth-policy-links {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px 14px;
++  border-top: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
++  padding-top: 14px;
++}
++.auth-policy-links a {
++  color: var(--app-text-muted);
++  font-size: 12px;
++  font-weight: 900;
++  text-decoration: none;
++}
++.auth-policy-links a:hover,
++.auth-policy-links a:focus-visible {
++  color: var(--app-text);
++  text-decoration: underline;
++}
++.auth-recovery-links { display: grid; gap: 10px; }
+ .auth-brand-block { display: grid; gap: 8px; }
+-.auth-brand-block h1 { margin: 0; }
++.auth-brand-block h1 { margin: 0; font-size: clamp(28px, 4vw, 42px); line-height: 1; letter-spacing: -0.06em; }
+ .auth-brand-block p { margin: 0; }
+ .auth-toggle-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; border-radius: 999px; background: var(--app-surface-soft); padding: 5px; }
+ .auth-toggle { min-height: 38px; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 0 10px; font-size: 13px; }
+ .auth-toggle--active { background: var(--app-surface); color: var(--app-text); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08); }
++@media (min-width: 860px) {
++  .auth-page-shell { align-items: center; padding-block: 48px; }
++  .auth-layout { grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1fr); gap: 42px; align-items: center; }
++  .auth-info-panel { order: 1; max-width: 360px; margin: 0; padding: 0; }
++  .auth-panel { order: 2; max-width: 520px; margin: 0; border-left: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent); padding-left: 42px; }
++}
++@media (max-width: 859px) {
++  .auth-page-shell { justify-items: stretch; }
++  .auth-layout { width: 100%; }
++}
+ .form-stack { display: grid; gap: 12px; }
+ .form-grid { display: grid; gap: 13px; }
+ .field-label { display: grid; gap: 7px; color: var(--app-text); font-size: 13px; font-weight: 900; }
+diff --git a/apps/web/src/components/WebAuthPanel.tsx b/apps/web/src/components/WebAuthPanel.tsx
+index 2f8b55e..f741b8f 100644
+--- a/apps/web/src/components/WebAuthPanel.tsx
++++ b/apps/web/src/components/WebAuthPanel.tsx
+@@ -16,6 +16,12 @@ function isExpiredTwoFactorChallenge(error: unknown) {
+   return Boolean(error && typeof error === 'object' && (error as ApiLikeError).body?.error === 'invalid_two_factor_challenge');
+ }
+ 
++function titleKey(mode: AuthMode) {
++  if (mode === 'register') return 'auth.titles.register';
++  if (mode === 'forgot') return 'auth.titles.forgot';
++  return 'auth.titles.login';
++}
++
+ function subtitleKey(mode: AuthMode) {
+   if (mode === 'register') return 'auth.subtitles.register';
+   if (mode === 'forgot') return 'auth.subtitles.forgot';
+@@ -160,11 +166,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+ 
+   return (
+     <div className="auth-layout">
+-      <section className="mobile-card auth-panel">
++      <section className="auth-panel" aria-labelledby="auth-form-title">
+       <button type="button" className="auth-back-button" onClick={goBack}>{t('common.actions.back')}</button>
+       <div className="auth-brand-block">
+         <span className="semantic-badge trade">{t('auth.brandBadge')}</span>
+-        <h1>Hellowhen</h1>
++        <h1 id="auth-form-title">{t(titleKey(mode))}</h1>
+         <p>{t(subtitleKey(mode))}</p>
+       </div>
+ 
+@@ -260,24 +266,35 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
+         <p className="notice-box info">{t('auth.googleDisabledFirstLaunch')}</p>
+       </div>
+ 
+-      <div className="auth-inline-help">
+-        <strong>{t('auth.accountHelp.shortTitle')}</strong>
+-        <span>{t('auth.accountHelp.shortBody')}</span>
+-        <Link href={accountRecoverySupportHref}>{t('auth.accountHelp.shortAction')}</Link>
+-      </div>
+       </section>
+ 
+-      <aside className="mobile-card auth-help-panel">
+-        <span className="semantic-badge warning">{t('auth.accountHelp.badge')}</span>
+-        <h2>{t('auth.accountHelp.title')}</h2>
+-        <p>{t('auth.accountHelp.body')}</p>
+-        <ul className="auth-help-list">
+-          <li>{t('auth.accountHelp.lostTwoFactor')}</li>
+-          <li>{t('auth.accountHelp.passwordProblem')}</li>
+-          <li>{t('auth.accountHelp.accountDeletion')}</li>
++      <aside className="auth-info-panel" aria-label={t('auth.info.ariaLabel')}>
++        <div className="auth-info-brand">
++          <span className="semantic-badge trade">{t('auth.brandBadge')}</span>
++          <h2>{t('auth.info.title')}</h2>
++          <p>{t('auth.info.body')}</p>
++        </div>
++
++        <ul className="auth-trust-list">
++          <li>{t('auth.info.adultsOnly')}</li>
++          <li>{t('auth.info.emailAndTwoFactor')}</li>
++          <li>{t('auth.info.reportsAndSupport')}</li>
+         </ul>
+-        <Link href={accountRecoverySupportHref} className="button secondary full">{t('auth.accountHelp.action')}</Link>
+-        <p className="meta">{t('auth.accountHelp.privacyNote')}</p>
++
++        <div className="auth-account-help">
++          <span className="semantic-badge warning">{t('auth.accountHelp.badge')}</span>
++          <h3>{t('auth.accountHelp.title')}</h3>
++          <p>{t('auth.accountHelp.body')}</p>
++          <Link href={accountRecoverySupportHref} className="button secondary full">{t('auth.accountHelp.action')}</Link>
++          <p className="meta">{t('auth.accountHelp.privacyNote')}</p>
++        </div>
++
++        <nav className="auth-policy-links" aria-label={t('auth.info.policyLinksLabel')}>
++          <Link href="/support">{t('legal.overview.openSupport')}</Link>
++          <Link href="/legal/terms">{t('legal.authLinks.terms')}</Link>
++          <Link href="/legal/privacy">{t('legal.policies.privacy.shortTitle')}</Link>
++          <Link href="/legal/safety">{t('legal.policies.safety.shortTitle')}</Link>
++        </nav>
+       </aside>
+     </div>
+   );
+diff --git a/packages/i18n/src/locales/en/auth.ts b/packages/i18n/src/locales/en/auth.ts
+index 93f5dea..3c060d6 100644
+--- a/packages/i18n/src/locales/en/auth.ts
++++ b/packages/i18n/src/locales/en/auth.ts
+@@ -1,6 +1,20 @@
+ export const auth = {
+   checkingAccess: 'Checking your account access...',
+   brandBadge: 'Trade',
++  titles: {
++    login: 'Welcome back',
++    register: 'Create your account',
++    forgot: 'Reset your password',
++  },
++  info: {
++    ariaLabel: 'Authentication help and safety information',
++    title: 'Trade with clearer boundaries.',
++    body: 'Hellowhen Trade helps adults publish needs, offers, and service-for-service trades with support and moderation tools nearby.',
++    adultsOnly: '18+ only for the first launch.',
++    emailAndTwoFactor: 'Email login with optional authenticator app protection.',
++    reportsAndSupport: 'Reports, support, and safety policies stay available before and after sign-in.',
++    policyLinksLabel: 'Auth page policy links',
++  },
+   subtitles: {
+     login: 'Sign in to create needs, offers, trades, and proposals.',
+     register: 'Create your account and set local display preferences for the beta.',
+diff --git a/packages/i18n/src/locales/fr/auth.ts b/packages/i18n/src/locales/fr/auth.ts
+index 2d361c9..baeae1f 100644
+--- a/packages/i18n/src/locales/fr/auth.ts
++++ b/packages/i18n/src/locales/fr/auth.ts
+@@ -1,6 +1,20 @@
+ export const auth = {
+   checkingAccess: 'Vérification de l’accès à votre compte…',
+   brandBadge: 'Échange',
++  titles: {
++    login: 'Bon retour',
++    register: 'Créer votre compte',
++    forgot: 'Réinitialiser le mot de passe',
++  },
++  info: {
++    ariaLabel: 'Aide à la connexion et informations de sécurité',
++    title: 'Échangez avec des règles plus claires.',
++    body: 'Hellowhen Trade aide les adultes à publier des besoins, offres et échanges service-contre-service avec assistance et modération à portée de main.',
++    adultsOnly: '18+ uniquement pour le premier lancement.',
++    emailAndTwoFactor: 'Connexion par e-mail avec protection optionnelle par application d’authentification.',
++    reportsAndSupport: 'Signalements, assistance et règles de sécurité restent disponibles avant et après connexion.',
++    policyLinksLabel: 'Liens de politique de la page de connexion',
++  },
+   subtitles: {
+     login: 'Connectez-vous pour créer des besoins, offres, échanges et propositions.',
+     register: 'Créez votre compte et définissez les préférences locales pour la bêta.',

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  createGuestSupportTicketRequestSchema,
   createSupportMessageRequestSchema,
   createSupportTicketRequestSchema,
   updateSupportTicketStatusRequestSchema,
@@ -7,12 +8,34 @@ import {
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { createRateLimiter, ipAndBodyFieldRateLimitKey } from '../../middleware/rateLimit.js';
 import { attachUploadedMediaToEntity, loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 
 export const supportRoutes = Router();
-supportRoutes.use(requireAuth);
+
+const guestSupportRateLimit = createRateLimiter({
+  keyPrefix: 'support:guest',
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: ipAndBodyFieldRateLimitKey('email'),
+  message: 'Too many support requests. Please wait before trying again.',
+});
 
 const supportUserSelect = { id: true, email: true, profile: true } as const;
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function optionalText(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed || null;
+}
+
+function guestSupportPriority(category: string) {
+  if (category === 'account_recovery' || category === 'safety_concern') return 'high' as const;
+  return 'normal' as const;
+}
 const ticketIncludeForUser = {
   messages: {
     where: { internal: false },
@@ -94,6 +117,37 @@ async function canReportTrade(actorId: string, tradeId?: string) {
 function shouldFreezeTrade(category: string) {
   return category === 'trade_issue' || category === 'safety_concern';
 }
+
+supportRoutes.post('/guest/tickets', guestSupportRateLimit, asyncRoute(async (req, res) => {
+  const input = createGuestSupportTicketRequestSchema.parse(req.body);
+  const guestEmail = normalizeEmail(input.email);
+  const guestAccountEmail = input.accountEmail ? normalizeEmail(input.accountEmail) : null;
+  const guestName = optionalText(input.name);
+  const guestUserAgent = optionalText(req.get('user-agent'))?.slice(0, 500) ?? null;
+
+  const ticket = await prisma.supportTicket.create({
+    data: {
+      userId: null,
+      category: input.category,
+      subject: input.subject.trim(),
+      message: input.message.trim(),
+      priority: guestSupportPriority(input.category),
+      guestEmail,
+      guestAccountEmail,
+      guestName,
+      guestUserAgent,
+      messages: { create: { senderId: null, senderRole: 'user', body: input.message.trim() } },
+    },
+    select: { id: true, category: true, status: true, priority: true, createdAt: true },
+  });
+
+  return res.status(201).json({
+    ticket,
+    message: 'Support request received. If this email matches an account, we will review the request and reply with next steps.',
+  });
+}));
+
+supportRoutes.use(requireAuth);
 
 supportRoutes.get('/tickets/mine', asyncRoute(async (req, res) => {
   const tickets = await prisma.supportTicket.findMany({

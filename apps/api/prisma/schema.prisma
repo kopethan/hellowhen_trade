@@ -129,6 +129,7 @@ enum SupportTicketCategory {
   media_issue
   bug_report
   account_issue
+  account_recovery
   safety_concern
 }
 
@@ -759,7 +760,7 @@ model CreditPurchase {
 
 model SupportTicket {
   id                String                @id @default(cuid())
-  userId            String
+  userId            String?
   category          SupportTicketCategory
   subject           String
   message           String
@@ -769,11 +770,15 @@ model SupportTicket {
   relatedProposalId String?
   relatedMediaId    String?
   assignedAdminId   String?
+  guestEmail        String?
+  guestAccountEmail String?
+  guestName         String?
+  guestUserAgent    String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   resolvedAt        DateTime?
 
-  user          User                   @relation("OwnedSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
+  user          User?                  @relation("OwnedSupportTickets", fields: [userId], references: [id], onDelete: Cascade)
   assignedAdmin User?                  @relation("AssignedSupportTickets", fields: [assignedAdminId], references: [id], onDelete: SetNull)
   messages      SupportTicketMessage[]
 
@@ -781,19 +786,21 @@ model SupportTicket {
   @@index([status, priority, createdAt])
   @@index([category, status])
   @@index([assignedAdminId, status])
+  @@index([guestEmail, status, createdAt])
+  @@index([guestAccountEmail, status, createdAt])
 }
 
 model SupportTicketMessage {
   id         String                   @id @default(cuid())
   ticketId   String
-  senderId   String
+  senderId   String?
   senderRole SupportMessageSenderRole @default(user)
   body       String
   internal   Boolean                  @default(false)
   createdAt  DateTime                 @default(now())
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  sender User          @relation("SentSupportMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  sender User?         @relation("SentSupportMessages", fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([ticketId, createdAt])
   @@index([senderId, createdAt])

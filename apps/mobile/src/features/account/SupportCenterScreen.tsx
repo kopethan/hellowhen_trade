@@ -21,13 +21,13 @@ import { uploadSelectedImages, type SelectedLocalImage } from '../trade/mediaUpl
 type TicketsResponse = { tickets: SupportTicketDto[] };
 type CreateTicketResponse = { ticket: SupportTicketDto };
 
-const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
+const categories: SupportTicketCategory[] = ['general_feedback', 'trade_issue', 'media_issue', 'bug_report', 'account_issue', 'account_recovery', 'safety_concern'];
 const priorities: SupportTicketPriority[] = ['low', 'normal', 'high', 'urgent'];
 
 function categoryTone(category: SupportTicketCategory) {
   if (category === 'trade_issue') return 'trade' as const;
   if (category === 'media_issue') return 'warning' as const;
-  if (category === 'safety_concern') return 'danger' as const;
+  if (category === 'account_recovery' || category === 'safety_concern') return 'danger' as const;
   if (category === 'bug_report') return 'instruction' as const;
   return 'info' as const;
 }

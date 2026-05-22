@@ -1,0 +1,99 @@
+diff --git a/apps/web/src/features/account/PublicSupportClient.tsx b/apps/web/src/features/account/PublicSupportClient.tsx
+index f88d412..441b5f0 100644
+--- a/apps/web/src/features/account/PublicSupportClient.tsx
++++ b/apps/web/src/features/account/PublicSupportClient.tsx
+@@ -19,6 +19,10 @@ const guestCategories: GuestSupportCategory[] = [
+   'general_feedback',
+ ];
+ 
++function isValidEmailAddress(value: string) {
++  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
++}
++
+ export function PublicSupportClient({ initialCategory = 'account_recovery' }: { initialCategory?: GuestSupportCategory }) {
+   const { t } = useWebTranslation();
+   const safeInitialCategory = guestCategories.includes(initialCategory) ? initialCategory : 'account_recovery';
+@@ -33,9 +37,28 @@ export function PublicSupportClient({ initialCategory = 'account_recovery' }: {
+   const [error, setError] = useState('');
+ 
+ 
++  function validateGuestSupportRequest() {
++    const contactEmail = email.trim();
++    const accountAccessEmail = accountEmail.trim();
++    const trimmedSubject = subject.trim();
++    const trimmedMessage = message.trim();
++
++    if (!isValidEmailAddress(contactEmail)) return t('support.public.validationContactEmail');
++    if (accountAccessEmail && !isValidEmailAddress(accountAccessEmail)) return t('support.public.validationAccountEmail');
++    if (trimmedSubject.length < 3) return t('support.public.validationSubject');
++    if (trimmedMessage.length < 10) return t('support.public.validationMessage');
++    return '';
++  }
++
+   async function submitGuestSupport(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     setNotice('');
++    const validationError = validateGuestSupportRequest();
++    if (validationError) {
++      setError(validationError);
++      return;
++    }
++
+     setError('');
+     setSubmitting(true);
+     try {
+@@ -65,13 +88,12 @@ export function PublicSupportClient({ initialCategory = 'account_recovery' }: {
+     <MobilePage>
+       <PageIntro eyebrow={t('support.public.eyebrow')} title={t('support.public.title')} body={t('support.public.body')} />
+       {notice ? <p className="notice-box success">{notice}</p> : null}
+-      {error ? <p className="notice-box danger">{error}</p> : null}
+ 
+       <section className="mobile-card mobile-card--soft">
+         <span className="semantic-badge warning">{t('support.public.guestBadge')}</span>
+         <h3>{t('support.public.guestTitle')}</h3>
+         <p>{t('support.public.guestBody')}</p>
+-        <form onSubmit={submitGuestSupport} className="form-grid">
++        <form onSubmit={submitGuestSupport} className="form-grid" noValidate>
+           <label className="field-label">
+             {t('support.public.contactEmail')}
+             <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" required placeholder={t('support.public.contactEmailPlaceholder')} />
+@@ -99,7 +121,8 @@ export function PublicSupportClient({ initialCategory = 'account_recovery' }: {
+             <textarea value={message} onChange={(event) => setMessage(event.target.value)} required minLength={10} maxLength={4000} rows={6} placeholder={t('support.public.messagePlaceholder')} />
+           </label>
+           <p className="notice-box info">{t('support.public.guestPrivacy')}</p>
+-          <button type="submit" disabled={submitting || !email.trim() || !subject.trim() || message.trim().length < 10}>{submitting ? t('support.creatingTicket') : t('support.public.submitGuest')}</button>
++          {error ? <p className="notice-box danger">{error}</p> : null}
++          <button type="submit" disabled={submitting}>{submitting ? t('support.creatingTicket') : t('support.public.submitGuest')}</button>
+         </form>
+       </section>
+ 
+diff --git a/packages/i18n/src/locales/en/support.ts b/packages/i18n/src/locales/en/support.ts
+index 8dde5a8..6170532 100644
+--- a/packages/i18n/src/locales/en/support.ts
++++ b/packages/i18n/src/locales/en/support.ts
+@@ -21,6 +21,10 @@ export const support = {
+     guestPrivacy: 'For security, this form only creates a support request. We will not confirm whether an email belongs to an account, and admins must review account recovery manually.',
+     submitGuest: 'Send support request',
+     guestSuccess: 'Support request received. If this email matches an account, we’ll review it and reply with next steps.',
++    validationContactEmail: 'Enter a valid contact email so support can reply.',
++    validationAccountEmail: 'Enter a valid account email or leave it empty.',
++    validationSubject: 'Add a subject with at least 3 characters.',
++    validationMessage: 'Add a message with at least 10 characters.',
+   },
+   defaultTradeIssueMessage: 'I need admin help with this trade.',
+   title: 'Support',
+diff --git a/packages/i18n/src/locales/fr/support.ts b/packages/i18n/src/locales/fr/support.ts
+index 16a0fb7..fa38f77 100644
+--- a/packages/i18n/src/locales/fr/support.ts
++++ b/packages/i18n/src/locales/fr/support.ts
+@@ -21,6 +21,10 @@ export const support = {
+     guestPrivacy: 'Par sécurité, ce formulaire crée seulement une demande d’assistance. Nous ne confirmons pas si un email appartient à un compte, et la récupération doit être vérifiée manuellement par l’équipe.',
+     submitGuest: 'Envoyer la demande',
+     guestSuccess: 'Demande reçue. Si cet email correspond à un compte, nous l’examinerons et répondrons avec les prochaines étapes.',
++    validationContactEmail: 'Saisissez un email de contact valide afin que l’assistance puisse répondre.',
++    validationAccountEmail: 'Saisissez un email de compte valide ou laissez ce champ vide.',
++    validationSubject: 'Ajoutez un sujet d’au moins 3 caractères.',
++    validationMessage: 'Ajoutez un message d’au moins 10 caractères.',
+   },
+   defaultTradeIssueMessage: 'J’ai besoin d’aide de l’équipe avec cet échange.',
+   title: 'Assistance',

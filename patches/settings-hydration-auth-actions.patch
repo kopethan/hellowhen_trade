@@ -1,0 +1,25 @@
+diff --git a/apps/web/src/app/account/settings/page.tsx b/apps/web/src/app/account/settings/page.tsx
+index 4f8a7a7..9fdcc31 100644
+--- a/apps/web/src/app/account/settings/page.tsx
++++ b/apps/web/src/app/account/settings/page.tsx
+@@ -309,11 +309,15 @@ export default function AccountSettingsPage() {
+             <input value={twoFactorPassword} onChange={(event) => setTwoFactorPassword(event.target.value)} type="password" autoComplete="current-password" />
+           </label>
+         ) : null}
+-        <div className="button-row">
+-          <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.emailVerifiedAt)} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
+-          <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.twoFactorEnabled)} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
+-          <button type="button" className="secondary" disabled={saving || !authenticated} onClick={() => { void logoutAllDevices(); }}>{t('common.actions.logoutAllDevices')}</button>
+-        </div>
++        {authReady ? (
++          <div className="button-row">
++            <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.emailVerifiedAt)} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
++            <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.twoFactorEnabled)} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
++            <button type="button" className="secondary" disabled={saving || !authenticated} onClick={() => { void logoutAllDevices(); }}>{t('common.actions.logoutAllDevices')}</button>
++          </div>
++        ) : (
++          <p className="notice-box info">{t('common.states.loading')}</p>
++        )}
+         {error ? <p className="notice-box danger">{error}</p> : null}
+         {message ? <p className="notice-box success">{message}</p> : null}
+         {currentUser?.twoFactorEnabled ? (

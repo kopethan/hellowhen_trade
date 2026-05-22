@@ -59,7 +59,12 @@ export default function ResetPasswordPage() {
       </div>
       {message ? <p className="notice-box success">{message}</p> : null}
       {error ? <p className="notice-box danger">{error}</p> : null}
-      <Link href="/auth" className="button full">{t('auth.actions.backToLogin')}</Link>
+      <div className="auth-recovery-links">
+        <Link href="/auth" className="button full">{t('auth.actions.backToLogin')}</Link>
+        <p className="meta">
+          {t('auth.reset.stillLockedOut')} <Link href="/support?category=account_recovery">{t('auth.reset.contactSupport')}</Link>.
+        </p>
+      </div>
     </section>
   );
 }

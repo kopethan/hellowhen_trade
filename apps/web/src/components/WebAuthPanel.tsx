@@ -16,11 +16,19 @@ function isExpiredTwoFactorChallenge(error: unknown) {
   return Boolean(error && typeof error === 'object' && (error as ApiLikeError).body?.error === 'invalid_two_factor_challenge');
 }
 
+function titleKey(mode: AuthMode) {
+  if (mode === 'register') return 'auth.titles.register';
+  if (mode === 'forgot') return 'auth.titles.forgot';
+  return 'auth.titles.login';
+}
+
 function subtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
   if (mode === 'forgot') return 'auth.subtitles.forgot';
   return 'auth.subtitles.login';
 }
+
+const accountRecoverySupportHref = '/support?category=account_recovery';
 
 export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }) {
   const router = useRouter();
@@ -157,11 +165,12 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
   }
 
   return (
-    <section className="mobile-card auth-panel">
+    <div className="auth-layout">
+      <section className="auth-panel" aria-labelledby="auth-form-title">
       <button type="button" className="auth-back-button" onClick={goBack}>{t('common.actions.back')}</button>
       <div className="auth-brand-block">
         <span className="semantic-badge trade">{t('auth.brandBadge')}</span>
-        <h1>Hellowhen</h1>
+        <h1 id="auth-form-title">{t(titleKey(mode))}</h1>
         <p>{t(subtitleKey(mode))}</p>
       </div>
 
@@ -243,7 +252,7 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
           </label>
           <p className="meta">{t('auth.twoFactorRecoveryHint')}</p>
           <p className="meta">
-            {t('auth.twoFactorLostAccessPrefix')} <Link href="/support">{t('auth.twoFactorLostAccessLink')}</Link>.
+            {t('auth.twoFactorLostAccessPrefix')} <Link href={accountRecoverySupportHref}>{t('auth.twoFactorLostAccessLink')}</Link>.
           </p>
         </div>
       ) : null}
@@ -256,6 +265,37 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
         <button type="button" onClick={() => { void submit(); }} disabled={submitting || authCompleted}>{primaryLabel}</button>
         <p className="notice-box info">{t('auth.googleDisabledFirstLaunch')}</p>
       </div>
-    </section>
+
+      </section>
+
+      <aside className="auth-info-panel" aria-label={t('auth.info.ariaLabel')}>
+        <div className="auth-info-brand">
+          <span className="semantic-badge trade">{t('auth.brandBadge')}</span>
+          <h2>{t('auth.info.title')}</h2>
+          <p>{t('auth.info.body')}</p>
+        </div>
+
+        <ul className="auth-trust-list">
+          <li>{t('auth.info.adultsOnly')}</li>
+          <li>{t('auth.info.emailAndTwoFactor')}</li>
+          <li>{t('auth.info.reportsAndSupport')}</li>
+        </ul>
+
+        <div className="auth-account-help">
+          <span className="semantic-badge warning">{t('auth.accountHelp.badge')}</span>
+          <h3>{t('auth.accountHelp.title')}</h3>
+          <p>{t('auth.accountHelp.body')}</p>
+          <Link href={accountRecoverySupportHref} className="button secondary full">{t('auth.accountHelp.action')}</Link>
+          <p className="meta">{t('auth.accountHelp.privacyNote')}</p>
+        </div>
+
+        <nav className="auth-policy-links" aria-label={t('auth.info.policyLinksLabel')}>
+          <Link href="/support">{t('legal.overview.openSupport')}</Link>
+          <Link href="/legal/terms">{t('legal.authLinks.terms')}</Link>
+          <Link href="/legal/privacy">{t('legal.policies.privacy.shortTitle')}</Link>
+          <Link href="/legal/safety">{t('legal.policies.safety.shortTitle')}</Link>
+        </nav>
+      </aside>
+    </div>
   );
 }

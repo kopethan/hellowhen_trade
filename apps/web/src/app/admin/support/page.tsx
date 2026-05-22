@@ -8,7 +8,7 @@ import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionT
 import { useWebAuth } from '../../../providers/WebAuthProvider';
 import { formatWebDateTime } from '../../../lib/webFormat';
 
-type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; _count?: { messages: number } };
+type AdminTicketItem = SupportTicketDto & { user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null }; guestEmail?: string | null; guestAccountEmail?: string | null; guestName?: string | null; _count?: { messages: number } };
 type TicketsResponse = { tickets: AdminTicketItem[] };
 type TicketResponse = { ticket: AdminTicketItem };
 type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
@@ -17,13 +17,18 @@ type LastAction = { tone: NoticeTone; title: string; body: string; details?: str
 
 const statuses: Array<SupportTicketStatus | 'all'> = ['all', 'open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
 const bulkStatuses: SupportTicketStatus[] = ['open', 'in_review', 'waiting_for_user', 'resolved', 'closed'];
-const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'safety_concern'];
+const categories: Array<SupportTicketCategory | 'all'> = ['all', 'general_feedback', 'trade_issue', 'credits_issue', 'media_issue', 'bug_report', 'account_issue', 'account_recovery', 'safety_concern'];
 const priorities: Array<SupportTicketPriority | 'all'> = ['all', 'low', 'normal', 'high', 'urgent'];
 const assignedFilters: AssignedFilter[] = ['all', 'unassigned', 'mine'];
 
 function labelize(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'unknown'; }
 function personLabel(user?: { email?: string; profile?: { displayName?: string | null; handle?: string | null } | null } | null) {
   return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
+}
+function ticketRequesterLabel(ticket?: Pick<AdminTicketItem, 'user' | 'guestEmail' | 'guestAccountEmail' | 'guestName'> | null) {
+  if (!ticket) return 'Unknown user';
+  if (ticket.user) return personLabel(ticket.user);
+  return ticket.guestName || ticket.guestAccountEmail || ticket.guestEmail || 'Guest requester';
 }
 function statusTone(status: SupportTicketStatus | 'all') {
   if (status === 'resolved') return 'success';
@@ -43,6 +48,7 @@ function categoryTone(category: SupportTicketCategory | 'all') {
   if (category === 'trade_issue') return 'trade';
   if (category === 'credits_issue') return 'credits';
   if (category === 'media_issue') return 'warning';
+  if (category === 'account_recovery') return 'danger';
   if (category === 'safety_concern') return 'danger';
   if (category === 'bug_report') return 'instruction';
   return 'info';
@@ -300,7 +306,7 @@ export default function AdminSupportPage() {
                 <button type="button" className="admin-user-row" onClick={() => { void openTicket(ticket.id); }}>
                   <span>
                     <strong>{ticket.subject}</strong>
-                    <small>{personLabel(ticket.user)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
+                    <small>{ticketRequesterLabel(ticket)} · {ticket._count?.messages ?? ticket.messages?.length ?? 0} messages · assigned {personLabel(ticket.assignedAdmin)}</small>
                     <small>{formatWebDateTime(ticket.updatedAt)} · {ticket.id}</small>
                   </span>
                   <em className={`semantic-badge ${statusTone(ticket.status)}`}>{labelize(ticket.status)}</em>
@@ -320,7 +326,8 @@ export default function AdminSupportPage() {
                 <span className={`semantic-badge ${priorityTone(selectedTicket.priority)}`}>{labelize(selectedTicket.priority)}</span>
               </div>
               <h2>{selectedTicket.subject}</h2>
-              <p className="meta">User: {personLabel(selectedTicket.user)} · Assigned: {personLabel(selectedTicket.assignedAdmin)} · Updated {formatWebDateTime(selectedTicket.updatedAt)}</p>
+              <p className="meta">Requester: {ticketRequesterLabel(selectedTicket)} · Assigned: {personLabel(selectedTicket.assignedAdmin)} · Updated {formatWebDateTime(selectedTicket.updatedAt)}</p>
+              {!selectedTicket.user ? <p className="notice-box warning">Guest support request. Reply outside the app using the guest contact email: {selectedTicket.guestEmail || 'not provided'}{selectedTicket.guestAccountEmail ? ` · Account email: ${selectedTicket.guestAccountEmail}` : ''}</p> : null}
               <p>{selectedTicket.message}</p>
               <div className="status-row">
                 {selectedTicket.relatedTradeId ? <Link className="semantic-badge trade" href={`/trades/${selectedTicket.relatedTradeId}`}>Trade {selectedTicket.relatedTradeId}</Link> : null}
@@ -344,7 +351,7 @@ export default function AdminSupportPage() {
                 {selectedTicket.messages?.map((item) => (
                   <article key={item.id} className={`support-message ${item.senderRole === 'admin' ? 'admin' : 'user'}`}>
                     <div className="status-row">
-                      <span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : personLabel(item.sender)}</span>
+                      <span className={`semantic-badge ${item.senderRole === 'admin' ? 'admin' : 'info'}`}>{item.senderRole === 'admin' ? 'Hellowhen support' : (item.sender ? personLabel(item.sender) : ticketRequesterLabel(selectedTicket))}</span>
                       {item.internal ? <span className="semantic-badge warning">internal note</span> : null}
                     </div>
                     <p>{item.body}</p>
