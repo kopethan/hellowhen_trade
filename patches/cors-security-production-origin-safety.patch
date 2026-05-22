@@ -1,0 +1,296 @@
+diff --git a/.env.example b/.env.example
+index cc5c7e5..e24e955 100644
+--- a/.env.example
++++ b/.env.example
+@@ -7,6 +7,10 @@ WEB_ORIGIN=http://localhost:3000
+ MOBILE_ORIGIN=exp://127.0.0.1:8081
+ UPLOAD_DIR=./uploads
+ NEXT_PUBLIC_API_URL=http://localhost:4000
++# Production origin safety:
++# - WEB_ORIGIN and WEB_APP_URL must be public https:// origins with no path.
++# - NEXT_PUBLIC_API_URL must be a public https:// API URL for deployed web.
++# - MOBILE_ORIGIN must not be an Expo, localhost, or private LAN origin in production; leave empty if native requests send no Origin header.
+ 
+ # Money provider architecture. Keep MONEY_PROVIDER=none for the first beta launch.
+ # none = money-off beta; stripe = existing Stripe test fallback/reference; airwallex = future sandbox provider.
+diff --git a/apps/api/src/app.ts b/apps/api/src/app.ts
+index ebe5f46..d746cae 100644
+--- a/apps/api/src/app.ts
++++ b/apps/api/src/app.ts
+@@ -10,6 +10,16 @@ import { stripeWebhookRoutes } from './modules/stripe/stripeWebhook.routes.js';
+ import { requireMoneyFeaturesVisible } from './middleware/featureGates.js';
+ 
+ const allowedOrigins = new Set([env.webOrigin, env.mobileOrigin].filter(Boolean));
++
++class CorsOriginError extends Error {
++  statusCode = 403;
++  code = 'cors_origin_not_allowed';
++  publicMessage = 'This origin is not allowed to access the API.';
++
++  constructor() {
++    super('CORS origin not allowed.');
++  }
++}
+ function isPrivateLanHostname(hostname: string) {
+   if (/^10\./.test(hostname)) return true;
+   if (/^192\.168\./.test(hostname)) return true;
+@@ -32,7 +42,14 @@ function isAllowedDevOrigin(origin: string) {
+ export function createApp() {
+   const app = express();
+   app.use(helmet());
+-  app.use(cors({ origin(origin, callback) { if (!origin || allowedOrigins.has(origin) || isAllowedDevOrigin(origin)) return callback(null, true); return callback(new Error(`CORS origin not allowed: ${origin}`)); }, credentials: true }));
++  app.use(cors({
++    origin(origin, callback) {
++      if (!origin || allowedOrigins.has(origin) || isAllowedDevOrigin(origin)) return callback(null, true);
++      return callback(new CorsOriginError());
++    },
++    credentials: true,
++    optionsSuccessStatus: 204
++  }));
+   app.use('/stripe', requireMoneyFeaturesVisible('Stripe webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookRoutes);
+   app.use('/airwallex', requireMoneyFeaturesVisible('Airwallex webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), airwallexWebhookRoutes);
+   app.use(express.json({ limit: '1mb' }));
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 09e2b04..05bc2e7 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -123,21 +123,43 @@ export const env = {
+   plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true'
+ };
+ 
+-function isLocalUrl(value: string) {
++function isLoopbackHostname(hostname: string) {
++  return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname.toLowerCase());
++}
++
++function isPrivateLanHostname(hostname: string) {
++  const normalized = hostname.toLowerCase();
++  if (/^10\./.test(normalized)) return true;
++  if (/^192\.168\./.test(normalized)) return true;
++  const match = normalized.match(/^172\.(\d{1,2})\./);
++  if (!match) return false;
++  const secondOctet = Number(match[1]);
++  return secondOctet >= 16 && secondOctet <= 31;
++}
++
++function parseUrl(value: string) {
+   try {
+-    const parsed = new URL(value);
+-    return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase());
++    return new URL(value);
+   } catch {
+-    return false;
++    return null;
+   }
+ }
+ 
++function isLocalOrPrivateUrl(value: string) {
++  const parsed = parseUrl(value);
++  if (!parsed) return false;
++  if (parsed.protocol === 'exp:') return true;
++  return isLoopbackHostname(parsed.hostname) || isPrivateLanHostname(parsed.hostname);
++}
++
+ function isHttpsUrl(value: string) {
+-  try {
+-    return new URL(value).protocol === 'https:';
+-  } catch {
+-    return false;
+-  }
++  return parseUrl(value)?.protocol === 'https:';
++}
++
++function isOriginOnlyUrl(value: string) {
++  const parsed = parseUrl(value);
++  if (!parsed) return false;
++  return parsed.origin !== 'null' && parsed.href.replace(/\/$/, '') === parsed.origin;
+ }
+ 
+ function getEmailAddress(value: string) {
+@@ -160,10 +182,12 @@ export function validateProductionEnv() {
+   if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
+   if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
+   if (env.adminRequireTwoFactor && (!env.twoFactorEncryptionSecret || env.twoFactorEncryptionSecret.length < 32)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong secret when admin two-step verification is required.');
+-  if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
+-  if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
++  if (isLocalOrPrivateUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost or a private LAN address in production.');
++  if (isLocalOrPrivateUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost or a private LAN address in production.');
++  if (env.mobileOrigin && isLocalOrPrivateUrl(env.mobileOrigin)) errors.push('MOBILE_ORIGIN must not point to Expo, localhost, or a private LAN address in production. Leave it empty if native requests do not send an Origin header.');
+   if (!isHttpsUrl(env.webOrigin)) errors.push('WEB_ORIGIN must use https:// in production.');
+   if (!isHttpsUrl(env.webAppUrl)) errors.push('WEB_APP_URL must use https:// in production so password reset and email verification links are public and secure.');
++  if (!isOriginOnlyUrl(env.webOrigin)) errors.push('WEB_ORIGIN must be an origin only, for example https://app.hellowhen.com without a path.');
+   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
+   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
+   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
+diff --git a/apps/mobile/src/env.d.ts b/apps/mobile/src/env.d.ts
+index 16a07d3..c77be7c 100644
+--- a/apps/mobile/src/env.d.ts
++++ b/apps/mobile/src/env.d.ts
+@@ -1,5 +1,6 @@
+ declare const process: {
+   env: {
++    NODE_ENV?: string;
+     EXPO_PUBLIC_API_URL?: string;
+     EXPO_PUBLIC_MONEY_PROVIDER?: string;
+     EXPO_PUBLIC_MONEY_FEATURES_VISIBLE?: string;
+@@ -12,3 +13,4 @@ declare const process: {
+     EXPO_PUBLIC_PLANS_VISIBLE?: string;
+   };
+ };
++
+diff --git a/apps/mobile/src/lib/api.ts b/apps/mobile/src/lib/api.ts
+index ded42ea..64c6612 100644
+--- a/apps/mobile/src/lib/api.ts
++++ b/apps/mobile/src/lib/api.ts
+@@ -2,7 +2,9 @@ import { Platform } from 'react-native';
+ import { createApiClient } from '@hellowhen/api-client';
+ import { getAccessToken } from './tokenStore';
+ 
+-function getDefaultApiUrl() {
++const localHostnames = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
++
++function getDefaultDevApiUrl() {
+   if (Platform.OS === 'android') {
+     return 'http://10.0.2.2:4000';
+   }
+@@ -10,7 +12,57 @@ function getDefaultApiUrl() {
+   return 'http://localhost:4000';
+ }
+ 
+-export const API_URL = process.env.EXPO_PUBLIC_API_URL?.trim() || getDefaultApiUrl();
++function isPrivateLanHostname(hostname: string) {
++  const normalized = hostname.toLowerCase();
++  if (/^10\./.test(normalized)) return true;
++  if (/^192\.168\./.test(normalized)) return true;
++  const match = normalized.match(/^172\.(\d{1,2})\./);
++  if (!match) return false;
++  const secondOctet = Number(match[1]);
++  return secondOctet >= 16 && secondOctet <= 31;
++}
++
++function parseApiUrl(value: string) {
++  try {
++    return new URL(value);
++  } catch {
++    return null;
++  }
++}
++
++function isLocalOrPrivateApiUrl(value: string) {
++  const parsed = parseApiUrl(value);
++  if (!parsed) return false;
++  return localHostnames.has(parsed.hostname.toLowerCase()) || isPrivateLanHostname(parsed.hostname);
++}
++
++function isDevelopmentRuntime() {
++  return process.env.NODE_ENV !== 'production';
++}
++
++function assertSafeProductionApiUrl(value: string) {
++  if (isDevelopmentRuntime()) return;
++  const parsed = parseApiUrl(value);
++  if (!parsed || parsed.protocol !== 'https:') {
++    throw new Error('EXPO_PUBLIC_API_URL must use https:// in production mobile builds.');
++  }
++  if (isLocalOrPrivateApiUrl(value)) {
++    throw new Error('EXPO_PUBLIC_API_URL must not point to localhost or a private LAN address in production builds.');
++  }
++}
++
++function getMobileApiUrl() {
++  const configured = process.env.EXPO_PUBLIC_API_URL?.trim();
++  if (configured) {
++    assertSafeProductionApiUrl(configured);
++    return configured;
++  }
++
++  if (isDevelopmentRuntime()) return getDefaultDevApiUrl();
++  throw new Error('EXPO_PUBLIC_API_URL is required for production mobile builds.');
++}
++
++export const API_URL = getMobileApiUrl();
+ 
+ export const api = createApiClient({
+   baseUrl: API_URL,
+diff --git a/apps/web/next.config.mjs b/apps/web/next.config.mjs
+index cac1005..db3aef3 100644
+--- a/apps/web/next.config.mjs
++++ b/apps/web/next.config.mjs
+@@ -9,6 +9,8 @@ const baseSecurityHeaders = [
+   { key: 'X-Content-Type-Options', value: 'nosniff' },
+   { key: 'X-Frame-Options', value: 'DENY' },
+   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
++  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
++  { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=()' },
+ ];
+ 
+diff --git a/apps/web/src/lib/api.ts b/apps/web/src/lib/api.ts
+index 9835bd4..bf57011 100644
+--- a/apps/web/src/lib/api.ts
++++ b/apps/web/src/lib/api.ts
+@@ -12,24 +12,53 @@ function isLocalHostname(hostname: string) {
+   return localHostnames.has(hostname.toLowerCase());
+ }
+ 
++function isPrivateLanHostname(hostname: string) {
++  const normalized = hostname.toLowerCase();
++  if (/^10\./.test(normalized)) return true;
++  if (/^192\.168\./.test(normalized)) return true;
++  const match = normalized.match(/^172\.(\d{1,2})\./);
++  if (!match) return false;
++  const secondOctet = Number(match[1]);
++  return secondOctet >= 16 && secondOctet <= 31;
++}
++
++function isLocalOrPrivateHostname(hostname: string) {
++  return isLocalHostname(hostname) || isPrivateLanHostname(hostname);
++}
++
++function assertSafeBrowserApiUrl(configured: URL, browserHost: string) {
++  // Local desktop/LAN development can keep using local API URLs. Once the web app
++  // is served from a public host, do not silently call localhost or private LAN APIs.
++  if (process.env.NODE_ENV !== 'production' || isLocalOrPrivateHostname(browserHost)) return;
++  if (configured.protocol !== 'https:') {
++    throw new Error('NEXT_PUBLIC_API_URL must use https:// when the web app is served from a public production host.');
++  }
++  if (isLocalOrPrivateHostname(configured.hostname)) {
++    throw new Error('NEXT_PUBLIC_API_URL must not point to localhost or a private LAN address in public production.');
++  }
++}
++
+ export function getWebApiBaseUrl() {
+   if (typeof window === 'undefined') return stripTrailingSlash(configuredApiUrl);
+ 
++  let configured: URL;
+   try {
+-    const configured = new URL(configuredApiUrl, window.location.origin);
+-    const browserHost = window.location.hostname;
+-
+-    // Local desktop dev can use localhost. Mobile web opened through a LAN IP
+-    // cannot: localhost would point to the phone. Reuse the browser hostname
+-    // and keep the configured API port, normally 4000.
+-    if (isLocalHostname(configured.hostname) && !isLocalHostname(browserHost)) {
+-      configured.hostname = browserHost;
+-    }
+-
+-    return stripTrailingSlash(configured.toString());
++    configured = new URL(configuredApiUrl, window.location.origin);
+   } catch {
+     return stripTrailingSlash(configuredApiUrl);
+   }
++
++  const browserHost = window.location.hostname;
++
++  // Local desktop dev can use localhost. Mobile web opened through a LAN IP
++  // cannot: localhost would point to the phone. Reuse the browser hostname
++  // and keep the configured API port, normally 4000.
++  if (isLocalHostname(configured.hostname) && !isLocalHostname(browserHost)) {
++    configured.hostname = browserHost;
++  }
++
++  assertSafeBrowserApiUrl(configured, browserHost);
++  return stripTrailingSlash(configured.toString());
+ }
+ 
+ export const API_URL = getWebApiBaseUrl();

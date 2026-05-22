@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { resolveWebAssetUrl } from '../../lib/api';
+import { getWebApiBaseUrl } from '../../lib/api';
 
 export type UserAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
 
@@ -20,6 +20,26 @@ export type UserAvatarProps = {
 
 function cleanText(value?: string | null) {
   return value?.trim() ?? '';
+}
+
+function resolveStoredAvatarUrl(src?: string | null, storageKey?: string | null) {
+  const raw = (src ?? storageKey ?? '').trim();
+  if (!raw) return '';
+
+  // Profile avatars may come from server-owned uploads or trusted OAuth HTTPS
+  // providers. Do not render data:, blob:, file:, javascript:, or other active
+  // schemes from persisted profile data.
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
+
+  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
+  const path = raw.startsWith('/')
+    ? raw
+    : normalized.startsWith('uploads/')
+      ? `/${normalized}`
+      : `/uploads/${normalized}`;
+
+  return `${getWebApiBaseUrl().replace(/\/$/, '')}${path}`;
 }
 
 export function getUserDisplayName(displayName?: string | null, handle?: string | null, fallback = 'Hellowhen member') {
@@ -42,7 +62,7 @@ export function UserAvatar({
   decorative = false,
   style,
 }: UserAvatarProps) {
-  const imageSrc = useMemo(() => resolveWebAssetUrl(src, storageKey), [src, storageKey]);
+  const imageSrc = useMemo(() => resolveStoredAvatarUrl(src, storageKey), [src, storageKey]);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {

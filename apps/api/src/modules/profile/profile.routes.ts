@@ -17,7 +17,8 @@ function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.par
     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
     ...(input.handle !== undefined ? { handle: input.handle } : {}),
     ...(input.bio !== undefined ? { bio: input.bio } : {}),
-    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {}),
+    // Avatar URLs are server-managed through owned MediaAsset records.
+    // Do not persist client-supplied URLs here; they can become unsafe rendered content.
     ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
     ...(input.preferredCurrency !== undefined ? { preferredCurrency: input.preferredCurrency } : {})
   };

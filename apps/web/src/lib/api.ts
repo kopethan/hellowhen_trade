@@ -12,24 +12,53 @@ function isLocalHostname(hostname: string) {
   return localHostnames.has(hostname.toLowerCase());
 }
 
+function isPrivateLanHostname(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  if (/^10\./.test(normalized)) return true;
+  if (/^192\.168\./.test(normalized)) return true;
+  const match = normalized.match(/^172\.(\d{1,2})\./);
+  if (!match) return false;
+  const secondOctet = Number(match[1]);
+  return secondOctet >= 16 && secondOctet <= 31;
+}
+
+function isLocalOrPrivateHostname(hostname: string) {
+  return isLocalHostname(hostname) || isPrivateLanHostname(hostname);
+}
+
+function assertSafeBrowserApiUrl(configured: URL, browserHost: string) {
+  // Local desktop/LAN development can keep using local API URLs. Once the web app
+  // is served from a public host, do not silently call localhost or private LAN APIs.
+  if (process.env.NODE_ENV !== 'production' || isLocalOrPrivateHostname(browserHost)) return;
+  if (configured.protocol !== 'https:') {
+    throw new Error('NEXT_PUBLIC_API_URL must use https:// when the web app is served from a public production host.');
+  }
+  if (isLocalOrPrivateHostname(configured.hostname)) {
+    throw new Error('NEXT_PUBLIC_API_URL must not point to localhost or a private LAN address in public production.');
+  }
+}
+
 export function getWebApiBaseUrl() {
   if (typeof window === 'undefined') return stripTrailingSlash(configuredApiUrl);
 
+  let configured: URL;
   try {
-    const configured = new URL(configuredApiUrl, window.location.origin);
-    const browserHost = window.location.hostname;
-
-    // Local desktop dev can use localhost. Mobile web opened through a LAN IP
-    // cannot: localhost would point to the phone. Reuse the browser hostname
-    // and keep the configured API port, normally 4000.
-    if (isLocalHostname(configured.hostname) && !isLocalHostname(browserHost)) {
-      configured.hostname = browserHost;
-    }
-
-    return stripTrailingSlash(configured.toString());
+    configured = new URL(configuredApiUrl, window.location.origin);
   } catch {
     return stripTrailingSlash(configuredApiUrl);
   }
+
+  const browserHost = window.location.hostname;
+
+  // Local desktop dev can use localhost. Mobile web opened through a LAN IP
+  // cannot: localhost would point to the phone. Reuse the browser hostname
+  // and keep the configured API port, normally 4000.
+  if (isLocalHostname(configured.hostname) && !isLocalHostname(browserHost)) {
+    configured.hostname = browserHost;
+  }
+
+  assertSafeBrowserApiUrl(configured, browserHost);
+  return stripTrailingSlash(configured.toString());
 }
 
 export const API_URL = getWebApiBaseUrl();

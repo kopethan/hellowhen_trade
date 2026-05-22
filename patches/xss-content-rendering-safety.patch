@@ -1,0 +1,173 @@
+diff --git a/apps/api/src/modules/profile/profile.routes.ts b/apps/api/src/modules/profile/profile.routes.ts
+index 9ae07ff..1c805f0 100644
+--- a/apps/api/src/modules/profile/profile.routes.ts
++++ b/apps/api/src/modules/profile/profile.routes.ts
+@@ -17,7 +17,8 @@ function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.par
+     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+     ...(input.handle !== undefined ? { handle: input.handle } : {}),
+     ...(input.bio !== undefined ? { bio: input.bio } : {}),
+-    ...(input.avatarUrl !== undefined ? { avatarUrl: input.avatarUrl } : {}),
++    // Avatar URLs are server-managed through owned MediaAsset records.
++    // Do not persist client-supplied URLs here; they can become unsafe rendered content.
+     ...(input.countryCode !== undefined ? { countryCode: input.countryCode } : {}),
+     ...(input.preferredCurrency !== undefined ? { preferredCurrency: input.preferredCurrency } : {})
+   };
+diff --git a/apps/mobile/src/features/me/MeScreen.tsx b/apps/mobile/src/features/me/MeScreen.tsx
+index 16b8709..4585b04 100644
+--- a/apps/mobile/src/features/me/MeScreen.tsx
++++ b/apps/mobile/src/features/me/MeScreen.tsx
+@@ -27,10 +27,16 @@ function optionalText(value: string) {
+   return trimmed.length > 0 ? trimmed : undefined;
+ }
+ 
+-function getAvatarSource(url?: string | null) {
++function getStoredAvatarSource(url?: string | null) {
+   if (!url) return null;
+-  if (/^(file|content|data|https?):/i.test(url)) return url;
+-  return resolveMediaUrl(url);
++  if (/^https?:/i.test(url)) return url;
++  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return null;
++  return resolveMediaUrl(url) || null;
++}
++
++function getLocalAvatarSource(url?: string | null) {
++  if (!url) return null;
++  return /^(file|content):/i.test(url) ? url : null;
+ }
+ 
+ export function ProfileScreen({ navigation }: Props) {
+@@ -48,7 +54,7 @@ export function ProfileScreen({ navigation }: Props) {
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [saved, setSaved] = useState(false);
+-  const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
++  const avatarSource = avatarImage?.uri ? getLocalAvatarSource(avatarImage.uri) : getStoredAvatarSource(avatarUrl);
+   const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
+     value: country.code,
+     label: t(`common.locale.countries.${country.code}`),
+diff --git a/apps/mobile/src/features/trade/mediaUrls.ts b/apps/mobile/src/features/trade/mediaUrls.ts
+index 148fe00..d792b22 100644
+--- a/apps/mobile/src/features/trade/mediaUrls.ts
++++ b/apps/mobile/src/features/trade/mediaUrls.ts
+@@ -2,6 +2,7 @@ import { API_URL } from '../../lib/api';
+ 
+ export function resolveMediaUrl(url?: string | null) {
+   if (!url) return '';
+-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('file://') || url.startsWith('data:')) return url;
++  if (url.startsWith('http://') || url.startsWith('https://')) return url;
++  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return '';
+   return `${API_URL.replace(/\/$/, '')}${url.startsWith('/') ? url : `/${url}`}`;
+ }
+diff --git a/apps/mobile/src/features/users/UserAvatar.tsx b/apps/mobile/src/features/users/UserAvatar.tsx
+index c6430be..ff013d9 100644
+--- a/apps/mobile/src/features/users/UserAvatar.tsx
++++ b/apps/mobile/src/features/users/UserAvatar.tsx
+@@ -31,14 +31,12 @@ function cleanText(value?: string | null) {
+ export function resolveNativeAssetUrl(src?: string | null, storageKey?: string | null) {
+   const value = cleanText(src) || cleanText(storageKey);
+   if (!value) return '';
+-  if (
+-    value.startsWith('http://') ||
+-    value.startsWith('https://') ||
+-    value.startsWith('file://') ||
+-    value.startsWith('data:')
+-  ) {
++  if (value.startsWith('http://') || value.startsWith('https://')) {
+     return value;
+   }
++  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
++    return '';
++  }
+   return `${API_URL.replace(/\/$/, '')}${value.startsWith('/') ? value : `/${value}`}`;
+ }
+ 
+diff --git a/apps/web/src/app/account/profile/page.tsx b/apps/web/src/app/account/profile/page.tsx
+index d0f86df..6226204 100644
+--- a/apps/web/src/app/account/profile/page.tsx
++++ b/apps/web/src/app/account/profile/page.tsx
+@@ -104,7 +104,7 @@ export default function AccountProfilePage() {
+       const response = await api.media.uploadImage(formData);
+       const media = normalizeMediaUpload(response);
+       if (!media) throw new Error(t('profile.edit.errors.uploadReturnedNoImage'));
+-      const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id, avatarUrl: media.url });
++      const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id });
+       setAvatar(media);
+       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
+       setMessage(t('profile.edit.uploaded'));
+diff --git a/apps/web/src/features/account/accountPresentation.ts b/apps/web/src/features/account/accountPresentation.ts
+index f04bc9f..f39b457 100644
+--- a/apps/web/src/features/account/accountPresentation.ts
++++ b/apps/web/src/features/account/accountPresentation.ts
+@@ -119,7 +119,10 @@ export function moneyDeltaClassName(cents: number) {
+ 
+ 
+ export function assetUrl(value?: string | null) {
+-  return resolveWebAssetUrl(value);
++  const raw = value?.trim() ?? '';
++  if (!raw) return '';
++  if (/^(data|blob|file|javascript|vbscript):/i.test(raw)) return '';
++  return resolveWebAssetUrl(raw);
+ }
+ 
+ 
+diff --git a/apps/web/src/features/users/UserAvatar.tsx b/apps/web/src/features/users/UserAvatar.tsx
+index 8b13568..04a4912 100644
+--- a/apps/web/src/features/users/UserAvatar.tsx
++++ b/apps/web/src/features/users/UserAvatar.tsx
+@@ -2,7 +2,7 @@
+ 
+ import type { CSSProperties } from 'react';
+ import { useEffect, useMemo, useState } from 'react';
+-import { resolveWebAssetUrl } from '../../lib/api';
++import { getWebApiBaseUrl } from '../../lib/api';
+ 
+ export type UserAvatarSize = 'xs' | 'sm' | 'md' | 'lg';
+ 
+@@ -22,6 +22,26 @@ function cleanText(value?: string | null) {
+   return value?.trim() ?? '';
+ }
+ 
++function resolveStoredAvatarUrl(src?: string | null, storageKey?: string | null) {
++  const raw = (src ?? storageKey ?? '').trim();
++  if (!raw) return '';
++
++  // Profile avatars may come from server-owned uploads or trusted OAuth HTTPS
++  // providers. Do not render data:, blob:, file:, javascript:, or other active
++  // schemes from persisted profile data.
++  if (/^https?:\/\//i.test(raw)) return raw;
++  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
++
++  const normalized = raw.replace(/^\.\//, '').replace(/^\/+/, '');
++  const path = raw.startsWith('/')
++    ? raw
++    : normalized.startsWith('uploads/')
++      ? `/${normalized}`
++      : `/uploads/${normalized}`;
++
++  return `${getWebApiBaseUrl().replace(/\/$/, '')}${path}`;
++}
++
+ export function getUserDisplayName(displayName?: string | null, handle?: string | null, fallback = 'Hellowhen member') {
+   return cleanText(displayName) || cleanText(handle).replace(/^@+/, '') || fallback;
+ }
+@@ -42,7 +62,7 @@ export function UserAvatar({
+   decorative = false,
+   style,
+ }: UserAvatarProps) {
+-  const imageSrc = useMemo(() => resolveWebAssetUrl(src, storageKey), [src, storageKey]);
++  const imageSrc = useMemo(() => resolveStoredAvatarUrl(src, storageKey), [src, storageKey]);
+   const [imageFailed, setImageFailed] = useState(false);
+ 
+   useEffect(() => {
+diff --git a/packages/contracts/src/profile.ts b/packages/contracts/src/profile.ts
+index ace9256..422aedd 100644
+--- a/packages/contracts/src/profile.ts
++++ b/packages/contracts/src/profile.ts
+@@ -7,7 +7,6 @@ export const updateProfileRequestSchema = z.object({
+   displayName: z.string().min(1).max(80).optional(),
+   handle: z.string().min(3).max(32).regex(/^[a-zA-Z0-9_]+$/).optional(),
+   bio: z.string().max(280).optional(),
+-  avatarUrl: z.string().max(2000).optional(),
+   avatarMediaId: z.string().min(1).optional(),
+   countryCode: countryCodeSchema.optional(),
+   preferredCurrency: supportedCurrencySchema.optional(),

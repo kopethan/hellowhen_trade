@@ -27,10 +27,16 @@ function optionalText(value: string) {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function getAvatarSource(url?: string | null) {
+function getStoredAvatarSource(url?: string | null) {
   if (!url) return null;
-  if (/^(file|content|data|https?):/i.test(url)) return url;
-  return resolveMediaUrl(url);
+  if (/^https?:/i.test(url)) return url;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return null;
+  return resolveMediaUrl(url) || null;
+}
+
+function getLocalAvatarSource(url?: string | null) {
+  if (!url) return null;
+  return /^(file|content):/i.test(url) ? url : null;
 }
 
 export function ProfileScreen({ navigation }: Props) {
@@ -48,7 +54,7 @@ export function ProfileScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const avatarSource = getAvatarSource(avatarImage?.uri ?? avatarUrl);
+  const avatarSource = avatarImage?.uri ? getLocalAvatarSource(avatarImage.uri) : getStoredAvatarSource(avatarUrl);
   const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
     value: country.code,
     label: t(`common.locale.countries.${country.code}`),

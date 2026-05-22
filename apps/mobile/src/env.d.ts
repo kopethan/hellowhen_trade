@@ -1,5 +1,6 @@
 declare const process: {
   env: {
+    NODE_ENV?: string;
     EXPO_PUBLIC_API_URL?: string;
     EXPO_PUBLIC_MONEY_PROVIDER?: string;
     EXPO_PUBLIC_MONEY_FEATURES_VISIBLE?: string;
@@ -12,3 +13,4 @@ declare const process: {
     EXPO_PUBLIC_PLANS_VISIBLE?: string;
   };
 };
+

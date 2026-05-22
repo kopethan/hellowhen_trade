@@ -10,8 +10,15 @@ import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+import { createRateLimiter } from '../../middleware/rateLimit.js';
 
 const maxImageBytes = 5 * 1024 * 1024;
+const maxUnattachedActiveImagesPerUser = 20;
+const publicUploadNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpg|jpeg|png|webp)$/i;
+const supportedImageMimeTypes = ['image/jpeg', 'image/png', 'image/webp'] as const;
+type SupportedImageMimeType = typeof supportedImageMimeTypes[number];
+const supportedImageMimeTypeSet = new Set<string>(supportedImageMimeTypes);
+
 fs.mkdirSync(env.uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -25,9 +32,17 @@ const upload = multer({
   storage,
   limits: { fileSize: maxImageBytes, files: 1 },
   fileFilter: (_req, file, callback) => {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) return callback(new Error('unsupported_image_type'));
+    if (!isSupportedImageMimeType(file.mimetype)) return callback(new Error('unsupported_image_type'));
     callback(null, true);
   }
+});
+
+const uploadImageRateLimit = createRateLimiter({
+  keyPrefix: 'media:upload:image',
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+  message: 'Too many image uploads. Please wait before trying again.',
 });
 
 function uploadImage(req: Request, res: Response, next: NextFunction) {
@@ -46,9 +61,13 @@ function uploadImage(req: Request, res: Response, next: NextFunction) {
 
 type VerifiedUpload = {
   filename: string;
-  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+  mimeType: SupportedImageMimeType;
   sizeBytes: number;
 };
+
+function isSupportedImageMimeType(value: string): value is SupportedImageMimeType {
+  return supportedImageMimeTypeSet.has(value);
+}
 
 function detectImageType(buffer: Buffer): Pick<VerifiedUpload, 'mimeType'> & { extension: '.jpg' | '.png' | '.webp' } | null {
   if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mimeType: 'image/jpeg', extension: '.jpg' };
@@ -76,10 +95,81 @@ async function verifyUploadedImage(file: Express.Multer.File): Promise<VerifiedU
   return { filename: verifiedFilename, mimeType: detected.mimeType, sizeBytes: buffer.length };
 }
 
+function resolveUploadPath(storageKey: string) {
+  const uploadRoot = path.resolve(env.uploadDir);
+  const filePath = path.resolve(uploadRoot, storageKey);
+  if (filePath !== path.join(uploadRoot, path.basename(storageKey))) return null;
+  if (!filePath.startsWith(`${uploadRoot}${path.sep}`)) return null;
+  return filePath;
+}
+
+function headerSafeFilename(value: string) {
+  return path.basename(value).replace(/[\r\n\"]/g, '_').slice(0, 160) || 'upload';
+}
+
+function setUploadResponseHeaders(res: Response) {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+}
+
+async function requireUnattachedUploadSlot(req: Request, res: Response, next: NextFunction) {
+  const unattachedCount = await prisma.mediaAsset.count({
+    where: {
+      ownerId: req.user!.id,
+      entityType: null,
+      entityId: null,
+      status: { not: 'removed' }
+    }
+  });
+
+  if (unattachedCount >= maxUnattachedActiveImagesPerUser) {
+    return res.status(409).json({
+      error: 'too_many_unattached_uploads',
+      message: 'Attach or remove recently uploaded images before uploading more.',
+      limit: maxUnattachedActiveImagesPerUser
+    });
+  }
+
+  return next();
+}
+
+export async function serveUploadedMedia(req: Request, res: Response, next: NextFunction) {
+  setUploadResponseHeaders(res);
+
+  const storageKey = String(req.params.storageKey ?? '').trim();
+  if (!storageKey || !publicUploadNamePattern.test(storageKey)) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+
+  const media = await prisma.mediaAsset.findFirst({
+    where: { storageKey, status: 'active' },
+    select: { storageKey: true, filename: true, mimeType: true, sizeBytes: true }
+  });
+  if (!media || !isSupportedImageMimeType(media.mimeType)) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+
+  const filePath = resolveUploadPath(media.storageKey);
+  if (!filePath) return res.status(404).json({ error: 'not_found' });
+
+  const stat = await fsp.stat(filePath).catch(() => null);
+  if (!stat?.isFile()) return res.status(404).json({ error: 'not_found' });
+
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Content-Type', media.mimeType);
+  res.setHeader('Content-Length', String(stat.size));
+  res.setHeader('Content-Disposition', `inline; filename="${headerSafeFilename(media.filename || media.storageKey)}"`);
+  res.sendFile(filePath, (error) => {
+    if (error && !res.headersSent) return next(error);
+    return undefined;
+  });
+}
+
 export const mediaRoutes = Router();
 mediaRoutes.use(requireAuth);
 
-mediaRoutes.post('/image', requireActiveAccount, uploadImage, asyncRoute(async (req, res) => {
+mediaRoutes.post('/image', requireActiveAccount, uploadImageRateLimit, asyncRoute(requireUnattachedUploadSlot), uploadImage, asyncRoute(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'missing_image', message: 'Choose a JPEG, PNG, or WEBP image first.' });
 
   const verified = await verifyUploadedImage(req.file);

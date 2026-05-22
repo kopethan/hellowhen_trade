@@ -123,21 +123,43 @@ export const env = {
   plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true'
 };
 
-function isLocalUrl(value: string) {
+function isLoopbackHostname(hostname: string) {
+  return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname.toLowerCase());
+}
+
+function isPrivateLanHostname(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  if (/^10\./.test(normalized)) return true;
+  if (/^192\.168\./.test(normalized)) return true;
+  const match = normalized.match(/^172\.(\d{1,2})\./);
+  if (!match) return false;
+  const secondOctet = Number(match[1]);
+  return secondOctet >= 16 && secondOctet <= 31;
+}
+
+function parseUrl(value: string) {
   try {
-    const parsed = new URL(value);
-    return ['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(parsed.hostname.toLowerCase());
+    return new URL(value);
   } catch {
-    return false;
+    return null;
   }
 }
 
+function isLocalOrPrivateUrl(value: string) {
+  const parsed = parseUrl(value);
+  if (!parsed) return false;
+  if (parsed.protocol === 'exp:') return true;
+  return isLoopbackHostname(parsed.hostname) || isPrivateLanHostname(parsed.hostname);
+}
+
 function isHttpsUrl(value: string) {
-  try {
-    return new URL(value).protocol === 'https:';
-  } catch {
-    return false;
-  }
+  return parseUrl(value)?.protocol === 'https:';
+}
+
+function isOriginOnlyUrl(value: string) {
+  const parsed = parseUrl(value);
+  if (!parsed) return false;
+  return parsed.origin !== 'null' && parsed.href.replace(/\/$/, '') === parsed.origin;
 }
 
 function getEmailAddress(value: string) {
@@ -160,10 +182,12 @@ export function validateProductionEnv() {
   if (!env.databaseUrl) errors.push('DATABASE_URL is required in production.');
   if (!env.jwtSecret || env.jwtSecret === 'dev-change-me' || env.jwtSecret.length < 32) errors.push('JWT_SECRET must be a strong production secret.');
   if (env.adminRequireTwoFactor && (!env.twoFactorEncryptionSecret || env.twoFactorEncryptionSecret.length < 32)) errors.push('TWO_FACTOR_ENCRYPTION_SECRET must be set to a strong secret when admin two-step verification is required.');
-  if (isLocalUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost in production.');
-  if (isLocalUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost in production.');
+  if (isLocalOrPrivateUrl(env.webOrigin)) errors.push('WEB_ORIGIN must not point to localhost or a private LAN address in production.');
+  if (isLocalOrPrivateUrl(env.webAppUrl)) errors.push('WEB_APP_URL must not point to localhost or a private LAN address in production.');
+  if (env.mobileOrigin && isLocalOrPrivateUrl(env.mobileOrigin)) errors.push('MOBILE_ORIGIN must not point to Expo, localhost, or a private LAN address in production. Leave it empty if native requests do not send an Origin header.');
   if (!isHttpsUrl(env.webOrigin)) errors.push('WEB_ORIGIN must use https:// in production.');
   if (!isHttpsUrl(env.webAppUrl)) errors.push('WEB_APP_URL must use https:// in production so password reset and email verification links are public and secure.');
+  if (!isOriginOnlyUrl(env.webOrigin)) errors.push('WEB_ORIGIN must be an origin only, for example https://app.hellowhen.com without a path.');
   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');

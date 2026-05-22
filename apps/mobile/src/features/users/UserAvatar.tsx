@@ -31,13 +31,11 @@ function cleanText(value?: string | null) {
 export function resolveNativeAssetUrl(src?: string | null, storageKey?: string | null) {
   const value = cleanText(src) || cleanText(storageKey);
   if (!value) return '';
-  if (
-    value.startsWith('http://') ||
-    value.startsWith('https://') ||
-    value.startsWith('file://') ||
-    value.startsWith('data:')
-  ) {
+  if (value.startsWith('http://') || value.startsWith('https://')) {
     return value;
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
+    return '';
   }
   return `${API_URL.replace(/\/$/, '')}${value.startsWith('/') ? value : `/${value}`}`;
 }

@@ -104,7 +104,7 @@ export default function AccountProfilePage() {
       const response = await api.media.uploadImage(formData);
       const media = normalizeMediaUpload(response);
       if (!media) throw new Error(t('profile.edit.errors.uploadReturnedNoImage'));
-      const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id, avatarUrl: media.url });
+      const nextProfile = await api.profile.updateMe({ avatarMediaId: media.id });
       setAvatar(media);
       auth.updateLocalProfile(nextProfile as Partial<NonNullable<typeof profile>>);
       setMessage(t('profile.edit.uploaded'));

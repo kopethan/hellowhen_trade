@@ -119,7 +119,10 @@ export function moneyDeltaClassName(cents: number) {
 
 
 export function assetUrl(value?: string | null) {
-  return resolveWebAssetUrl(value);
+  const raw = value?.trim() ?? '';
+  if (!raw) return '';
+  if (/^(data|blob|file|javascript|vbscript):/i.test(raw)) return '';
+  return resolveWebAssetUrl(raw);
 }
 
 
