@@ -1,0 +1,143 @@
+diff --git a/apps/web/src/app/account/page.tsx b/apps/web/src/app/account/page.tsx
+index 8eadc0e..8d3d170 100644
+--- a/apps/web/src/app/account/page.tsx
++++ b/apps/web/src/app/account/page.tsx
+@@ -1,16 +1,10 @@
+ import { MobilePage } from '../../components/MobilePage';
+-import { TranslatedPageIntro } from '../../components/TranslatedPageIntro';
+ import { WebAuthSummary } from '../../components/WebAuthSummary';
+ import { AccountHubClient } from '../../features/account/AccountHubClient';
+ 
+ export default function AccountPage() {
+   return (
+     <MobilePage>
+-      <TranslatedPageIntro
+-        eyebrowKey="account.eyebrow"
+-        titleKey="account.title"
+-        bodyKey="account.body"
+-      />
+       <WebAuthSummary />
+       <AccountHubClient />
+     </MobilePage>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index eb1e3a8..6b006f6 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -111,7 +111,7 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ 
+ .web-app-viewport { min-height: 100dvh; display: grid; place-items: center; padding: 0; }
+ .web-app-shell { position: relative; width: min(100vw, var(--app-shell-width)); height: 100dvh; min-height: 100dvh; overflow: hidden; background: var(--app-bg); box-shadow: var(--app-shadow); }
+-.web-top-header { position: fixed; z-index: 80; top: 0; left: 50%; width: min(100vw, var(--app-shell-width)); min-height: var(--app-header-height); display: flex; align-items: flex-end; gap: 12px; padding: calc(12px + env(safe-area-inset-top)) 18px 14px; transform: translateX(-50%); background: color-mix(in srgb, var(--app-bg) 90%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent); backdrop-filter: blur(18px); }
++.web-top-header { position: fixed; z-index: 80; top: 0; left: 50%; width: min(100vw, var(--app-shell-width)); min-height: var(--app-header-height); display: flex; align-items: flex-end; gap: 12px; padding: calc(12px + env(safe-area-inset-top)) 18px 14px; transform: translateX(-50%); background: color-mix(in srgb, var(--app-bg) 90%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent); backdrop-filter: blur(18px); transition: opacity 180ms ease, transform 180ms ease; will-change: opacity, transform; }
+ .web-top-header--root { justify-content: space-between; }
+ .web-top-header--nested { align-items: center; padding-bottom: 12px; }
+ .web-top-header--nested h1 { font-size: 22px; letter-spacing: -0.04em; }
+@@ -129,6 +129,14 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .web-scroll-top-button { position: fixed; z-index: 70; right: max(18px, calc((100vw - var(--app-shell-width)) / 2 + 18px)); bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 18px); display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-surface) 94%, transparent); color: var(--app-text); padding: 0; font-size: 22px; font-weight: 950; line-height: 1; box-shadow: var(--app-control-shadow); opacity: 0; pointer-events: none; transform: translateY(10px) scale(0.96); transition: opacity 160ms ease, transform 160ms ease; backdrop-filter: blur(18px); }
+ .web-scroll-top-button.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+ 
++@media (max-width: 759px) {
++  .web-top-header--mobile-hidden {
++    opacity: 0;
++    pointer-events: none;
++    transform: translateX(-50%) translateY(calc(-100% - 10px));
++  }
++}
++
+ .utility-shell { width: min(1120px, calc(100vw - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+ .mobile-page { display: grid; gap: 16px; }
+ .page-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+diff --git a/apps/web/src/components/WebMobileShell.tsx b/apps/web/src/components/WebMobileShell.tsx
+index 70eae29..3f53a6f 100644
+--- a/apps/web/src/components/WebMobileShell.tsx
++++ b/apps/web/src/components/WebMobileShell.tsx
+@@ -16,19 +16,40 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+   const utility = isUtilityRoute(pathname);
+   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+   const [showScrollTop, setShowScrollTop] = useState(false);
++  const [hideTopHeader, setHideTopHeader] = useState(false);
+ 
+   useEffect(() => {
+-    if (utility) return;
++    if (utility) {
++      setHideTopHeader(false);
++      return;
++    }
++
+     const scrollArea = scrollAreaRef.current;
+     if (!scrollArea) return;
+ 
+-    const updateScrollTopVisibility = () => {
+-      setShowScrollTop(scrollArea.scrollTop > 420);
++    let previousScrollTop = scrollArea.scrollTop;
++
++    const updateChromeVisibility = () => {
++      const nextScrollTop = scrollArea.scrollTop;
++      const delta = nextScrollTop - previousScrollTop;
++
++      setShowScrollTop(nextScrollTop > 420);
++
++      if (window.matchMedia('(min-width: 760px)').matches || nextScrollTop < 24) {
++        setHideTopHeader(false);
++      } else if (delta > 8 && nextScrollTop > 84) {
++        setHideTopHeader(true);
++      } else if (delta < -12) {
++        setHideTopHeader(false);
++      }
++
++      previousScrollTop = nextScrollTop;
+     };
+ 
+-    updateScrollTopVisibility();
+-    scrollArea.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
+-    return () => scrollArea.removeEventListener('scroll', updateScrollTopVisibility);
++    setHideTopHeader(false);
++    updateChromeVisibility();
++    scrollArea.addEventListener('scroll', updateChromeVisibility, { passive: true });
++    return () => scrollArea.removeEventListener('scroll', updateChromeVisibility);
+   }, [pathname, utility]);
+ 
+   function scrollToTop() {
+@@ -44,7 +65,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+   return (
+     <main className="web-app-viewport">
+       <section className="web-app-shell" aria-label={t('common.messages.webAppLabel')}>
+-        <WebTopHeader />
++        <WebTopHeader hiddenOnMobile={hideTopHeader} />
+         <div ref={scrollAreaRef} className="web-scroll-area">
+           {auth.user?.trustTier === 'restricted' ? (
+             <section className="account-restricted-banner" role="status">
+diff --git a/apps/web/src/components/WebTopHeader.tsx b/apps/web/src/components/WebTopHeader.tsx
+index a463280..46cf07d 100644
+--- a/apps/web/src/components/WebTopHeader.tsx
++++ b/apps/web/src/components/WebTopHeader.tsx
+@@ -33,16 +33,18 @@ function WebDesktopNav({ pathname, authenticated }: { pathname: string; authenti
+   );
+ }
+ 
+-export function WebTopHeader() {
++export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: boolean }) {
+   const pathname = usePathname() || '/trades';
+   const auth = useWebAuth();
+   const { t } = useWebTranslation();
+   const header = getRouteHeader(pathname);
+   const authenticated = auth.hydrated && auth.isAuthenticated;
+ 
++  const hiddenClassName = hiddenOnMobile ? ' web-top-header--mobile-hidden' : '';
++
+   if (header.root) {
+     return (
+-      <header className="web-top-header web-top-header--root">
++      <header className={`web-top-header web-top-header--root${hiddenClassName}`}>
+         <WebBetaHeaderBadge />
+         <div>
+           <p className="web-kicker">{t('navigation.brand')}</p>
+@@ -54,7 +56,7 @@ export function WebTopHeader() {
+   }
+ 
+   return (
+-    <header className="web-top-header web-top-header--nested">
++    <header className={`web-top-header web-top-header--nested${hiddenClassName}`}>
+       <WebBetaHeaderBadge />
+       <div className="web-nested-title-row">
+         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label={t('navigation.goBack')}>

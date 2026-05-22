@@ -503,6 +503,7 @@ export function SquareStackDeck({ items, label, className, onOpen, lockScrollWit
     (motion || drag?.swiping) ? 'is-interacting' : null,
     !canOpenActive ? 'square-stack-deck--no-open' : null,
     lockScrollWithinDeck ? 'square-stack-deck--scroll-locked' : null,
+    itemCount <= 1 ? 'square-stack-deck--single-card' : null,
   ].filter(Boolean).join(' ');
 
   return (

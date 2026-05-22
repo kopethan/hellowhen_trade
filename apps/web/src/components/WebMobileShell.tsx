@@ -16,19 +16,40 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
   const utility = isUtilityRoute(pathname);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [hideTopHeader, setHideTopHeader] = useState(false);
 
   useEffect(() => {
-    if (utility) return;
+    if (utility) {
+      setHideTopHeader(false);
+      return;
+    }
+
     const scrollArea = scrollAreaRef.current;
     if (!scrollArea) return;
 
-    const updateScrollTopVisibility = () => {
-      setShowScrollTop(scrollArea.scrollTop > 420);
+    let previousScrollTop = scrollArea.scrollTop;
+
+    const updateChromeVisibility = () => {
+      const nextScrollTop = scrollArea.scrollTop;
+      const delta = nextScrollTop - previousScrollTop;
+
+      setShowScrollTop(nextScrollTop > 420);
+
+      if (window.matchMedia('(min-width: 760px)').matches || nextScrollTop < 24) {
+        setHideTopHeader(false);
+      } else if (delta > 8 && nextScrollTop > 84) {
+        setHideTopHeader(true);
+      } else if (delta < -12) {
+        setHideTopHeader(false);
+      }
+
+      previousScrollTop = nextScrollTop;
     };
 
-    updateScrollTopVisibility();
-    scrollArea.addEventListener('scroll', updateScrollTopVisibility, { passive: true });
-    return () => scrollArea.removeEventListener('scroll', updateScrollTopVisibility);
+    setHideTopHeader(false);
+    updateChromeVisibility();
+    scrollArea.addEventListener('scroll', updateChromeVisibility, { passive: true });
+    return () => scrollArea.removeEventListener('scroll', updateChromeVisibility);
   }, [pathname, utility]);
 
   function scrollToTop() {
@@ -44,7 +65,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
   return (
     <main className="web-app-viewport">
       <section className="web-app-shell" aria-label={t('common.messages.webAppLabel')}>
-        <WebTopHeader />
+        <WebTopHeader hiddenOnMobile={hideTopHeader} />
         <div ref={scrollAreaRef} className="web-scroll-area">
           {auth.user?.trustTier === 'restricted' ? (
             <section className="account-restricted-banner" role="status">

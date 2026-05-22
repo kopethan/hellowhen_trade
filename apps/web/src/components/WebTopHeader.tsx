@@ -33,16 +33,18 @@ function WebDesktopNav({ pathname, authenticated }: { pathname: string; authenti
   );
 }
 
-export function WebTopHeader() {
+export function WebTopHeader({ hiddenOnMobile = false }: { hiddenOnMobile?: boolean }) {
   const pathname = usePathname() || '/trades';
   const auth = useWebAuth();
   const { t } = useWebTranslation();
   const header = getRouteHeader(pathname);
   const authenticated = auth.hydrated && auth.isAuthenticated;
 
+  const hiddenClassName = hiddenOnMobile ? ' web-top-header--mobile-hidden' : '';
+
   if (header.root) {
     return (
-      <header className="web-top-header web-top-header--root">
+      <header className={`web-top-header web-top-header--root${hiddenClassName}`}>
         <WebBetaHeaderBadge />
         <div>
           <p className="web-kicker">{t('navigation.brand')}</p>
@@ -54,7 +56,7 @@ export function WebTopHeader() {
   }
 
   return (
-    <header className="web-top-header web-top-header--nested">
+    <header className={`web-top-header web-top-header--nested${hiddenClassName}`}>
       <WebBetaHeaderBadge />
       <div className="web-nested-title-row">
         <Link href={header.backHref ?? '/trades'} className="web-back-button" aria-label={t('navigation.goBack')}>
