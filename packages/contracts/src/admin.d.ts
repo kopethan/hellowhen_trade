@@ -1,0 +1,965 @@
+import { z } from 'zod';
+export declare const adminProfilePreviewSchema: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$loose>>>;
+export declare const adminWalletPreviewSchema: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+    availableBalanceCents: z.ZodOptional<z.ZodNumber>;
+    heldBalanceCents: z.ZodOptional<z.ZodNumber>;
+    pendingPayoutCents: z.ZodOptional<z.ZodNumber>;
+    currency: z.ZodOptional<z.ZodString>;
+}, z.core.$loose>>>;
+export declare const adminUserPreviewSchema: z.ZodObject<{
+    id: z.ZodString;
+    email: z.ZodString;
+    role: z.ZodOptional<z.ZodEnum<{
+        user: "user";
+        admin: "admin";
+    }>>;
+    trustTier: z.ZodOptional<z.ZodEnum<{
+        new: "new";
+        email_verified: "email_verified";
+        stripe_verified: "stripe_verified";
+        trusted: "trusted";
+        restricted: "restricted";
+    }>>;
+    emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+    createdAt: z.ZodOptional<z.ZodString>;
+    profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$loose>>>;
+}, z.core.$loose>;
+export declare const adminUserSummarySchema: z.ZodObject<{
+    id: z.ZodString;
+    email: z.ZodString;
+    role: z.ZodEnum<{
+        user: "user";
+        admin: "admin";
+    }>;
+    trustTier: z.ZodEnum<{
+        new: "new";
+        email_verified: "email_verified";
+        stripe_verified: "stripe_verified";
+        trusted: "trusted";
+        restricted: "restricted";
+    }>;
+    trustTierUpdatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    trustTierNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    createdAt: z.ZodString;
+    lastLoginAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$loose>>>;
+    wallet: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        availableBalanceCents: z.ZodOptional<z.ZodNumber>;
+        heldBalanceCents: z.ZodOptional<z.ZodNumber>;
+        pendingPayoutCents: z.ZodOptional<z.ZodNumber>;
+        currency: z.ZodOptional<z.ZodString>;
+    }, z.core.$loose>>>;
+    _count: z.ZodOptional<z.ZodObject<{
+        needs: z.ZodNumber;
+        offers: z.ZodNumber;
+        trades: z.ZodNumber;
+        supportTickets: z.ZodNumber;
+        mediaAssets: z.ZodNumber;
+    }, z.core.$strip>>;
+    limits: z.ZodOptional<z.ZodObject<{
+        trustTier: z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>;
+        effectiveTrustTier: z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>;
+        serviceActiveTradeLimit: z.ZodNumber;
+        moneyActiveTradeLimit: z.ZodNumber;
+        perTradeMoneyCapCents: z.ZodNumber;
+        walletBalanceCapCents: z.ZodNumber;
+        weeklyPayoutCapCents: z.ZodNumber;
+        minimumPayoutCents: z.ZodNumber;
+        payoutsEnabled: z.ZodBoolean;
+        moneyTradesEnabled: z.ZodBoolean;
+        walletTopUpsEnabled: z.ZodBoolean;
+        activeServiceTradeCount: z.ZodDefault<z.ZodNumber>;
+        activeMoneyTradeCount: z.ZodDefault<z.ZodNumber>;
+        walletExposureCents: z.ZodDefault<z.ZodNumber>;
+        weeklyRequestedPayoutGrossCents: z.ZodDefault<z.ZodNumber>;
+    }, z.core.$strip>>;
+}, z.core.$loose>;
+export declare const adminSupportTicketPreviewSchema: z.ZodObject<{
+    id: z.ZodString;
+    subject: z.ZodString;
+    status: z.ZodString;
+    priority: z.ZodString;
+    category: z.ZodString;
+    createdAt: z.ZodOptional<z.ZodString>;
+    updatedAt: z.ZodString;
+    user: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodString;
+        role: z.ZodOptional<z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>>;
+        trustTier: z.ZodOptional<z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+    _count: z.ZodOptional<z.ZodObject<{
+        messages: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>>;
+}, z.core.$loose>;
+export declare const adminAuditLogSchema: z.ZodObject<{
+    id: z.ZodString;
+    adminId: z.ZodString;
+    action: z.ZodString;
+    targetType: z.ZodString;
+    targetId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    previousValue: z.ZodOptional<z.ZodUnknown>;
+    nextValue: z.ZodOptional<z.ZodUnknown>;
+    metadata: z.ZodOptional<z.ZodUnknown>;
+    createdAt: z.ZodString;
+    admin: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodString;
+        role: z.ZodOptional<z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>>;
+        trustTier: z.ZodOptional<z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+}, z.core.$loose>;
+export declare const adminOverviewResponseSchema: z.ZodObject<{
+    summary: z.ZodObject<{
+        users: z.ZodObject<{
+            total: z.ZodNumber;
+            new24h: z.ZodNumber;
+            new7d: z.ZodNumber;
+            admins: z.ZodNumber;
+            restricted: z.ZodNumber;
+        }, z.core.$strip>;
+        content: z.ZodObject<{
+            activeTrades: z.ZodNumber;
+            disputedTrades: z.ZodNumber;
+            activeNeeds: z.ZodNumber;
+            activeOffers: z.ZodNumber;
+        }, z.core.$strip>;
+        support: z.ZodObject<{
+            open: z.ZodNumber;
+            urgent: z.ZodNumber;
+        }, z.core.$strip>;
+        reports: z.ZodObject<{
+            pending: z.ZodNumber;
+            reviewing: z.ZodNumber;
+        }, z.core.$strip>;
+        media: z.ZodObject<{
+            pendingReview: z.ZodNumber;
+            flagged: z.ZodNumber;
+        }, z.core.$strip>;
+        money: z.ZodObject<{
+            moneyFeaturesVisible: z.ZodBoolean;
+            walletVisible: z.ZodBoolean;
+            payoutsVisible: z.ZodBoolean;
+            moneyTradesEnabled: z.ZodBoolean;
+            realMoneyEnabled: z.ZodBoolean;
+            moneyProvider: z.ZodString;
+            moneyProviderEnvironment: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$strip>;
+    recentUsers: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodString;
+        role: z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>;
+        trustTier: z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>;
+        trustTierUpdatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        trustTierNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        lastLoginAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+        wallet: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            availableBalanceCents: z.ZodOptional<z.ZodNumber>;
+            heldBalanceCents: z.ZodOptional<z.ZodNumber>;
+            pendingPayoutCents: z.ZodOptional<z.ZodNumber>;
+            currency: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+        _count: z.ZodOptional<z.ZodObject<{
+            needs: z.ZodNumber;
+            offers: z.ZodNumber;
+            trades: z.ZodNumber;
+            supportTickets: z.ZodNumber;
+            mediaAssets: z.ZodNumber;
+        }, z.core.$strip>>;
+        limits: z.ZodOptional<z.ZodObject<{
+            trustTier: z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>;
+            effectiveTrustTier: z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>;
+            serviceActiveTradeLimit: z.ZodNumber;
+            moneyActiveTradeLimit: z.ZodNumber;
+            perTradeMoneyCapCents: z.ZodNumber;
+            walletBalanceCapCents: z.ZodNumber;
+            weeklyPayoutCapCents: z.ZodNumber;
+            minimumPayoutCents: z.ZodNumber;
+            payoutsEnabled: z.ZodBoolean;
+            moneyTradesEnabled: z.ZodBoolean;
+            walletTopUpsEnabled: z.ZodBoolean;
+            activeServiceTradeCount: z.ZodDefault<z.ZodNumber>;
+            activeMoneyTradeCount: z.ZodDefault<z.ZodNumber>;
+            walletExposureCents: z.ZodDefault<z.ZodNumber>;
+            weeklyRequestedPayoutGrossCents: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>>;
+    recentTickets: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        subject: z.ZodString;
+        status: z.ZodString;
+        priority: z.ZodString;
+        category: z.ZodString;
+        createdAt: z.ZodOptional<z.ZodString>;
+        updatedAt: z.ZodString;
+        user: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodString;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        _count: z.ZodOptional<z.ZodObject<{
+            messages: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>>;
+    recentAuditLogs: z.ZodDefault<z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        adminId: z.ZodString;
+        action: z.ZodString;
+        targetType: z.ZodString;
+        targetId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        previousValue: z.ZodOptional<z.ZodUnknown>;
+        nextValue: z.ZodOptional<z.ZodUnknown>;
+        metadata: z.ZodOptional<z.ZodUnknown>;
+        createdAt: z.ZodString;
+        admin: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodString;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+}, z.core.$strip>;
+export declare const adminUsersResponseSchema: z.ZodObject<{
+    users: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodString;
+        role: z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>;
+        trustTier: z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>;
+        trustTierUpdatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        trustTierNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        lastLoginAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+        wallet: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            availableBalanceCents: z.ZodOptional<z.ZodNumber>;
+            heldBalanceCents: z.ZodOptional<z.ZodNumber>;
+            pendingPayoutCents: z.ZodOptional<z.ZodNumber>;
+            currency: z.ZodOptional<z.ZodString>;
+        }, z.core.$loose>>>;
+        _count: z.ZodOptional<z.ZodObject<{
+            needs: z.ZodNumber;
+            offers: z.ZodNumber;
+            trades: z.ZodNumber;
+            supportTickets: z.ZodNumber;
+            mediaAssets: z.ZodNumber;
+        }, z.core.$strip>>;
+        limits: z.ZodOptional<z.ZodObject<{
+            trustTier: z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>;
+            effectiveTrustTier: z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>;
+            serviceActiveTradeLimit: z.ZodNumber;
+            moneyActiveTradeLimit: z.ZodNumber;
+            perTradeMoneyCapCents: z.ZodNumber;
+            walletBalanceCapCents: z.ZodNumber;
+            weeklyPayoutCapCents: z.ZodNumber;
+            minimumPayoutCents: z.ZodNumber;
+            payoutsEnabled: z.ZodBoolean;
+            moneyTradesEnabled: z.ZodBoolean;
+            walletTopUpsEnabled: z.ZodBoolean;
+            activeServiceTradeCount: z.ZodDefault<z.ZodNumber>;
+            activeMoneyTradeCount: z.ZodDefault<z.ZodNumber>;
+            walletExposureCents: z.ZodDefault<z.ZodNumber>;
+            weeklyRequestedPayoutGrossCents: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>;
+}, z.core.$strip>;
+export declare const adminAuditLogResponseSchema: z.ZodObject<{
+    logs: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        adminId: z.ZodString;
+        action: z.ZodString;
+        targetType: z.ZodString;
+        targetId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        previousValue: z.ZodOptional<z.ZodUnknown>;
+        nextValue: z.ZodOptional<z.ZodUnknown>;
+        metadata: z.ZodOptional<z.ZodUnknown>;
+        createdAt: z.ZodString;
+        admin: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodString;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>;
+}, z.core.$strip>;
+export declare const adminUserModerationActionRequestSchema: z.ZodObject<{
+    action: z.ZodEnum<{
+        suspend: "suspend";
+        restore: "restore";
+        mark_reviewed: "mark_reviewed";
+        force_logout: "force_logout";
+    }>;
+    note: z.ZodOptional<z.ZodString>;
+    trustTier: z.ZodOptional<z.ZodEnum<{
+        new: "new";
+        email_verified: "email_verified";
+        stripe_verified: "stripe_verified";
+        trusted: "trusted";
+        restricted: "restricted";
+    }>>;
+}, z.core.$strip>;
+export declare const adminContentTypeSchema: z.ZodEnum<{
+    need: "need";
+    offer: "offer";
+    trade: "trade";
+}>;
+export declare const adminContentActionRequestSchema: z.ZodObject<{
+    action: z.ZodEnum<{
+        restore: "restore";
+        mark_reviewed: "mark_reviewed";
+        hide: "hide";
+        close: "close";
+    }>;
+    note: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const adminListContentQuerySchema: z.ZodObject<{
+    type: z.ZodDefault<z.ZodOptional<z.ZodEnum<{
+        need: "need";
+        offer: "offer";
+        trade: "trade";
+        all: "all";
+    }>>>;
+    q: z.ZodOptional<z.ZodString>;
+    ownerId: z.ZodOptional<z.ZodString>;
+    status: z.ZodOptional<z.ZodString>;
+    take: z.ZodDefault<z.ZodOptional<z.ZodCoercedNumber<unknown>>>;
+}, z.core.$strip>;
+export declare const adminContentOwnerSchema: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+    id: z.ZodString;
+    email: z.ZodString;
+    role: z.ZodOptional<z.ZodEnum<{
+        user: "user";
+        admin: "admin";
+    }>>;
+    trustTier: z.ZodOptional<z.ZodEnum<{
+        new: "new";
+        email_verified: "email_verified";
+        stripe_verified: "stripe_verified";
+        trusted: "trusted";
+        restricted: "restricted";
+    }>>;
+    emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+    createdAt: z.ZodOptional<z.ZodString>;
+    profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$loose>>>;
+}, z.core.$loose>>>;
+export declare const adminContentItemSchema: z.ZodObject<{
+    id: z.ZodString;
+    type: z.ZodEnum<{
+        need: "need";
+        offer: "offer";
+        trade: "trade";
+    }>;
+    ownerId: z.ZodString;
+    title: z.ZodString;
+    description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+    status: z.ZodString;
+    isPublic: z.ZodOptional<z.ZodBoolean>;
+    postType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    category: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    itemType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    mode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    createdAt: z.ZodString;
+    updatedAt: z.ZodString;
+    expiresAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    closedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodString;
+        role: z.ZodOptional<z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>>;
+        trustTier: z.ZodOptional<z.ZodEnum<{
+            new: "new";
+            email_verified: "email_verified";
+            stripe_verified: "stripe_verified";
+            trusted: "trusted";
+            restricted: "restricted";
+        }>>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+    mediaCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    proposalCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    linkedTradeCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    publicDiscoverable: z.ZodOptional<z.ZodBoolean>;
+    visibilityBlockers: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString>>>;
+}, z.core.$loose>;
+export declare const adminContentResponseSchema: z.ZodObject<{
+    content: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        type: z.ZodEnum<{
+            need: "need";
+            offer: "offer";
+            trade: "trade";
+        }>;
+        ownerId: z.ZodString;
+        title: z.ZodString;
+        description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+        status: z.ZodString;
+        isPublic: z.ZodOptional<z.ZodBoolean>;
+        postType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        category: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        itemType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        mode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+        expiresAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        closedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodString;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        mediaCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        proposalCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        linkedTradeCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        publicDiscoverable: z.ZodOptional<z.ZodBoolean>;
+        visibilityBlockers: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString>>>;
+    }, z.core.$loose>>;
+}, z.core.$strip>;
+export declare const adminContentActionResponseSchema: z.ZodObject<{
+    item: z.ZodObject<{
+        id: z.ZodString;
+        type: z.ZodEnum<{
+            need: "need";
+            offer: "offer";
+            trade: "trade";
+        }>;
+        ownerId: z.ZodString;
+        title: z.ZodString;
+        description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+        status: z.ZodString;
+        isPublic: z.ZodOptional<z.ZodBoolean>;
+        postType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        category: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        itemType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        mode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+        expiresAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        closedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodString;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodEnum<{
+                new: "new";
+                email_verified: "email_verified";
+                stripe_verified: "stripe_verified";
+                trusted: "trusted";
+                restricted: "restricted";
+            }>>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        mediaCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        proposalCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        linkedTradeCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        publicDiscoverable: z.ZodOptional<z.ZodBoolean>;
+        visibilityBlockers: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString>>>;
+    }, z.core.$loose>;
+}, z.core.$strip>;
+export declare const adminLaunchChecklistItemSchema: z.ZodObject<{
+    id: z.ZodString;
+    label: z.ZodString;
+    status: z.ZodEnum<{
+        pass: "pass";
+        warning: "warning";
+        fail: "fail";
+    }>;
+    detail: z.ZodString;
+    action: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const adminLaunchChecklistResponseSchema: z.ZodObject<{
+    overallStatus: z.ZodEnum<{
+        pass: "pass";
+        warning: "warning";
+        fail: "fail";
+    }>;
+    generatedAt: z.ZodString;
+    items: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        label: z.ZodString;
+        status: z.ZodEnum<{
+            pass: "pass";
+            warning: "warning";
+            fail: "fail";
+        }>;
+        detail: z.ZodString;
+        action: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    summary: z.ZodObject<{
+        pass: z.ZodNumber;
+        warning: z.ZodNumber;
+        fail: z.ZodNumber;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+export declare const adminRuntimeQaCheckSchema: z.ZodObject<{
+    id: z.ZodString;
+    label: z.ZodString;
+    status: z.ZodEnum<{
+        pass: "pass";
+        warning: "warning";
+        fail: "fail";
+    }>;
+    detail: z.ZodString;
+    action: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const adminRuntimeQaResponseSchema: z.ZodObject<{
+    overallStatus: z.ZodEnum<{
+        pass: "pass";
+        warning: "warning";
+        fail: "fail";
+    }>;
+    generatedAt: z.ZodString;
+    launchMode: z.ZodObject<{
+        nodeEnv: z.ZodString;
+        moneyLaunchMode: z.ZodString;
+        moneyFeaturesVisible: z.ZodBoolean;
+        walletVisible: z.ZodBoolean;
+        payoutsVisible: z.ZodBoolean;
+        moneyTradesEnabled: z.ZodBoolean;
+        realMoneyEnabled: z.ZodBoolean;
+        adminRequireTwoFactor: z.ZodBoolean;
+    }, z.core.$strip>;
+    counts: z.ZodObject<{
+        restrictedUsersWithOpenSessions: z.ZodNumber;
+        activePublicMoneyTradesWhileMoneyOff: z.ZodNumber;
+        publicVisibilityLeaks: z.ZodNumber;
+        pendingReports: z.ZodNumber;
+        urgentSupportTickets: z.ZodNumber;
+        pendingOrFlaggedMedia: z.ZodNumber;
+    }, z.core.$strip>;
+    checks: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        label: z.ZodString;
+        status: z.ZodEnum<{
+            pass: "pass";
+            warning: "warning";
+            fail: "fail";
+        }>;
+        detail: z.ZodString;
+        action: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    rehearsal: z.ZodArray<z.ZodObject<{
+        step: z.ZodNumber;
+        label: z.ZodString;
+        expected: z.ZodString;
+        operatorAction: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    summary: z.ZodObject<{
+        pass: z.ZodNumber;
+        warning: z.ZodNumber;
+        fail: z.ZodNumber;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+export declare const adminModerationSmokeResponseSchema: z.ZodObject<{
+    checks: z.ZodObject<{
+        restrictedOwnersHiddenFromFeed: z.ZodBoolean;
+        closedNeedsHiddenFromFeed: z.ZodBoolean;
+        closedOffersHiddenFromFeed: z.ZodBoolean;
+        publicFeedUsesDiscoverableFilter: z.ZodBoolean;
+    }, z.core.$strip>;
+    counts: z.ZodObject<{
+        feedEligibleTrades: z.ZodNumber;
+        feedEligibleRestrictedOwnerTrades: z.ZodNumber;
+        feedEligibleClosedNeedTrades: z.ZodNumber;
+        feedEligibleClosedOfferTrades: z.ZodNumber;
+        publicTradesOwnedByRestrictedUsers: z.ZodNumber;
+        publicTradesWithClosedNeeds: z.ZodNumber;
+        publicTradesWithClosedOffers: z.ZodNumber;
+        restrictedUsers: z.ZodNumber;
+        activeNeedsOwnedByRestrictedUsers: z.ZodNumber;
+        activeOffersOwnedByRestrictedUsers: z.ZodNumber;
+    }, z.core.$strip>;
+    samples: z.ZodObject<{
+        publicTradesOwnedByRestrictedUsers: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            type: z.ZodEnum<{
+                need: "need";
+                offer: "offer";
+                trade: "trade";
+            }>;
+            ownerId: z.ZodString;
+            title: z.ZodString;
+            description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+            status: z.ZodString;
+            isPublic: z.ZodOptional<z.ZodBoolean>;
+            postType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            category: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            itemType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            mode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            createdAt: z.ZodString;
+            updatedAt: z.ZodString;
+            expiresAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            closedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                id: z.ZodString;
+                email: z.ZodString;
+                role: z.ZodOptional<z.ZodEnum<{
+                    user: "user";
+                    admin: "admin";
+                }>>;
+                trustTier: z.ZodOptional<z.ZodEnum<{
+                    new: "new";
+                    email_verified: "email_verified";
+                    stripe_verified: "stripe_verified";
+                    trusted: "trusted";
+                    restricted: "restricted";
+                }>>;
+                emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+                createdAt: z.ZodOptional<z.ZodString>;
+                profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+            mediaCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+            proposalCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+            linkedTradeCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+            publicDiscoverable: z.ZodOptional<z.ZodBoolean>;
+            visibilityBlockers: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString>>>;
+        }, z.core.$loose>>>;
+        publicTradesWithClosedInventory: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            type: z.ZodEnum<{
+                need: "need";
+                offer: "offer";
+                trade: "trade";
+            }>;
+            ownerId: z.ZodString;
+            title: z.ZodString;
+            description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+            status: z.ZodString;
+            isPublic: z.ZodOptional<z.ZodBoolean>;
+            postType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            category: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            itemType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            mode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            createdAt: z.ZodString;
+            updatedAt: z.ZodString;
+            expiresAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            closedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                id: z.ZodString;
+                email: z.ZodString;
+                role: z.ZodOptional<z.ZodEnum<{
+                    user: "user";
+                    admin: "admin";
+                }>>;
+                trustTier: z.ZodOptional<z.ZodEnum<{
+                    new: "new";
+                    email_verified: "email_verified";
+                    stripe_verified: "stripe_verified";
+                    trusted: "trusted";
+                    restricted: "restricted";
+                }>>;
+                emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                ageConfirmedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                declaredAgeBucket: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+                createdAt: z.ZodOptional<z.ZodString>;
+                profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+            mediaCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+            proposalCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+            linkedTradeCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+            publicDiscoverable: z.ZodOptional<z.ZodBoolean>;
+            visibilityBlockers: z.ZodDefault<z.ZodOptional<z.ZodArray<z.ZodString>>>;
+        }, z.core.$loose>>>;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+export type AdminProfilePreview = z.infer<typeof adminProfilePreviewSchema>;
+export type AdminWalletPreview = z.infer<typeof adminWalletPreviewSchema>;
+export type AdminUserPreview = z.infer<typeof adminUserPreviewSchema>;
+export type AdminAuditLogDto = z.infer<typeof adminAuditLogSchema>;
+export type AdminOverviewResponse = z.infer<typeof adminOverviewResponseSchema>;
+export type AdminUserSummaryDto = z.infer<typeof adminUserSummarySchema>;
+export type AdminUsersResponse = z.infer<typeof adminUsersResponseSchema>;
+export type AdminAuditLogResponse = z.infer<typeof adminAuditLogResponseSchema>;
+export type AdminUserModerationActionRequest = z.infer<typeof adminUserModerationActionRequestSchema>;
+export type AdminContentType = z.infer<typeof adminContentTypeSchema>;
+export type AdminContentItemDto = z.infer<typeof adminContentItemSchema>;
+export type AdminContentResponse = z.infer<typeof adminContentResponseSchema>;
+export type AdminContentActionRequest = z.infer<typeof adminContentActionRequestSchema>;
+export type AdminContentActionResponse = z.infer<typeof adminContentActionResponseSchema>;
+export type AdminRuntimeQaCheckDto = z.infer<typeof adminRuntimeQaCheckSchema>;
+export type AdminRuntimeQaResponse = z.infer<typeof adminRuntimeQaResponseSchema>;
+export type AdminModerationSmokeResponse = z.infer<typeof adminModerationSmokeResponseSchema>;
+export type AdminLaunchChecklistItemDto = z.infer<typeof adminLaunchChecklistItemSchema>;
+export type AdminLaunchChecklistResponse = z.infer<typeof adminLaunchChecklistResponseSchema>;
+//# sourceMappingURL=admin.d.ts.map

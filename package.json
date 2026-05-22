@@ -3,15 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "dev:api": "npm run dev -w @hellowhen/api",
     "dev:web": "npm run dev -w @hellowhen/web",
     "dev:mobile": "npm run start -w @hellowhen/mobile",
     "stop:dev": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build:packages && npm run build:apps",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run typecheck",
     "prisma:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
@@ -20,7 +20,9 @@
     "prisma:seed": "prisma db seed --schema apps/api/prisma/schema.prisma",
     "admin:smoke": "node scripts/admin-launch-smoke.mjs",
     "admin:rehearsal": "node scripts/admin-launch-smoke.mjs",
-    "plans:smoke": "node scripts/plans-hidden-smoke.mjs"
+    "plans:smoke": "node scripts/plans-hidden-smoke.mjs",
+    "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+    "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

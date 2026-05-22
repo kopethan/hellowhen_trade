@@ -1,0 +1,92 @@
+import { z } from 'zod';
+import { mediaAssetSchema } from './media.js';
+export const supportTicketCategorySchema = z.enum([
+    'general_feedback',
+    'trade_issue',
+    'credits_issue',
+    'media_issue',
+    'bug_report',
+    'account_issue',
+    'account_recovery',
+    'safety_concern',
+]);
+export const supportTicketStatusSchema = z.enum(['open', 'in_review', 'waiting_for_user', 'resolved', 'closed']);
+export const supportTicketPrioritySchema = z.enum(['low', 'normal', 'high', 'urgent']);
+export const supportMessageSenderRoleSchema = z.enum(['user', 'admin', 'system']);
+export const createSupportTicketRequestSchema = z.object({
+    category: supportTicketCategorySchema,
+    subject: z.string().min(3).max(140),
+    message: z.string().min(10).max(4000),
+    priority: supportTicketPrioritySchema.default('normal').optional(),
+    relatedTradeId: z.string().min(1).optional(),
+    relatedProposalId: z.string().min(1).optional(),
+    relatedMediaId: z.string().min(1).optional(),
+    mediaIds: z.array(z.string()).max(5).optional(),
+});
+export const createGuestSupportTicketRequestSchema = z.object({
+    email: z.string().email().max(254),
+    accountEmail: z.string().email().max(254).optional(),
+    name: z.string().trim().max(120).optional(),
+    category: z.enum(['account_recovery', 'account_issue', 'bug_report', 'safety_concern', 'general_feedback']),
+    subject: z.string().min(3).max(140),
+    message: z.string().min(10).max(4000),
+});
+export const createSupportMessageRequestSchema = z.object({
+    body: z.string().min(1).max(4000),
+    mediaIds: z.array(z.string()).max(5).optional(),
+});
+export const updateSupportTicketStatusRequestSchema = z.object({
+    status: supportTicketStatusSchema,
+});
+export const adminUpdateSupportTicketRequestSchema = z.object({
+    status: supportTicketStatusSchema.optional(),
+    priority: supportTicketPrioritySchema.optional(),
+    assignedAdminId: z.string().nullable().optional(),
+    note: z.string().trim().min(3).max(1200).optional(),
+});
+export const adminCreateSupportMessageRequestSchema = z.object({
+    body: z.string().min(1).max(4000),
+    internal: z.boolean().optional(),
+    status: supportTicketStatusSchema.optional(),
+    mediaIds: z.array(z.string()).max(5).optional(),
+});
+export const supportUserPreviewSchema = z.object({
+    id: z.string(),
+    email: z.string().optional(),
+    profile: z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional() }).nullable().optional(),
+}).nullable().optional();
+export const supportTicketMessageSchema = z.object({
+    id: z.string(),
+    ticketId: z.string(),
+    senderId: z.string().nullable().optional(),
+    senderRole: supportMessageSenderRoleSchema,
+    body: z.string(),
+    internal: z.boolean(),
+    createdAt: z.string(),
+    sender: supportUserPreviewSchema.optional(),
+    media: z.array(mediaAssetSchema).optional(),
+});
+export const supportTicketSchema = z.object({
+    id: z.string(),
+    userId: z.string().nullable().optional(),
+    category: supportTicketCategorySchema,
+    subject: z.string(),
+    message: z.string(),
+    status: supportTicketStatusSchema,
+    priority: supportTicketPrioritySchema,
+    relatedTradeId: z.string().nullable().optional(),
+    relatedProposalId: z.string().nullable().optional(),
+    relatedMediaId: z.string().nullable().optional(),
+    assignedAdminId: z.string().nullable().optional(),
+    guestEmail: z.string().nullable().optional(),
+    guestAccountEmail: z.string().nullable().optional(),
+    guestName: z.string().nullable().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    resolvedAt: z.string().nullable().optional(),
+    user: supportUserPreviewSchema.optional(),
+    assignedAdmin: supportUserPreviewSchema.optional(),
+    messages: z.array(supportTicketMessageSchema).optional(),
+    media: z.array(mediaAssetSchema).optional(),
+});
+//# sourceMappingURL=support.js.map

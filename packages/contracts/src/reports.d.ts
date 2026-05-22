@@ -1,0 +1,650 @@
+import { z } from 'zod';
+export declare const reportUserPreviewSchema: z.ZodObject<{
+    id: z.ZodString;
+    email: z.ZodOptional<z.ZodString>;
+    role: z.ZodOptional<z.ZodEnum<{
+        user: "user";
+        admin: "admin";
+    }>>;
+    trustTier: z.ZodOptional<z.ZodString>;
+    emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+    createdAt: z.ZodOptional<z.ZodString>;
+    profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$loose>>>;
+}, z.core.$loose>;
+export declare const reportTargetTypeSchema: z.ZodEnum<{
+    message: "message";
+    user: "user";
+    need: "need";
+    offer: "offer";
+    trade: "trade";
+    profile: "profile";
+    plan: "plan";
+    plan_place: "plan_place";
+    media: "media";
+    proposal: "proposal";
+}>;
+export declare const reportReasonSchema: z.ZodEnum<{
+    other: "other";
+    spam: "spam";
+    scam: "scam";
+    harassment: "harassment";
+    illegal_unsafe: "illegal_unsafe";
+    fake_profile: "fake_profile";
+    inappropriate_image: "inappropriate_image";
+}>;
+export declare const reportStatusSchema: z.ZodEnum<{
+    pending: "pending";
+    resolved: "resolved";
+    reviewing: "reviewing";
+    dismissed: "dismissed";
+}>;
+export declare const createReportRequestSchema: z.ZodObject<{
+    targetType: z.ZodEnum<{
+        message: "message";
+        user: "user";
+        need: "need";
+        offer: "offer";
+        trade: "trade";
+        profile: "profile";
+        plan: "plan";
+        plan_place: "plan_place";
+        media: "media";
+        proposal: "proposal";
+    }>;
+    targetId: z.ZodString;
+    reason: z.ZodEnum<{
+        other: "other";
+        spam: "spam";
+        scam: "scam";
+        harassment: "harassment";
+        illegal_unsafe: "illegal_unsafe";
+        fake_profile: "fake_profile";
+        inappropriate_image: "inappropriate_image";
+    }>;
+    details: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const reportTargetSummarySchema: z.ZodObject<{
+    type: z.ZodEnum<{
+        message: "message";
+        user: "user";
+        need: "need";
+        offer: "offer";
+        trade: "trade";
+        profile: "profile";
+        plan: "plan";
+        plan_place: "plan_place";
+        media: "media";
+        proposal: "proposal";
+    }>;
+    id: z.ZodString;
+    label: z.ZodString;
+    ownerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodOptional<z.ZodString>;
+        role: z.ZodOptional<z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>>;
+        trustTier: z.ZodOptional<z.ZodString>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+    status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    isPublic: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+    url: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+}, z.core.$loose>;
+export declare const reportSchema: z.ZodObject<{
+    id: z.ZodString;
+    reporterId: z.ZodString;
+    targetType: z.ZodEnum<{
+        message: "message";
+        user: "user";
+        need: "need";
+        offer: "offer";
+        trade: "trade";
+        profile: "profile";
+        plan: "plan";
+        plan_place: "plan_place";
+        media: "media";
+        proposal: "proposal";
+    }>;
+    targetId: z.ZodString;
+    targetOwnerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    reason: z.ZodEnum<{
+        other: "other";
+        spam: "spam";
+        scam: "scam";
+        harassment: "harassment";
+        illegal_unsafe: "illegal_unsafe";
+        fake_profile: "fake_profile";
+        inappropriate_image: "inappropriate_image";
+    }>;
+    details: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    status: z.ZodEnum<{
+        pending: "pending";
+        resolved: "resolved";
+        reviewing: "reviewing";
+        dismissed: "dismissed";
+    }>;
+    reviewedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    reviewedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    resolutionNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    escalatedSupportTicketId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    escalatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    escalatedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    createdAt: z.ZodString;
+    updatedAt: z.ZodString;
+    reporter: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodOptional<z.ZodString>;
+        role: z.ZodOptional<z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>>;
+        trustTier: z.ZodOptional<z.ZodString>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+    reviewer: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        id: z.ZodString;
+        email: z.ZodOptional<z.ZodString>;
+        role: z.ZodOptional<z.ZodEnum<{
+            user: "user";
+            admin: "admin";
+        }>>;
+        trustTier: z.ZodOptional<z.ZodString>;
+        emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>>;
+    target: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+        type: z.ZodEnum<{
+            message: "message";
+            user: "user";
+            need: "need";
+            offer: "offer";
+            trade: "trade";
+            profile: "profile";
+            plan: "plan";
+            plan_place: "plan_place";
+            media: "media";
+            proposal: "proposal";
+        }>;
+        id: z.ZodString;
+        label: z.ZodString;
+        ownerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        isPublic: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+        url: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.core.$loose>>>;
+}, z.core.$loose>;
+export declare const createReportResponseSchema: z.ZodObject<{
+    report: z.ZodObject<{
+        id: z.ZodString;
+        reporterId: z.ZodString;
+        targetType: z.ZodEnum<{
+            message: "message";
+            user: "user";
+            need: "need";
+            offer: "offer";
+            trade: "trade";
+            profile: "profile";
+            plan: "plan";
+            plan_place: "plan_place";
+            media: "media";
+            proposal: "proposal";
+        }>;
+        targetId: z.ZodString;
+        targetOwnerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reason: z.ZodEnum<{
+            other: "other";
+            spam: "spam";
+            scam: "scam";
+            harassment: "harassment";
+            illegal_unsafe: "illegal_unsafe";
+            fake_profile: "fake_profile";
+            inappropriate_image: "inappropriate_image";
+        }>;
+        details: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodEnum<{
+            pending: "pending";
+            resolved: "resolved";
+            reviewing: "reviewing";
+            dismissed: "dismissed";
+        }>;
+        reviewedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        resolutionNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedSupportTicketId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+        reporter: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        reviewer: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        target: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            type: z.ZodEnum<{
+                message: "message";
+                user: "user";
+                need: "need";
+                offer: "offer";
+                trade: "trade";
+                profile: "profile";
+                plan: "plan";
+                plan_place: "plan_place";
+                media: "media";
+                proposal: "proposal";
+            }>;
+            id: z.ZodString;
+            label: z.ZodString;
+            ownerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                id: z.ZodString;
+                email: z.ZodOptional<z.ZodString>;
+                role: z.ZodOptional<z.ZodEnum<{
+                    user: "user";
+                    admin: "admin";
+                }>>;
+                trustTier: z.ZodOptional<z.ZodString>;
+                emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+                createdAt: z.ZodOptional<z.ZodString>;
+                profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            isPublic: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            url: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>;
+    duplicate: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
+}, z.core.$strip>;
+export declare const adminListReportsQuerySchema: z.ZodObject<{
+    status: z.ZodDefault<z.ZodOptional<z.ZodEnum<{
+        pending: "pending";
+        all: "all";
+        resolved: "resolved";
+        reviewing: "reviewing";
+        dismissed: "dismissed";
+    }>>>;
+    targetType: z.ZodOptional<z.ZodEnum<{
+        message: "message";
+        user: "user";
+        need: "need";
+        offer: "offer";
+        trade: "trade";
+        profile: "profile";
+        plan: "plan";
+        plan_place: "plan_place";
+        media: "media";
+        proposal: "proposal";
+    }>>;
+    reason: z.ZodOptional<z.ZodEnum<{
+        other: "other";
+        spam: "spam";
+        scam: "scam";
+        harassment: "harassment";
+        illegal_unsafe: "illegal_unsafe";
+        fake_profile: "fake_profile";
+        inappropriate_image: "inappropriate_image";
+    }>>;
+    q: z.ZodOptional<z.ZodString>;
+    take: z.ZodDefault<z.ZodOptional<z.ZodCoercedNumber<unknown>>>;
+}, z.core.$strip>;
+export declare const adminReportActionRequestSchema: z.ZodObject<{
+    action: z.ZodEnum<{
+        mark_reviewing: "mark_reviewing";
+        reopen: "reopen";
+        resolve: "resolve";
+        dismiss: "dismiss";
+        hide_target: "hide_target";
+        restore_target: "restore_target";
+        suspend_target_owner: "suspend_target_owner";
+        unsuspend_target_owner: "unsuspend_target_owner";
+        escalate_to_support: "escalate_to_support";
+    }>;
+    note: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+export declare const adminReportsResponseSchema: z.ZodObject<{
+    reports: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        reporterId: z.ZodString;
+        targetType: z.ZodEnum<{
+            message: "message";
+            user: "user";
+            need: "need";
+            offer: "offer";
+            trade: "trade";
+            profile: "profile";
+            plan: "plan";
+            plan_place: "plan_place";
+            media: "media";
+            proposal: "proposal";
+        }>;
+        targetId: z.ZodString;
+        targetOwnerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reason: z.ZodEnum<{
+            other: "other";
+            spam: "spam";
+            scam: "scam";
+            harassment: "harassment";
+            illegal_unsafe: "illegal_unsafe";
+            fake_profile: "fake_profile";
+            inappropriate_image: "inappropriate_image";
+        }>;
+        details: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodEnum<{
+            pending: "pending";
+            resolved: "resolved";
+            reviewing: "reviewing";
+            dismissed: "dismissed";
+        }>;
+        reviewedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        resolutionNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedSupportTicketId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+        reporter: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        reviewer: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        target: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            type: z.ZodEnum<{
+                message: "message";
+                user: "user";
+                need: "need";
+                offer: "offer";
+                trade: "trade";
+                profile: "profile";
+                plan: "plan";
+                plan_place: "plan_place";
+                media: "media";
+                proposal: "proposal";
+            }>;
+            id: z.ZodString;
+            label: z.ZodString;
+            ownerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                id: z.ZodString;
+                email: z.ZodOptional<z.ZodString>;
+                role: z.ZodOptional<z.ZodEnum<{
+                    user: "user";
+                    admin: "admin";
+                }>>;
+                trustTier: z.ZodOptional<z.ZodString>;
+                emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+                createdAt: z.ZodOptional<z.ZodString>;
+                profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            isPublic: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            url: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>>;
+}, z.core.$strip>;
+export declare const adminReportActionResponseSchema: z.ZodObject<{
+    report: z.ZodObject<{
+        id: z.ZodString;
+        reporterId: z.ZodString;
+        targetType: z.ZodEnum<{
+            message: "message";
+            user: "user";
+            need: "need";
+            offer: "offer";
+            trade: "trade";
+            profile: "profile";
+            plan: "plan";
+            plan_place: "plan_place";
+            media: "media";
+            proposal: "proposal";
+        }>;
+        targetId: z.ZodString;
+        targetOwnerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reason: z.ZodEnum<{
+            other: "other";
+            spam: "spam";
+            scam: "scam";
+            harassment: "harassment";
+            illegal_unsafe: "illegal_unsafe";
+            fake_profile: "fake_profile";
+            inappropriate_image: "inappropriate_image";
+        }>;
+        details: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        status: z.ZodEnum<{
+            pending: "pending";
+            resolved: "resolved";
+            reviewing: "reviewing";
+            dismissed: "dismissed";
+        }>;
+        reviewedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        resolutionNote: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedSupportTicketId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        escalatedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        createdAt: z.ZodString;
+        updatedAt: z.ZodString;
+        reporter: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        reviewer: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            id: z.ZodString;
+            email: z.ZodOptional<z.ZodString>;
+            role: z.ZodOptional<z.ZodEnum<{
+                user: "user";
+                admin: "admin";
+            }>>;
+            trustTier: z.ZodOptional<z.ZodString>;
+            emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+            createdAt: z.ZodOptional<z.ZodString>;
+            profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            }, z.core.$loose>>>;
+        }, z.core.$loose>>>;
+        target: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+            type: z.ZodEnum<{
+                message: "message";
+                user: "user";
+                need: "need";
+                offer: "offer";
+                trade: "trade";
+                profile: "profile";
+                plan: "plan";
+                plan_place: "plan_place";
+                media: "media";
+                proposal: "proposal";
+            }>;
+            id: z.ZodString;
+            label: z.ZodString;
+            ownerId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            owner: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                id: z.ZodString;
+                email: z.ZodOptional<z.ZodString>;
+                role: z.ZodOptional<z.ZodEnum<{
+                    user: "user";
+                    admin: "admin";
+                }>>;
+                trustTier: z.ZodOptional<z.ZodString>;
+                emailVerifiedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                twoFactorEnabled: z.ZodOptional<z.ZodBoolean>;
+                createdAt: z.ZodOptional<z.ZodString>;
+                profile: z.ZodOptional<z.ZodNullable<z.ZodObject<{
+                    displayName: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    handle: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    avatarUrl: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                    preferredCurrency: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+                }, z.core.$loose>>>;
+            }, z.core.$loose>>>;
+            status: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+            isPublic: z.ZodOptional<z.ZodNullable<z.ZodBoolean>>;
+            url: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+        }, z.core.$loose>>>;
+    }, z.core.$loose>;
+}, z.core.$strip>;
+export type ReportTargetType = z.infer<typeof reportTargetTypeSchema>;
+export type ReportReason = z.infer<typeof reportReasonSchema>;
+export type ReportStatus = z.infer<typeof reportStatusSchema>;
+export type CreateReportRequest = z.infer<typeof createReportRequestSchema>;
+export type CreateReportResponse = z.infer<typeof createReportResponseSchema>;
+export type ReportDto = z.infer<typeof reportSchema>;
+export type AdminReportsResponse = z.infer<typeof adminReportsResponseSchema>;
+export type AdminReportActionRequest = z.infer<typeof adminReportActionRequestSchema>;
+export type AdminReportActionResponse = z.infer<typeof adminReportActionResponseSchema>;
+//# sourceMappingURL=reports.d.ts.map
