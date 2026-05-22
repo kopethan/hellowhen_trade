@@ -15,12 +15,14 @@
     "@hellowhen/shared": "file:../../packages/shared",
     "@hellowhen/theme": "file:../../packages/theme",
     "next": "^16.1.6",
+    "qrcode": "^1.5.4",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "@hellowhen/i18n": "file:../../packages/i18n"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "~19.1.10",
     "@types/react-dom": "~19.1.10",
     "typescript": "^5.4.5"

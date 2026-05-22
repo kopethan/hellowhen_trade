@@ -24,6 +24,7 @@ export const auth = {
     country: 'Pays',
     displayCurrency: 'Devise d’affichage',
     twoFactorCode: 'Code d’authentification',
+    twoFactorOrRecoveryCode: 'Code d’authentification ou de récupération',
   },
   placeholders: {
     email: 'vous@exemple.com',
@@ -31,6 +32,7 @@ export const auth = {
     passwordMin: 'Au moins 8 caractères',
     repeatPassword: 'Répétez le mot de passe',
     twoFactorCode: 'Code à 6 chiffres',
+    twoFactorOrRecoveryCode: 'Code à 6 chiffres ou code de récupération',
   },
   localDisplay: {
     title: 'Affichage local',
@@ -46,6 +48,9 @@ export const auth = {
   termsNativeHint: 'Consultez les Conditions et la Confidentialité avant de créer votre compte.',
   forgotNotice: 'Saisissez l’e-mail de votre compte et nous enverrons un lien de réinitialisation si le compte existe.',
   twoFactorNotice: 'Saisissez le code de votre application d’authentification pour terminer la connexion.',
+  twoFactorRecoveryHint: 'Vous pouvez réessayer un mauvais code jusqu’à l’expiration de cette connexion. Vous pouvez aussi utiliser un code de récupération enregistré.',
+  twoFactorLostAccessPrefix: 'Vous avez perdu votre application d’authentification et vos codes de récupération ?',
+  twoFactorLostAccessLink: 'Contactez le support pour récupérer le compte',
   errors: {
     signIn: 'Erreur de connexion',
     emailRequired: 'Saisissez votre e-mail.',

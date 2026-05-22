@@ -1293,6 +1293,17 @@ html[data-theme="dark"] .inventory-empty-state__plus {
   gap: 8px;
 }
 
+.two-factor-qr-code {
+  width: min(220px, 100%);
+  aspect-ratio: 1;
+  justify-self: center;
+  padding: 10px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+}
+
 .wallet-action-row {
   display: flex;
   flex-wrap: wrap;

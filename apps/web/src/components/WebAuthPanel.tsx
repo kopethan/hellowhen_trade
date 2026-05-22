@@ -10,6 +10,11 @@ import { useWebTranslation } from '../providers/WebI18nProvider';
 
 type AuthMode = 'login' | 'register' | 'forgot';
 type TwoFactorChallenge = { challengeToken: string; message?: string };
+type ApiLikeError = { body?: { error?: string; message?: string } };
+
+function isExpiredTwoFactorChallenge(error: unknown) {
+  return Boolean(error && typeof error === 'object' && (error as ApiLikeError).body?.error === 'invalid_two_factor_challenge');
+}
 
 function subtitleKey(mode: AuthMode) {
   if (mode === 'register') return 'auth.subtitles.register';
@@ -140,6 +145,11 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
         setMessage(t('auth.reset.requested'));
       }
     } catch (caughtError) {
+      if (isExpiredTwoFactorChallenge(caughtError)) {
+        setTwoFactorChallenge(null);
+        setTwoFactorCode('');
+        setMessage(null);
+      }
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
       if (!completed) setSubmitting(false);
@@ -228,9 +238,13 @@ export function WebAuthPanel({ redirectTo = '/trades' }: { redirectTo?: string }
         <div className="form-stack">
           <p className="notice-box info">{twoFactorChallenge.message || t('auth.twoFactorNotice')}</p>
           <label className="field-label">
-            {t('auth.fields.twoFactorCode')}
-            <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} placeholder={t('auth.placeholders.twoFactorCode')} inputMode="numeric" autoComplete="one-time-code" />
+            {t('auth.fields.twoFactorOrRecoveryCode')}
+            <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value.toUpperCase())} placeholder={t('auth.placeholders.twoFactorOrRecoveryCode')} inputMode="text" autoComplete="one-time-code" />
           </label>
+          <p className="meta">{t('auth.twoFactorRecoveryHint')}</p>
+          <p className="meta">
+            {t('auth.twoFactorLostAccessPrefix')} <Link href="/support">{t('auth.twoFactorLostAccessLink')}</Link>.
+          </p>
         </div>
       ) : null}
 

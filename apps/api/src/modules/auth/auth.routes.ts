@@ -376,14 +376,22 @@ authRoutes.post('/login', loginRateLimit, asyncRoute(async (req, res) => {
 authRoutes.post('/login/2fa', loginRateLimit, asyncRoute(async (req, res) => {
   const input = twoFactorChallengeRequestSchema.parse(req.body);
   const challenge = await prisma.twoFactorChallenge.findUnique({ where: { tokenHash: hashToken(input.challengeToken) } });
-  if (!challenge || challenge.usedAt || challenge.expiresAt < new Date()) return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+  if (!challenge || challenge.usedAt || challenge.expiresAt < new Date()) {
+    return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: challenge.userId } });
+  if (!user || !user.twoFactorEnabled) return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
+
+  const ok = await verifyUserTwoFactor(user, input.code);
+  if (!ok) {
+    return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator or recovery code was not accepted. Wait for a new 6-digit code, or try a saved recovery code.' });
+  }
+
   if (!(await consumeTwoFactorChallenge(challenge.id))) {
     return res.status(401).json({ error: 'invalid_two_factor_challenge', message: 'This two-step login challenge expired. Log in again.' });
   }
-  const user = await prisma.user.findUnique({ where: { id: challenge.userId } });
-  if (!user || !user.twoFactorEnabled) return res.status(401).json({ error: 'invalid_two_factor_challenge' });
-  const ok = await verifyUserTwoFactor(user, input.code);
-  if (!ok) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator code was not accepted. Log in again to request a new challenge.' });
+
   res.json(await finishLogin(user.id, req.headers['user-agent']));
 }));
 

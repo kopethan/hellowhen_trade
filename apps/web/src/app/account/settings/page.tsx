@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import type { AppSettings } from '@hellowhen/contracts';
 import type { LanguagePreference } from '@hellowhen/i18n';
 import { MobilePage, PageIntro } from '../../../components/MobilePage';
@@ -27,6 +28,10 @@ const languageOptions: Array<ChoiceOption<LanguagePreference>> = [
   { value: 'fr', titleKey: 'settings.language.options.fr.title', bodyKey: 'settings.language.options.fr.body' },
 ];
 
+function normalizeTwoFactorCode(value: string) {
+  return value.trim().replace(/\s+/g, '');
+}
+
 export default function AccountSettingsPage() {
   const auth = useWebAuth();
   const appSettings = useWebAppSettings();
@@ -35,17 +40,53 @@ export default function AccountSettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [twoFactorSecret, setTwoFactorSecret] = useState('');
+  const [twoFactorOtpAuthUrl, setTwoFactorOtpAuthUrl] = useState('');
+  const [twoFactorQrCode, setTwoFactorQrCode] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [twoFactorPassword, setTwoFactorPassword] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [recoveryCodesCopied, setRecoveryCodesCopied] = useState(false);
+  const [clientReady, setClientReady] = useState(false);
+
+  useEffect(() => {
+    setClientReady(true);
+  }, []);
+
+  const authReady = clientReady && auth.hydrated;
+  const authenticated = authReady && auth.isAuthenticated;
+  const currentUser = authReady ? auth.user : null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function generateQrCode() {
+      if (!twoFactorOtpAuthUrl) {
+        setTwoFactorQrCode('');
+        return;
+      }
+
+      try {
+        const dataUrl = await QRCode.toDataURL(twoFactorOtpAuthUrl, { margin: 1, width: 220 });
+        if (!cancelled) setTwoFactorQrCode(dataUrl);
+      } catch {
+        if (!cancelled) setTwoFactorQrCode('');
+      }
+    }
+
+    void generateQrCode();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [twoFactorOtpAuthUrl]);
 
   async function updateAppSettings(patch: Partial<AppSettings>, successAccountKey: string, successLocalKey: string) {
     setSaving(true);
     setMessage(null);
     setError(null);
     try {
-      await appSettings.setSettings({ ...appSettings.settings, ...patch }, { syncRemote: auth.isAuthenticated });
-      setMessage(t(auth.isAuthenticated ? successAccountKey : successLocalKey));
+      await appSettings.setSettings({ ...appSettings.settings, ...patch }, { syncRemote: authenticated });
+      setMessage(t(authenticated ? successAccountKey : successLocalKey));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
     } finally {
@@ -73,6 +114,7 @@ export default function AccountSettingsPage() {
     setMessage(null);
     setError(null);
     setRecoveryCodes([]);
+    setRecoveryCodesCopied(false);
     try {
       if (!twoFactorPassword.trim()) {
         setError(t('settings.security.passwordRequiredForSetup'));
@@ -81,6 +123,8 @@ export default function AccountSettingsPage() {
       await auth.reauthenticate({ password: twoFactorPassword.trim() });
       const response = await api.auth.twoFactorSetup() as { secret: string; otpauthUrl: string; message: string };
       setTwoFactorSecret(response.secret);
+      setTwoFactorOtpAuthUrl(response.otpauthUrl);
+      setTwoFactorCode('');
       setMessage(t('settings.security.setupStarted'));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
@@ -90,13 +134,21 @@ export default function AccountSettingsPage() {
   }
 
   async function enableTwoFactor() {
+    const code = normalizeTwoFactorCode(twoFactorCode);
     setSaving(true);
     setMessage(null);
     setError(null);
     try {
-      const response = await api.auth.twoFactorEnable({ code: twoFactorCode }) as { recoveryCodes?: string[] };
+      if (!/^\d{6}$/.test(code)) {
+        setError(t('settings.security.codeFormatHint'));
+        return;
+      }
+      const response = await api.auth.twoFactorEnable({ code }) as { recoveryCodes?: string[] };
       setRecoveryCodes(response.recoveryCodes ?? []);
+      setRecoveryCodesCopied(false);
       setTwoFactorSecret('');
+      setTwoFactorOtpAuthUrl('');
+      setTwoFactorQrCode('');
       setTwoFactorCode('');
       setTwoFactorPassword('');
       setMessage(t('settings.security.twoFactorEnabled'));
@@ -117,6 +169,9 @@ export default function AccountSettingsPage() {
       setTwoFactorPassword('');
       setTwoFactorCode('');
       setRecoveryCodes([]);
+      setRecoveryCodesCopied(false);
+      setTwoFactorOtpAuthUrl('');
+      setTwoFactorQrCode('');
       setMessage(t('settings.security.twoFactorDisabled'));
       await auth.refreshMe().catch(() => undefined);
     } catch (caughtError) {
@@ -124,6 +179,23 @@ export default function AccountSettingsPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function copyRecoveryCodes() {
+    if (!recoveryCodes.length) return;
+    const content = recoveryCodes.join('\n');
+    try {
+      await navigator.clipboard?.writeText(content);
+      setRecoveryCodesCopied(true);
+    } catch {
+      setRecoveryCodesCopied(false);
+    }
+  }
+
+  function confirmRecoveryCodesSaved() {
+    setRecoveryCodes([]);
+    setRecoveryCodesCopied(false);
+    setMessage(t('settings.security.recoveryCodesSaved'));
   }
 
   async function logoutAllDevices() {
@@ -228,32 +300,53 @@ export default function AccountSettingsPage() {
           <p>{t('settings.security.body')}</p>
         </div>
         <div className="security-status-grid">
-          <span><strong>{auth.user?.emailVerifiedAt ? t('settings.security.verified') : t('settings.security.notVerified')}</strong><small>{t('settings.security.email')}</small></span>
-          <span><strong>{auth.user?.twoFactorEnabled ? t('settings.security.enabled') : t('settings.security.off')}</strong><small>{t('settings.security.authenticator')}</small></span>
+          <span><strong>{!authReady ? t('common.states.loading') : currentUser?.emailVerifiedAt ? t('settings.security.verified') : t('settings.security.notVerified')}</strong><small>{t('settings.security.email')}</small></span>
+          <span><strong>{!authReady ? t('common.states.loading') : currentUser?.twoFactorEnabled ? t('settings.security.enabled') : t('settings.security.off')}</strong><small>{t('settings.security.authenticator')}</small></span>
         </div>
-        {!auth.user?.twoFactorEnabled ? (
+        {authenticated && !currentUser?.twoFactorEnabled ? (
           <label className="field-label">
             {t('settings.security.passwordForSetup')}
             <input value={twoFactorPassword} onChange={(event) => setTwoFactorPassword(event.target.value)} type="password" autoComplete="current-password" />
           </label>
         ) : null}
         <div className="button-row">
-          <button type="button" className="secondary" disabled={saving || !auth.isAuthenticated || Boolean(auth.user?.emailVerifiedAt)} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
-          <button type="button" className="secondary" disabled={saving || !auth.isAuthenticated || Boolean(auth.user?.twoFactorEnabled)} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
-          <button type="button" className="secondary" disabled={saving || !auth.isAuthenticated} onClick={() => { void logoutAllDevices(); }}>{t('common.actions.logoutAllDevices')}</button>
+          <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.emailVerifiedAt)} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
+          <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.twoFactorEnabled)} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
+          <button type="button" className="secondary" disabled={saving || !authenticated} onClick={() => { void logoutAllDevices(); }}>{t('common.actions.logoutAllDevices')}</button>
         </div>
+        {error ? <p className="notice-box danger">{error}</p> : null}
+        {message ? <p className="notice-box success">{message}</p> : null}
+        {currentUser?.twoFactorEnabled ? (
+          <p className="notice-box info">
+            {t('settings.security.lostAccessHint')} <Link href="/account/support">{t('settings.security.contactSupport')}</Link>.
+          </p>
+        ) : null}
         {twoFactorSecret ? (
           <div className="two-factor-setup-box">
+            <div>
+              <p className="meta">{t('settings.security.scanQrTitle')}</p>
+              <p>{t('settings.security.scanQrBody')}</p>
+            </div>
+            {twoFactorQrCode ? (
+              <img className="two-factor-qr-code" src={twoFactorQrCode} alt={t('settings.security.qrAlt')} />
+            ) : (
+              <p className="notice-box warning">{t('settings.security.qrUnavailable')}</p>
+            )}
             <p className="meta">{t('settings.security.authenticatorSecret')}</p>
             <code>{twoFactorSecret}</code>
+            <p className="meta">{t('settings.security.manualKeyHelp')}</p>
+            <div className="button-row">
+              <button type="button" className="secondary" onClick={() => { void navigator.clipboard?.writeText(twoFactorSecret); }}>{t('settings.security.copySecret')}</button>
+              <a className="button secondary" href={twoFactorOtpAuthUrl}>{t('settings.security.openAuthenticator')}</a>
+            </div>
             <label className="field-label">
               {t('settings.security.code6Digit')}
-              <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} inputMode="numeric" placeholder="123456" />
+              <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
             </label>
-            <button type="button" onClick={() => { void enableTwoFactor(); }} disabled={saving || twoFactorCode.trim().length < 6}>{t('settings.security.enableTwoStep')}</button>
+            <button type="button" onClick={() => { void enableTwoFactor(); }} disabled={saving || normalizeTwoFactorCode(twoFactorCode).length !== 6}>{t('settings.security.enableTwoStep')}</button>
           </div>
         ) : null}
-        {auth.user?.twoFactorEnabled ? (
+        {currentUser?.twoFactorEnabled ? (
           <div className="two-factor-setup-box">
             <label className="field-label">
               {t('settings.security.password')}
@@ -267,8 +360,20 @@ export default function AccountSettingsPage() {
           </div>
         ) : null}
         {recoveryCodes.length ? (
-          <div className="recovery-code-grid">
-            {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+          <div className="two-factor-setup-box recovery-codes-panel">
+            <div>
+              <p className="meta">{t('settings.security.recoveryCodesTitle')}</p>
+              <p>{t('settings.security.recoveryCodesBody')}</p>
+              <p className="notice-box warning">{t('settings.security.recoveryCodesOneTime')}</p>
+            </div>
+            <div className="recovery-code-grid" aria-label={t('settings.security.recoveryCodesTitle')}>
+              {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+            </div>
+            <div className="button-row">
+              <button type="button" className="secondary" onClick={() => { void copyRecoveryCodes(); }}>{t('settings.security.copyRecoveryCodes')}</button>
+              <button type="button" onClick={confirmRecoveryCodesSaved}>{t('settings.security.recoveryCodesSavedAction')}</button>
+            </div>
+            {recoveryCodesCopied ? <p className="notice-box success">{t('settings.security.recoveryCodesCopied')}</p> : null}
           </div>
         ) : null}
       </section>
@@ -289,9 +394,7 @@ export default function AccountSettingsPage() {
         <p>{t('settings.localDisplay.body')}</p>
       </section>
 
-      {message ? <p className="notice-box success">{message}</p> : null}
-      {error ? <p className="notice-box danger">{error}</p> : null}
-      {!auth.isAuthenticated ? <p className="notice-box info">{t('settings.signedOutHint')}</p> : null}
+      {authReady && !authenticated ? <p className="notice-box info">{t('settings.signedOutHint')}</p> : null}
     </MobilePage>
   );
 }

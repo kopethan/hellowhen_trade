@@ -24,6 +24,7 @@ export const auth = {
     country: 'Country',
     displayCurrency: 'Display currency',
     twoFactorCode: 'Authenticator code',
+    twoFactorOrRecoveryCode: 'Authenticator or recovery code',
   },
   placeholders: {
     email: 'you@example.com',
@@ -31,6 +32,7 @@ export const auth = {
     passwordMin: 'At least 8 characters',
     repeatPassword: 'Repeat password',
     twoFactorCode: '6-digit code',
+    twoFactorOrRecoveryCode: '6-digit code or recovery code',
   },
   localDisplay: {
     title: 'Local display',
@@ -46,6 +48,9 @@ export const auth = {
   termsNativeHint: 'Review Terms and Privacy before creating your account.',
   forgotNotice: 'Enter your account email and we will send a reset link if the account exists.',
   twoFactorNotice: 'Enter the code from your authenticator app to finish signing in.',
+  twoFactorRecoveryHint: 'Wrong codes can be retried until this login challenge expires. You can also use one saved recovery code.',
+  twoFactorLostAccessPrefix: 'Lost your authenticator app and recovery codes?',
+  twoFactorLostAccessLink: 'Contact support for account recovery',
   errors: {
     signIn: 'Sign-in error',
     emailRequired: 'Enter your email.',

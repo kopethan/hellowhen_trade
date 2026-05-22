@@ -1,0 +1,186 @@
+diff --git a/apps/web/package.json b/apps/web/package.json
+index 962c3f8..69638eb 100644
+--- a/apps/web/package.json
++++ b/apps/web/package.json
+@@ -15,12 +15,14 @@
+     "@hellowhen/shared": "file:../../packages/shared",
+     "@hellowhen/theme": "file:../../packages/theme",
+     "next": "^16.1.6",
++    "qrcode": "^1.5.4",
+     "react": "19.1.0",
+     "react-dom": "19.1.0",
+     "@hellowhen/i18n": "file:../../packages/i18n"
+   },
+   "devDependencies": {
+     "@types/node": "latest",
++    "@types/qrcode": "^1.5.5",
+     "@types/react": "~19.1.10",
+     "@types/react-dom": "~19.1.10",
+     "typescript": "^5.4.5"
+diff --git a/apps/web/src/app/account/settings/page.tsx b/apps/web/src/app/account/settings/page.tsx
+index 4844e5f..e0f5055 100644
+--- a/apps/web/src/app/account/settings/page.tsx
++++ b/apps/web/src/app/account/settings/page.tsx
+@@ -1,7 +1,8 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useState } from 'react';
++import { useEffect, useState } from 'react';
++import QRCode from 'qrcode';
+ import type { AppSettings } from '@hellowhen/contracts';
+ import type { LanguagePreference } from '@hellowhen/i18n';
+ import { MobilePage, PageIntro } from '../../../components/MobilePage';
+@@ -35,10 +36,36 @@ export default function AccountSettingsPage() {
+   const [message, setMessage] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   const [twoFactorSecret, setTwoFactorSecret] = useState('');
++  const [twoFactorOtpAuthUrl, setTwoFactorOtpAuthUrl] = useState('');
++  const [twoFactorQrCode, setTwoFactorQrCode] = useState('');
+   const [twoFactorCode, setTwoFactorCode] = useState('');
+   const [twoFactorPassword, setTwoFactorPassword] = useState('');
+   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+ 
++  useEffect(() => {
++    let cancelled = false;
++
++    async function generateQrCode() {
++      if (!twoFactorOtpAuthUrl) {
++        setTwoFactorQrCode('');
++        return;
++      }
++
++      try {
++        const dataUrl = await QRCode.toDataURL(twoFactorOtpAuthUrl, { margin: 1, width: 220 });
++        if (!cancelled) setTwoFactorQrCode(dataUrl);
++      } catch {
++        if (!cancelled) setTwoFactorQrCode('');
++      }
++    }
++
++    void generateQrCode();
++
++    return () => {
++      cancelled = true;
++    };
++  }, [twoFactorOtpAuthUrl]);
++
+   async function updateAppSettings(patch: Partial<AppSettings>, successAccountKey: string, successLocalKey: string) {
+     setSaving(true);
+     setMessage(null);
+@@ -81,6 +108,8 @@ export default function AccountSettingsPage() {
+       await auth.reauthenticate({ password: twoFactorPassword.trim() });
+       const response = await api.auth.twoFactorSetup() as { secret: string; otpauthUrl: string; message: string };
+       setTwoFactorSecret(response.secret);
++      setTwoFactorOtpAuthUrl(response.otpauthUrl);
++      setTwoFactorCode('');
+       setMessage(t('settings.security.setupStarted'));
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -97,6 +126,8 @@ export default function AccountSettingsPage() {
+       const response = await api.auth.twoFactorEnable({ code: twoFactorCode }) as { recoveryCodes?: string[] };
+       setRecoveryCodes(response.recoveryCodes ?? []);
+       setTwoFactorSecret('');
++      setTwoFactorOtpAuthUrl('');
++      setTwoFactorQrCode('');
+       setTwoFactorCode('');
+       setTwoFactorPassword('');
+       setMessage(t('settings.security.twoFactorEnabled'));
+@@ -117,6 +148,8 @@ export default function AccountSettingsPage() {
+       setTwoFactorPassword('');
+       setTwoFactorCode('');
+       setRecoveryCodes([]);
++      setTwoFactorOtpAuthUrl('');
++      setTwoFactorQrCode('');
+       setMessage(t('settings.security.twoFactorDisabled'));
+       await auth.refreshMe().catch(() => undefined);
+     } catch (caughtError) {
+@@ -244,11 +277,25 @@ export default function AccountSettingsPage() {
+         </div>
+         {twoFactorSecret ? (
+           <div className="two-factor-setup-box">
++            <div>
++              <p className="meta">{t('settings.security.scanQrTitle')}</p>
++              <p>{t('settings.security.scanQrBody')}</p>
++            </div>
++            {twoFactorQrCode ? (
++              <img className="two-factor-qr-code" src={twoFactorQrCode} alt={t('settings.security.qrAlt')} />
++            ) : (
++              <p className="notice-box warning">{t('settings.security.qrUnavailable')}</p>
++            )}
+             <p className="meta">{t('settings.security.authenticatorSecret')}</p>
+             <code>{twoFactorSecret}</code>
++            <p className="meta">{t('settings.security.manualKeyHelp')}</p>
++            <div className="button-row">
++              <button type="button" className="secondary" onClick={() => { void navigator.clipboard?.writeText(twoFactorSecret); }}>{t('settings.security.copySecret')}</button>
++              <a className="button secondary" href={twoFactorOtpAuthUrl}>{t('settings.security.openAuthenticator')}</a>
++            </div>
+             <label className="field-label">
+               {t('settings.security.code6Digit')}
+-              <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} inputMode="numeric" placeholder="123456" />
++              <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" />
+             </label>
+             <button type="button" onClick={() => { void enableTwoFactor(); }} disabled={saving || twoFactorCode.trim().length < 6}>{t('settings.security.enableTwoStep')}</button>
+           </div>
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index c285060..eb9bd55 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1293,6 +1293,17 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   gap: 8px;
+ }
+ 
++.two-factor-qr-code {
++  width: min(220px, 100%);
++  aspect-ratio: 1;
++  justify-self: center;
++  padding: 10px;
++  border-radius: 18px;
++  background: #fff;
++  border: 1px solid var(--border-subtle);
++  box-shadow: var(--shadow-soft);
++}
++
+ .wallet-action-row {
+   display: flex;
+   flex-wrap: wrap;
+diff --git a/packages/i18n/src/locales/en/settings.ts b/packages/i18n/src/locales/en/settings.ts
+index 192ed01..c33aa0b 100644
+--- a/packages/i18n/src/locales/en/settings.ts
++++ b/packages/i18n/src/locales/en/settings.ts
+@@ -63,7 +63,14 @@ export const settings = {
+     authenticatorOrRecovery: 'Authenticator or recovery code',
+     verificationRequested: 'Verification email requested.',
+     developmentLink: 'Development link',
+-    setupStarted: 'Add the secret to your authenticator app, then enter the 6-digit code.',
++    setupStarted: 'Scan the QR code or add the setup key to your authenticator app, then enter the 6-digit code.',
++    scanQrTitle: 'Scan QR code',
++    scanQrBody: 'Open Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, or another TOTP app and scan this QR code.',
++    qrAlt: 'Authenticator app QR code',
++    qrUnavailable: 'QR code preview could not be generated. Use the setup key below instead.',
++    manualKeyHelp: 'Manual setup: choose “Enter setup key” in your authenticator app and paste this key.',
++    copySecret: 'Copy setup key',
++    openAuthenticator: 'Open authenticator app',
+     twoFactorEnabled: 'Two-step verification enabled. Save your recovery codes now.',
+     twoFactorDisabled: 'Two-step verification disabled.',
+     allSessionsSignedOut: 'All sessions were signed out.',
+diff --git a/packages/i18n/src/locales/fr/settings.ts b/packages/i18n/src/locales/fr/settings.ts
+index 0158119..6a3e629 100644
+--- a/packages/i18n/src/locales/fr/settings.ts
++++ b/packages/i18n/src/locales/fr/settings.ts
+@@ -63,7 +63,14 @@ export const settings = {
+     authenticatorOrRecovery: 'Code d’authentification ou de récupération',
+     verificationRequested: 'E-mail de vérification demandé.',
+     developmentLink: 'Lien de développement',
+-    setupStarted: 'Ajoutez le secret à votre application d’authentification, puis saisissez le code à 6 chiffres.',
++    setupStarted: 'Scannez le QR code ou ajoutez la clé de configuration dans votre application d’authentification, puis saisissez le code à 6 chiffres.',
++    scanQrTitle: 'Scanner le QR code',
++    scanQrBody: 'Ouvrez Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden ou une autre application TOTP et scannez ce QR code.',
++    qrAlt: 'QR code pour application d’authentification',
++    qrUnavailable: 'L’aperçu du QR code n’a pas pu être généré. Utilisez plutôt la clé de configuration ci-dessous.',
++    manualKeyHelp: 'Configuration manuelle : choisissez « Saisir une clé de configuration » dans votre application d’authentification et collez cette clé.',
++    copySecret: 'Copier la clé',
++    openAuthenticator: 'Ouvrir l’application d’authentification',
+     twoFactorEnabled: 'Vérification en deux étapes activée. Enregistrez vos codes de récupération maintenant.',
+     twoFactorDisabled: 'Vérification en deux étapes désactivée.',
+     allSessionsSignedOut: 'Toutes les sessions ont été déconnectées.',
