@@ -321,8 +321,17 @@ export function SquareStackDeck({ items, label, className, onOpen, lockScrollWit
 
     const velocity = getPointerVelocity(drag, event.clientX, event.clientY);
 
+
     if (isMobileDeckViewport && intent === 'SCROLL') {
       event.preventDefault();
+      if (!captured) {
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          captured = true;
+        } catch {
+          captured = false;
+        }
+      }
       if (!lockScrollWithinDeck) {
         scrollDeckContainer(event.currentTarget, drag.lastY - event.clientY);
       }
@@ -333,7 +342,7 @@ export function SquareStackDeck({ items, label, className, onOpen, lockScrollWit
         dy,
         intent,
         swiping: false,
-        captured: false,
+        captured,
         lastX: event.clientX,
         lastY: event.clientY,
         lastTime: velocity.now,
