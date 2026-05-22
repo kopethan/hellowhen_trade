@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
+import { z } from 'zod';
 import { adminBusinessProfileActionRequestSchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
-import { attachUploadedMediaToEntity } from '../media/media.helpers.js';
+import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
 import { mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
@@ -57,20 +59,22 @@ function clampTake(value: unknown, fallback = 100, max = 250) {
   return Math.min(Math.max(parsed, 1), max);
 }
 
-async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'profile' | 'support_ticket' | 'support_message' | 'plan' | 'plan_place' | null; entityId: string | null }>(media: T[]) {
+async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' | 'trade' | 'inventory_template' | 'profile' | 'support_ticket' | 'support_message' | 'plan' | 'plan_place' | null; entityId: string | null }>(media: T[]) {
   const needIds = media.filter((item) => item.entityType === 'need' && item.entityId).map((item) => item.entityId!);
   const offerIds = media.filter((item) => item.entityType === 'offer' && item.entityId).map((item) => item.entityId!);
   const tradeIds = media.filter((item) => item.entityType === 'trade' && item.entityId).map((item) => item.entityId!);
+  const inventoryTemplateIds = media.filter((item) => item.entityType === 'inventory_template' && item.entityId).map((item) => item.entityId!);
   const profileIds = media.filter((item) => item.entityType === 'profile' && item.entityId).map((item) => item.entityId!);
   const supportTicketIds = media.filter((item) => item.entityType === 'support_ticket' && item.entityId).map((item) => item.entityId!);
   const supportMessageIds = media.filter((item) => item.entityType === 'support_message' && item.entityId).map((item) => item.entityId!);
   const planIds = media.filter((item) => item.entityType === 'plan' && item.entityId).map((item) => item.entityId!);
   const planPlaceIds = media.filter((item) => item.entityType === 'plan_place' && item.entityId).map((item) => item.entityId!);
 
-  const [needs, offers, trades, profiles, supportTickets, supportMessages, plans, planPlaces] = await Promise.all([
+  const [needs, offers, trades, inventoryTemplates, profiles, supportTickets, supportMessages, plans, planPlaces] = await Promise.all([
     needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, mode: true, locationLabel: true } }) : [],
     offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, mode: true, locationLabel: true } }) : [],
     tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : [],
+    inventoryTemplateIds.length ? prisma.inventoryTemplate.findMany({ where: { id: { in: inventoryTemplateIds } }, select: { id: true, key: true, kind: true, title: true, status: true, itemType: true, category: true, languageCode: true, countryCode: true } }) : [],
     profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, userId: true, displayName: true, handle: true, avatarUrl: true, avatarMediaId: true } }) : [],
     supportTicketIds.length ? prisma.supportTicket.findMany({ where: { id: { in: supportTicketIds } }, select: { id: true, userId: true, subject: true, status: true, priority: true, category: true } }) : [],
     supportMessageIds.length ? prisma.supportTicketMessage.findMany({ where: { id: { in: supportMessageIds } }, select: { id: true, ticketId: true, senderId: true, senderRole: true, body: true, createdAt: true } }) : [],
@@ -81,6 +85,7 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
   const needsById = new Map(needs.map((need) => [need.id, need]));
   const offersById = new Map(offers.map((offer) => [offer.id, offer]));
   const tradesById = new Map(trades.map((trade) => [trade.id, trade]));
+  const inventoryTemplatesById = new Map(inventoryTemplates.map((template) => [template.id, template]));
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
   const supportTicketsById = new Map(supportTickets.map((ticket) => [ticket.id, ticket]));
   const supportMessagesById = new Map(supportMessages.map((message) => [message.id, message]));
@@ -91,6 +96,7 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
     if (item.entityType === 'need' && item.entityId) return { ...item, entity: needsById.get(item.entityId) ?? null };
     if (item.entityType === 'offer' && item.entityId) return { ...item, entity: offersById.get(item.entityId) ?? null };
     if (item.entityType === 'trade' && item.entityId) return { ...item, entity: tradesById.get(item.entityId) ?? null };
+    if (item.entityType === 'inventory_template' && item.entityId) return { ...item, entity: inventoryTemplatesById.get(item.entityId) ?? null };
     if (item.entityType === 'profile' && item.entityId) return { ...item, entity: profilesById.get(item.entityId) ?? null };
     if (item.entityType === 'support_ticket' && item.entityId) return { ...item, entity: supportTicketsById.get(item.entityId) ?? null };
     if (item.entityType === 'support_message' && item.entityId) return { ...item, entity: supportMessagesById.get(item.entityId) ?? null };
@@ -202,6 +208,242 @@ adminRoutes.get('/overview', asyncRoute(async (_req, res) => {
     recentTickets: await withSupportTicketMedia(recentTickets, 'admin'),
     recentAuditLogs,
   });
+}));
+
+
+const adminLibraryStatusFilterSchema = z.enum(['all', 'draft', 'active', 'archived']).optional().default('active');
+const adminLibraryKindFilterSchema = z.enum(['all', 'need', 'offer']).optional().default('all');
+const adminLibraryTemplateBaseSchema = z.object({
+  title: z.string().trim().min(3).max(70),
+  description: z.string().trim().min(10).max(500),
+  itemType: z.enum(['service', 'goods', 'other']).optional().default('service'),
+  languageCode: z.enum(['en', 'fr']).optional().default('en'),
+  countryCode: z.preprocess((value) => {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim().toUpperCase();
+    return trimmed || null;
+  }, z.string().length(2).nullable().optional()),
+  category: z.string().trim().min(1).max(80).nullable().optional(),
+  timing: z.string().trim().min(1).max(80).nullable().optional(),
+  availability: z.string().trim().min(1).max(80).nullable().optional(),
+  mode: z.enum(['remote', 'local', 'hybrid']).nullable().optional(),
+  locationLabel: z.string().trim().min(1).max(120).nullable().optional(),
+  tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
+  includes: z.array(z.string().trim().min(1).max(80)).max(8).optional().default([]),
+  mediaIds: z.array(z.string().trim().min(1).max(128)).max(5).optional().default([]),
+  status: z.enum(['draft', 'active', 'archived']).optional().default('active'),
+  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
+});
+const adminCreateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.extend({
+  kind: z.enum(['need', 'offer']),
+  sourceType: z.enum(['hellowhen', 'business', 'brand', 'partner']).optional().default('hellowhen'),
+});
+const adminUpdateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.partial();
+const adminLibraryActionSchema = z.object({ action: z.enum(['hide', 'restore']) });
+const adminListLibraryQuerySchema = z.object({
+  kind: adminLibraryKindFilterSchema,
+  status: adminLibraryStatusFilterSchema,
+  q: z.string().trim().min(1).max(120).optional(),
+  languageCode: z.enum(['en', 'fr']).optional(),
+  countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()).optional(),
+  take: z.coerce.number().int().min(1).max(250).optional().default(100),
+});
+
+const adminLibraryBusinessProfileSelect = { id: true, displayName: true, handle: true, type: true, status: true } as const;
+const adminLibraryTemplateInclude = {
+  businessProfile: { select: adminLibraryBusinessProfileSelect },
+  _count: { select: { createdNeeds: true, createdOffers: true } },
+} as const;
+
+async function syncAdminLibraryTemplateMedia(client: unknown, ownerId: string, mediaIds: string[] | undefined, entityId: string) {
+  const selectedIds = Array.from(new Set(mediaIds ?? []));
+  const mediaClient = (client as { mediaAsset: typeof prisma.mediaAsset }).mediaAsset;
+
+  const [selectedMedia, existingMedia] = await Promise.all([
+    selectedIds.length ? mediaClient.findMany({ where: { id: { in: selectedIds }, ownerId, status: 'active' } }) : Promise.resolve([]),
+    mediaClient.findMany({ where: { entityType: 'inventory_template', entityId, status: { not: 'removed' } }, select: { id: true } }),
+  ]);
+
+  if (selectedMedia.length !== selectedIds.length) {
+    throw Object.assign(new Error('One or more selected images could not be attached. Upload the images again and retry.'), { statusCode: 400, code: 'invalid_media_ids', publicMessage: 'One or more selected images could not be attached. Upload the images again and retry.' });
+  }
+
+  const attachedElsewhere = selectedMedia.find((item) => item.entityType && item.entityId && (item.entityType !== 'inventory_template' || item.entityId !== entityId));
+  if (attachedElsewhere) {
+    throw Object.assign(new Error('One or more selected images already belong to another item. Upload a new copy if you want to reuse it.'), { statusCode: 409, code: 'media_already_attached', publicMessage: 'One or more selected images already belong to another item. Upload a new copy if you want to reuse it.' });
+  }
+
+  if (selectedIds.length > 5) {
+    throw Object.assign(new Error('You can attach up to 5 images. Remove one image before adding another.'), { statusCode: 400, code: 'too_many_images', publicMessage: 'You can attach up to 5 images. Remove one image before adding another.' });
+  }
+
+  if (selectedIds.length) {
+    await mediaClient.updateMany({
+      where: {
+        id: { in: selectedIds },
+        ownerId,
+        status: { not: 'removed' },
+        OR: [{ entityId: null }, { entityId }],
+      },
+      data: { entityType: 'inventory_template', entityId },
+    });
+  }
+
+  const selectedSet = new Set(selectedIds);
+  const removedIds = existingMedia.map((item) => item.id).filter((id) => !selectedSet.has(id));
+  if (removedIds.length) {
+    await mediaClient.updateMany({
+      where: { id: { in: removedIds }, ownerId, entityType: 'inventory_template', entityId },
+      data: { entityType: null, entityId: null },
+    });
+  }
+}
+
+function slugifyTemplateTitle(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 54) || 'starter-template';
+}
+
+function makeAdminTemplateKey(kind: 'need' | 'offer', title: string) {
+  return `admin-${kind}-${slugifyTemplateTitle(title)}-${randomUUID().slice(0, 8)}`;
+}
+
+function normalizeTemplateNullable<T extends string | null | undefined>(value: T) {
+  return value === undefined ? undefined : value;
+}
+
+adminRoutes.get('/library', asyncRoute(async (req, res) => {
+  const input = adminListLibraryQuerySchema.parse(req.query);
+  const q = input.q?.trim();
+  const templates = await prisma.inventoryTemplate.findMany({
+    where: {
+      ...(input.kind !== 'all' ? { kind: input.kind } : {}),
+      ...(input.status !== 'all' ? { status: input.status } : {}),
+      ...(input.languageCode ? { languageCode: input.languageCode } : {}),
+      ...(input.countryCode ? { countryCode: input.countryCode } : {}),
+      ...(q ? {
+        OR: [
+          { key: { contains: q, mode: 'insensitive' } },
+          { title: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { category: { contains: q, mode: 'insensitive' } },
+          { locationLabel: { contains: q, mode: 'insensitive' } },
+        ],
+      } : {}),
+    },
+    include: adminLibraryTemplateInclude,
+    orderBy: [{ kind: 'asc' }, { languageCode: 'asc' }, { countryCode: 'asc' }, { sortOrder: 'asc' }, { title: 'asc' }],
+    take: input.take,
+  });
+  res.json({ templates: await withMedia('inventory_template', templates, 'admin') });
+}));
+
+adminRoutes.post('/library', asyncRoute(async (req, res) => {
+  const input = adminCreateLibraryTemplateSchema.parse(req.body ?? {});
+  const template = await prisma.$transaction(async (tx) => {
+    const created = await tx.inventoryTemplate.create({
+      data: {
+        key: makeAdminTemplateKey(input.kind, input.title),
+        kind: input.kind,
+        sourceType: input.sourceType,
+        languageCode: input.languageCode,
+        countryCode: input.countryCode ?? null,
+        title: input.title,
+        description: input.description,
+        itemType: input.itemType,
+        category: input.category ?? null,
+        timing: input.kind === 'need' ? input.timing ?? null : null,
+        availability: input.kind === 'offer' ? input.availability ?? null : null,
+        mode: input.mode ?? null,
+        locationLabel: input.locationLabel ?? null,
+        tags: input.tags,
+        includes: input.kind === 'offer' ? input.includes : [],
+        status: input.status,
+        sortOrder: input.sortOrder,
+      },
+      include: adminLibraryTemplateInclude,
+    });
+    await syncAdminLibraryTemplateMedia(tx, req.user!.id, input.mediaIds, created.id);
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: 'inventory_template.create',
+      targetType: 'inventory_template',
+      targetId: created.id,
+      reason: 'Admin created starter Need/Offer library template.',
+      nextValue: created,
+    });
+    return created;
+  });
+  res.status(201).json({ template: await withOneMedia('inventory_template', template, 'admin') });
+}));
+
+adminRoutes.patch('/library/:templateId', asyncRoute(async (req, res) => {
+  const input = adminUpdateLibraryTemplateSchema.parse(req.body ?? {});
+  const existing = await prisma.inventoryTemplate.findUnique({ where: { id: req.params.templateId }, include: adminLibraryTemplateInclude });
+  if (!existing) return res.status(404).json({ error: 'not_found', message: 'Starter template not found.' });
+
+  const template = await prisma.$transaction(async (tx) => {
+    const updated = await tx.inventoryTemplate.update({
+      where: { id: existing.id },
+      data: {
+        title: input.title,
+        description: input.description,
+        itemType: input.itemType,
+        languageCode: input.languageCode,
+        countryCode: normalizeTemplateNullable(input.countryCode),
+        category: normalizeTemplateNullable(input.category),
+        timing: existing.kind === 'need' ? normalizeTemplateNullable(input.timing) : null,
+        availability: existing.kind === 'offer' ? normalizeTemplateNullable(input.availability) : null,
+        mode: normalizeTemplateNullable(input.mode),
+        locationLabel: normalizeTemplateNullable(input.locationLabel),
+        tags: input.tags,
+        includes: existing.kind === 'offer' ? input.includes : [],
+        status: input.status,
+        sortOrder: input.sortOrder,
+      },
+      include: adminLibraryTemplateInclude,
+    });
+    if (input.mediaIds !== undefined) await syncAdminLibraryTemplateMedia(tx, req.user!.id, input.mediaIds, updated.id);
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: 'inventory_template.update',
+      targetType: 'inventory_template',
+      targetId: updated.id,
+      reason: 'Admin updated starter Need/Offer library template.',
+      previousValue: existing,
+      nextValue: updated,
+    });
+    return updated;
+  });
+  res.json({ template: await withOneMedia('inventory_template', template, 'admin') });
+}));
+
+adminRoutes.patch('/library/:templateId/action', asyncRoute(async (req, res) => {
+  const input = adminLibraryActionSchema.parse(req.body ?? {});
+  const existing = await prisma.inventoryTemplate.findUnique({ where: { id: req.params.templateId }, include: adminLibraryTemplateInclude });
+  if (!existing) return res.status(404).json({ error: 'not_found', message: 'Starter template not found.' });
+  const nextStatus = input.action === 'hide' ? 'archived' : 'active';
+  const template = await prisma.$transaction(async (tx) => {
+    const updated = await tx.inventoryTemplate.update({
+      where: { id: existing.id },
+      data: { status: nextStatus },
+      include: adminLibraryTemplateInclude,
+    });
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `inventory_template.${input.action}`,
+      targetType: 'inventory_template',
+      targetId: updated.id,
+      reason: input.action === 'hide' ? 'Admin hid starter template from public starter library.' : 'Admin restored starter template to public starter library.',
+      previousValue: { status: existing.status },
+      nextValue: { status: updated.status },
+    });
+    return updated;
+  });
+  res.json({ template: await withOneMedia('inventory_template', template, 'admin') });
 }));
 
 adminRoutes.get('/audit-log', asyncRoute(async (req, res) => {

@@ -368,6 +368,7 @@ export declare const needSchema: z.ZodObject<{
             need: "need";
             offer: "offer";
             trade: "trade";
+            inventory_template: "inventory_template";
             profile: "profile";
             support_ticket: "support_ticket";
             support_message: "support_message";
@@ -433,6 +434,7 @@ export declare const offerSchema: z.ZodObject<{
             need: "need";
             offer: "offer";
             trade: "trade";
+            inventory_template: "inventory_template";
             profile: "profile";
             support_ticket: "support_ticket";
             support_message: "support_message";
@@ -519,6 +521,7 @@ export declare const inventoryTemplateSchema: z.ZodObject<{
         type: z.ZodOptional<z.ZodString>;
         status: z.ZodOptional<z.ZodString>;
     }, z.core.$loose>>>;
+    media: z.ZodOptional<z.ZodArray<z.ZodAny>>;
 }, z.core.$strip>;
 export declare const cloneInventoryTemplateResponseSchema: z.ZodObject<{
     template: z.ZodObject<{
@@ -938,6 +941,7 @@ export declare const tradeSchema: z.ZodObject<{
             need: "need";
             offer: "offer";
             trade: "trade";
+            inventory_template: "inventory_template";
             profile: "profile";
             support_ticket: "support_ticket";
             support_message: "support_message";

@@ -4,7 +4,7 @@ import { cloneInventoryTemplateRequestSchema, listInventoryTemplatesQuerySchema 
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
-import { withOneMedia } from '../media/media.helpers.js';
+import { loadMediaByEntityIds, withMedia, withOneMedia } from '../media/media.helpers.js';
 
 export const inventoryTemplatesRoutes = Router();
 
@@ -101,6 +101,25 @@ function sortTemplatesForLocale<T extends { languageCode?: string | null; countr
   });
 }
 
+async function cloneTemplateMediaToInventory(actorId: string, templateId: string, entityType: 'need' | 'offer', entityId: string) {
+  const templateMediaById = await loadMediaByEntityIds('inventory_template', [templateId], 'public');
+  const templateMedia = templateMediaById.get(templateId) ?? [];
+  if (!templateMedia.length) return;
+  await prisma.mediaAsset.createMany({
+    data: templateMedia.slice(0, 5).map((media) => ({
+      ownerId: actorId,
+      entityType,
+      entityId,
+      url: media.url,
+      storageKey: media.storageKey,
+      filename: media.filename,
+      mimeType: media.mimeType,
+      sizeBytes: media.sizeBytes,
+      status: 'active' as const,
+    })),
+  });
+}
+
 async function listLocalizedTemplates(input: TemplateListInput, preferences: TemplateLocalePreferences) {
   const take = input.take ?? 80;
   const baseWhere = baseTemplateWhere(input);
@@ -132,7 +151,7 @@ inventoryTemplatesRoutes.get('/', optionalAuth, asyncRoute(async (req, res) => {
   const preferences = resolveTemplateLocalePreferences(input, actorPreferences, req.headers['accept-language']);
   const templates = await listLocalizedTemplates(input, preferences);
 
-  res.json({ templates, language: preferences.language, countryCode: preferences.countryCode ?? null });
+  res.json({ templates: await withMedia('inventory_template', templates, 'public'), language: preferences.language, countryCode: preferences.countryCode ?? null });
 }));
 
 inventoryTemplatesRoutes.get('/:templateId', asyncRoute(async (req, res) => {
@@ -141,7 +160,7 @@ inventoryTemplatesRoutes.get('/:templateId', asyncRoute(async (req, res) => {
     include: { businessProfile: { select: businessProfileSelect } },
   });
   if (!template) return res.status(404).json({ error: 'not_found', message: 'Starter item not found.' });
-  res.json({ template });
+  res.json({ template: await withOneMedia('inventory_template', template, 'public') });
 }));
 
 inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(async (req, res) => {
@@ -169,7 +188,8 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
         status: input.status,
       },
     });
-    return res.status(201).json({ template, need: await withOneMedia('need', need) });
+    await cloneTemplateMediaToInventory(actorId, template.id, 'need', need.id);
+    return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), need: await withOneMedia('need', need) });
   }
 
   const offer = await prisma.offer.create({
@@ -188,5 +208,6 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
       status: input.status,
     },
   });
-  return res.status(201).json({ template, offer: await withOneMedia('offer', offer) });
+  await cloneTemplateMediaToInventory(actorId, template.id, 'offer', offer.id);
+  return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), offer: await withOneMedia('offer', offer) });
 }));

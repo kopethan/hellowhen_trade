@@ -1438,6 +1438,28 @@ html[data-theme="dark"] .inventory-empty-state__plus {
   font-weight: 900;
 }
 
+
+/* Admin clarity + starter library */
+.admin-shell { display: grid; gap: 18px; width: min(100%, 1500px); margin: 0 auto; padding: 0 12px 28px; }
+.admin-nav { position: sticky; top: 0; z-index: 40; display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 0 0 26px 26px; background: color-mix(in srgb, var(--app-bg) 92%, transparent); padding: 12px; box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08); backdrop-filter: blur(18px); }
+.admin-nav__brand { color: var(--app-text); font-size: 15px; font-weight: 1000; text-decoration: none; }
+.admin-nav__links { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-nav__links a { border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); padding: 8px 11px; font-size: 12px; font-weight: 900; text-decoration: none; }
+.admin-nav__links a:hover { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 36%, var(--app-surface)); }
+.admin-nav__note { margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; }
+.admin-detail-grid--wide-left { grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); }
+.admin-template-form { display: grid; gap: 10px; }
+.admin-template-form label { display: grid; gap: 6px; color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+.admin-template-form label span { text-transform: uppercase; letter-spacing: .06em; }
+.admin-template-form input, .admin-template-form textarea, .admin-template-form select { width: 100%; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface-soft); color: var(--app-text); padding: 11px 12px; font: inherit; font-weight: 800; }
+.admin-template-form textarea { resize: vertical; line-height: 1.45; }
+.admin-template-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+@media (max-width: 900px) {
+  .admin-shell { padding: 0 0 24px; }
+  .admin-nav { border-radius: 0 0 22px 22px; }
+  .admin-detail-grid--wide-left, .admin-template-form__grid { grid-template-columns: 1fr; }
+}
+
 /* Phase 20.4: admin payout console */
 .admin-console { display: grid; gap: 18px; width: min(100%, 1440px); margin: 0 auto; }
 .admin-console__hero { display: grid; gap: 16px; }
@@ -2047,3 +2069,31 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .account-restricted-banner { display: grid; gap: 8px; margin: 0 0 16px; border: 1px solid var(--danger-border); border-radius: 24px; background: var(--danger-bg); color: var(--danger-text); padding: 14px; }
 .account-restricted-banner p { margin: 0; color: inherit; font-size: 13px; font-weight: 750; line-height: 1.45; }
 .account-restricted-banner .button { justify-self: start; }
+
+/* Admin starter library media */
+.admin-template-media-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 22px;
+  background: var(--app-surface-soft);
+  padding: 14px;
+}
+.admin-template-media-panel > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.admin-template-media-panel strong {
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 950;
+}
+.admin-template-media-panel span {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.4;
+}
+.admin-template-media-grid figure {
+  min-height: 180px;
+}

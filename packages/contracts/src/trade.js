@@ -236,6 +236,7 @@ export const inventoryTemplateSchema = z.object({
     createdAt: z.string(),
     updatedAt: z.string(),
     businessProfile: inventoryTemplateBusinessProfileSchema,
+  media: z.array(mediaAssetSchema).optional(),
 });
 export const cloneInventoryTemplateResponseSchema = z.object({
     template: inventoryTemplateSchema,

@@ -3,6 +3,7 @@ export declare const mediaEntityTypeSchema: z.ZodEnum<{
     need: "need";
     offer: "offer";
     trade: "trade";
+    inventory_template: "inventory_template";
     profile: "profile";
     support_ticket: "support_ticket";
     support_message: "support_message";
@@ -22,6 +23,7 @@ export declare const mediaAssetSchema: z.ZodObject<{
         need: "need";
         offer: "offer";
         trade: "trade";
+        inventory_template: "inventory_template";
         profile: "profile";
         support_ticket: "support_ticket";
         support_message: "support_message";
@@ -59,6 +61,7 @@ export declare const listMyMediaQuerySchema: z.ZodObject<{
         need: "need";
         offer: "offer";
         trade: "trade";
+        inventory_template: "inventory_template";
         profile: "profile";
         support_ticket: "support_ticket";
         support_message: "support_message";
@@ -79,6 +82,7 @@ export declare const adminListMediaQuerySchema: z.ZodObject<{
         need: "need";
         offer: "offer";
         trade: "trade";
+        inventory_template: "inventory_template";
         profile: "profile";
         support_ticket: "support_ticket";
         support_message: "support_message";

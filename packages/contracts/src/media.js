@@ -1,5 +1,5 @@
 import { z } from 'zod';
-export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'profile', 'support_ticket', 'support_message', 'plan', 'plan_place']);
+export const mediaEntityTypeSchema = z.enum(['need', 'offer', 'trade', 'inventory_template', 'profile', 'support_ticket', 'support_message', 'plan', 'plan_place']);
 export const mediaAssetStatusSchema = z.enum(['active', 'flagged', 'removed', 'pending_review']);
 export const mediaAssetSchema = z.object({
     id: z.string(),

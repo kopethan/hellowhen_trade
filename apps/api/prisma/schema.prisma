@@ -101,6 +101,7 @@ enum MediaEntityType {
   need
   offer
   trade
+  inventory_template
   profile
   support_ticket
   support_message

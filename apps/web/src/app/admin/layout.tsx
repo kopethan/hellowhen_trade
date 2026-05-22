@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { AdminAccessGate } from '../../features/admin/AdminAccessGate';
 
 export const metadata: Metadata = {
-  title: 'Page not found',
+  title: 'Hellowhen Admin',
   robots: {
     index: false,
     follow: false,
@@ -11,6 +12,30 @@ export const metadata: Metadata = {
   },
 };
 
+const adminNavItems = [
+  { href: '/admin', label: 'Overview' },
+  { href: '/admin/library', label: 'Starter library' },
+  { href: '/admin/users', label: 'Users' },
+  { href: '/admin/content', label: 'Content' },
+  { href: '/admin/reports', label: 'Reports' },
+  { href: '/admin/support', label: 'Support' },
+  { href: '/admin/media', label: 'Media' },
+  { href: '/admin/safety', label: 'Safety' },
+];
+
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  return <AdminAccessGate>{children}</AdminAccessGate>;
+  return (
+    <AdminAccessGate>
+      <div className="admin-shell">
+        <nav className="admin-nav" aria-label="Admin navigation">
+          <Link className="admin-nav__brand" href="/admin">Hellowhen Admin</Link>
+          <div className="admin-nav__links">
+            {adminNavItems.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
+          </div>
+          <p className="admin-nav__note">First beta mode: money, wallet, payouts, and Plans stay out of launch admin navigation.</p>
+        </nav>
+        {children}
+      </div>
+    </AdminAccessGate>
+  );
 }
