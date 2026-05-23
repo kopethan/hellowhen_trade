@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import {
+  changePasswordRequestSchema,
   disableTwoFactorRequestSchema,
   forgotPasswordRequestSchema,
   googleAuthRequestSchema,
@@ -659,6 +660,34 @@ authRoutes.post('/reauthenticate', requireAuth, authMutationRateLimit, asyncRout
   if (!ok) return res.status(401).json({ error: 'reauthentication_failed', message: 'Fresh verification failed. Enter your password or authenticator code and try again.' });
   await prisma.user.update({ where: { id: user.id }, data: { sensitiveActionVerifiedAt: new Date() } });
   res.json(freshAuthPayload());
+}));
+
+
+authRoutes.post('/change-password', requireAuth, authMutationRateLimit, asyncRoute(async (req, res) => {
+  const input = changePasswordRequestSchema.parse(req.body);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.id } });
+  if (!user.passwordHash) {
+    return res.status(400).json({ error: 'password_login_unavailable', message: 'This account does not have an email password to change.' });
+  }
+
+  const passwordOk = await bcrypt.compare(input.currentPassword, user.passwordHash);
+  if (!passwordOk) return res.status(401).json({ error: 'invalid_credentials', message: 'Current password is incorrect.' });
+
+  if (user.twoFactorEnabled) {
+    if (!input.code) return res.status(401).json({ error: 'two_factor_code_required', message: 'Enter an authenticator or recovery code to change your password.' });
+    const twoFactorOk = await verifyUserTwoFactor(user, input.code);
+    if (!twoFactorOk) return res.status(401).json({ error: 'invalid_two_factor_code', message: 'That authenticator or recovery code was not accepted.' });
+  }
+
+  const now = new Date();
+  const passwordHash = await bcrypt.hash(input.newPassword, 12);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: user.id }, data: { passwordHash, sensitiveActionVerifiedAt: null } }),
+    prisma.session.updateMany({ where: { userId: user.id, revokedAt: null, ...(req.user?.sessionId ? { id: { not: req.user.sessionId } } : {}) }, data: { revokedAt: now } }),
+    prisma.userIdentity.upsert({ where: { provider_providerUserId: { provider: 'email', providerUserId: user.email } }, update: { userId: user.id, email: user.email }, create: { userId: user.id, provider: 'email', providerUserId: user.email, email: user.email } }),
+  ]);
+
+  res.json({ ok: true, message: 'Password changed. Other sessions were signed out.' });
 }));
 
 authRoutes.get('/sessions', requireAuth, asyncRoute(async (req, res) => {

@@ -80,6 +80,20 @@ export const resetPasswordRequestSchema = z.object({
   }
 });
 
+export const changePasswordRequestSchema = z.object({
+  currentPassword: passwordSchema,
+  newPassword: passwordSchema,
+  confirmPassword: passwordSchema.optional(),
+  code: z.string().min(6).max(32).optional()
+}).superRefine((value, ctx) => {
+  if (value.confirmPassword && value.newPassword !== value.confirmPassword) {
+    ctx.addIssue({ code: 'custom', path: ['confirmPassword'], message: 'Passwords do not match.' });
+  }
+  if (value.currentPassword === value.newPassword) {
+    ctx.addIssue({ code: 'custom', path: ['newPassword'], message: 'Choose a new password that is different from your current password.' });
+  }
+});
+
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type RefreshSessionRequest = z.infer<typeof refreshSessionRequestSchema>;
 export type LogoutRequest = z.infer<typeof logoutRequestSchema>;
@@ -92,6 +106,7 @@ export type RegisterRequest = z.infer<typeof registerRequestSchema>;
 export type GoogleAuthRequest = z.infer<typeof googleAuthRequestSchema>;
 export type ForgotPasswordRequest = z.infer<typeof forgotPasswordRequestSchema>;
 export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>;
+export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
 
 export type AuthUser = {
   id: string;
@@ -177,6 +192,11 @@ export type ForgotPasswordResponse = {
 };
 
 export type ResetPasswordResponse = {
+  ok: true;
+  message: string;
+};
+
+export type ChangePasswordResponse = {
   ok: true;
   message: string;
 };

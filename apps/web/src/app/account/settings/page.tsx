@@ -44,6 +44,10 @@ export default function AccountSettingsPage() {
   const [twoFactorQrCode, setTwoFactorQrCode] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [twoFactorPassword, setTwoFactorPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changePasswordCode, setChangePasswordCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [recoveryCodesCopied, setRecoveryCodesCopied] = useState(false);
   const [clientReady, setClientReady] = useState(false);
@@ -212,6 +216,53 @@ export default function AccountSettingsPage() {
     }
   }
 
+
+  async function changePassword() {
+    setSaving(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const normalizedCode = changePasswordCode.trim();
+
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        setError(t('settings.security.changePasswordRequired'));
+        return;
+      }
+      if (newPassword.length < 8) {
+        setError(t('settings.security.changePasswordLength'));
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setError(t('settings.security.changePasswordMismatch'));
+        return;
+      }
+      if (currentPassword === newPassword) {
+        setError(t('settings.security.changePasswordSame'));
+        return;
+      }
+      if (currentUser?.twoFactorEnabled && !normalizedCode) {
+        setError(t('settings.security.changePasswordCodeRequired'));
+        return;
+      }
+
+      const response = await api.auth.changePassword({
+        currentPassword,
+        newPassword,
+        confirmPassword,
+        code: normalizedCode || undefined,
+      }) as { message?: string };
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setChangePasswordCode('');
+      setMessage(response.message ?? t('settings.security.passwordChanged'));
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <MobilePage>
       <PageIntro
@@ -309,10 +360,41 @@ export default function AccountSettingsPage() {
             <input value={twoFactorPassword} onChange={(event) => setTwoFactorPassword(event.target.value)} type="password" autoComplete="current-password" />
           </label>
         ) : null}
+        {authenticated ? (
+          <div className="two-factor-setup-box">
+            <div>
+              <p className="meta">{t('settings.security.changePasswordTitle')}</p>
+              <p>{t('settings.security.changePasswordBody')}</p>
+            </div>
+            <label className="field-label">
+              {t('settings.security.currentPassword')}
+              <input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" />
+            </label>
+            <label className="field-label">
+              {t('settings.security.newPassword')}
+              <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" autoComplete="new-password" />
+            </label>
+            <label className="field-label">
+              {t('settings.security.confirmNewPassword')}
+              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" />
+            </label>
+            {currentUser?.twoFactorEnabled ? (
+              <label className="field-label">
+                {t('settings.security.authenticatorOrRecovery')}
+                <input value={changePasswordCode} onChange={(event) => setChangePasswordCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" />
+              </label>
+            ) : null}
+            <button type="button" className="secondary" onClick={() => { void changePassword(); }} disabled={saving}>{t('settings.security.changePasswordAction')}</button>
+          </div>
+        ) : null}
         {authReady ? (
           <div className="button-row">
-            <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.emailVerifiedAt)} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
-            <button type="button" className="secondary" disabled={saving || !authenticated || Boolean(currentUser?.twoFactorEnabled)} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
+            {!currentUser?.emailVerifiedAt ? (
+              <button type="button" className="secondary" disabled={saving || !authenticated} onClick={() => { void requestEmailVerification(); }}>{t('common.actions.verifyEmail')}</button>
+            ) : null}
+            {!currentUser?.twoFactorEnabled ? (
+              <button type="button" className="secondary" disabled={saving || !authenticated} onClick={() => { void startTwoFactorSetup(); }}>{t('settings.security.setupAuthenticator')}</button>
+            ) : null}
             <button type="button" className="secondary" disabled={saving || !authenticated} onClick={() => { void logoutAllDevices(); }}>{t('common.actions.logoutAllDevices')}</button>
           </div>
         ) : (
@@ -325,7 +407,7 @@ export default function AccountSettingsPage() {
             {t('settings.security.lostAccessHint')} <Link href="/account/support">{t('settings.security.contactSupport')}</Link>.
           </p>
         ) : null}
-        {twoFactorSecret ? (
+        {!currentUser?.twoFactorEnabled && twoFactorSecret ? (
           <div className="two-factor-setup-box">
             <div>
               <p className="meta">{t('settings.security.scanQrTitle')}</p>

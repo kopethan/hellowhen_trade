@@ -1,5 +1,5 @@
 export const API_CONNECTION_ERROR_MESSAGE =
-  'Could not connect to Hellowhen. Check the API URL and try again.';
+  'Hellowhen is temporarily unavailable. Please try again in a moment.';
 
 type ApiLikeError = {
   code?: string;
@@ -29,7 +29,8 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
     return API_CONNECTION_ERROR_MESSAGE;
   }
 
-  if (apiError.body?.error === 'invalid_credentials') return 'Email or password is incorrect.';
+  if (apiError.body?.error === 'invalid_credentials') return apiError.body.message ?? 'Email or password is incorrect.';
+  if (apiError.body?.error === 'password_login_unavailable') return apiError.body.message ?? 'This account does not have a password to change.';
   if (apiError.body?.error === 'invalid_two_factor_code') return apiError.body.message ?? 'That authenticator or recovery code was not accepted. Wait for a new code and try again.';
   if (apiError.body?.error === 'invalid_two_factor_challenge') return apiError.body.message ?? 'This two-step login challenge expired. Log in again.';
   if (apiError.body?.error === 'two_factor_code_required') return apiError.body.message ?? 'Enter an authenticator or recovery code.';
@@ -46,6 +47,7 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   if (apiError.body?.error === 'not_found') return 'That item could not be found.';
   if (apiError.body?.message) return apiError.body.message;
   if (apiError.status === 401) return 'Please log in again to continue.';
+  if (apiError.status && apiError.status >= 500) return 'Hellowhen is temporarily unavailable. Please try again in a moment.';
 
   return fallback;
 }
