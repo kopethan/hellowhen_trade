@@ -3,11 +3,14 @@ import { PrismaClient, type Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const seedMode = process.env.SEED_MODE?.trim().toLowerCase() || 'full';
+const seedStarterLibraryOnly = seedMode === 'starter-library' || process.env.SEED_ONLY_STARTER_LIBRARY === 'true';
+
 const demoPassword = process.env.SEED_DEMO_PASSWORD?.trim() || 'password123';
 const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim() || 'admin@hellowhen.app';
 const adminPassword = process.env.SEED_ADMIN_PASSWORD?.trim() || demoPassword;
-if (process.env.NODE_ENV === 'production' && adminPassword === demoPassword) {
-  throw new Error('Set a unique SEED_ADMIN_PASSWORD before seeding production admin users.');
+if (!seedStarterLibraryOnly && process.env.NODE_ENV === 'production' && adminPassword === demoPassword) {
+  throw new Error('Set a unique SEED_ADMIN_PASSWORD before seeding production admin users, or run templates-only seed with SEED_MODE=starter-library.');
 }
 const adminDisplayName = process.env.SEED_ADMIN_DISPLAY_NAME?.trim() || 'Admin Reviewer';
 const adminHandle = process.env.SEED_ADMIN_HANDLE?.trim() || 'admin';
@@ -1203,6 +1206,12 @@ async function seedStarterInventoryTemplates() {
 }
 
 async function main() {
+  if (seedStarterLibraryOnly) {
+    await seedStarterInventoryTemplates();
+    console.log('Seeded starter Need/Offer templates only. Demo users, admin users, trades, proposals, and support tickets were not created or updated.');
+    return;
+  }
+
   const demo = await upsertDemoUser({
     email: 'demo@hellowhen.app',
     displayName: 'Demo Owner',
