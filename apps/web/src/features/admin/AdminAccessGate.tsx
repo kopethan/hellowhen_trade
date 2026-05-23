@@ -1,19 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { NotFoundPanel } from '../../components/NotFoundPanel';
 import { useWebAuth } from '../../providers/WebAuthProvider';
-
-function GenericNotFound() {
-  return (
-    <main className="utility-shell admin-hidden-page" aria-label="Page not found">
-      <section className="app-card">
-        <span className="semantic-badge admin">404</span>
-        <h1>Page not found</h1>
-        <p>The page you requested could not be found.</p>
-      </section>
-    </main>
-  );
-}
 
 export function AdminAccessGate({ children }: { children: ReactNode }) {
   const auth = useWebAuth();
@@ -29,7 +18,7 @@ export function AdminAccessGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (auth.user?.role !== 'admin') return <GenericNotFound />;
+  if (auth.user?.role !== 'admin') return <NotFoundPanel />;
 
   if (!auth.user.twoFactorEnabled) {
     return (
