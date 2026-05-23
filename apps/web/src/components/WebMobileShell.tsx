@@ -13,7 +13,9 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || '/';
   const { t } = useWebTranslation();
   const auth = useWebAuth();
-  const utility = isUtilityRoute(pathname);
+  const adminRoute = pathname === '/admin' || pathname.startsWith('/admin/');
+  const shouldUsePublicShellForAdminNotFound = adminRoute && auth.hydrated && auth.user?.role !== 'admin';
+  const utility = isUtilityRoute(pathname) && !shouldUsePublicShellForAdminNotFound;
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [hideTopHeader, setHideTopHeader] = useState(false);
