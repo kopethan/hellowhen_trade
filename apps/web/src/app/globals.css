@@ -138,6 +138,10 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 
 }
 
 .utility-shell { width: min(1120px, calc(100vw - 32px)); margin: 0 auto; padding: 24px 0 48px; }
+.not-found-shell { display: grid; place-items: center; min-height: min(62vh, 560px); }
+.not-found-card { width: min(100%, 760px); }
+.not-found-card h1 { margin-bottom: 8px; }
+.not-found-card p { margin-bottom: 16px; color: var(--app-text-muted); }
 .mobile-page { display: grid; gap: 16px; }
 .page-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .page-intro p { margin-bottom: 0; }
