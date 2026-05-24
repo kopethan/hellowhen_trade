@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AdminUserSummaryDto, AdminUsersResponse, UserTrustTier } from '@hellowhen/contracts';
 import { getWebApiBaseUrl } from '../../../lib/api';
 import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
@@ -51,6 +51,19 @@ export default function AdminUsersPage() {
   const [note, setNote] = useState('');
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deepLinkUserId, setDeepLinkUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const userId = new URLSearchParams(window.location.search).get('userId');
+    if (userId) setDeepLinkUserId(userId);
+  }, []);
+
+  useEffect(() => {
+    if (!token || !deepLinkUserId) return;
+    void openUser(deepLinkUserId);
+    setDeepLinkUserId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, deepLinkUserId]);
 
   function clearLocalSession() {
     clearAdminBrowserSession();
@@ -84,6 +97,33 @@ export default function AdminUsersPage() {
       setLoading(false);
     }
   }
+
+  async function openUser(userId: string) {
+    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+    setLoading(true);
+    setNotice(null);
+    try {
+      const params = new URLSearchParams({ userId });
+      const response = await fetch(`${apiBase}/admin/users?${params}`, { headers });
+      if (!response.ok) throw new Error('Could not load the linked admin user. Make sure this account has admin role and satisfies 2FA requirements.');
+      const data = await response.json() as AdminUsersResponse;
+      const linkedUser = data.users[0] ?? null;
+      setUsers(data.users);
+      setSelectedUser(linkedUser);
+      if (linkedUser) {
+        setNextTier(linkedUser.trustTier);
+        setQuery(linkedUser.email);
+        setNotice({ tone: 'success', body: `Loaded linked user ${personLabel(linkedUser)} from usage monitoring.` });
+      } else {
+        setNotice({ tone: 'warning', body: 'The linked user was not found or is no longer available.' });
+      }
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load the linked user.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
 
   async function moderateUser(action: 'suspend' | 'restore' | 'mark_reviewed' | 'force_logout', restoreTier: UserTrustTier = 'new') {
     if (!token || !selectedUser) return;
@@ -149,7 +189,7 @@ export default function AdminUsersPage() {
       <section className="app-card admin-console__hero">
         <div className="status-row"><span className="semantic-badge info">Users</span><span className="semantic-badge admin">One job: account moderation</span></div>
         <h1>User moderation</h1>
-        <p>Search accounts, verify launch status, suspend unsafe users, restore restricted users, and force logout sessions without deleting accounts.</p>
+        <p>Search accounts, verify launch status, suspend unsafe users, restore restricted users, force logout sessions, and open safe user drill-ins from usage monitoring without deleting accounts.</p>
         <div className="admin-console__login-grid">
           <p className="notice-box info">Suspension sets the user to restricted, revokes active sessions, blocks new posts/proposals, and writes an audit entry.</p>
           <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>

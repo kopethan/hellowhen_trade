@@ -12,3 +12,4 @@ export * from './admin.js';
 export * from './reports.js';
 export * from './account.js';
 export * from './plans.js';
+export * from './usage.js';

@@ -17,6 +17,7 @@ import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
 import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
+import { usageRoutes } from './modules/usage/usage.routes.js';
 import { walletRoutes } from './modules/wallet/wallet.routes.js';
 import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
 
@@ -37,6 +38,7 @@ routes.use('/offers', offersRoutes);
 routes.use('/trades', tradesRoutes);
 routes.use('/plans', requirePlansEnabled(), plansRoutes);
 routes.use('/users', usersRoutes);
+routes.use('/usage', usageRoutes);
 routes.use('/proposals', proposalsRoutes);
 routes.use('/wallet', requireWalletVisible(), walletRoutes);
 routes.use('/media', mediaRoutes);

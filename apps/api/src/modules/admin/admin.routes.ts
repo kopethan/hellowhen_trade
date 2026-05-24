@@ -16,6 +16,8 @@ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
 import { findReportTarget, hydrateReports, moderateReportedTarget } from '../reports/reports.routes.js';
 import { publicTradeVisibilityWhere, refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+import { API_METRICS_RETENTION_HOURS, USAGE_ACTIVITY_WINDOW_MINUTES, USAGE_LIVE_WINDOW_MINUTES, USAGE_MONITORING_PRIVACY_NOTE, USAGE_PRESENCE_RETENTION_HOURS, cleanupUsageMonitoringData, usageMonitoringWindowStart } from '../usage/usageRetention.js';
+import { buildAdminServerHealth } from '../usage/serverHealth.js';
 
 export const adminRoutes = Router();
 const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
@@ -207,6 +209,253 @@ adminRoutes.get('/overview', asyncRoute(async (_req, res) => {
     recentUsers,
     recentTickets: await withSupportTicketMedia(recentTickets, 'admin'),
     recentAuditLogs,
+  });
+}));
+
+
+type AdminUsageHeartbeatRow = {
+  id: string;
+  userId: string | null;
+  sessionId: string | null;
+  clientId: string | null;
+  appArea: string;
+  routePattern: string;
+  lastSeenAt: Date;
+  user?: { id: string; email: string; profile?: { displayName?: string | null; handle?: string | null; avatarUrl?: string | null } | null } | null;
+};
+
+type AdminApiRequestMetricRow = {
+  id: string;
+  userId: string | null;
+  sessionId: string | null;
+  method: string;
+  routePattern: string;
+  appArea: string;
+  statusCode: number;
+  statusGroup: string;
+  durationMs: number;
+  createdAt: Date;
+};
+
+type AdminUsageWeight = 'lite' | 'medium' | 'heavy';
+
+type AdminUsageWeightResult = {
+  weight: AdminUsageWeight;
+  reason: string;
+};
+
+
+function heartbeatIdentity(row: AdminUsageHeartbeatRow) {
+  return row.userId ? `user:${row.userId}` : row.sessionId ? `session:${row.sessionId}` : row.clientId ? `client:${row.clientId}` : `heartbeat:${row.id}`;
+}
+
+function latestByIdentity(rows: AdminUsageHeartbeatRow[]) {
+  const latest = new Map<string, AdminUsageHeartbeatRow>();
+  for (const row of rows) {
+    const key = heartbeatIdentity(row);
+    const current = latest.get(key);
+    if (!current || row.lastSeenAt > current.lastSeenAt) latest.set(key, row);
+  }
+  return Array.from(latest.values()).sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
+}
+
+function averageDurationMs(rows: AdminApiRequestMetricRow[]) {
+  if (!rows.length) return 0;
+  return Math.round(rows.reduce((sum, row) => sum + row.durationMs, 0) / rows.length);
+}
+
+function metricErrorCount(rows: AdminApiRequestMetricRow[]) {
+  return rows.filter((row) => row.statusCode >= 400).length;
+}
+
+function calculateUsageWeight(input: { requests: number; errors: number; averageDurationMs: number; liveNow: boolean }): AdminUsageWeightResult {
+  if (input.requests >= 100) return { weight: 'heavy', reason: '100+ API requests in 15 minutes' };
+  if (input.errors >= 10) return { weight: 'heavy', reason: '10+ API errors in 15 minutes' };
+  if (input.requests >= 25 && input.averageDurationMs >= 2000) return { weight: 'heavy', reason: 'High request volume with slow average responses' };
+
+  if (input.requests >= 25) return { weight: 'medium', reason: '25+ API requests in 15 minutes' };
+  if (input.errors >= 3) return { weight: 'medium', reason: '3+ API errors in 15 minutes' };
+  if (input.requests >= 10 && input.averageDurationMs >= 1000) return { weight: 'medium', reason: 'Moderate request volume with slower responses' };
+  if (input.liveNow) return { weight: 'lite', reason: 'Recent heartbeat with low API activity' };
+  return { weight: 'lite', reason: 'Low recent API activity' };
+}
+
+function summarizeUsageWeights(users: { usageWeight: AdminUsageWeight }[]) {
+  return users.reduce((summary, user) => {
+    summary[user.usageWeight] += 1;
+    return summary;
+  }, { lite: 0, medium: 0, heavy: 0 } as Record<AdminUsageWeight, number>);
+}
+
+function buildApiRouteStats(rows: AdminApiRequestMetricRow[]) {
+  const routeMap = new Map<string, { method: string; routePattern: string; appArea: string; requests: number; errors: number; totalDurationMs: number; maxDurationMs: number; lastSeenAt: Date | null }>();
+
+  for (const row of rows) {
+    const key = `${row.method} ${row.routePattern}`;
+    const existing = routeMap.get(key) ?? { method: row.method, routePattern: row.routePattern, appArea: row.appArea, requests: 0, errors: 0, totalDurationMs: 0, maxDurationMs: 0, lastSeenAt: null };
+    existing.requests += 1;
+    if (row.statusCode >= 400) existing.errors += 1;
+    existing.totalDurationMs += row.durationMs;
+    existing.maxDurationMs = Math.max(existing.maxDurationMs, row.durationMs);
+    if (!existing.lastSeenAt || row.createdAt > existing.lastSeenAt) existing.lastSeenAt = row.createdAt;
+    routeMap.set(key, existing);
+  }
+
+  return Array.from(routeMap.values())
+    .map((item) => ({
+      method: item.method,
+      routePattern: item.routePattern,
+      appArea: item.appArea,
+      requests: item.requests,
+      errors: item.errors,
+      averageDurationMs: Math.round(item.totalDurationMs / item.requests),
+      maxDurationMs: item.maxDurationMs,
+      lastSeenAt: item.lastSeenAt?.toISOString() ?? null,
+    }))
+    .sort((a, b) => b.averageDurationMs - a.averageDurationMs || b.maxDurationMs - a.maxDurationMs || b.requests - a.requests)
+    .slice(0, 12);
+}
+
+function buildApiAreaStats(rows: AdminApiRequestMetricRow[]) {
+  const areaMap = new Map<string, { area: string; requests: number; errors: number; totalDurationMs: number; maxDurationMs: number }>();
+  for (const row of rows) {
+    const existing = areaMap.get(row.appArea) ?? { area: row.appArea, requests: 0, errors: 0, totalDurationMs: 0, maxDurationMs: 0 };
+    existing.requests += 1;
+    if (row.statusCode >= 400) existing.errors += 1;
+    existing.totalDurationMs += row.durationMs;
+    existing.maxDurationMs = Math.max(existing.maxDurationMs, row.durationMs);
+    areaMap.set(row.appArea, existing);
+  }
+
+  return Array.from(areaMap.values())
+    .map((item) => ({
+      area: item.area,
+      requests: item.requests,
+      errors: item.errors,
+      averageDurationMs: Math.round(item.totalDurationMs / item.requests),
+      maxDurationMs: item.maxDurationMs,
+    }))
+    .sort((a, b) => b.requests - a.requests || b.errors - a.errors);
+}
+
+adminRoutes.get('/usage', asyncRoute(async (_req, res) => {
+  const usageHeartbeatClient = (prisma as any).usageHeartbeat as {
+    findMany?: (args: unknown) => Promise<AdminUsageHeartbeatRow[]>;
+    deleteMany?: (args: unknown) => Promise<unknown>;
+  } | undefined;
+  const apiRequestMetricClient = (prisma as any).apiRequestMetric as {
+    findMany?: (args: unknown) => Promise<AdminApiRequestMetricRow[]>;
+    deleteMany?: (args: unknown) => Promise<unknown>;
+  } | undefined;
+
+  const now = new Date();
+  const fiveMinutesAgo = usageMonitoringWindowStart(now, USAGE_LIVE_WINDOW_MINUTES);
+  const fifteenMinutesAgo = usageMonitoringWindowStart(now, USAGE_ACTIVITY_WINDOW_MINUTES);
+  const [cleanup, serverHealth] = await Promise.all([
+    cleanupUsageMonitoringData(prisma, now),
+    buildAdminServerHealth(prisma),
+  ]);
+
+  const rows = usageHeartbeatClient?.findMany ? await usageHeartbeatClient.findMany({
+    where: { lastSeenAt: { gte: fifteenMinutesAgo } },
+    orderBy: { lastSeenAt: 'desc' },
+    take: 500,
+    include: { user: { select: { id: true, email: true, profile: { select: { displayName: true, handle: true, avatarUrl: true } } } } },
+  }) : [];
+
+  const metricRows = apiRequestMetricClient?.findMany ? await apiRequestMetricClient.findMany({
+    where: { createdAt: { gte: fifteenMinutesAgo } },
+    orderBy: { createdAt: 'desc' },
+    take: 5000,
+  }) : [];
+
+  const latestRows = latestByIdentity(rows);
+  const liveRows = latestRows.filter((row) => row.lastSeenAt >= fiveMinutesAgo);
+  const activeUsers5m = new Set(liveRows.filter((row) => row.userId).map((row) => row.userId)).size;
+  const activeUsers15m = new Set(latestRows.filter((row) => row.userId).map((row) => row.userId)).size;
+  const activeGuests5m = liveRows.filter((row) => !row.userId).length;
+  const activeSessions15m = latestRows.length;
+
+  const metricsByUserId = new Map<string, AdminApiRequestMetricRow[]>();
+  for (const metric of metricRows) {
+    if (!metric.userId) continue;
+    metricsByUserId.set(metric.userId, [...(metricsByUserId.get(metric.userId) ?? []), metric]);
+  }
+
+  const areaMap = new Map<string, { area: string; count: number; liveCount: number; lastSeenAt: Date | null }>();
+  for (const row of latestRows) {
+    const existing = areaMap.get(row.appArea) ?? { area: row.appArea, count: 0, liveCount: 0, lastSeenAt: null };
+    existing.count += 1;
+    if (row.lastSeenAt >= fiveMinutesAgo) existing.liveCount += 1;
+    if (!existing.lastSeenAt || row.lastSeenAt > existing.lastSeenAt) existing.lastSeenAt = row.lastSeenAt;
+    areaMap.set(row.appArea, existing);
+  }
+
+  const activeUsers = latestRows
+    .filter((row) => row.userId && row.user)
+    .slice(0, 80)
+    .map((row) => {
+      const userMetrics = metricsByUserId.get(row.user!.id) ?? [];
+      const apiRequests15m = userMetrics.length;
+      const apiErrors15m = metricErrorCount(userMetrics);
+      const apiAverageDurationMs15m = averageDurationMs(userMetrics);
+      const liveNow = row.lastSeenAt >= fiveMinutesAgo;
+      const usageWeight = calculateUsageWeight({ requests: apiRequests15m, errors: apiErrors15m, averageDurationMs: apiAverageDurationMs15m, liveNow });
+      return {
+        userId: row.user!.id,
+        email: row.user!.email,
+        displayName: row.user!.profile?.displayName ?? null,
+        handle: row.user!.profile?.handle ?? null,
+        avatarUrl: row.user!.profile?.avatarUrl ?? null,
+        currentArea: row.appArea,
+        routePattern: row.routePattern,
+        lastSeenAt: row.lastSeenAt.toISOString(),
+        liveNow,
+        apiRequests15m,
+        apiErrors15m,
+        apiAverageDurationMs15m,
+        usageWeight: usageWeight.weight,
+        usageWeightReason: usageWeight.reason,
+      };
+    });
+  const usageWeights = summarizeUsageWeights(activeUsers);
+
+  return res.json({
+    generatedAt: now.toISOString(),
+    retentionHours: USAGE_PRESENCE_RETENTION_HOURS,
+    summary: {
+      activeUsers5m,
+      activeUsers15m,
+      activeGuests5m,
+      activeSessions15m,
+      apiRequests15m: metricRows.length,
+      apiErrors15m: metricErrorCount(metricRows),
+      apiAverageDurationMs15m: averageDurationMs(metricRows),
+      liteUsers15m: usageWeights.lite,
+      mediumUsers15m: usageWeights.medium,
+      heavyUsers15m: usageWeights.heavy,
+    },
+    areas: Array.from(areaMap.values()).map((item) => ({ ...item, lastSeenAt: item.lastSeenAt?.toISOString() ?? null })).sort((a, b) => b.count - a.count || b.liveCount - a.liveCount),
+    serverHealth,
+    apiMetrics: {
+      available: Boolean(apiRequestMetricClient?.findMany),
+      windowMinutes: USAGE_ACTIVITY_WINDOW_MINUTES,
+      retentionHours: API_METRICS_RETENTION_HOURS,
+      areaStats: buildApiAreaStats(metricRows),
+      slowestRoutes: buildApiRouteStats(metricRows),
+    },
+    activeUsers,
+    usageWeights: {
+      windowMinutes: USAGE_ACTIVITY_WINDOW_MINUTES,
+      rule: 'Lite/medium/heavy is based only on safe recent heartbeat, API request count, error count, and average API response time.',
+      counts: usageWeights,
+    },
+    retention: {
+      presenceHours: cleanup.presenceRetentionHours,
+      apiMetricsHours: cleanup.apiMetricsRetentionHours,
+      cleanup: 'Rows older than the retention windows are ignored by queries and deleted during heartbeat, API metric, or admin usage reads.',
+    },
+    privacy: { contentVisible: false, note: USAGE_MONITORING_PRIVACY_NOTE },
   });
 }));
 
@@ -658,14 +907,15 @@ adminRoutes.patch('/reports/:reportId/action', asyncRoute(async (req, res) => {
 }));
 
 adminRoutes.get('/users', asyncRoute(async (req, res) => {
+  const userId = toStringParam(req.query.userId);
   const q = toStringParam(req.query.q);
   const rawTrustTier = toStringParam(req.query.trustTier);
   const trustTier = rawTrustTier && ['new', 'email_verified', 'stripe_verified', 'trusted', 'restricted'].includes(rawTrustTier) ? rawTrustTier as 'new' | 'email_verified' | 'stripe_verified' | 'trusted' | 'restricted' : undefined;
   const rawRole = toStringParam(req.query.role);
   const role = rawRole && ['user', 'admin'].includes(rawRole) ? rawRole as 'user' | 'admin' : undefined;
-  const take = clampTake(req.query.take, 100, 250);
+  const take = userId ? 1 : clampTake(req.query.take, 100, 250);
   const users = await prisma.user.findMany({
-    where: {
+    where: userId ? { id: userId } : {
       ...(trustTier ? { trustTier } : {}),
       ...(role ? { role } : {}),
       ...(q ? {

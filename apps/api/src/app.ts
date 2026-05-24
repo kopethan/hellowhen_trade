@@ -8,6 +8,7 @@ import { serveUploadedMedia } from './modules/media/media.routes.js';
 import { airwallexWebhookRoutes } from './modules/money/providers/airwallexWebhook.routes.js';
 import { stripeWebhookRoutes } from './modules/stripe/stripeWebhook.routes.js';
 import { requireMoneyFeaturesVisible } from './middleware/featureGates.js';
+import { recordApiRequestMetric } from './middleware/apiRequestMetrics.js';
 
 const allowedOrigins = new Set([env.webOrigin, env.mobileOrigin].filter(Boolean));
 
@@ -53,6 +54,7 @@ export function createApp() {
   app.use('/stripe', requireMoneyFeaturesVisible('Stripe webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), stripeWebhookRoutes);
   app.use('/airwallex', requireMoneyFeaturesVisible('Airwallex webhook features'), express.raw({ type: 'application/json', limit: '1mb' }), airwallexWebhookRoutes);
   app.use(express.json({ limit: '1mb' }));
+  app.use(recordApiRequestMetric);
   app.get('/uploads/:storageKey', serveUploadedMedia);
   app.use('/uploads', (_req, res) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');

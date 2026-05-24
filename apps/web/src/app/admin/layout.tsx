@@ -16,6 +16,7 @@ const adminNavItems = [
   { href: '/admin', label: 'Overview' },
   { href: '/admin/library', label: 'Starter library' },
   { href: '/admin/users', label: 'Users' },
+  { href: '/admin/usage', label: 'Usage' },
   { href: '/admin/content', label: 'Content' },
   { href: '/admin/reports', label: 'Reports' },
   { href: '/admin/support', label: 'Support' },

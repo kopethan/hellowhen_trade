@@ -2301,3 +2301,20 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .proposal-edit-form select {
   width: 100%;
 }
+
+/* Admin usage presence */
+.admin-usage-area-list { display: grid; gap: 9px; }
+.admin-usage-area-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface-soft); padding: 12px; }
+.admin-usage-area-row span { display: grid; gap: 4px; min-width: 0; }
+.admin-usage-area-row strong { color: var(--app-text); font-size: 15px; font-weight: 950; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.admin-usage-area-row code { display: inline-block; max-width: min(280px, 100%); overflow: hidden; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text); padding: 3px 7px; font-size: 12px; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.admin-usage-area-row small { overflow: hidden; color: var(--app-text-muted); font-size: 12px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.admin-usage-area-row em { color: var(--app-text-muted); font-style: normal; font-size: 12px; font-weight: 900; white-space: nowrap; }
+.admin-table-card code { display: inline-block; max-width: 260px; overflow: hidden; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 4px 8px; font-size: 12px; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.admin-usage-action-links { display: flex; flex-wrap: wrap; gap: 8px; min-width: 150px; }
+.admin-usage-action-links .button { min-height: 32px; padding: 7px 10px; font-size: 12px; line-height: 1.1; }
+
+@media (max-width: 700px) {
+  .admin-usage-area-row { grid-template-columns: 1fr; }
+  .admin-usage-area-row em { justify-self: start; }
+}
