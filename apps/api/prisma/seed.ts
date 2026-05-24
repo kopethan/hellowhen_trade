@@ -1573,8 +1573,12 @@ async function main() {
     });
   }
 
-  const existingProposal = await prisma.tradeProposal.findUnique({
-    where: { tradeId_applicantId: { tradeId: openTrade.id, applicantId: helper.id } },
+  const existingProposal = await prisma.tradeProposal.findFirst({
+    where: {
+      tradeId: openTrade.id,
+      applicantId: helper.id,
+      message: 'I can review the hero section and send a concise set of layout and copy notes tomorrow.',
+    },
   });
 
   if (!existingProposal) {

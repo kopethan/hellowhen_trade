@@ -232,6 +232,11 @@ function compactList(values: string[] | null | undefined) {
   return (values ?? []).map((value) => value.trim()).filter(Boolean);
 }
 
+function tr(i18n: TradeI18n, key: string, fallback: string, values?: Parameters<NonNullable<TradeI18n["t"]>>[1]) {
+  const translated = i18n.t?.(key, values);
+  return translated && translated !== key ? translated : fallback;
+}
+
 function ProposalSideDetails({
   kind,
   item,
@@ -243,28 +248,28 @@ function ProposalSideDetails({
 }) {
   const timingLabel =
     kind === "need"
-      ? i18n.t("trade.labels.timing")
-      : i18n.t("trade.labels.availability");
+      ? tr(i18n, "trade.labels.timing", "Timing")
+      : tr(i18n, "trade.labels.availability", "Availability");
   const timingValue =
     kind === "need" ? (item as NeedDto).timing : (item as OfferDto).availability;
   const includes = kind === "offer" ? compactList((item as OfferDto).includes) : [];
   const tags = compactList(item.tags);
   const media = item.media?.filter((asset) => Boolean(asset.url)) ?? [];
   const rows = [
-    { label: i18n.t("trade.labels.category"), value: item.category },
-    { label: i18n.t("trade.labels.mode"), value: formatMode(item.mode, i18n) },
+    { label: tr(i18n, "trade.labels.category", "Category"), value: item.category },
+    { label: tr(i18n, "trade.labels.mode", "Mode"), value: formatMode(item.mode, i18n) },
     { label: timingLabel, value: timingValue },
-    { label: i18n.t("trade.labels.location"), value: item.locationLabel },
-    { label: i18n.t("trade.labels.type"), value: item.itemType },
+    { label: tr(i18n, "trade.labels.location", "Location"), value: item.locationLabel },
+    { label: tr(i18n, "trade.labels.type", "Type"), value: item.itemType },
   ].filter((row) => Boolean(row.value));
 
   return (
     <div className="proposal-side-details">
       <section className="proposal-side-details__section">
         <span className="proposal-side-details__label">
-          {i18n.t("trade.labels.description")}
+          {tr(i18n, "trade.labels.description", "Description")}
         </span>
-        <p>{item.description || i18n.t("trade.labels.noDescription")}</p>
+        <p>{item.description || tr(i18n, "trade.labels.noDescription", "No description yet.")}</p>
       </section>
       {rows.length ? (
         <dl className="proposal-side-details__rows">
@@ -279,7 +284,7 @@ function ProposalSideDetails({
       {includes.length ? (
         <section className="proposal-side-details__section">
           <span className="proposal-side-details__label">
-            {i18n.t("trade.labels.includes")}
+            {tr(i18n, "trade.labels.includes", "Includes")}
           </span>
           <div className="proposal-side-details__chips">
             {includes.map((value) => (
@@ -291,7 +296,7 @@ function ProposalSideDetails({
       {tags.length ? (
         <section className="proposal-side-details__section">
           <span className="proposal-side-details__label">
-            {i18n.t("trade.labels.tags")}
+            {tr(i18n, "trade.labels.tags", "Tags")}
           </span>
           <div className="proposal-side-details__chips">
             {tags.map((tag) => (
@@ -302,7 +307,7 @@ function ProposalSideDetails({
       ) : null}
       <section className="proposal-side-details__section">
         <span className="proposal-side-details__label">
-          {i18n.t("trade.labels.images")}
+          {tr(i18n, "trade.labels.images", "Images")}
         </span>
         {media.length ? (
           <div className="proposal-side-details__media-grid">
@@ -312,7 +317,7 @@ function ProposalSideDetails({
           </div>
         ) : (
           <p className="proposal-side-details__empty">
-            {i18n.t("trade.proposals.noProposalItemImages")}
+            {tr(i18n, "trade.proposals.noProposalItemImages", "No images attached.")}
           </p>
         )}
       </section>
@@ -361,12 +366,12 @@ function messageSenderStatus(
 function formatEditTrace(count: number | undefined, date: string | null | undefined, i18n: TradeI18n) {
   if (!date) return "";
   const n = Math.max(1, count ?? 1);
-  return i18n.t("trade.proposals.editedCountAt", { count: n, date: formatWebDateTime(date, "-", i18n.language) });
+  return tr(i18n, "trade.proposals.editedCountAt", `Edited ${n} time${n === 1 ? "" : "s"} · ${formatWebDateTime(date, "-", i18n.language)}`, { count: n, date: formatWebDateTime(date, "-", i18n.language) });
 }
 
 function formatDeletedTrace(date: string | null | undefined, i18n: TradeI18n) {
   if (!date) return "";
-  return i18n.t("trade.proposals.messageDeletedAt", { date: formatWebDateTime(date, "-", i18n.language) });
+  return tr(i18n, "trade.proposals.messageDeletedAt", `Deleted · ${formatWebDateTime(date, "-", i18n.language)}`, { date: formatWebDateTime(date, "-", i18n.language) });
 }
 
 function isInitialProposalConversationMessage(
@@ -1280,7 +1285,7 @@ export function ProposalConversationClient({
             )}
             {canEditProposalContent && !editingProposal ? (
               <div className="message-actions message-actions--proposal">
-                <button type="button" className="secondary" onClick={startProposalEdit} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
+                <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
                 {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
               </div>
             ) : null}

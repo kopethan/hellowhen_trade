@@ -1,2 +1,3 @@
--- AlterTable
-ALTER TABLE "ProposalMessage" ALTER COLUMN "updatedAt" DROP DEFAULT;
+-- This migration was superseded by 20260524153000_proposal_message_edit_delete.
+-- It intentionally remains empty so a fresh shadow database can apply the
+-- proposal message edit/delete migration in the correct order.
