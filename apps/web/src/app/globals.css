@@ -469,6 +469,9 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .proposal-composer--with-side { gap: 12px; }
 .proposal-side-callout { display: flex; align-items: flex-start; gap: 9px; width: 100%; margin: 0; border: 1px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); border-radius: 18px; background: color-mix(in srgb, var(--proposal-bg) 58%, var(--app-surface)); color: var(--proposal-text); padding: 12px 13px; font-size: 13px; font-weight: 850; line-height: 1.38; }
 .proposal-side-callout svg { flex: 0 0 auto; margin-top: 1px; }
+
+.proposal-composer textarea[aria-invalid="true"], .conversation-reply textarea[aria-invalid="true"] { border-color: var(--danger-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-border) 22%, transparent); }
+.field-error { margin: 0; border: 1px solid color-mix(in srgb, var(--danger-border) 82%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--danger-bg) 62%, var(--app-surface)); color: var(--danger-text); padding: 9px 11px; font-size: 12px; font-weight: 900; line-height: 1.35; }
 .proposal-list { display: grid; gap: 10px; }
 .proposal-card { display: grid; gap: 10px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 12px; }
 .proposal-card--active { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 38%, var(--app-surface)); }
@@ -514,6 +517,13 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .message-bubble p { margin: 0; color: inherit; }
 .conversation-reply { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
 .conversation-reply textarea { min-height: 52px; resize: vertical; }
+
+.proposal-conversation-list .message-bubble { justify-self: start; }
+.proposal-conversation-list .message-bubble--own { justify-self: end; background: var(--app-surface-soft); }
+.proposal-conversation-list .message-bubble--proposal-package { justify-self: stretch; width: 100%; max-width: 100%; border-radius: 24px; background: color-mix(in srgb, var(--proposal-bg) 72%, var(--app-surface)); }
+.proposal-conversation-list .message-bubble--proposal-package .proposal-side-preview { margin-top: 8px; }
+.proposal-conversation-list .message-bubble p { overflow-wrap: anywhere; }
+.conversation-reply .field-error { grid-column: 1 / -1; }
 
 
 @media (max-width: 380px) {
