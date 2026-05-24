@@ -686,6 +686,9 @@ model TradeProposal {
   proposedNeedId  String?
   proposedOfferId String?
   message         String
+  messageEditedAt DateTime?
+  messageEditCount Int           @default(0)
+  messageDeletedAt DateTime?
   status          ProposalStatus @default(pending)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -710,6 +713,10 @@ model ProposalMessage {
   senderId   String
   body       String
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  editedAt   DateTime?
+  editCount  Int      @default(0)
+  deletedAt  DateTime?
 
   proposal TradeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
   sender   User          @relation("SentProposalMessages", fields: [senderId], references: [id], onDelete: Cascade)

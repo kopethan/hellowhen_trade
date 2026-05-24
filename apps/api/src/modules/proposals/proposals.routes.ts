@@ -1,5 +1,5 @@
-import { Router } from 'express';
-import { createProposalMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
+import { Router, type Response } from 'express';
+import { createProposalMessageRequestSchema, updateProposalMessageRequestSchema, updateProposalPrivateMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
@@ -11,6 +11,64 @@ export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
 function canReadProposal(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) { return proposal.applicantId === actorId || proposal.trade.ownerId === actorId || proposal.trade.providerId === actorId; }
 function otherProposalMemberId(proposal: { applicantId: string; trade: { ownerId: string } }, actorId: string) { return actorId === proposal.applicantId ? proposal.trade.ownerId : proposal.applicantId; }
+
+function proposalSideRequirement(postType?: string | null) {
+  if (postType === 'open_need') return 'offer' as const;
+  if (postType === 'open_offer') return 'need' as const;
+  return null;
+}
+
+function inventoryUnavailable(status?: string | null) {
+  return status !== 'active';
+}
+
+function conversationLocked(proposal: { status: string; trade: { status: string } }) {
+  return proposal.status !== 'pending' || ['cancelled', 'closed'].includes(proposal.trade.status);
+}
+
+async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; trade: { postType?: string | null } }) {
+  const requiredSide = proposalSideRequirement(proposal.trade.postType);
+  const nextNeedProvided = Object.prototype.hasOwnProperty.call(input, 'proposedNeedId');
+  const nextOfferProvided = Object.prototype.hasOwnProperty.call(input, 'proposedOfferId');
+  const nextNeedId = nextNeedProvided ? input.proposedNeedId ?? null : proposal.proposedNeedId ?? null;
+  const nextOfferId = nextOfferProvided ? input.proposedOfferId ?? null : proposal.proposedOfferId ?? null;
+
+  if (nextNeedId && nextOfferId) {
+    throw Object.assign(new Error('proposal_side_mismatch'), { code: 'PROPOSAL_SIDE_MISMATCH' });
+  }
+
+  if (requiredSide === 'offer' && !nextOfferId) {
+    throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_OFFER_REQUIRED' });
+  }
+  if (requiredSide === 'need' && !nextNeedId) {
+    throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_NEED_REQUIRED' });
+  }
+
+  if (nextOfferId) {
+    const offer = await prisma.offer.findFirst({ where: { id: nextOfferId, ownerId: proposal.applicantId } });
+    if (!offer || inventoryUnavailable(offer.status)) {
+      throw Object.assign(new Error('invalid_proposal_offer'), { code: 'INVALID_PROPOSAL_OFFER' });
+    }
+  }
+  if (nextNeedId) {
+    const need = await prisma.need.findFirst({ where: { id: nextNeedId, ownerId: proposal.applicantId } });
+    if (!need || inventoryUnavailable(need.status)) {
+      throw Object.assign(new Error('invalid_proposal_need'), { code: 'INVALID_PROPOSAL_NEED' });
+    }
+  }
+
+  return { proposedNeedId: nextNeedId, proposedOfferId: nextOfferId };
+}
+
+function proposalSideErrorResponse(res: Response, error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+  if (code === 'PROPOSAL_SIDE_MISMATCH') return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Choose either one Need or one Offer for this proposal, not both.' });
+  if (code === 'PROPOSAL_OFFER_REQUIRED') return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
+  if (code === 'PROPOSAL_NEED_REQUIRED') return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
+  if (code === 'INVALID_PROPOSAL_OFFER') return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+  if (code === 'INVALID_PROPOSAL_NEED') return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+  return null;
+}
 
 proposalsRoutes.get('/mine', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
@@ -62,6 +120,79 @@ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(as
   }
   return res.status(400).json({ error: 'unsupported_proposal_status' });
 }));
+
+proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = updateProposalMessageRequestSchema.parse(req.body);
+  const actorId = req.user!.id;
+  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+  if (!proposal) return res.status(404).json({ error: 'not_found' });
+  if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
+  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
+
+  let nextSide: { proposedNeedId: string | null; proposedOfferId: string | null };
+  try {
+    nextSide = await resolveProposalSideUpdate(input, proposal);
+  } catch (error) {
+    const response = proposalSideErrorResponse(res, error);
+    if (response) return response;
+    throw error;
+  }
+
+  const messageChanged = typeof input.message === 'string' && input.message !== proposal.message;
+  const sideChanged = nextSide.proposedNeedId !== proposal.proposedNeedId || nextSide.proposedOfferId !== proposal.proposedOfferId;
+  if (!messageChanged && !sideChanged && !proposal.messageDeletedAt) {
+    const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+    return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
+  }
+
+  const now = new Date();
+  const updated = await prisma.$transaction(async (tx) => {
+    const data: any = {
+      proposedNeedId: nextSide.proposedNeedId,
+      proposedOfferId: nextSide.proposedOfferId,
+    };
+    if (typeof input.message === 'string') {
+      data.message = input.message;
+      data.messageEditedAt = now;
+      data.messageEditCount = { increment: 1 };
+      data.messageDeletedAt = null;
+    }
+    await tx.tradeProposal.update({ where: { id: proposal.id }, data });
+    if (typeof input.message === 'string') {
+      const firstMessage = await tx.proposalMessage.findFirst({ where: { proposalId: proposal.id, senderId: proposal.applicantId }, orderBy: { createdAt: 'asc' } });
+      if (firstMessage) {
+        await tx.proposalMessage.update({ where: { id: firstMessage.id }, data: { body: input.message, editedAt: now, editCount: { increment: 1 }, deletedAt: null } });
+      }
+    }
+    return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+  });
+
+  res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
+}));
+
+proposalsRoutes.delete('/:proposalId/message', requireActiveAccount, asyncRoute(async (req, res) => {
+  const actorId = req.user!.id;
+  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+  if (!proposal) return res.status(404).json({ error: 'not_found' });
+  if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
+  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
+  if (proposal.messageDeletedAt) {
+    const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+    return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
+  }
+
+  const now = new Date();
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.tradeProposal.update({ where: { id: proposal.id }, data: { message: '', messageDeletedAt: now } });
+    const firstMessage = await tx.proposalMessage.findFirst({ where: { proposalId: proposal.id, senderId: proposal.applicantId }, orderBy: { createdAt: 'asc' } });
+    if (firstMessage) {
+      await tx.proposalMessage.update({ where: { id: firstMessage.id }, data: { body: '', deletedAt: now } });
+    }
+    return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+  });
+  res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
+}));
+
 proposalsRoutes.get('/:proposalId/messages', asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
@@ -81,4 +212,38 @@ proposalsRoutes.post('/:proposalId/messages', requireActiveAccount, asyncRoute(a
   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: publicUserPreviewSelect } } });
   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
   res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
+}));
+
+proposalsRoutes.patch('/:proposalId/messages/:messageId', requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = updateProposalPrivateMessageRequestSchema.parse(req.body);
+  const actorId = req.user!.id;
+  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+  if (!proposal) return res.status(404).json({ error: 'not_found' });
+  if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
+  const message = await prisma.proposalMessage.findUnique({ where: { id: req.params.messageId } });
+  if (!message || message.proposalId !== proposal.id) return res.status(404).json({ error: 'not_found' });
+  if (message.senderId !== actorId) return res.status(403).json({ error: 'forbidden' });
+  if (message.deletedAt) return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
+  const updated = await prisma.proposalMessage.update({ where: { id: message.id }, data: { body: input.body, editedAt: new Date(), editCount: { increment: 1 } }, include: { sender: { select: publicUserPreviewSelect } } });
+  const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
+  res.json({ message: updated, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
+}));
+
+proposalsRoutes.delete('/:proposalId/messages/:messageId', requireActiveAccount, asyncRoute(async (req, res) => {
+  const actorId = req.user!.id;
+  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+  if (!proposal) return res.status(404).json({ error: 'not_found' });
+  if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
+  const message = await prisma.proposalMessage.findUnique({ where: { id: req.params.messageId } });
+  if (!message || message.proposalId !== proposal.id) return res.status(404).json({ error: 'not_found' });
+  if (message.senderId !== actorId) return res.status(403).json({ error: 'forbidden' });
+  if (message.deletedAt) {
+    const existing = await prisma.proposalMessage.findUniqueOrThrow({ where: { id: message.id }, include: { sender: { select: publicUserPreviewSelect } } });
+    return res.json({ message: existing });
+  }
+  const updated = await prisma.proposalMessage.update({ where: { id: message.id }, data: { body: '', deletedAt: new Date() }, include: { sender: { select: publicUserPreviewSelect } } });
+  const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
+  res.json({ message: updated, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
 }));

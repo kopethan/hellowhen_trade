@@ -1,0 +1,276 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 62581d4..f36de50 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -538,6 +538,23 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .proposal-conversation-list .message-bubble--own { justify-self: end; background: var(--app-surface-soft); }
+ .proposal-conversation-list .message-bubble--proposal-package { justify-self: stretch; width: 100%; max-width: 100%; border-radius: 24px; background: color-mix(in srgb, var(--proposal-bg) 72%, var(--app-surface)); }
+ .proposal-conversation-list .message-bubble--proposal-package .proposal-side-preview { margin-top: 8px; }
++.proposal-side-review { display: grid; gap: 8px; }
++.proposal-side-details-toggle { justify-self: start; min-height: 32px; border: 1px solid color-mix(in srgb, var(--proposal-border) 58%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--proposal-bg) 50%, var(--app-surface)); color: var(--proposal-text); padding: 0 12px; font-size: 12px; font-weight: 950; letter-spacing: .04em; text-transform: uppercase; }
++.proposal-side-details-toggle:hover, .proposal-side-details-toggle:focus-visible { background: color-mix(in srgb, var(--proposal-bg) 76%, var(--app-surface)); }
++.proposal-side-details { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface) 88%, transparent); padding: 11px; }
++.proposal-side-details__section { display: grid; gap: 6px; }
++.proposal-side-details__label { color: var(--proposal-text); font-size: 10px; font-weight: 950; letter-spacing: .1em; text-transform: uppercase; }
++.proposal-side-details__section p { color: var(--app-text-muted); font-size: 13px; font-weight: 750; line-height: 1.45; }
++.proposal-side-details__rows { display: grid; gap: 0; margin: 0; border-top: 1px solid color-mix(in srgb, var(--app-border) 66%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--app-border) 66%, transparent); }
++.proposal-side-details__rows div { display: grid; grid-template-columns: minmax(88px, .55fr) minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--app-border) 52%, transparent); }
++.proposal-side-details__rows div:first-child { border-top: 0; }
++.proposal-side-details__rows dt { color: var(--app-text-muted); font-size: 12px; font-weight: 850; }
++.proposal-side-details__rows dd { margin: 0; color: var(--app-text); font-size: 12px; font-weight: 900; text-align: right; overflow-wrap: anywhere; }
++.proposal-side-details__chips { display: flex; flex-wrap: wrap; gap: 6px; }
++.proposal-side-details__chips span { border: 1px solid color-mix(in srgb, var(--proposal-border) 48%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--proposal-bg) 48%, var(--app-surface)); color: var(--proposal-text); padding: 5px 8px; font-size: 11px; font-weight: 900; }
++.proposal-side-details__media-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
++.proposal-side-details__media-grid img { width: 100%; aspect-ratio: 1.2; object-fit: cover; border-radius: 14px; background: var(--app-border); }
++.proposal-side-details__empty { color: var(--app-text-muted); }
+ .proposal-conversation-list .message-bubble p { overflow-wrap: anywhere; }
+ .proposal-timeline-list { gap: 10px; }
+ .proposal-timeline-event { display: grid; gap: 10px; }
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 78e11c1..5829f71 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -155,13 +155,116 @@ function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
+   const sideTiming =
+     (item as NeedDto).timing ?? (item as OfferDto).availability;
+   return (
+-    [item.category, item.mode, sideTiming].filter(Boolean).join(" · ") ||
++    [item.category, formatMode(item.mode, i18n), sideTiming].filter(Boolean).join(" · ") ||
+     item.itemType ||
+     i18n?.t?.("trade.labels.savedItem") ||
+     "Saved item"
+   );
+ }
+ 
++function formatMode(
++  mode: NeedDto["mode"] | OfferDto["mode"] | null | undefined,
++  i18n?: TradeI18n,
++) {
++  if (!mode) return "";
++  if (mode === "remote" || mode === "local" || mode === "hybrid") {
++    return i18n?.t?.(`trade.modes.${mode}`) ?? mode;
++  }
++  return String(mode);
++}
++
++function compactList(values: string[] | null | undefined) {
++  return (values ?? []).map((value) => value.trim()).filter(Boolean);
++}
++
++function ProposalSideDetails({
++  kind,
++  item,
++  i18n,
++}: {
++  kind: "need" | "offer";
++  item: NeedDto | OfferDto;
++  i18n: TradeI18n;
++}) {
++  const timingLabel =
++    kind === "need"
++      ? i18n.t("trade.labels.timing")
++      : i18n.t("trade.labels.availability");
++  const timingValue =
++    kind === "need" ? (item as NeedDto).timing : (item as OfferDto).availability;
++  const includes = kind === "offer" ? compactList((item as OfferDto).includes) : [];
++  const tags = compactList(item.tags);
++  const media = item.media?.filter((asset) => Boolean(asset.url)) ?? [];
++  const rows = [
++    { label: i18n.t("trade.labels.category"), value: item.category },
++    { label: i18n.t("trade.labels.mode"), value: formatMode(item.mode, i18n) },
++    { label: timingLabel, value: timingValue },
++    { label: i18n.t("trade.labels.location"), value: item.locationLabel },
++    { label: i18n.t("trade.labels.type"), value: item.itemType },
++  ].filter((row) => Boolean(row.value));
++
++  return (
++    <div className="proposal-side-details">
++      <section className="proposal-side-details__section">
++        <span className="proposal-side-details__label">
++          {i18n.t("trade.labels.description")}
++        </span>
++        <p>{item.description || i18n.t("trade.labels.noDescription")}</p>
++      </section>
++      {rows.length ? (
++        <dl className="proposal-side-details__rows">
++          {rows.map((row) => (
++            <div key={row.label}>
++              <dt>{row.label}</dt>
++              <dd>{row.value}</dd>
++            </div>
++          ))}
++        </dl>
++      ) : null}
++      {includes.length ? (
++        <section className="proposal-side-details__section">
++          <span className="proposal-side-details__label">
++            {i18n.t("trade.labels.includes")}
++          </span>
++          <div className="proposal-side-details__chips">
++            {includes.map((value) => (
++              <span key={value}>{value}</span>
++            ))}
++          </div>
++        </section>
++      ) : null}
++      {tags.length ? (
++        <section className="proposal-side-details__section">
++          <span className="proposal-side-details__label">
++            {i18n.t("trade.labels.tags")}
++          </span>
++          <div className="proposal-side-details__chips">
++            {tags.map((tag) => (
++              <span key={tag}>#{tag}</span>
++            ))}
++          </div>
++        </section>
++      ) : null}
++      <section className="proposal-side-details__section">
++        <span className="proposal-side-details__label">
++          {i18n.t("trade.labels.images")}
++        </span>
++        {media.length ? (
++          <div className="proposal-side-details__media-grid">
++            {media.map((asset) => (
++              <img key={asset.id} src={asset.url} alt="" />
++            ))}
++          </div>
++        ) : (
++          <p className="proposal-side-details__empty">
++            {i18n.t("trade.proposals.noProposalItemImages")}
++          </p>
++        )}
++      </section>
++    </div>
++  );
++}
++
+ function proposalSideItem(
+   proposal: TradeProposalDto,
+ ): { kind: "need"; item: NeedDto } | { kind: "offer"; item: OfferDto } | null {
+@@ -301,11 +404,13 @@ export function ProposalConversationClient({
+   const [messageEditError, setMessageEditError] = useState<string | null>(null);
+   const [deleteConfirmTarget, setDeleteConfirmTarget] =
+     useState<DeleteConfirmTarget | null>(null);
++  const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
+ 
+   const sideItem = useMemo(
+     () => (proposal ? proposalSideItem(proposal) : null),
+     [proposal],
+   );
++  const sideItemId = sideItem?.item.id ?? null;
+   const actorId = auth.user?.id ?? null;
+   const isOwner = Boolean(
+     proposal?.trade?.ownerId && actorId === proposal.trade.ownerId,
+@@ -361,6 +466,10 @@ export function ProposalConversationClient({
+   const draftNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposalDraftNeedId) ?? null, [activeProposalNeeds, proposalDraftNeedId]);
+   const draftOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposalDraftOfferId) ?? null, [activeProposalOffers, proposalDraftOfferId]);
+ 
++  useEffect(() => {
++    setProposalDetailsOpen(false);
++  }, [sideItemId]);
++
+   async function loadProposal(options?: { quiet?: boolean }) {
+     if (!auth.isAuthenticated) return;
+     if (!options?.quiet) setLoading(true);
+@@ -569,6 +678,7 @@ export function ProposalConversationClient({
+     setProposalDraftOfferId(proposal.proposedOfferId ?? "");
+     setProposalSideChoice(proposal.proposedNeedId ? "need" : proposal.proposedOfferId ? "offer" : "none");
+     setProposalEditError(null);
++    setProposalDetailsOpen(false);
+     setEditingProposal(true);
+     void loadProposalSideInventory();
+   }
+@@ -1060,12 +1170,30 @@ export function ProposalConversationClient({
+             ) : (
+               <>
+                 {sideItem ? (
+-                  <ProposalSidePreview
+-                    kind={sideItem.kind}
+-                    item={sideItem.item}
+-                    compact
+-                    i18n={i18n}
+-                  />
++                  <div className="proposal-side-review">
++                    <ProposalSidePreview
++                      kind={sideItem.kind}
++                      item={sideItem.item}
++                      compact
++                      i18n={i18n}
++                    />
++                    <button
++                      type="button"
++                      className="proposal-side-details-toggle"
++                      onClick={() => setProposalDetailsOpen((open) => !open)}
++                    >
++                      {proposalDetailsOpen
++                        ? t("trade.proposals.hideProposalItemDetails")
++                        : t("trade.proposals.showProposalItemDetails")}
++                    </button>
++                    {proposalDetailsOpen ? (
++                      <ProposalSideDetails
++                        kind={sideItem.kind}
++                        item={sideItem.item}
++                        i18n={i18n}
++                      />
++                    ) : null}
++                  </div>
+                 ) : null}
+                 {proposal.messageDeletedAt ? (
+                   <p className="proposal-card__message proposal-timeline-event__note proposal-message-deleted">
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 8de3ca4..605b9e5 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -52,6 +52,13 @@ export const trade = {
+     selectedOffer: 'Selected Offer',
+     proposedNeed: 'Proposed Need',
+     proposedOffer: 'Proposed Offer',
++    description: 'Description',
++    category: 'Category',
++    timing: 'Timing',
++    availability: 'Availability',
++    location: 'Location',
++    includes: 'Includes',
++    images: 'Images',
+     needDetails: 'Need details',
+     offerDetails: 'Offer details',
+     needReference: 'Need reference',
+@@ -191,6 +198,9 @@ export const trade = {
+     proposalNoteDeleted: 'Proposal note deleted.',
+     changeProposalItem: 'Proposal item',
+     noAttachedItem: 'No attached item',
++    showProposalItemDetails: 'Show details',
++    hideProposalItemDetails: 'Hide details',
++    noProposalItemImages: 'No images attached to this proposed item yet.',
+     editedCountAt: 'Edited {{count}} time · {{date}}',
+     messageDeletedAt: 'Deleted · {{date}}',
+     editMessage: 'Edit',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index bdd4080..901421d 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -52,6 +52,13 @@ export const trade = {
+     selectedOffer: 'Offre sélectionnée',
+     proposedNeed: 'Besoin proposé',
+     proposedOffer: 'Offre proposée',
++    description: 'Description',
++    category: 'Catégorie',
++    timing: 'Délai',
++    availability: 'Disponibilité',
++    location: 'Lieu',
++    includes: 'Inclus',
++    images: 'Images',
+     needDetails: 'Détails du besoin',
+     offerDetails: 'Détails de l’offre',
+     needReference: 'Référence du besoin',
+@@ -191,6 +198,9 @@ export const trade = {
+     proposalNoteDeleted: 'Note de proposition supprimée.',
+     changeProposalItem: 'Élément proposé',
+     noAttachedItem: 'Aucun élément attaché',
++    showProposalItemDetails: 'Afficher les détails',
++    hideProposalItemDetails: 'Masquer les détails',
++    noProposalItemImages: 'Aucune image ajoutée à cet élément proposé pour le moment.',
+     editedCountAt: 'Modifié {{count}} fois · {{date}}',
+     messageDeletedAt: 'Supprimé · {{date}}',
+     editMessage: 'Modifier',

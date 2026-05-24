@@ -538,6 +538,23 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .proposal-conversation-list .message-bubble--own { justify-self: end; background: var(--app-surface-soft); }
 .proposal-conversation-list .message-bubble--proposal-package { justify-self: stretch; width: 100%; max-width: 100%; border-radius: 24px; background: color-mix(in srgb, var(--proposal-bg) 72%, var(--app-surface)); }
 .proposal-conversation-list .message-bubble--proposal-package .proposal-side-preview { margin-top: 8px; }
+.proposal-side-review { display: grid; gap: 8px; }
+.proposal-side-details-toggle { justify-self: start; min-height: 32px; border: 1px solid color-mix(in srgb, var(--proposal-border) 58%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--proposal-bg) 50%, var(--app-surface)); color: var(--proposal-text); padding: 0 12px; font-size: 12px; font-weight: 950; letter-spacing: .04em; text-transform: uppercase; }
+.proposal-side-details-toggle:hover, .proposal-side-details-toggle:focus-visible { background: color-mix(in srgb, var(--proposal-bg) 76%, var(--app-surface)); }
+.proposal-side-details { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface) 88%, transparent); padding: 11px; }
+.proposal-side-details__section { display: grid; gap: 6px; }
+.proposal-side-details__label { color: var(--proposal-text); font-size: 10px; font-weight: 950; letter-spacing: .1em; text-transform: uppercase; }
+.proposal-side-details__section p { color: var(--app-text-muted); font-size: 13px; font-weight: 750; line-height: 1.45; }
+.proposal-side-details__rows { display: grid; gap: 0; margin: 0; border-top: 1px solid color-mix(in srgb, var(--app-border) 66%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--app-border) 66%, transparent); }
+.proposal-side-details__rows div { display: grid; grid-template-columns: minmax(88px, .55fr) minmax(0, 1fr); gap: 10px; padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--app-border) 52%, transparent); }
+.proposal-side-details__rows div:first-child { border-top: 0; }
+.proposal-side-details__rows dt { color: var(--app-text-muted); font-size: 12px; font-weight: 850; }
+.proposal-side-details__rows dd { margin: 0; color: var(--app-text); font-size: 12px; font-weight: 900; text-align: right; overflow-wrap: anywhere; }
+.proposal-side-details__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.proposal-side-details__chips span { border: 1px solid color-mix(in srgb, var(--proposal-border) 48%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--proposal-bg) 48%, var(--app-surface)); color: var(--proposal-text); padding: 5px 8px; font-size: 11px; font-weight: 900; }
+.proposal-side-details__media-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.proposal-side-details__media-grid img { width: 100%; aspect-ratio: 1.2; object-fit: cover; border-radius: 14px; background: var(--app-border); }
+.proposal-side-details__empty { color: var(--app-text-muted); }
 .proposal-conversation-list .message-bubble p { overflow-wrap: anywhere; }
 .proposal-timeline-list { gap: 10px; }
 .proposal-timeline-event { display: grid; gap: 10px; }
@@ -2142,3 +2159,56 @@ html[data-theme="dark"] .inventory-empty-state__plus {
   min-height: 180px;
 }
 .proposal-timeline-event__status--danger { background: color-mix(in srgb, var(--danger-bg) 78%, transparent); color: var(--danger-text); }
+
+.proposal-edit-form,
+.message-edit-form {
+  display: grid;
+  gap: 10px;
+}
+.proposal-edit-form__side,
+.proposal-edit-form__optional-side {
+  display: grid;
+  gap: 9px;
+}
+.proposal-edit-form__choice-row,
+.proposal-edit-form__actions,
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.proposal-edit-form__choice-row .is-active {
+  border-color: var(--proposal-border);
+  background: color-mix(in srgb, var(--proposal-bg) 74%, var(--app-surface));
+  color: var(--proposal-text);
+}
+.message-actions button,
+.proposal-edit-form__actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.message-actions--proposal {
+  margin-top: -2px;
+}
+.message-meta {
+  margin: 2px 0 0;
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: .01em;
+}
+.message-deleted,
+.proposal-message-deleted {
+  color: var(--app-text-muted);
+  font-style: italic;
+}
+.message-edit-form textarea,
+.proposal-edit-form textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+.proposal-edit-form select {
+  width: 100%;
+}

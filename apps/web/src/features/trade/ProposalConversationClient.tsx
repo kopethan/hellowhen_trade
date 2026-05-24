@@ -27,6 +27,10 @@ type ProposalMessageResponse = {
   proposal?: TradeProposalDto;
 };
 
+type DeleteConfirmTarget =
+  | { kind: "proposal-note" }
+  | { kind: "message"; messageId: string };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object");
 }
@@ -49,6 +53,29 @@ function isProposalMessage(value: unknown): value is ProposalMessageDto {
     typeof value.senderId === "string" &&
     typeof value.body === "string"
   );
+}
+
+
+function isNeed(value: unknown): value is NeedDto {
+  return isRecord(value) && typeof value.id === "string" && typeof value.title === "string" && typeof value.description === "string";
+}
+
+function isOffer(value: unknown): value is OfferDto {
+  return isRecord(value) && typeof value.id === "string" && typeof value.title === "string" && typeof value.description === "string";
+}
+
+function normalizeNeeds(value: unknown): NeedDto[] {
+  if (Array.isArray(value)) return value.filter(isNeed);
+  if (isRecord(value) && Array.isArray(value.needs)) return value.needs.filter(isNeed);
+  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isNeed);
+  return [];
+}
+
+function normalizeOffers(value: unknown): OfferDto[] {
+  if (Array.isArray(value)) return value.filter(isOffer);
+  if (isRecord(value) && Array.isArray(value.offers)) return value.offers.filter(isOffer);
+  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isOffer);
+  return [];
 }
 
 function normalizeProposal(value: unknown): TradeProposalDto | null {
@@ -102,7 +129,10 @@ function messageListsMatch(
     return (
       message.id === nextMessage.id &&
       message.senderId === nextMessage.senderId &&
-      message.body === nextMessage.body
+      message.body === nextMessage.body &&
+      message.editedAt === nextMessage.editedAt &&
+      message.editCount === nextMessage.editCount &&
+      message.deletedAt === nextMessage.deletedAt
     );
   });
 }
@@ -125,10 +155,113 @@ function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
   const sideTiming =
     (item as NeedDto).timing ?? (item as OfferDto).availability;
   return (
-    [item.category, item.mode, sideTiming].filter(Boolean).join(" · ") ||
+    [item.category, formatMode(item.mode, i18n), sideTiming].filter(Boolean).join(" · ") ||
     item.itemType ||
     i18n?.t?.("trade.labels.savedItem") ||
     "Saved item"
+  );
+}
+
+function formatMode(
+  mode: NeedDto["mode"] | OfferDto["mode"] | null | undefined,
+  i18n?: TradeI18n,
+) {
+  if (!mode) return "";
+  if (mode === "remote" || mode === "local" || mode === "hybrid") {
+    return i18n?.t?.(`trade.modes.${mode}`) ?? mode;
+  }
+  return String(mode);
+}
+
+function compactList(values: string[] | null | undefined) {
+  return (values ?? []).map((value) => value.trim()).filter(Boolean);
+}
+
+function ProposalSideDetails({
+  kind,
+  item,
+  i18n,
+}: {
+  kind: "need" | "offer";
+  item: NeedDto | OfferDto;
+  i18n: TradeI18n;
+}) {
+  const timingLabel =
+    kind === "need"
+      ? i18n.t("trade.labels.timing")
+      : i18n.t("trade.labels.availability");
+  const timingValue =
+    kind === "need" ? (item as NeedDto).timing : (item as OfferDto).availability;
+  const includes = kind === "offer" ? compactList((item as OfferDto).includes) : [];
+  const tags = compactList(item.tags);
+  const media = item.media?.filter((asset) => Boolean(asset.url)) ?? [];
+  const rows = [
+    { label: i18n.t("trade.labels.category"), value: item.category },
+    { label: i18n.t("trade.labels.mode"), value: formatMode(item.mode, i18n) },
+    { label: timingLabel, value: timingValue },
+    { label: i18n.t("trade.labels.location"), value: item.locationLabel },
+    { label: i18n.t("trade.labels.type"), value: item.itemType },
+  ].filter((row) => Boolean(row.value));
+
+  return (
+    <div className="proposal-side-details">
+      <section className="proposal-side-details__section">
+        <span className="proposal-side-details__label">
+          {i18n.t("trade.labels.description")}
+        </span>
+        <p>{item.description || i18n.t("trade.labels.noDescription")}</p>
+      </section>
+      {rows.length ? (
+        <dl className="proposal-side-details__rows">
+          {rows.map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {includes.length ? (
+        <section className="proposal-side-details__section">
+          <span className="proposal-side-details__label">
+            {i18n.t("trade.labels.includes")}
+          </span>
+          <div className="proposal-side-details__chips">
+            {includes.map((value) => (
+              <span key={value}>{value}</span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {tags.length ? (
+        <section className="proposal-side-details__section">
+          <span className="proposal-side-details__label">
+            {i18n.t("trade.labels.tags")}
+          </span>
+          <div className="proposal-side-details__chips">
+            {tags.map((tag) => (
+              <span key={tag}>#{tag}</span>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      <section className="proposal-side-details__section">
+        <span className="proposal-side-details__label">
+          {i18n.t("trade.labels.images")}
+        </span>
+        {media.length ? (
+          <div className="proposal-side-details__media-grid">
+            {media.map((asset) => (
+              <img key={asset.id} src={asset.url} alt="" />
+            ))}
+          </div>
+        ) : (
+          <p className="proposal-side-details__empty">
+            {i18n.t("trade.proposals.noProposalItemImages")}
+          </p>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -139,6 +272,14 @@ function proposalSideItem(
     return { kind: "offer", item: proposal.proposedOffer };
   if (proposal.proposedNeed)
     return { kind: "need", item: proposal.proposedNeed };
+  return null;
+}
+
+
+function proposalSideRequirement(proposal: TradeProposalDto | null) {
+  const postType = proposal?.trade?.postType;
+  if (postType === "open_need") return "offer" as const;
+  if (postType === "open_offer") return "need" as const;
   return null;
 }
 
@@ -159,6 +300,18 @@ function messageSenderStatus(
   if (message.senderId === currentUserId)
     return i18n?.t?.("trade.labels.you") ?? "You";
   return i18n?.t?.("trade.labels.privateMessage") ?? "Private message";
+}
+
+
+function formatEditTrace(count: number | undefined, date: string | null | undefined, i18n: TradeI18n) {
+  if (!date) return "";
+  const n = Math.max(1, count ?? 1);
+  return i18n.t("trade.proposals.editedCountAt", { count: n, date: formatWebDateTime(date, "-", i18n.language) });
+}
+
+function formatDeletedTrace(date: string | null | undefined, i18n: TradeI18n) {
+  if (!date) return "";
+  return i18n.t("trade.proposals.messageDeletedAt", { date: formatWebDateTime(date, "-", i18n.language) });
 }
 
 function isInitialProposalConversationMessage(
@@ -230,20 +383,34 @@ export function ProposalConversationClient({
   const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<
-    "accepted" | "declined" | "withdrawn" | "reply" | "cancel" | null
-  >(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [replyError, setReplyError] = useState<string | null>(null);
   const [withdrawConfirmOpen, setWithdrawConfirmOpen] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [editingProposal, setEditingProposal] = useState(false);
+  const [proposalDraft, setProposalDraft] = useState("");
+  const [proposalEditError, setProposalEditError] = useState<string | null>(null);
+  const [proposalNeeds, setProposalNeeds] = useState<NeedDto[]>([]);
+  const [proposalOffers, setProposalOffers] = useState<OfferDto[]>([]);
+  const [proposalSideChoice, setProposalSideChoice] = useState<"none" | "need" | "offer">("none");
+  const [proposalDraftNeedId, setProposalDraftNeedId] = useState("");
+  const [proposalDraftOfferId, setProposalDraftOfferId] = useState("");
+  const [proposalSideLoading, setProposalSideLoading] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messageEditError, setMessageEditError] = useState<string | null>(null);
+  const [deleteConfirmTarget, setDeleteConfirmTarget] =
+    useState<DeleteConfirmTarget | null>(null);
+  const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
 
   const sideItem = useMemo(
     () => (proposal ? proposalSideItem(proposal) : null),
     [proposal],
   );
+  const sideItemId = sideItem?.item.id ?? null;
   const actorId = auth.user?.id ?? null;
   const isOwner = Boolean(
     proposal?.trade?.ownerId && actorId === proposal.trade.ownerId,
@@ -258,6 +425,19 @@ export function ProposalConversationClient({
     proposal && isApplicant && proposal.status === "pending",
   );
   const tradeCancelled = proposal?.trade?.status === "cancelled";
+  const canEditProposalContent = Boolean(
+    proposal && isApplicant && proposal.status === "pending" && !tradeCancelled,
+  );
+  const canEditOwnPrivateMessages = Boolean(
+    proposal &&
+      auth.isAuthenticated &&
+      proposal.status === "pending" &&
+      !tradeCancelled &&
+      (isOwner || isApplicant || proposal.trade?.providerId === actorId),
+  );
+  const requiredProposalSide = proposalSideRequirement(proposal);
+  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => need.status === "active"), [proposalNeeds]);
+  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => offer.status === "active"), [proposalOffers]);
   const canCancelAcceptedTrade = Boolean(
     proposal &&
     proposal.status === "accepted" &&
@@ -283,6 +463,12 @@ export function ProposalConversationClient({
         : [],
     [messages, proposal],
   );
+  const draftNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposalDraftNeedId) ?? null, [activeProposalNeeds, proposalDraftNeedId]);
+  const draftOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposalDraftOfferId) ?? null, [activeProposalOffers, proposalDraftOfferId]);
+
+  useEffect(() => {
+    setProposalDetailsOpen(false);
+  }, [sideItemId]);
 
   async function loadProposal(options?: { quiet?: boolean }) {
     if (!auth.isAuthenticated) return;
@@ -351,6 +537,16 @@ export function ProposalConversationClient({
       mounted = false;
     };
   }, [auth.hydrated, auth.isAuthenticated, proposalId, t, tradeId]);
+
+  useEffect(() => {
+    if (canEditOwnPrivateMessages) return;
+    if (editingMessageId) {
+      setEditingMessageId(null);
+      setMessageDraft("");
+      setMessageEditError(null);
+    }
+    if (deleteConfirmTarget?.kind === "message") setDeleteConfirmTarget(null);
+  }, [canEditOwnPrivateMessages, deleteConfirmTarget, editingMessageId]);
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
@@ -445,6 +641,172 @@ export function ProposalConversationClient({
       setReplyError(null);
     } catch {
       setNotice(t("trade.errors.couldNotSendMessage"));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+
+  async function loadProposalSideInventory() {
+    if (!auth.isAuthenticated) return;
+    setProposalSideLoading(true);
+    try {
+      if (requiredProposalSide === "offer") {
+        const response = await api.offers.mine();
+        setProposalOffers(normalizeOffers(response));
+        setProposalNeeds([]);
+      } else if (requiredProposalSide === "need") {
+        const response = await api.needs.mine();
+        setProposalNeeds(normalizeNeeds(response));
+        setProposalOffers([]);
+      } else {
+        const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
+        setProposalNeeds(normalizeNeeds(needsResponse));
+        setProposalOffers(normalizeOffers(offersResponse));
+      }
+    } catch {
+      setProposalEditError(t("trade.errors.couldNotLoadInventory"));
+    } finally {
+      setProposalSideLoading(false);
+    }
+  }
+
+  function startProposalEdit() {
+    if (!proposal) return;
+    setProposalDraft(proposal.messageDeletedAt ? "" : proposal.message);
+    setProposalDraftNeedId(proposal.proposedNeedId ?? "");
+    setProposalDraftOfferId(proposal.proposedOfferId ?? "");
+    setProposalSideChoice(proposal.proposedNeedId ? "need" : proposal.proposedOfferId ? "offer" : "none");
+    setProposalEditError(null);
+    setProposalDetailsOpen(false);
+    setEditingProposal(true);
+    void loadProposalSideInventory();
+  }
+
+  async function saveProposalEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!proposal) return;
+    const message = proposalDraft.trim();
+    setProposalEditError(null);
+    if (message && message.length < 3) {
+      setProposalEditError(t("trade.proposals.messageTooShort"));
+      return;
+    }
+    if (requiredProposalSide === "offer" && !proposalDraftOfferId) {
+      setProposalEditError(t("trade.proposals.chooseOfferBeforeSending"));
+      return;
+    }
+    if (requiredProposalSide === "need" && !proposalDraftNeedId) {
+      setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
+      return;
+    }
+    if (!requiredProposalSide && proposalSideChoice === "need" && !proposalDraftNeedId) {
+      setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
+      return;
+    }
+    if (!requiredProposalSide && proposalSideChoice === "offer" && !proposalDraftOfferId) {
+      setProposalEditError(t("trade.proposals.chooseOfferBeforeSending"));
+      return;
+    }
+
+    setActionLoading("proposal-edit");
+    try {
+      const payload: { message?: string; proposedNeedId?: string | null; proposedOfferId?: string | null } = {};
+      if (message) payload.message = message;
+      if (requiredProposalSide === "offer") {
+        payload.proposedOfferId = proposalDraftOfferId;
+        payload.proposedNeedId = null;
+      } else if (requiredProposalSide === "need") {
+        payload.proposedNeedId = proposalDraftNeedId;
+        payload.proposedOfferId = null;
+      } else if (proposalSideChoice === "need") {
+        payload.proposedNeedId = proposalDraftNeedId;
+        payload.proposedOfferId = null;
+      } else if (proposalSideChoice === "offer") {
+        payload.proposedOfferId = proposalDraftOfferId;
+        payload.proposedNeedId = null;
+      } else {
+        payload.proposedNeedId = null;
+        payload.proposedOfferId = null;
+      }
+      const response = await api.proposals.updateMessage(proposal.id, payload);
+      const updated = normalizeProposal(response);
+      if (!updated) throw new Error("missing_proposal_response");
+      setProposal(updated);
+      setEditingProposal(false);
+      setProposalEditError(null);
+      setNotice(t("trade.proposals.proposalUpdated"));
+      await loadMessages({ quiet: true });
+    } catch {
+      setProposalEditError(t("trade.proposals.couldNotUpdateProposal"));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function deleteProposalNote() {
+    if (!proposal) return;
+    setActionLoading("proposal-delete");
+    setNotice(null);
+    try {
+      const response = await api.proposals.deleteMessage(proposal.id);
+      const updated = normalizeProposal(response);
+      if (!updated) throw new Error("missing_proposal_response");
+      setProposal(updated);
+      setDeleteConfirmTarget(null);
+      setNotice(t("trade.proposals.proposalNoteDeleted"));
+      await loadMessages({ quiet: true });
+    } catch {
+      setNotice(t("trade.proposals.couldNotUpdateProposal"));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  function startMessageEdit(message: ProposalMessageDto) {
+    setEditingMessageId(message.id);
+    setMessageDraft(message.body);
+    setMessageEditError(null);
+  }
+
+  async function saveMessageEdit(event: FormEvent<HTMLFormElement>, messageId: string) {
+    event.preventDefault();
+    if (!proposal) return;
+    const body = messageDraft.trim();
+    setMessageEditError(null);
+    if (!body) {
+      setMessageEditError(t("trade.proposals.messageEditRequired"));
+      return;
+    }
+    setActionLoading("message-edit");
+    try {
+      const response = await api.proposals.updatePrivateMessage(proposal.id, messageId, { body });
+      const { message: updatedMessage, proposal: updatedProposal } = normalizeProposalMessageResponse(response);
+      if (!updatedMessage) throw new Error("missing_message_response");
+      setMessages((current) => current.map((item) => item.id === updatedMessage.id ? updatedMessage : item));
+      if (updatedProposal) setProposal(updatedProposal);
+      setEditingMessageId(null);
+      setMessageDraft("");
+      setMessageEditError(null);
+    } catch {
+      setMessageEditError(t("trade.proposals.couldNotUpdateMessage"));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function deletePrivateMessage(messageId: string) {
+    if (!proposal) return;
+    setActionLoading("message-delete");
+    try {
+      const response = await api.proposals.deletePrivateMessage(proposal.id, messageId);
+      const { message: updatedMessage, proposal: updatedProposal } = normalizeProposalMessageResponse(response);
+      if (!updatedMessage) throw new Error("missing_message_response");
+      setMessages((current) => current.map((item) => item.id === updatedMessage.id ? updatedMessage : item));
+      if (updatedProposal) setProposal(updatedProposal);
+      setDeleteConfirmTarget(null);
+    } catch {
+      setNotice(t("trade.proposals.couldNotUpdateMessage"));
     } finally {
       setActionLoading(null);
     }
@@ -634,6 +996,61 @@ export function ProposalConversationClient({
         </div>
       ) : null}
 
+      {deleteConfirmTarget ? (
+        <div
+          className="proposal-confirm-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-proposal-content-title"
+        >
+          <div className="proposal-confirm-modal__panel">
+            <span className="semantic-badge danger">
+              <WebIcon name="warning" size={14} decorative /> {deleteConfirmTarget.kind === "message" ? t("trade.proposals.deleteMessage") : t("trade.proposals.deleteProposalNote")}
+            </span>
+            <h2 id="delete-proposal-content-title">
+              {deleteConfirmTarget.kind === "message"
+                ? t("trade.proposals.deleteMessageTitle")
+                : t("trade.proposals.deleteProposalNoteTitle")}
+            </h2>
+            <p>
+              {deleteConfirmTarget.kind === "message"
+                ? t("trade.proposals.deleteMessageBody")
+                : t("trade.proposals.deleteProposalNoteBody")}
+            </p>
+            <div className="proposal-confirm-modal__actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setDeleteConfirmTarget(null)}
+                disabled={Boolean(actionLoading)}
+              >
+                {deleteConfirmTarget.kind === "message"
+                  ? t("trade.proposals.keepMessage")
+                  : t("trade.proposals.keepProposalNote")}
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  if (deleteConfirmTarget.kind === "message") {
+                    void deletePrivateMessage(deleteConfirmTarget.messageId);
+                    return;
+                  }
+                  void deleteProposalNote();
+                }}
+                disabled={Boolean(actionLoading)}
+              >
+                {actionLoading === "message-delete" || actionLoading === "proposal-delete"
+                  ? t("common.states.working")
+                  : deleteConfirmTarget.kind === "message"
+                    ? t("trade.proposals.deleteMessageAction")
+                    : t("trade.proposals.deleteProposalNoteAction")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <section className="trade-social-section trade-social-section--compact conversation-panel proposal-conversation-panel">
         <div className="trade-section-heading">
           <div>
@@ -680,35 +1097,121 @@ export function ProposalConversationClient({
               showHandle={false}
               className="message-bubble__identity"
             />
-            {sideItem ? (
-              <ProposalSidePreview
-                kind={sideItem.kind}
-                item={sideItem.item}
-                compact
-                i18n={i18n}
-              />
-            ) : null}
-            <p className="proposal-card__message proposal-timeline-event__note">
-              {proposal.message}
-            </p>
-            {proposal.status !== "pending" ? (
-              <p className="proposal-timeline-event__status">
-                {tradeCancelled
-                  ? t("trade.proposals.tradeCancelledLocked")
-                  : proposal.status === "accepted"
-                    ? t("trade.proposals.proposalContentLockedAccepted")
-                    : proposal.status === "withdrawn"
-                      ? t("trade.proposals.proposalContentLockedWithdrawn")
-                      : t("trade.proposals.proposalContentLockedDeclined")}
-              </p>
-            ) : null}
-            {tradeCancelled ? (
-              <p className="proposal-timeline-event__status proposal-timeline-event__status--danger">
-                {t("trade.proposals.tradeCancelledWithReason", {
-                  date: formatWebDateTime(proposal.trade?.cancelledAt, "-", language),
-                  reason: proposal.trade?.cancelReason ?? t("trade.proposals.noCancelReason"),
-                })}
-              </p>
+            {editingProposal ? (
+              <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
+                <div className="proposal-edit-form__side">
+                  <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
+                  {requiredProposalSide === "offer" ? (
+                    <label className="field-label">
+                      {t("trade.labels.proposedOffer")}
+                      <select value={proposalDraftOfferId} onChange={(event) => setProposalDraftOfferId(event.target.value)} disabled={proposalSideLoading}>
+                        <option value="">{t("trade.proposals.chooseOfferToPropose")}</option>
+                        {activeProposalOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.title}</option>)}
+                      </select>
+                    </label>
+                  ) : requiredProposalSide === "need" ? (
+                    <label className="field-label">
+                      {t("trade.labels.proposedNeed")}
+                      <select value={proposalDraftNeedId} onChange={(event) => setProposalDraftNeedId(event.target.value)} disabled={proposalSideLoading}>
+                        <option value="">{t("trade.proposals.chooseNeedToPropose")}</option>
+                        {activeProposalNeeds.map((need) => <option key={need.id} value={need.id}>{need.title}</option>)}
+                      </select>
+                    </label>
+                  ) : (
+                    <div className="proposal-edit-form__optional-side">
+                      <div className="proposal-edit-form__choice-row">
+                        <button type="button" className={proposalSideChoice === "none" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("none")}>{t("trade.proposals.noAttachedItem")}</button>
+                        <button type="button" className={proposalSideChoice === "need" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("need")}>{t("trade.labels.proposedNeed")}</button>
+                        <button type="button" className={proposalSideChoice === "offer" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("offer")}>{t("trade.labels.proposedOffer")}</button>
+                      </div>
+                      {proposalSideChoice === "need" ? (
+                        <label className="field-label">
+                          {t("trade.labels.proposedNeed")}
+                          <select value={proposalDraftNeedId} onChange={(event) => setProposalDraftNeedId(event.target.value)} disabled={proposalSideLoading}>
+                            <option value="">{t("trade.proposals.chooseNeedToPropose")}</option>
+                            {activeProposalNeeds.map((need) => <option key={need.id} value={need.id}>{need.title}</option>)}
+                          </select>
+                        </label>
+                      ) : null}
+                      {proposalSideChoice === "offer" ? (
+                        <label className="field-label">
+                          {t("trade.labels.proposedOffer")}
+                          <select value={proposalDraftOfferId} onChange={(event) => setProposalDraftOfferId(event.target.value)} disabled={proposalSideLoading}>
+                            <option value="">{t("trade.proposals.chooseOfferToPropose")}</option>
+                            {activeProposalOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.title}</option>)}
+                          </select>
+                        </label>
+                      ) : null}
+                    </div>
+                  )}
+                  {requiredProposalSide === "need" && draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
+                  {requiredProposalSide === "offer" && draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
+                  {!requiredProposalSide && proposalSideChoice === "need" && draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
+                  {!requiredProposalSide && proposalSideChoice === "offer" && draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
+                </div>
+                <label className="field-label">
+                  {t("trade.labels.proposalMessage")}
+                  <textarea
+                    value={proposalDraft}
+                    onChange={(event) => {
+                      setProposalDraft(event.target.value);
+                      if (proposalEditError) setProposalEditError(null);
+                    }}
+                    placeholder={t("trade.proposals.writeMessage")}
+                    rows={3}
+                  />
+                </label>
+                {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
+                <div className="proposal-edit-form__actions">
+                  <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
+                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+                </div>
+              </form>
+            ) : (
+              <>
+                {sideItem ? (
+                  <div className="proposal-side-review">
+                    <ProposalSidePreview
+                      kind={sideItem.kind}
+                      item={sideItem.item}
+                      compact
+                      i18n={i18n}
+                    />
+                    <button
+                      type="button"
+                      className="proposal-side-details-toggle"
+                      onClick={() => setProposalDetailsOpen((open) => !open)}
+                    >
+                      {proposalDetailsOpen
+                        ? t("trade.proposals.hideProposalItemDetails")
+                        : t("trade.proposals.showProposalItemDetails")}
+                    </button>
+                    {proposalDetailsOpen ? (
+                      <ProposalSideDetails
+                        kind={sideItem.kind}
+                        item={sideItem.item}
+                        i18n={i18n}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+                {proposal.messageDeletedAt ? (
+                  <p className="proposal-card__message proposal-timeline-event__note proposal-message-deleted">
+                    {t("trade.proposals.proposalNoteDeleted")}
+                  </p>
+                ) : proposal.message ? (
+                  <p className="proposal-card__message proposal-timeline-event__note">
+                    {proposal.message}
+                  </p>
+                ) : null}
+                {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
+              </>
+            )}
+            {canEditProposalContent && !editingProposal ? (
+              <div className="message-actions message-actions--proposal">
+                <button type="button" className="secondary" onClick={startProposalEdit} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
+                {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
+              </div>
             ) : null}
             <div className="proposal-card__actions proposal-detail-actions">
               {canActOnProposal ? (
@@ -778,7 +1281,40 @@ export function ProposalConversationClient({
                   showHandle={false}
                   className="message-bubble__identity"
                 />
-                <p>{message.body}</p>
+                {editingMessageId === message.id ? (
+                  <form className="message-edit-form" onSubmit={(event) => void saveMessageEdit(event, message.id)}>
+                    <textarea
+                      value={messageDraft}
+                      onChange={(event) => {
+                        setMessageDraft(event.target.value);
+                        if (messageEditError) setMessageEditError(null);
+                      }}
+                      rows={3}
+                      autoFocus
+                    />
+                    {messageEditError ? <p className="field-error" role="alert">{messageEditError}</p> : null}
+                    <div className="message-actions">
+                      <button type="submit" disabled={Boolean(actionLoading)}>{t("trade.proposals.saveMessage")}</button>
+                      <button type="button" className="secondary" onClick={() => { setEditingMessageId(null); setMessageDraft(""); setMessageEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+                    </div>
+                  </form>
+                ) : message.deletedAt ? (
+                  <>
+                    <p className="message-deleted">{t("trade.proposals.messageDeleted")}</p>
+                    <p className="message-meta">{formatDeletedTrace(message.deletedAt, i18n)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p>{message.body}</p>
+                    {message.editedAt ? <p className="message-meta">{formatEditTrace(message.editCount, message.editedAt, i18n)}</p> : null}
+                    {message.senderId === actorId && canEditOwnPrivateMessages ? (
+                      <div className="message-actions">
+                        <button type="button" className="secondary" onClick={() => startMessageEdit(message)} disabled={Boolean(actionLoading)}>{t("trade.proposals.editMessage")}</button>
+                        <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "message", messageId: message.id })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteMessage")}</button>
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </article>
             ))
           ) : (

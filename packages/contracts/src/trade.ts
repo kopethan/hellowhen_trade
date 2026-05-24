@@ -188,7 +188,15 @@ export const createTradeProposalRequestSchema = z.object({
   proposedOfferId: z.string().min(1).optional()
 });
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
+export const updateProposalMessageRequestSchema = z.object({
+  message: z.string().trim().min(3).max(1200).optional(),
+  proposedNeedId: z.string().min(1).nullable().optional(),
+  proposedOfferId: z.string().min(1).nullable().optional()
+}).refine((value) => value.message !== undefined || value.proposedNeedId !== undefined || value.proposedOfferId !== undefined, {
+  message: 'Update the proposal note or proposed item before saving.'
+});
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
+export const updateProposalPrivateMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
 
 export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional(), countryCode: z.string().nullable().optional() }).nullable().optional();
 export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
@@ -331,7 +339,7 @@ export const tradeSchema = z.object({
   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
   media: z.array(mediaAssetSchema).optional()
 });
-export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
+export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), updatedAt: z.string().optional(), editedAt: z.string().nullable().optional(), editCount: z.number().int().optional().default(0), deletedAt: z.string().nullable().optional(), sender: userPreviewSchema.optional() });
 export const tradeProposalSchema = z.object({
   id: z.string(),
   tradeId: z.string(),
@@ -339,6 +347,9 @@ export const tradeProposalSchema = z.object({
   proposedNeedId: z.string().nullable().optional(),
   proposedOfferId: z.string().nullable().optional(),
   message: z.string(),
+  messageEditedAt: z.string().nullable().optional(),
+  messageEditCount: z.number().int().optional().default(0),
+  messageDeletedAt: z.string().nullable().optional(),
   status: proposalStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -382,4 +393,6 @@ export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSc
 export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;
 export type CreateTradeProposalRequest = z.infer<typeof createTradeProposalRequestSchema>;
 export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;
+export type UpdateProposalMessageRequest = z.infer<typeof updateProposalMessageRequestSchema>;
 export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;
+export type UpdateProposalPrivateMessageRequest = z.infer<typeof updateProposalPrivateMessageRequestSchema>;

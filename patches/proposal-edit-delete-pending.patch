@@ -1,0 +1,898 @@
+diff --git a/apps/api/prisma/migrations/20260524153000_proposal_message_edit_delete/migration.sql b/apps/api/prisma/migrations/20260524153000_proposal_message_edit_delete/migration.sql
+new file mode 100644
+index 0000000..1a92b02
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260524153000_proposal_message_edit_delete/migration.sql
+@@ -0,0 +1,10 @@
++ALTER TABLE "TradeProposal"
++  ADD COLUMN "messageEditedAt" TIMESTAMP(3),
++  ADD COLUMN "messageEditCount" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "messageDeletedAt" TIMESTAMP(3);
++
++ALTER TABLE "ProposalMessage"
++  ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  ADD COLUMN "editedAt" TIMESTAMP(3),
++  ADD COLUMN "editCount" INTEGER NOT NULL DEFAULT 0,
++  ADD COLUMN "deletedAt" TIMESTAMP(3);
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index e318968..3d5f700 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -686,6 +686,9 @@ model TradeProposal {
+   proposedNeedId  String?
+   proposedOfferId String?
+   message         String
++  messageEditedAt DateTime?
++  messageEditCount Int           @default(0)
++  messageDeletedAt DateTime?
+   status          ProposalStatus @default(pending)
+   createdAt       DateTime       @default(now())
+   updatedAt       DateTime       @updatedAt
+@@ -710,6 +713,10 @@ model ProposalMessage {
+   senderId   String
+   body       String
+   createdAt  DateTime @default(now())
++  updatedAt  DateTime @updatedAt
++  editedAt   DateTime?
++  editCount  Int      @default(0)
++  deletedAt  DateTime?
+ 
+   proposal TradeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+   sender   User          @relation("SentProposalMessages", fields: [senderId], references: [id], onDelete: Cascade)
+diff --git a/apps/api/src/modules/proposals/proposals.routes.ts b/apps/api/src/modules/proposals/proposals.routes.ts
+index 1e1e69c..8e0a25a 100644
+--- a/apps/api/src/modules/proposals/proposals.routes.ts
++++ b/apps/api/src/modules/proposals/proposals.routes.ts
+@@ -1,5 +1,5 @@
+-import { Router } from 'express';
+-import { createProposalMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
++import { Router, type Response } from 'express';
++import { createProposalMessageRequestSchema, updateProposalMessageRequestSchema, updateProposalPrivateMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+@@ -12,6 +12,64 @@ proposalsRoutes.use(requireAuth);
+ function canReadProposal(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) { return proposal.applicantId === actorId || proposal.trade.ownerId === actorId || proposal.trade.providerId === actorId; }
+ function otherProposalMemberId(proposal: { applicantId: string; trade: { ownerId: string } }, actorId: string) { return actorId === proposal.applicantId ? proposal.trade.ownerId : proposal.applicantId; }
+ 
++function proposalSideRequirement(postType?: string | null) {
++  if (postType === 'open_need') return 'offer' as const;
++  if (postType === 'open_offer') return 'need' as const;
++  return null;
++}
++
++function inventoryUnavailable(status?: string | null) {
++  return status !== 'active';
++}
++
++function conversationLocked(proposal: { status: string; trade: { status: string } }) {
++  return proposal.status !== 'pending' || ['cancelled', 'closed'].includes(proposal.trade.status);
++}
++
++async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; trade: { postType?: string | null } }) {
++  const requiredSide = proposalSideRequirement(proposal.trade.postType);
++  const nextNeedProvided = Object.prototype.hasOwnProperty.call(input, 'proposedNeedId');
++  const nextOfferProvided = Object.prototype.hasOwnProperty.call(input, 'proposedOfferId');
++  const nextNeedId = nextNeedProvided ? input.proposedNeedId ?? null : proposal.proposedNeedId ?? null;
++  const nextOfferId = nextOfferProvided ? input.proposedOfferId ?? null : proposal.proposedOfferId ?? null;
++
++  if (nextNeedId && nextOfferId) {
++    throw Object.assign(new Error('proposal_side_mismatch'), { code: 'PROPOSAL_SIDE_MISMATCH' });
++  }
++
++  if (requiredSide === 'offer' && !nextOfferId) {
++    throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_OFFER_REQUIRED' });
++  }
++  if (requiredSide === 'need' && !nextNeedId) {
++    throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_NEED_REQUIRED' });
++  }
++
++  if (nextOfferId) {
++    const offer = await prisma.offer.findFirst({ where: { id: nextOfferId, ownerId: proposal.applicantId } });
++    if (!offer || inventoryUnavailable(offer.status)) {
++      throw Object.assign(new Error('invalid_proposal_offer'), { code: 'INVALID_PROPOSAL_OFFER' });
++    }
++  }
++  if (nextNeedId) {
++    const need = await prisma.need.findFirst({ where: { id: nextNeedId, ownerId: proposal.applicantId } });
++    if (!need || inventoryUnavailable(need.status)) {
++      throw Object.assign(new Error('invalid_proposal_need'), { code: 'INVALID_PROPOSAL_NEED' });
++    }
++  }
++
++  return { proposedNeedId: nextNeedId, proposedOfferId: nextOfferId };
++}
++
++function proposalSideErrorResponse(res: Response, error: unknown) {
++  const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
++  if (code === 'PROPOSAL_SIDE_MISMATCH') return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Choose either one Need or one Offer for this proposal, not both.' });
++  if (code === 'PROPOSAL_OFFER_REQUIRED') return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
++  if (code === 'PROPOSAL_NEED_REQUIRED') return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
++  if (code === 'INVALID_PROPOSAL_OFFER') return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
++  if (code === 'INVALID_PROPOSAL_NEED') return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
++  return null;
++}
++
+ proposalsRoutes.get('/mine', asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const proposals = await prisma.tradeProposal.findMany({ where: { OR: [{ applicantId: actorId }, { trade: { ownerId: actorId } }, { trade: { providerId: actorId } }] }, include: proposalInclude, orderBy: { updatedAt: 'desc' }, take: 50 });
+@@ -62,6 +120,79 @@ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(as
+   }
+   return res.status(400).json({ error: 'unsupported_proposal_status' });
+ }));
++
++proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = updateProposalMessageRequestSchema.parse(req.body);
++  const actorId = req.user!.id;
++  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
++  if (!proposal) return res.status(404).json({ error: 'not_found' });
++  if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
++  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
++
++  let nextSide: { proposedNeedId: string | null; proposedOfferId: string | null };
++  try {
++    nextSide = await resolveProposalSideUpdate(input, proposal);
++  } catch (error) {
++    const response = proposalSideErrorResponse(res, error);
++    if (response) return response;
++    throw error;
++  }
++
++  const messageChanged = typeof input.message === 'string' && input.message !== proposal.message;
++  const sideChanged = nextSide.proposedNeedId !== proposal.proposedNeedId || nextSide.proposedOfferId !== proposal.proposedOfferId;
++  if (!messageChanged && !sideChanged && !proposal.messageDeletedAt) {
++    const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
++    return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
++  }
++
++  const now = new Date();
++  const updated = await prisma.$transaction(async (tx) => {
++    const data: any = {
++      proposedNeedId: nextSide.proposedNeedId,
++      proposedOfferId: nextSide.proposedOfferId,
++    };
++    if (typeof input.message === 'string') {
++      data.message = input.message;
++      data.messageEditedAt = now;
++      data.messageEditCount = { increment: 1 };
++      data.messageDeletedAt = null;
++    }
++    await tx.tradeProposal.update({ where: { id: proposal.id }, data });
++    if (typeof input.message === 'string') {
++      const firstMessage = await tx.proposalMessage.findFirst({ where: { proposalId: proposal.id, senderId: proposal.applicantId }, orderBy: { createdAt: 'asc' } });
++      if (firstMessage) {
++        await tx.proposalMessage.update({ where: { id: firstMessage.id }, data: { body: input.message, editedAt: now, editCount: { increment: 1 }, deletedAt: null } });
++      }
++    }
++    return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
++  });
++
++  res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
++}));
++
++proposalsRoutes.delete('/:proposalId/message', requireActiveAccount, asyncRoute(async (req, res) => {
++  const actorId = req.user!.id;
++  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
++  if (!proposal) return res.status(404).json({ error: 'not_found' });
++  if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
++  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
++  if (proposal.messageDeletedAt) {
++    const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
++    return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
++  }
++
++  const now = new Date();
++  const updated = await prisma.$transaction(async (tx) => {
++    await tx.tradeProposal.update({ where: { id: proposal.id }, data: { message: '', messageDeletedAt: now } });
++    const firstMessage = await tx.proposalMessage.findFirst({ where: { proposalId: proposal.id, senderId: proposal.applicantId }, orderBy: { createdAt: 'asc' } });
++    if (firstMessage) {
++      await tx.proposalMessage.update({ where: { id: firstMessage.id }, data: { body: '', deletedAt: now } });
++    }
++    return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
++  });
++  res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
++}));
++
+ proposalsRoutes.get('/:proposalId/messages', asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+@@ -82,3 +213,37 @@ proposalsRoutes.post('/:proposalId/messages', requireActiveAccount, asyncRoute(a
+   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
+   res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
+ }));
++
++proposalsRoutes.patch('/:proposalId/messages/:messageId', requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = updateProposalPrivateMessageRequestSchema.parse(req.body);
++  const actorId = req.user!.id;
++  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
++  if (!proposal) return res.status(404).json({ error: 'not_found' });
++  if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
++  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
++  const message = await prisma.proposalMessage.findUnique({ where: { id: req.params.messageId } });
++  if (!message || message.proposalId !== proposal.id) return res.status(404).json({ error: 'not_found' });
++  if (message.senderId !== actorId) return res.status(403).json({ error: 'forbidden' });
++  if (message.deletedAt) return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
++  const updated = await prisma.proposalMessage.update({ where: { id: message.id }, data: { body: input.body, editedAt: new Date(), editCount: { increment: 1 } }, include: { sender: { select: publicUserPreviewSelect } } });
++  const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
++  res.json({ message: updated, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
++}));
++
++proposalsRoutes.delete('/:proposalId/messages/:messageId', requireActiveAccount, asyncRoute(async (req, res) => {
++  const actorId = req.user!.id;
++  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
++  if (!proposal) return res.status(404).json({ error: 'not_found' });
++  if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
++  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
++  const message = await prisma.proposalMessage.findUnique({ where: { id: req.params.messageId } });
++  if (!message || message.proposalId !== proposal.id) return res.status(404).json({ error: 'not_found' });
++  if (message.senderId !== actorId) return res.status(403).json({ error: 'forbidden' });
++  if (message.deletedAt) {
++    const existing = await prisma.proposalMessage.findUniqueOrThrow({ where: { id: message.id }, include: { sender: { select: publicUserPreviewSelect } } });
++    return res.json({ message: existing });
++  }
++  const updated = await prisma.proposalMessage.update({ where: { id: message.id }, data: { body: '', deletedAt: new Date() }, include: { sender: { select: publicUserPreviewSelect } } });
++  const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
++  res.json({ message: updated, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
++}));
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 57755f1..62581d4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2142,3 +2142,56 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   min-height: 180px;
+ }
+ .proposal-timeline-event__status--danger { background: color-mix(in srgb, var(--danger-bg) 78%, transparent); color: var(--danger-text); }
++
++.proposal-edit-form,
++.message-edit-form {
++  display: grid;
++  gap: 10px;
++}
++.proposal-edit-form__side,
++.proposal-edit-form__optional-side {
++  display: grid;
++  gap: 9px;
++}
++.proposal-edit-form__choice-row,
++.proposal-edit-form__actions,
++.message-actions {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px;
++  align-items: center;
++}
++.proposal-edit-form__choice-row .is-active {
++  border-color: var(--proposal-border);
++  background: color-mix(in srgb, var(--proposal-bg) 74%, var(--app-surface));
++  color: var(--proposal-text);
++}
++.message-actions button,
++.proposal-edit-form__actions button {
++  min-height: 32px;
++  padding: 0 12px;
++  font-size: 12px;
++}
++.message-actions--proposal {
++  margin-top: -2px;
++}
++.message-meta {
++  margin: 2px 0 0;
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 850;
++  letter-spacing: .01em;
++}
++.message-deleted,
++.proposal-message-deleted {
++  color: var(--app-text-muted);
++  font-style: italic;
++}
++.message-edit-form textarea,
++.proposal-edit-form textarea {
++  min-height: 80px;
++  resize: vertical;
++}
++.proposal-edit-form select {
++  width: 100%;
++}
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index cff32b3..d2442b7 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -51,6 +51,29 @@ function isProposalMessage(value: unknown): value is ProposalMessageDto {
+   );
+ }
+ 
++
++function isNeed(value: unknown): value is NeedDto {
++  return isRecord(value) && typeof value.id === "string" && typeof value.title === "string" && typeof value.description === "string";
++}
++
++function isOffer(value: unknown): value is OfferDto {
++  return isRecord(value) && typeof value.id === "string" && typeof value.title === "string" && typeof value.description === "string";
++}
++
++function normalizeNeeds(value: unknown): NeedDto[] {
++  if (Array.isArray(value)) return value.filter(isNeed);
++  if (isRecord(value) && Array.isArray(value.needs)) return value.needs.filter(isNeed);
++  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isNeed);
++  return [];
++}
++
++function normalizeOffers(value: unknown): OfferDto[] {
++  if (Array.isArray(value)) return value.filter(isOffer);
++  if (isRecord(value) && Array.isArray(value.offers)) return value.offers.filter(isOffer);
++  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isOffer);
++  return [];
++}
++
+ function normalizeProposal(value: unknown): TradeProposalDto | null {
+   if (isProposal(value)) return value;
+   if (isRecord(value) && isProposal(value.proposal)) return value.proposal;
+@@ -102,7 +125,10 @@ function messageListsMatch(
+     return (
+       message.id === nextMessage.id &&
+       message.senderId === nextMessage.senderId &&
+-      message.body === nextMessage.body
++      message.body === nextMessage.body &&
++      message.editedAt === nextMessage.editedAt &&
++      message.editCount === nextMessage.editCount &&
++      message.deletedAt === nextMessage.deletedAt
+     );
+   });
+ }
+@@ -142,6 +168,14 @@ function proposalSideItem(
+   return null;
+ }
+ 
++
++function proposalSideRequirement(proposal: TradeProposalDto | null) {
++  const postType = proposal?.trade?.postType;
++  if (postType === "open_need") return "offer" as const;
++  if (postType === "open_offer") return "need" as const;
++  return null;
++}
++
+ function proposalApplicantStatus(proposal: TradeProposalDto, i18n?: TradeI18n) {
+   const sideItem = proposalSideItem(proposal);
+   if (sideItem?.kind === "offer")
+@@ -161,6 +195,18 @@ function messageSenderStatus(
+   return i18n?.t?.("trade.labels.privateMessage") ?? "Private message";
+ }
+ 
++
++function formatEditTrace(count: number | undefined, date: string | null | undefined, i18n: TradeI18n) {
++  if (!date) return "";
++  const n = Math.max(1, count ?? 1);
++  return i18n.t("trade.proposals.editedCountAt", { count: n, date: formatWebDateTime(date, "-", i18n.language) });
++}
++
++function formatDeletedTrace(date: string | null | undefined, i18n: TradeI18n) {
++  if (!date) return "";
++  return i18n.t("trade.proposals.messageDeletedAt", { date: formatWebDateTime(date, "-", i18n.language) });
++}
++
+ function isInitialProposalConversationMessage(
+   message: ProposalMessageDto,
+   proposal: TradeProposalDto,
+@@ -230,15 +276,25 @@ export function ProposalConversationClient({
+   const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
+   const [reply, setReply] = useState("");
+   const [loading, setLoading] = useState(true);
+-  const [actionLoading, setActionLoading] = useState<
+-    "accepted" | "declined" | "withdrawn" | "reply" | "cancel" | null
+-  >(null);
++  const [actionLoading, setActionLoading] = useState<string | null>(null);
+   const [notice, setNotice] = useState<string | null>(null);
+   const [replyError, setReplyError] = useState<string | null>(null);
+   const [withdrawConfirmOpen, setWithdrawConfirmOpen] = useState(false);
+   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+   const [cancelReason, setCancelReason] = useState("");
+   const [cancelError, setCancelError] = useState<string | null>(null);
++  const [editingProposal, setEditingProposal] = useState(false);
++  const [proposalDraft, setProposalDraft] = useState("");
++  const [proposalEditError, setProposalEditError] = useState<string | null>(null);
++  const [proposalNeeds, setProposalNeeds] = useState<NeedDto[]>([]);
++  const [proposalOffers, setProposalOffers] = useState<OfferDto[]>([]);
++  const [proposalSideChoice, setProposalSideChoice] = useState<"none" | "need" | "offer">("none");
++  const [proposalDraftNeedId, setProposalDraftNeedId] = useState("");
++  const [proposalDraftOfferId, setProposalDraftOfferId] = useState("");
++  const [proposalSideLoading, setProposalSideLoading] = useState(false);
++  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
++  const [messageDraft, setMessageDraft] = useState("");
++  const [messageEditError, setMessageEditError] = useState<string | null>(null);
+ 
+   const sideItem = useMemo(
+     () => (proposal ? proposalSideItem(proposal) : null),
+@@ -258,6 +314,12 @@ export function ProposalConversationClient({
+     proposal && isApplicant && proposal.status === "pending",
+   );
+   const tradeCancelled = proposal?.trade?.status === "cancelled";
++  const canEditProposalContent = Boolean(
++    proposal && isApplicant && proposal.status === "pending" && !tradeCancelled,
++  );
++  const requiredProposalSide = proposalSideRequirement(proposal);
++  const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => need.status === "active"), [proposalNeeds]);
++  const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => offer.status === "active"), [proposalOffers]);
+   const canCancelAcceptedTrade = Boolean(
+     proposal &&
+     proposal.status === "accepted" &&
+@@ -283,6 +345,8 @@ export function ProposalConversationClient({
+         : [],
+     [messages, proposal],
+   );
++  const draftNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposalDraftNeedId) ?? null, [activeProposalNeeds, proposalDraftNeedId]);
++  const draftOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposalDraftOfferId) ?? null, [activeProposalOffers, proposalDraftOfferId]);
+ 
+   async function loadProposal(options?: { quiet?: boolean }) {
+     if (!auth.isAuthenticated) return;
+@@ -450,6 +514,171 @@ export function ProposalConversationClient({
+     }
+   }
+ 
++
++  async function loadProposalSideInventory() {
++    if (!auth.isAuthenticated) return;
++    setProposalSideLoading(true);
++    try {
++      if (requiredProposalSide === "offer") {
++        const response = await api.offers.mine();
++        setProposalOffers(normalizeOffers(response));
++        setProposalNeeds([]);
++      } else if (requiredProposalSide === "need") {
++        const response = await api.needs.mine();
++        setProposalNeeds(normalizeNeeds(response));
++        setProposalOffers([]);
++      } else {
++        const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
++        setProposalNeeds(normalizeNeeds(needsResponse));
++        setProposalOffers(normalizeOffers(offersResponse));
++      }
++    } catch {
++      setProposalEditError(t("trade.errors.couldNotLoadInventory"));
++    } finally {
++      setProposalSideLoading(false);
++    }
++  }
++
++  function startProposalEdit() {
++    if (!proposal) return;
++    setProposalDraft(proposal.messageDeletedAt ? "" : proposal.message);
++    setProposalDraftNeedId(proposal.proposedNeedId ?? "");
++    setProposalDraftOfferId(proposal.proposedOfferId ?? "");
++    setProposalSideChoice(proposal.proposedNeedId ? "need" : proposal.proposedOfferId ? "offer" : "none");
++    setProposalEditError(null);
++    setEditingProposal(true);
++    void loadProposalSideInventory();
++  }
++
++  async function saveProposalEdit(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!proposal) return;
++    const message = proposalDraft.trim();
++    setProposalEditError(null);
++    if (message && message.length < 3) {
++      setProposalEditError(t("trade.proposals.messageTooShort"));
++      return;
++    }
++    if (requiredProposalSide === "offer" && !proposalDraftOfferId) {
++      setProposalEditError(t("trade.proposals.chooseOfferBeforeSending"));
++      return;
++    }
++    if (requiredProposalSide === "need" && !proposalDraftNeedId) {
++      setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
++      return;
++    }
++    if (!requiredProposalSide && proposalSideChoice === "need" && !proposalDraftNeedId) {
++      setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
++      return;
++    }
++    if (!requiredProposalSide && proposalSideChoice === "offer" && !proposalDraftOfferId) {
++      setProposalEditError(t("trade.proposals.chooseOfferBeforeSending"));
++      return;
++    }
++
++    setActionLoading("proposal-edit");
++    try {
++      const payload: { message?: string; proposedNeedId?: string | null; proposedOfferId?: string | null } = {};
++      if (message) payload.message = message;
++      if (requiredProposalSide === "offer") {
++        payload.proposedOfferId = proposalDraftOfferId;
++        payload.proposedNeedId = null;
++      } else if (requiredProposalSide === "need") {
++        payload.proposedNeedId = proposalDraftNeedId;
++        payload.proposedOfferId = null;
++      } else if (proposalSideChoice === "need") {
++        payload.proposedNeedId = proposalDraftNeedId;
++        payload.proposedOfferId = null;
++      } else if (proposalSideChoice === "offer") {
++        payload.proposedOfferId = proposalDraftOfferId;
++        payload.proposedNeedId = null;
++      } else {
++        payload.proposedNeedId = null;
++        payload.proposedOfferId = null;
++      }
++      const response = await api.proposals.updateMessage(proposal.id, payload);
++      const updated = normalizeProposal(response);
++      if (!updated) throw new Error("missing_proposal_response");
++      setProposal(updated);
++      setEditingProposal(false);
++      setProposalEditError(null);
++      setNotice(t("trade.proposals.proposalUpdated"));
++      await loadMessages({ quiet: true });
++    } catch {
++      setProposalEditError(t("trade.proposals.couldNotUpdateProposal"));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
++  async function deleteProposalNote() {
++    if (!proposal) return;
++    if (!window.confirm(t("trade.proposals.confirmDeleteProposalNote"))) return;
++    setActionLoading("proposal-delete");
++    setNotice(null);
++    try {
++      const response = await api.proposals.deleteMessage(proposal.id);
++      const updated = normalizeProposal(response);
++      if (!updated) throw new Error("missing_proposal_response");
++      setProposal(updated);
++      setNotice(t("trade.proposals.proposalNoteDeleted"));
++      await loadMessages({ quiet: true });
++    } catch {
++      setNotice(t("trade.proposals.couldNotUpdateProposal"));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
++  function startMessageEdit(message: ProposalMessageDto) {
++    setEditingMessageId(message.id);
++    setMessageDraft(message.body);
++    setMessageEditError(null);
++  }
++
++  async function saveMessageEdit(event: FormEvent<HTMLFormElement>, messageId: string) {
++    event.preventDefault();
++    if (!proposal) return;
++    const body = messageDraft.trim();
++    setMessageEditError(null);
++    if (!body) {
++      setMessageEditError(t("trade.proposals.messageEditRequired"));
++      return;
++    }
++    setActionLoading("message-edit");
++    try {
++      const response = await api.proposals.updatePrivateMessage(proposal.id, messageId, { body });
++      const { message: updatedMessage, proposal: updatedProposal } = normalizeProposalMessageResponse(response);
++      if (!updatedMessage) throw new Error("missing_message_response");
++      setMessages((current) => current.map((item) => item.id === updatedMessage.id ? updatedMessage : item));
++      if (updatedProposal) setProposal(updatedProposal);
++      setEditingMessageId(null);
++      setMessageDraft("");
++      setMessageEditError(null);
++    } catch {
++      setMessageEditError(t("trade.proposals.couldNotUpdateMessage"));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
++  async function deletePrivateMessage(messageId: string) {
++    if (!proposal) return;
++    if (!window.confirm(t("trade.proposals.confirmDeleteMessage"))) return;
++    setActionLoading("message-delete");
++    try {
++      const response = await api.proposals.deletePrivateMessage(proposal.id, messageId);
++      const { message: updatedMessage, proposal: updatedProposal } = normalizeProposalMessageResponse(response);
++      if (!updatedMessage) throw new Error("missing_message_response");
++      setMessages((current) => current.map((item) => item.id === updatedMessage.id ? updatedMessage : item));
++      if (updatedProposal) setProposal(updatedProposal);
++    } catch {
++      setNotice(t("trade.proposals.couldNotUpdateMessage"));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
+   if (!auth.hydrated || loading) {
+     return (
+       <article className="trade-detail-page proposal-conversation-page">
+@@ -680,35 +909,103 @@ export function ProposalConversationClient({
+               showHandle={false}
+               className="message-bubble__identity"
+             />
+-            {sideItem ? (
+-              <ProposalSidePreview
+-                kind={sideItem.kind}
+-                item={sideItem.item}
+-                compact
+-                i18n={i18n}
+-              />
+-            ) : null}
+-            <p className="proposal-card__message proposal-timeline-event__note">
+-              {proposal.message}
+-            </p>
+-            {proposal.status !== "pending" ? (
+-              <p className="proposal-timeline-event__status">
+-                {tradeCancelled
+-                  ? t("trade.proposals.tradeCancelledLocked")
+-                  : proposal.status === "accepted"
+-                    ? t("trade.proposals.proposalContentLockedAccepted")
+-                    : proposal.status === "withdrawn"
+-                      ? t("trade.proposals.proposalContentLockedWithdrawn")
+-                      : t("trade.proposals.proposalContentLockedDeclined")}
+-              </p>
+-            ) : null}
+-            {tradeCancelled ? (
+-              <p className="proposal-timeline-event__status proposal-timeline-event__status--danger">
+-                {t("trade.proposals.tradeCancelledWithReason", {
+-                  date: formatWebDateTime(proposal.trade?.cancelledAt, "-", language),
+-                  reason: proposal.trade?.cancelReason ?? t("trade.proposals.noCancelReason"),
+-                })}
+-              </p>
++            {editingProposal ? (
++              <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
++                <div className="proposal-edit-form__side">
++                  <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
++                  {requiredProposalSide === "offer" ? (
++                    <label className="field-label">
++                      {t("trade.labels.proposedOffer")}
++                      <select value={proposalDraftOfferId} onChange={(event) => setProposalDraftOfferId(event.target.value)} disabled={proposalSideLoading}>
++                        <option value="">{t("trade.proposals.chooseOfferToPropose")}</option>
++                        {activeProposalOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.title}</option>)}
++                      </select>
++                    </label>
++                  ) : requiredProposalSide === "need" ? (
++                    <label className="field-label">
++                      {t("trade.labels.proposedNeed")}
++                      <select value={proposalDraftNeedId} onChange={(event) => setProposalDraftNeedId(event.target.value)} disabled={proposalSideLoading}>
++                        <option value="">{t("trade.proposals.chooseNeedToPropose")}</option>
++                        {activeProposalNeeds.map((need) => <option key={need.id} value={need.id}>{need.title}</option>)}
++                      </select>
++                    </label>
++                  ) : (
++                    <div className="proposal-edit-form__optional-side">
++                      <div className="proposal-edit-form__choice-row">
++                        <button type="button" className={proposalSideChoice === "none" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("none")}>{t("trade.proposals.noAttachedItem")}</button>
++                        <button type="button" className={proposalSideChoice === "need" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("need")}>{t("trade.labels.proposedNeed")}</button>
++                        <button type="button" className={proposalSideChoice === "offer" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("offer")}>{t("trade.labels.proposedOffer")}</button>
++                      </div>
++                      {proposalSideChoice === "need" ? (
++                        <label className="field-label">
++                          {t("trade.labels.proposedNeed")}
++                          <select value={proposalDraftNeedId} onChange={(event) => setProposalDraftNeedId(event.target.value)} disabled={proposalSideLoading}>
++                            <option value="">{t("trade.proposals.chooseNeedToPropose")}</option>
++                            {activeProposalNeeds.map((need) => <option key={need.id} value={need.id}>{need.title}</option>)}
++                          </select>
++                        </label>
++                      ) : null}
++                      {proposalSideChoice === "offer" ? (
++                        <label className="field-label">
++                          {t("trade.labels.proposedOffer")}
++                          <select value={proposalDraftOfferId} onChange={(event) => setProposalDraftOfferId(event.target.value)} disabled={proposalSideLoading}>
++                            <option value="">{t("trade.proposals.chooseOfferToPropose")}</option>
++                            {activeProposalOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.title}</option>)}
++                          </select>
++                        </label>
++                      ) : null}
++                    </div>
++                  )}
++                  {requiredProposalSide === "need" && draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
++                  {requiredProposalSide === "offer" && draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
++                  {!requiredProposalSide && proposalSideChoice === "need" && draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
++                  {!requiredProposalSide && proposalSideChoice === "offer" && draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
++                </div>
++                <label className="field-label">
++                  {t("trade.labels.proposalMessage")}
++                  <textarea
++                    value={proposalDraft}
++                    onChange={(event) => {
++                      setProposalDraft(event.target.value);
++                      if (proposalEditError) setProposalEditError(null);
++                    }}
++                    placeholder={t("trade.proposals.writeMessage")}
++                    rows={3}
++                  />
++                </label>
++                {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
++                <div className="proposal-edit-form__actions">
++                  <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
++                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
++                </div>
++              </form>
++            ) : (
++              <>
++                {sideItem ? (
++                  <ProposalSidePreview
++                    kind={sideItem.kind}
++                    item={sideItem.item}
++                    compact
++                    i18n={i18n}
++                  />
++                ) : null}
++                {proposal.messageDeletedAt ? (
++                  <p className="proposal-card__message proposal-timeline-event__note proposal-message-deleted">
++                    {t("trade.proposals.proposalNoteDeleted")}
++                  </p>
++                ) : proposal.message ? (
++                  <p className="proposal-card__message proposal-timeline-event__note">
++                    {proposal.message}
++                  </p>
++                ) : null}
++                {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
++              </>
++            )}
++            {canEditProposalContent && !editingProposal ? (
++              <div className="message-actions message-actions--proposal">
++                <button type="button" className="secondary" onClick={startProposalEdit} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
++                {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => void deleteProposalNote()} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
++              </div>
+             ) : null}
+             <div className="proposal-card__actions proposal-detail-actions">
+               {canActOnProposal ? (
+@@ -778,7 +1075,40 @@ export function ProposalConversationClient({
+                   showHandle={false}
+                   className="message-bubble__identity"
+                 />
+-                <p>{message.body}</p>
++                {editingMessageId === message.id ? (
++                  <form className="message-edit-form" onSubmit={(event) => void saveMessageEdit(event, message.id)}>
++                    <textarea
++                      value={messageDraft}
++                      onChange={(event) => {
++                        setMessageDraft(event.target.value);
++                        if (messageEditError) setMessageEditError(null);
++                      }}
++                      rows={3}
++                      autoFocus
++                    />
++                    {messageEditError ? <p className="field-error" role="alert">{messageEditError}</p> : null}
++                    <div className="message-actions">
++                      <button type="submit" disabled={Boolean(actionLoading)}>{t("trade.proposals.saveMessage")}</button>
++                      <button type="button" className="secondary" onClick={() => { setEditingMessageId(null); setMessageDraft(""); setMessageEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
++                    </div>
++                  </form>
++                ) : message.deletedAt ? (
++                  <>
++                    <p className="message-deleted">{t("trade.proposals.messageDeleted")}</p>
++                    <p className="message-meta">{formatDeletedTrace(message.deletedAt, i18n)}</p>
++                  </>
++                ) : (
++                  <>
++                    <p>{message.body}</p>
++                    {message.editedAt ? <p className="message-meta">{formatEditTrace(message.editCount, message.editedAt, i18n)}</p> : null}
++                    {message.senderId === actorId && canEditProposalContent ? (
++                      <div className="message-actions">
++                        <button type="button" className="secondary" onClick={() => startMessageEdit(message)} disabled={Boolean(actionLoading)}>{t("trade.proposals.editMessage")}</button>
++                        <button type="button" className="secondary danger-text" onClick={() => void deletePrivateMessage(message.id)} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteMessage")}</button>
++                      </div>
++                    ) : null}
++                  </>
++                )}
+               </article>
+             ))
+           ) : (
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 53c7da5..8d42062 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, CreateProposalMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -26,7 +26,7 @@ export function createApiClient(options: ApiClientOptions) {
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+ 
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
+-    proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }) },
++    proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+     admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: () => requestJson(options, '/admin/business-profiles'), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index c72c601..38042f3 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -188,7 +188,15 @@ export const createTradeProposalRequestSchema = z.object({
+   proposedOfferId: z.string().min(1).optional()
+ });
+ export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
++export const updateProposalMessageRequestSchema = z.object({
++  message: z.string().trim().min(3).max(1200).optional(),
++  proposedNeedId: z.string().min(1).nullable().optional(),
++  proposedOfferId: z.string().min(1).nullable().optional()
++}).refine((value) => value.message !== undefined || value.proposedNeedId !== undefined || value.proposedOfferId !== undefined, {
++  message: 'Update the proposal note or proposed item before saving.'
++});
+ export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
++export const updateProposalPrivateMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+ 
+ export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional(), countryCode: z.string().nullable().optional() }).nullable().optional();
+ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
+@@ -331,7 +339,7 @@ export const tradeSchema = z.object({
+   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
+   media: z.array(mediaAssetSchema).optional()
+ });
+-export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), sender: userPreviewSchema.optional() });
++export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), updatedAt: z.string().optional(), editedAt: z.string().nullable().optional(), editCount: z.number().int().optional().default(0), deletedAt: z.string().nullable().optional(), sender: userPreviewSchema.optional() });
+ export const tradeProposalSchema = z.object({
+   id: z.string(),
+   tradeId: z.string(),
+@@ -339,6 +347,9 @@ export const tradeProposalSchema = z.object({
+   proposedNeedId: z.string().nullable().optional(),
+   proposedOfferId: z.string().nullable().optional(),
+   message: z.string(),
++  messageEditedAt: z.string().nullable().optional(),
++  messageEditCount: z.number().int().optional().default(0),
++  messageDeletedAt: z.string().nullable().optional(),
+   status: proposalStatusSchema,
+   createdAt: z.string(),
+   updatedAt: z.string(),
+@@ -382,4 +393,6 @@ export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSc
+ export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;
+ export type CreateTradeProposalRequest = z.infer<typeof createTradeProposalRequestSchema>;
+ export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;
++export type UpdateProposalMessageRequest = z.infer<typeof updateProposalMessageRequestSchema>;
+ export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;
++export type UpdateProposalPrivateMessageRequest = z.infer<typeof updateProposalPrivateMessageRequestSchema>;
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 285d38c..00d0af3 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -178,6 +178,24 @@ export const trade = {
+     loadingInventory: 'Loading your saved inventory...',
+     loadingProposal: 'Loading proposal...',
+     proposalUpdated: 'Proposal updated',
++    couldNotUpdateProposal: 'Could not update this proposal. Try again.',
++    editProposal: 'Edit proposal',
++    saveProposal: 'Save proposal',
++    addProposalNote: 'Add proposal note',
++    deleteProposalNote: 'Delete note',
++    confirmDeleteProposalNote: 'Delete this proposal note? The proposed Need/Offer stays visible, but the note will show as deleted.',
++    proposalNoteDeleted: 'Proposal note deleted.',
++    changeProposalItem: 'Proposal item',
++    noAttachedItem: 'No attached item',
++    editedCountAt: 'Edited {{count}} time · {{date}}',
++    messageDeletedAt: 'Deleted · {{date}}',
++    editMessage: 'Edit',
++    deleteMessage: 'Delete',
++    saveMessage: 'Save message',
++    messageDeleted: 'Message deleted.',
++    confirmDeleteMessage: 'Delete this message? It will stay visible as a deleted-message marker.',
++    messageEditRequired: 'Write a message before saving.',
++    couldNotUpdateMessage: 'Could not update this message. Try again.',
+     writeMessage: 'Write a message...',
+     messageRequired: 'Write a short message before sending your proposal.',
+     messageTooShort: 'Write at least 3 characters before sending your proposal.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index fca859a..1ed7bd2 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -178,6 +178,24 @@ export const trade = {
+     loadingInventory: 'Chargement de votre inventaire enregistré…',
+     loadingProposal: 'Chargement de la proposition…',
+     proposalUpdated: 'Proposition mise à jour',
++    couldNotUpdateProposal: 'Impossible de mettre à jour cette proposition. Réessayez.',
++    editProposal: 'Modifier la proposition',
++    saveProposal: 'Enregistrer la proposition',
++    addProposalNote: 'Ajouter une note',
++    deleteProposalNote: 'Supprimer la note',
++    confirmDeleteProposalNote: 'Supprimer cette note de proposition ? Le besoin ou l’offre proposée reste visible, mais la note apparaîtra comme supprimée.',
++    proposalNoteDeleted: 'Note de proposition supprimée.',
++    changeProposalItem: 'Élément proposé',
++    noAttachedItem: 'Aucun élément attaché',
++    editedCountAt: 'Modifié {{count}} fois · {{date}}',
++    messageDeletedAt: 'Supprimé · {{date}}',
++    editMessage: 'Modifier',
++    deleteMessage: 'Supprimer',
++    saveMessage: 'Enregistrer le message',
++    messageDeleted: 'Message supprimé.',
++    confirmDeleteMessage: 'Supprimer ce message ? Il restera visible comme marqueur de message supprimé.',
++    messageEditRequired: 'Écrivez un message avant d’enregistrer.',
++    couldNotUpdateMessage: 'Impossible de mettre à jour ce message. Réessayez.',
+     writeMessage: 'Écrire un message…',
+     messageRequired: 'Écrivez un court message avant d’envoyer votre proposition.',
+     messageTooShort: 'Écrivez au moins 3 caractères avant d’envoyer votre proposition.',
