@@ -797,17 +797,19 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
     proposedNeedId = need.id;
   }
 
-  const existing = await prisma.tradeProposal.findUnique({ where: { tradeId_applicantId: { tradeId: trade.id, applicantId: actorId } }, include: proposalInclude });
-  if (existing && existing.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existing });
-  if (existing && existing.status === 'accepted') return res.status(409).json({ error: 'proposal_already_accepted', message: 'Your proposal was already accepted.', proposal: existing });
+  const existingActiveProposal = await prisma.tradeProposal.findFirst({
+    where: { tradeId: trade.id, applicantId: actorId, status: { in: ['pending', 'accepted'] } },
+    include: proposalInclude,
+    orderBy: { createdAt: 'desc' }
+  });
+  if (existingActiveProposal?.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existingActiveProposal });
+  if (existingActiveProposal?.status === 'accepted') return res.status(409).json({ error: 'proposal_already_accepted', message: 'Your proposal was already accepted.', proposal: existingActiveProposal });
   const proposal = await prisma.$transaction(async (tx) => {
-    const proposalRecord = existing
-      ? await tx.tradeProposal.update({ where: { id: existing.id }, data: { message: input.message, proposedNeedId, proposedOfferId, status: 'pending', respondedAt: null } })
-      : await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId } });
+    const proposalRecord = await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId } });
     await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
   });
-  res.status(existing ? 200 : 201).json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
+  res.status(201).json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
 }));
 export async function releaseHeldWalletMoney(tx: Prisma.TransactionClient, trade: { id: string; title: string; providerId?: string | null }) {
   const payment = await tx.tradePayment.findUnique({ where: { tradeId: trade.id } });
@@ -903,11 +905,16 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, requireActiveAccount, asyncR
   if (input.status === 'cancelled') {
     if (!isOwner && !(isProvider && ['in_progress', 'submitted'].includes(trade.status))) return res.status(403).json({ error: 'forbidden' });
     if (['completed', 'cancelled', 'closed'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
+    const cancelReason = typeof input.cancelReason === 'string' ? input.cancelReason.trim() : '';
+    if (['in_progress', 'submitted'].includes(trade.status) && cancelReason.length < 3) {
+      return res.status(400).json({ error: 'cancel_reason_required', message: 'Add a short reason before cancelling an accepted trade.' });
+    }
+    const cancelledAt = new Date();
     const refundPayment = trade.payment;
     const updated = await prisma.$transaction(async (tx) => {
       await refundHeldWalletMoney(tx, trade, actorId);
       await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
-      return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: new Date() }, include: tradeInclude });
+      return tx.trade.update({ where: { id: trade.id }, data: { status: 'cancelled', isPublic: false, closedAt: cancelledAt, cancelledByUserId: actorId, cancelledAt, cancelReason: cancelReason || null }, include: tradeInclude });
     });
     if (refundPayment && ['held', 'released'].includes(refundPayment.status) && refundPayment.amountCents > 0) {
       await mirrorProviderTradeRefund({ tradeId: trade.id, buyerId: refundPayment.buyerId, sellerId: refundPayment.sellerId, amountCents: refundPayment.amountCents, currency: refundPayment.currency, refundedById: actorId, wasReleased: refundPayment.status === 'released', reason: 'trade_cancelled' });

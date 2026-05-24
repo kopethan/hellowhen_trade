@@ -646,6 +646,9 @@ model Trade {
   updatedAt    DateTime    @updatedAt
   expiresAt    DateTime?
   closedAt     DateTime?
+  cancelledByUserId    String?
+  cancelledAt          DateTime?
+  cancelReason         String?
   deliverySubmittedById String?
   deliverySubmittedAt   DateTime?
   confirmedById         String?
@@ -672,6 +675,7 @@ model Trade {
   @@index([needId])
   @@index([offerId])
   @@index([disputedAt])
+  @@index([cancelledAt])
   @@index([disputeTicketId])
 }
 
@@ -693,7 +697,7 @@ model TradeProposal {
   proposedOffer Offer?            @relation("ProposalOffer", fields: [proposedOfferId], references: [id], onDelete: SetNull)
   messages      ProposalMessage[]
 
-  @@unique([tradeId, applicantId])
+  @@index([tradeId, applicantId, status])
   @@index([tradeId, status])
   @@index([applicantId, status])
   @@index([proposedNeedId])

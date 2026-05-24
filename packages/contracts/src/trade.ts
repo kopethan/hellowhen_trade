@@ -180,7 +180,7 @@ export const listTradesFeedQuerySchema = z.object({
   seenTradeIds: feedSeenTradeIdsSchema,
   take: z.coerce.number().int().min(1).max(100).optional(),
 });
-export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema });
+export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema, cancelReason: z.string().trim().min(3).max(800).optional() });
 export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
 export const createTradeProposalRequestSchema = z.object({
   message: z.string().min(3).max(1200),
@@ -312,6 +312,9 @@ export const tradeSchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   closedAt: z.string().nullable().optional(),
+  cancelledByUserId: z.string().nullable().optional(),
+  cancelledAt: z.string().nullable().optional(),
+  cancelReason: z.string().nullable().optional(),
   deliverySubmittedById: z.string().nullable().optional(),
   deliverySubmittedAt: z.string().nullable().optional(),
   confirmedById: z.string().nullable().optional(),

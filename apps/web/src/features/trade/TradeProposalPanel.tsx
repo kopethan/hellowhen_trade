@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { NeedDto, OfferDto, ProposalMessageDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
+import type { NeedDto, OfferDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
@@ -12,10 +12,7 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
-type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
-type ProposalMessageResponse = { message?: ProposalMessageDto; proposal?: TradeProposalDto };
 const PROPOSAL_REFRESH_INTERVAL_MS = 6000;
-const MESSAGE_REFRESH_INTERVAL_MS = 3000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object');
@@ -24,11 +21,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isProposal(value: unknown): value is TradeProposalDto {
   return isRecord(value) && typeof value.id === 'string' && typeof value.tradeId === 'string' && typeof value.applicantId === 'string' && typeof value.message === 'string';
 }
-
-function isProposalMessage(value: unknown): value is ProposalMessageDto {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.proposalId === 'string' && typeof value.senderId === 'string' && typeof value.body === 'string';
-}
-
 
 function isNeed(value: unknown): value is NeedDto {
   return isRecord(value) && typeof value.id === 'string' && typeof value.title === 'string' && typeof value.description === 'string';
@@ -51,20 +43,6 @@ function normalizeProposal(value: unknown): TradeProposalDto | null {
   return null;
 }
 
-function normalizeProposalStatusResponse(value: unknown): ProposalStatusResponse {
-  if (!isRecord(value)) return {};
-  const proposal = normalizeProposal(value);
-  const trade = isRecord(value.trade) && typeof value.trade.id === 'string' ? value.trade as TradeDto : undefined;
-  return { proposal: proposal ?? undefined, trade };
-}
-
-function normalizeMessages(value: unknown): ProposalMessageDto[] {
-  if (Array.isArray(value)) return value.filter(isProposalMessage);
-  if (isRecord(value) && Array.isArray(value.messages)) return value.messages.filter(isProposalMessage);
-  if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isProposalMessage);
-  return [];
-}
-
 function normalizeNeeds(value: unknown): NeedDto[] {
   if (Array.isArray(value)) return value.filter(isNeed);
   if (isRecord(value) && Array.isArray(value.needs)) return value.needs.filter(isNeed);
@@ -77,15 +55,6 @@ function normalizeOffers(value: unknown): OfferDto[] {
   if (isRecord(value) && Array.isArray(value.offers)) return value.offers.filter(isOffer);
   if (isRecord(value) && Array.isArray(value.items)) return value.items.filter(isOffer);
   return [];
-}
-
-function normalizeProposalMessageResponse(value: unknown): ProposalMessageResponse {
-  if (!isRecord(value)) return {};
-  const response = value as { message?: unknown };
-  if (isProposalMessage(value)) return { message: value };
-  const message = isProposalMessage(response.message) ? response.message : undefined;
-  const proposal = normalizeProposal(value);
-  return { message, proposal: proposal ?? undefined };
 }
 
 function proposalFromError(error: unknown): TradeProposalDto | null {
@@ -107,36 +76,11 @@ function mergeProposalList(current: TradeProposalDto[], next: TradeProposalDto[]
   });
 }
 
-function getNextSelectedProposalId(current: string | null, proposals: TradeProposalDto[]) {
-  if (current && proposals.some((proposal) => proposal.id === current)) return current;
-  return proposals.find((proposal) => proposal.status === 'accepted')?.id ?? proposals[0]?.id ?? null;
-}
-
-function messageListsMatch(current: ProposalMessageDto[], next: ProposalMessageDto[]) {
-  if (current.length !== next.length) return false;
-  return current.every((message, index) => {
-    const nextMessage = next[index];
-    return Boolean(nextMessage)
-      && message.id === nextMessage.id
-      && message.senderId === nextMessage.senderId
-      && message.body === nextMessage.body;
-  });
-}
-
 function proposalApplicantStatus(proposal: TradeProposalDto, i18n?: TradeI18n) {
   const sideItem = proposalSideItem(proposal);
   if (sideItem?.kind === 'offer') return i18n?.t?.('trade.proposals.offerProposal') ?? 'Offer proposal';
   if (sideItem?.kind === 'need') return i18n?.t?.('trade.proposals.needProposal') ?? 'Need proposal';
   return i18n?.t?.('trade.proposals.tradeRequest') ?? 'Trade request';
-}
-
-function messageSenderStatus(message: ProposalMessageDto, currentUserId?: string | null, i18n?: TradeI18n) {
-  if (message.senderId === currentUserId) return i18n?.t?.('trade.labels.you') ?? 'You';
-  return i18n?.t?.('trade.labels.privateMessage') ?? 'Private message';
-}
-
-function isInitialProposalConversationMessage(message: ProposalMessageDto, proposal: TradeProposalDto) {
-  return message.senderId === proposal.applicantId && message.body.trim() === proposal.message.trim();
 }
 
 function proposalStatusIcon(status: TradeProposalDto['status']): WebIconName {
@@ -217,7 +161,7 @@ function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18
   );
 }
 
-export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; onTradeChange?: (trade: TradeDto) => void }) {
+export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
   const auth = useWebAuth();
   const searchParams = useSearchParams();
   const { t, language } = useWebTranslation();
@@ -228,30 +172,24 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
   const proposalNeedIdFromUrl = searchParams.get('proposalNeedId') ?? '';
   const proposalOfferIdFromUrl = searchParams.get('proposalOfferId') ?? '';
   const [proposals, setProposals] = useState<TradeProposalDto[]>([]);
-  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ProposalMessageDto[]>([]);
   const [proposalMessage, setProposalMessage] = useState('');
   const [proposalNeeds, setProposalNeeds] = useState<NeedDto[]>([]);
   const [proposalOffers, setProposalOffers] = useState<OfferDto[]>([]);
   const [proposedNeedId, setProposedNeedId] = useState('');
   const [proposedOfferId, setProposedOfferId] = useState('');
   const [sideLoading, setSideLoading] = useState(false);
-  const [reply, setReply] = useState('');
   const [proposalFormError, setProposalFormError] = useState<string | null>(null);
-  const [replyError, setReplyError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const selectedProposal = useMemo(() => proposals.find((proposal) => proposal.id === selectedProposalId) ?? proposals.find((proposal) => proposal.status === 'accepted') ?? proposals[0] ?? null, [proposals, selectedProposalId]);
-  const ownProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id), [auth.user?.id, proposals]);
+  const ownActiveProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id && ['pending', 'accepted'].includes(proposal.status)), [auth.user?.id, proposals]);
+  const latestOwnClosedProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id && ['declined', 'withdrawn'].includes(proposal.status)), [auth.user?.id, proposals]);
+  const canSendProposal = !isOwner && trade.status === 'active' && !ownActiveProposal;
   const activeProposalNeeds = useMemo(() => proposalNeeds.filter((need) => need.status === 'active'), [proposalNeeds]);
   const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => offer.status === 'active'), [proposalOffers]);
   const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
   const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
   const hasRequiredSide = requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
-  const canShowConversation = Boolean(selectedProposal && (selectedProposal.status === 'accepted' || isOwner || selectedProposal.applicantId === auth.user?.id));
-  const canReplyToSelectedProposal = Boolean(selectedProposal && canShowConversation && !['declined', 'withdrawn'].includes(selectedProposal.status));
-
 
   useEffect(() => {
     if (proposalNeedIdFromUrl) {
@@ -274,7 +212,6 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
         const nextProposals = normalizeProposals(response);
         if (!mounted) return;
         setProposals((current) => mergeProposalList(current, nextProposals));
-        setSelectedProposalId((current) => getNextSelectedProposalId(current, nextProposals));
       } catch {
         if (mounted) setNotice(t('trade.proposals.proposalAccessPrivate'));
       } finally {
@@ -294,7 +231,6 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
         if (!mounted) return;
         const nextProposals = normalizeProposals(response);
         setProposals((current) => mergeProposalList(current, nextProposals));
-        setSelectedProposalId((current) => getNextSelectedProposalId(current, nextProposals));
       } catch {
         // Keep the current thread visible during short network drops. The normal
         // initial load and explicit actions still show user-facing errors.
@@ -313,7 +249,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
 
 
   useEffect(() => {
-    if (!auth.isAuthenticated || isOwner || ownProposal || trade.status !== 'active') return;
+    if (!auth.isAuthenticated || !canSendProposal) return;
     let mounted = true;
     async function loadProposalInventory() {
       setSideLoading(true);
@@ -352,35 +288,7 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
     }
     void loadProposalInventory();
     return () => { mounted = false; };
-  }, [auth.isAuthenticated, isOwner, ownProposal, proposalNeedIdFromUrl, proposalOfferIdFromUrl, requiredProposalSide, trade.status]);
-
-  useEffect(() => {
-    if (!selectedProposal || !auth.isAuthenticated || !canShowConversation) {
-      setMessages([]);
-      return;
-    }
-    const activeProposal = selectedProposal;
-    let mounted = true;
-    async function loadMessages() {
-      try {
-        const response = await api.proposals.messages(activeProposal.id);
-        if (!mounted) return;
-        const liveMessages = normalizeMessages(response);
-        const nextMessages = liveMessages.length ? liveMessages : activeProposal.messages ?? [];
-        setMessages((current) => messageListsMatch(current, nextMessages) ? current : nextMessages);
-      } catch {
-        if (mounted) setMessages(activeProposal.messages ?? []);
-      }
-    }
-    void loadMessages();
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState !== 'hidden') void loadMessages();
-    }, MESSAGE_REFRESH_INTERVAL_MS);
-    return () => {
-      mounted = false;
-      window.clearInterval(intervalId);
-    };
-  }, [auth.isAuthenticated, canShowConversation, selectedProposal]);
+  }, [auth.isAuthenticated, canSendProposal, proposalNeedIdFromUrl, proposalOfferIdFromUrl, requiredProposalSide, trade.status]);
 
   async function submitProposal(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -409,7 +317,6 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       const proposal = normalizeProposal(response);
       if (!proposal) throw new Error('missing_proposal_response');
       setProposals((current) => upsertProposal(current, proposal));
-      setSelectedProposalId(proposal.id);
       setProposalMessage('');
       setProposalFormError(null);
       setNotice(t('trade.proposals.proposalSent'));
@@ -417,64 +324,10 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       const existingProposal = proposalFromError(error);
       if (existingProposal) {
         setProposals((current) => upsertProposal(current, existingProposal));
-        setSelectedProposalId(existingProposal.id);
         setProposalMessage('');
         setProposalFormError(null);
       }
       setNotice(existingProposal ? t('trade.proposals.proposalAlreadyOpen') : t('trade.errors.couldNotSendProposal'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function updateProposalStatus(proposalId: string, status: 'accepted' | 'declined') {
-    setLoading(true);
-    setNotice(null);
-    try {
-      const response = await api.proposals.updateStatus(proposalId, { status });
-      const { proposal: updated, trade: nextTrade } = normalizeProposalStatusResponse(response);
-      if (!updated) throw new Error('missing_proposal_response');
-      setProposals((current) => {
-        const withUpdated = upsertProposal(current, updated);
-        if (status !== 'accepted') return withUpdated;
-        return withUpdated.map((proposal) => proposal.id === updated.id ? proposal : proposal.status === 'pending' ? { ...proposal, status: 'declined' as const } : proposal);
-      });
-      if (nextTrade) onTradeChange?.(nextTrade);
-      setSelectedProposalId(proposalId);
-      setNotice(status === 'accepted' ? t('trade.proposals.proposalAccepted') : t('trade.proposals.proposalDeclined'));
-      const refreshed = normalizeProposals(await api.trades.proposals(trade.id));
-      if (refreshed.length) setProposals(refreshed);
-    } catch {
-      setNotice(t('trade.errors.couldNotUpdateProposal'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function sendReply(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedProposal) return;
-    const body = reply.trim();
-    setReplyError(null);
-    if (!body) {
-      setReplyError(t('trade.proposals.replyRequired'));
-      return;
-    }
-    setLoading(true);
-    setNotice(null);
-    try {
-      const response = await api.proposals.sendMessage(selectedProposal.id, { body });
-      const { message: nextMessage, proposal: updatedProposal } = normalizeProposalMessageResponse(response);
-      if (!nextMessage) throw new Error('missing_message_response');
-      setMessages((current) => [...current, nextMessage]);
-      if (updatedProposal) {
-        const proposalMessages = updatedProposal.messages ?? [...(selectedProposal.messages ?? []), nextMessage];
-        setProposals((current) => upsertProposal(current, { ...updatedProposal, messages: proposalMessages }));
-      }
-      setReply('');
-      setReplyError(null);
-    } catch {
-      setNotice(t('trade.errors.couldNotSendMessage'));
     } finally {
       setLoading(false);
     }
@@ -504,14 +357,17 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       <div className="trade-section-heading">
         <div>
           <p className="eyebrow">{t('trade.labels.privateThread')}</p>
-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
+          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownActiveProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
         </div>
         {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
       </div>
 
+      {isOwner && proposals.length ? <p className="proposal-list-helper">{t('trade.proposals.proposalListHint')}</p> : null}
       {notice ? <p className="notice-box info">{notice}</p> : null}
 
-      {!isOwner && !ownProposal ? (
+      {latestOwnClosedProposal && canSendProposal ? <p className="notice-box info">{t('trade.proposals.canSendRevisedProposal')}</p> : null}
+
+      {canSendProposal ? (
         <form className="proposal-composer proposal-composer--with-side" onSubmit={submitProposal}>
           {requiredProposalSide ? (
             <p className="proposal-side-callout">
@@ -572,34 +428,29 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
       ) : null}
 
       {proposals.length ? (
-        <div className="proposal-list">
+        <div className="proposal-list proposal-list--simple">
           {proposals.map((proposal) => {
-            const active = selectedProposal?.id === proposal.id;
-            const sideItem = proposalSideItem(proposal);
+            const active = proposal.status === 'accepted';
+            const threadHref = `/trades/${trade.id}/proposals/${proposal.id}`;
             return (
-              <article key={proposal.id} className={active ? 'proposal-card proposal-card--active' : 'proposal-card'}>
-                <div className="proposal-card__header">
+              <article key={proposal.id} className={active ? 'proposal-card proposal-card--active proposal-card--simple' : 'proposal-card proposal-card--simple'}>
+                <div className="proposal-card__header proposal-card__header--thread">
                   <UserIdentityLink
                     user={proposal.applicant}
                     userId={proposal.applicantId}
+                    href={threadHref}
                     variant="compact"
                     avatarSize="sm"
                     statusText={proposalApplicantStatus(proposal, i18n)}
                     showHandle={false}
-                    ariaLabel={t('profile.actions.openApplicantProfile')}
+                    ariaLabel={t('trade.proposals.openPrivateThread')}
+                    className="proposal-card__thread-person"
                   />
                   <span className="semantic-badge proposal"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}</span>
                 </div>
-                <button type="button" className="proposal-card__main" onClick={() => setSelectedProposalId(proposal.id)}>
-                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact i18n={i18n} /> : null}
-                  <span className="proposal-card__message">{proposal.message}</span>
-                </button>
-                {isOwner && proposal.status === 'pending' ? (
-                  <div className="proposal-card__actions">
-                    <button type="button" className="success" onClick={() => void updateProposalStatus(proposal.id, 'accepted')}>{t('trade.proposals.accept')}</button>
-                    <button type="button" className="secondary" onClick={() => void updateProposalStatus(proposal.id, 'declined')}>{t('trade.proposals.decline')}</button>
-                  </div>
-                ) : null}
+                <Link href={threadHref} className="proposal-card__open proposal-card__open--inline">
+                  <WebIcon name="proposal" size={14} decorative /> {t('trade.proposals.openPrivateThread')}
+                </Link>
               </article>
             );
           })}
@@ -609,72 +460,6 @@ export function TradeProposalPanel({ trade, onTradeChange }: { trade: TradeDto; 
           <WebIcon name="proposal" size={30} decorative />
           <strong>{t('trade.proposals.noProposals')}</strong>
           <span>{proposalCopy.ownerEmpty}</span>
-        </div>
-      ) : null}
-
-      {selectedProposal && canShowConversation ? (
-        <div className="conversation-panel">
-          <div className="trade-section-heading">
-            <div>
-              <p className="eyebrow">{t('trade.labels.conversation')}</p>
-              <h3 className="icon-heading"><WebIcon name={proposalStatusIcon(selectedProposal.status)} size={18} decorative /> {selectedProposal.status === 'accepted' ? t('trade.proposals.acceptedTradeConversation') : t('trade.proposals.proposalConversation')}</h3>
-            </div>
-          </div>
-          <div className="message-list proposal-conversation-list">
-            {(() => {
-              const sideItem = proposalSideItem(selectedProposal);
-              return (
-                <article className="message-bubble message-bubble--proposal message-bubble--proposal-package">
-                  <UserIdentityLink
-                    user={selectedProposal.applicant}
-                    userId={selectedProposal.applicantId}
-                    variant="compact"
-                    avatarSize="sm"
-                    statusText={proposalApplicantStatus(selectedProposal, i18n)}
-                    showHandle={false}
-                    className="message-bubble__identity"
-                  />
-                  {sideItem ? <ProposalSidePreview kind={sideItem.kind} item={sideItem.item} compact i18n={i18n} /> : null}
-                  <p>{selectedProposal.message}</p>
-                </article>
-              );
-            })()}
-            {messages.filter((message, index) => index !== 0 || !isInitialProposalConversationMessage(message, selectedProposal)).map((message) => (
-              <article key={message.id} className={message.senderId === auth.user?.id ? 'message-bubble message-bubble--own' : 'message-bubble'}>
-                <UserIdentityLink
-                  user={message.sender}
-                  userId={message.senderId}
-                  variant="compact"
-                  avatarSize="sm"
-                  statusText={messageSenderStatus(message, auth.user?.id, i18n)}
-                  showHandle={false}
-                  className="message-bubble__identity"
-                />
-                <p>{message.body}</p>
-              </article>
-            ))}
-          </div>
-          {canReplyToSelectedProposal ? (
-            <form className="conversation-reply" onSubmit={sendReply}>
-              <label className="sr-only" htmlFor="proposal-reply">{t('trade.proposals.reply')}</label>
-              <textarea
-                id="proposal-reply"
-                value={reply}
-                onChange={(event) => {
-                  setReply(event.target.value);
-                  if (replyError) setReplyError(null);
-                }}
-                placeholder={t('trade.proposals.replyPrivately')}
-                rows={3}
-                aria-describedby={replyError ? 'proposal-reply-error' : undefined}
-                aria-invalid={Boolean(replyError)}
-              />
-              <button type="submit" disabled={loading}>{t('trade.proposals.send')}</button>
-              {replyError ? <p id="proposal-reply-error" className="field-error" role="alert">{replyError}</p> : null}
-            </form>
-          ) : (
-            <p className="meta">{t('trade.proposals.closedConversation')}</p>
-          )}
         </div>
       ) : null}
     </section>

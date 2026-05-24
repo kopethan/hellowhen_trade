@@ -292,6 +292,7 @@ export declare const updateTradeStatusRequestSchema: z.ZodObject<{
         disputed: "disputed";
         cancelled: "cancelled";
     }>;
+    cancelReason: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const adminTradeDisputeActionRequestSchema: z.ZodObject<{
     action: z.ZodEnum<{
@@ -760,6 +761,9 @@ export declare const tradeSchema: z.ZodObject<{
     updatedAt: z.ZodString;
     expiresAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     closedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    cancelledByUserId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    cancelledAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    cancelReason: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     deliverySubmittedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     deliverySubmittedAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     confirmedById: z.ZodOptional<z.ZodNullable<z.ZodString>>;

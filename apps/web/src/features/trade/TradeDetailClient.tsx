@@ -312,7 +312,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         ) : null}
       </section>
 
-      <TradeProposalPanel trade={currentTrade} onTradeChange={setTrade} />
+      <TradeProposalPanel trade={currentTrade} />
 
       {isOwner ? (
         <section className="trade-social-section trade-social-section--compact trade-danger-zone">

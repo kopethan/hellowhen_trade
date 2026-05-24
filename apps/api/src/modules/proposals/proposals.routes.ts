@@ -76,7 +76,7 @@ proposalsRoutes.post('/:proposalId/messages', requireActiveAccount, asyncRoute(a
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
-  if (['declined', 'withdrawn'].includes(proposal.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
+  if (['declined', 'withdrawn'].includes(proposal.status) || ['cancelled', 'closed'].includes(proposal.trade.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
   if (await usersHaveBlockBetween(actorId, otherProposalMemberId(proposal, actorId))) return res.status(403).json({ error: 'user_blocked', message: 'This conversation is not available because one member has blocked the other.' });
   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: publicUserPreviewSelect } } });
   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
