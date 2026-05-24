@@ -1,0 +1,700 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f36de50..05122e5 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2183,6 +2183,31 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   background: color-mix(in srgb, var(--proposal-bg) 74%, var(--app-surface));
+   color: var(--proposal-text);
+ }
++.proposal-edit-form__picker-card {
++  display: grid;
++  gap: 10px;
++  align-items: center;
++  padding: 12px;
++  border: 1px solid var(--app-border);
++  border-radius: 18px;
++  background: color-mix(in srgb, var(--app-surface-soft) 82%, transparent);
++}
++.proposal-edit-form__picker-card strong,
++.proposal-edit-form__picker-card p {
++  display: block;
++  margin: 3px 0 0;
++}
++.proposal-edit-form__picker-card p {
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 750;
++  line-height: 1.35;
++}
++@media (min-width: 520px) {
++  .proposal-edit-form__picker-card {
++    grid-template-columns: minmax(0, 1fr) auto;
++  }
++}
+ .message-actions button,
+ .proposal-edit-form__actions button {
+   min-height: 32px;
+diff --git a/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/choose-need/page.tsx b/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/choose-need/page.tsx
+new file mode 100644
+index 0000000..29be5d3
+--- /dev/null
++++ b/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/choose-need/page.tsx
+@@ -0,0 +1,23 @@
++import { ProposalSideChoosePage } from '../../../../../../features/trade/ProposalSideChoosePage';
++
++type ProposalChooseNeedPageProps = {
++  params: Promise<{ tradeId: string; proposalId: string }>;
++  searchParams?: Promise<{ proposalNeedId?: string; proposalOfferId?: string }>;
++};
++
++export default async function ProposalChooseNeedPage({
++  params,
++  searchParams,
++}: ProposalChooseNeedPageProps) {
++  const { tradeId, proposalId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
++  return (
++    <ProposalSideChoosePage
++      side="need"
++      tradeId={tradeId}
++      proposalId={proposalId}
++      currentNeedId={resolvedSearchParams.proposalNeedId}
++      currentOfferId={resolvedSearchParams.proposalOfferId}
++    />
++  );
++}
+diff --git a/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/choose-offer/page.tsx b/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/choose-offer/page.tsx
+new file mode 100644
+index 0000000..ce5ef52
+--- /dev/null
++++ b/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/choose-offer/page.tsx
+@@ -0,0 +1,23 @@
++import { ProposalSideChoosePage } from '../../../../../../features/trade/ProposalSideChoosePage';
++
++type ProposalChooseOfferPageProps = {
++  params: Promise<{ tradeId: string; proposalId: string }>;
++  searchParams?: Promise<{ proposalNeedId?: string; proposalOfferId?: string }>;
++};
++
++export default async function ProposalChooseOfferPage({
++  params,
++  searchParams,
++}: ProposalChooseOfferPageProps) {
++  const { tradeId, proposalId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
++  return (
++    <ProposalSideChoosePage
++      side="offer"
++      tradeId={tradeId}
++      proposalId={proposalId}
++      currentNeedId={resolvedSearchParams.proposalNeedId}
++      currentOfferId={resolvedSearchParams.proposalOfferId}
++    />
++  );
++}
+diff --git a/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/page.tsx b/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/page.tsx
+index 2f72bb7..fa9a255 100644
+--- a/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/page.tsx
++++ b/apps/web/src/app/trades/[tradeId]/proposals/[proposalId]/page.tsx
+@@ -2,13 +2,26 @@ import { ProposalConversationClient } from "../../../../../features/trade/Propos
+ 
+ type ProposalConversationPageProps = {
+   params: Promise<{ tradeId: string; proposalId: string }>;
++  searchParams?: Promise<{
++    editProposal?: string;
++    proposalNeedId?: string;
++    proposalOfferId?: string;
++  }>;
+ };
+ 
+ export default async function ProposalConversationPage({
+   params,
++  searchParams,
+ }: ProposalConversationPageProps) {
+   const { tradeId, proposalId } = await params;
++  const resolvedSearchParams = searchParams ? await searchParams : {};
+   return (
+-    <ProposalConversationClient tradeId={tradeId} proposalId={proposalId} />
++    <ProposalConversationClient
++      tradeId={tradeId}
++      proposalId={proposalId}
++      initialEditProposal={resolvedSearchParams.editProposal === "1"}
++      initialProposalNeedId={resolvedSearchParams.proposalNeedId}
++      initialProposalOfferId={resolvedSearchParams.proposalOfferId}
++    />
+   );
+ }
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 5829f71..8919a87 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -9,7 +9,7 @@ import type {
+   TradeDto,
+   TradeProposalDto,
+ } from "@hellowhen/contracts";
+-import { useEffect, useMemo, useState } from "react";
++import { useEffect, useMemo, useRef, useState } from "react";
+ import { WebIcon, type WebIconName } from "../../components/WebIcon";
+ import { api } from "../../lib/api";
+ import { formatWebDateTime } from "../../lib/webFormat";
+@@ -31,6 +31,61 @@ type DeleteConfirmTarget =
+   | { kind: "proposal-note" }
+   | { kind: "message"; messageId: string };
+ 
++type ProposalEditDraftSnapshot = {
++  message?: string;
++  needId?: string;
++  offerId?: string;
++  sideChoice?: "none" | "need" | "offer";
++};
++
++function proposalEditDraftKey(proposalId: string) {
++  return `proposal-edit-draft:${proposalId}`;
++}
++
++function readProposalEditDraft(proposalId: string): ProposalEditDraftSnapshot | null {
++  if (typeof window === "undefined") return null;
++  try {
++    const raw = window.sessionStorage.getItem(proposalEditDraftKey(proposalId));
++    if (!raw) return null;
++    const parsed = JSON.parse(raw) as ProposalEditDraftSnapshot;
++    return parsed && typeof parsed === "object" ? parsed : null;
++  } catch {
++    return null;
++  }
++}
++
++function writeProposalEditDraft(proposalId: string, draft: ProposalEditDraftSnapshot) {
++  if (typeof window === "undefined") return;
++  try {
++    window.sessionStorage.setItem(proposalEditDraftKey(proposalId), JSON.stringify(draft));
++  } catch {
++    // Ignore storage failures; the picker will still work with the saved proposal.
++  }
++}
++
++function clearProposalEditDraft(proposalId: string) {
++  if (typeof window === "undefined") return;
++  try {
++    window.sessionStorage.removeItem(proposalEditDraftKey(proposalId));
++  } catch {
++    // Ignore storage failures.
++  }
++}
++
++function proposalEditChooseHref(
++  side: "need" | "offer",
++  tradeId: string,
++  proposalId: string,
++  currentNeedId?: string,
++  currentOfferId?: string,
++) {
++  const params = new URLSearchParams();
++  if (currentNeedId) params.set("proposalNeedId", currentNeedId);
++  if (currentOfferId) params.set("proposalOfferId", currentOfferId);
++  const query = params.toString();
++  return `/trades/${tradeId}/proposals/${proposalId}/choose-${side}${query ? `?${query}` : ""}`;
++}
++
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return Boolean(value && typeof value === "object");
+ }
+@@ -372,9 +427,15 @@ function ProposalSidePreview({
+ export function ProposalConversationClient({
+   tradeId,
+   proposalId,
++  initialEditProposal = false,
++  initialProposalNeedId = '',
++  initialProposalOfferId = '',
+ }: {
+   tradeId: string;
+   proposalId: string;
++  initialEditProposal?: boolean;
++  initialProposalNeedId?: string;
++  initialProposalOfferId?: string;
+ }) {
+   const auth = useWebAuth();
+   const { t, language } = useWebTranslation();
+@@ -405,6 +466,7 @@ export function ProposalConversationClient({
+   const [deleteConfirmTarget, setDeleteConfirmTarget] =
+     useState<DeleteConfirmTarget | null>(null);
+   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
++  const initialEditAppliedRef = useRef(false);
+ 
+   const sideItem = useMemo(
+     () => (proposal ? proposalSideItem(proposal) : null),
+@@ -470,6 +532,28 @@ export function ProposalConversationClient({
+     setProposalDetailsOpen(false);
+   }, [sideItemId]);
+ 
++  useEffect(() => {
++    if (!initialEditProposal || initialEditAppliedRef.current) return;
++    if (!proposal || !canEditProposalContent) return;
++    initialEditAppliedRef.current = true;
++    const storedDraft = readProposalEditDraft(proposalId);
++    startProposalEdit({
++      message: storedDraft?.message,
++      needId: initialProposalNeedId || storedDraft?.needId || proposal.proposedNeedId || "",
++      offerId: initialProposalOfferId || storedDraft?.offerId || proposal.proposedOfferId || "",
++      sideChoice:
++        storedDraft?.sideChoice ??
++        (initialProposalNeedId ? "need" : initialProposalOfferId ? "offer" : undefined),
++    });
++  }, [
++    canEditProposalContent,
++    initialEditProposal,
++    initialProposalNeedId,
++    initialProposalOfferId,
++    proposal,
++    proposalId,
++  ]);
++
+   async function loadProposal(options?: { quiet?: boolean }) {
+     if (!auth.isAuthenticated) return;
+     if (!options?.quiet) setLoading(true);
+@@ -671,18 +755,33 @@ export function ProposalConversationClient({
+     }
+   }
+ 
+-  function startProposalEdit() {
++  function startProposalEdit(seed?: ProposalEditDraftSnapshot) {
+     if (!proposal) return;
+-    setProposalDraft(proposal.messageDeletedAt ? "" : proposal.message);
+-    setProposalDraftNeedId(proposal.proposedNeedId ?? "");
+-    setProposalDraftOfferId(proposal.proposedOfferId ?? "");
+-    setProposalSideChoice(proposal.proposedNeedId ? "need" : proposal.proposedOfferId ? "offer" : "none");
++    const nextNeedId = seed?.needId ?? proposal.proposedNeedId ?? "";
++    const nextOfferId = seed?.offerId ?? proposal.proposedOfferId ?? "";
++    const nextMessage = seed?.message ?? (proposal.messageDeletedAt ? "" : proposal.message);
++    const nextSideChoice =
++      seed?.sideChoice ??
++      (nextNeedId ? "need" : nextOfferId ? "offer" : "none");
++    setProposalDraft(nextMessage);
++    setProposalDraftNeedId(nextNeedId);
++    setProposalDraftOfferId(nextOfferId);
++    setProposalSideChoice(nextSideChoice);
+     setProposalEditError(null);
+     setProposalDetailsOpen(false);
+     setEditingProposal(true);
+     void loadProposalSideInventory();
+   }
+ 
++  function stashProposalEditDraft() {
++    writeProposalEditDraft(proposalId, {
++      message: proposalDraft,
++      needId: proposalDraftNeedId,
++      offerId: proposalDraftOfferId,
++      sideChoice: proposalSideChoice,
++    });
++  }
++
+   async function saveProposalEdit(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     if (!proposal) return;
+@@ -735,6 +834,7 @@ export function ProposalConversationClient({
+       setProposal(updated);
+       setEditingProposal(false);
+       setProposalEditError(null);
++      clearProposalEditDraft(proposal.id);
+       setNotice(t("trade.proposals.proposalUpdated"));
+       await loadMessages({ quiet: true });
+     } catch {
+@@ -1102,45 +1202,101 @@ export function ProposalConversationClient({
+                 <div className="proposal-edit-form__side">
+                   <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
+                   {requiredProposalSide === "offer" ? (
+-                    <label className="field-label">
+-                      {t("trade.labels.proposedOffer")}
+-                      <select value={proposalDraftOfferId} onChange={(event) => setProposalDraftOfferId(event.target.value)} disabled={proposalSideLoading}>
+-                        <option value="">{t("trade.proposals.chooseOfferToPropose")}</option>
+-                        {activeProposalOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.title}</option>)}
+-                      </select>
+-                    </label>
++                    <div className="proposal-edit-form__picker-card">
++                      <div>
++                        <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
++                        <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
++                        <p>{draftOffer ? sideMeta(draftOffer, i18n) : t("trade.proposals.chooseExistingOfferBody")}</p>
++                      </div>
++                      <Link
++                        href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
++                        className="button secondary"
++                        onClick={stashProposalEditDraft}
++                      >
++                        {draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}
++                      </Link>
++                    </div>
+                   ) : requiredProposalSide === "need" ? (
+-                    <label className="field-label">
+-                      {t("trade.labels.proposedNeed")}
+-                      <select value={proposalDraftNeedId} onChange={(event) => setProposalDraftNeedId(event.target.value)} disabled={proposalSideLoading}>
+-                        <option value="">{t("trade.proposals.chooseNeedToPropose")}</option>
+-                        {activeProposalNeeds.map((need) => <option key={need.id} value={need.id}>{need.title}</option>)}
+-                      </select>
+-                    </label>
++                    <div className="proposal-edit-form__picker-card">
++                      <div>
++                        <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
++                        <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
++                        <p>{draftNeed ? sideMeta(draftNeed, i18n) : t("trade.proposals.chooseExistingNeedBody")}</p>
++                      </div>
++                      <Link
++                        href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
++                        className="button secondary"
++                        onClick={stashProposalEditDraft}
++                      >
++                        {draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}
++                      </Link>
++                    </div>
+                   ) : (
+                     <div className="proposal-edit-form__optional-side">
+                       <div className="proposal-edit-form__choice-row">
+-                        <button type="button" className={proposalSideChoice === "none" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("none")}>{t("trade.proposals.noAttachedItem")}</button>
+-                        <button type="button" className={proposalSideChoice === "need" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("need")}>{t("trade.labels.proposedNeed")}</button>
+-                        <button type="button" className={proposalSideChoice === "offer" ? "secondary is-active" : "secondary"} onClick={() => setProposalSideChoice("offer")}>{t("trade.labels.proposedOffer")}</button>
++                        <button
++                          type="button"
++                          className={proposalSideChoice === "none" ? "secondary is-active" : "secondary"}
++                          onClick={() => {
++                            setProposalSideChoice("none");
++                            setProposalDraftNeedId("");
++                            setProposalDraftOfferId("");
++                          }}
++                        >
++                          {t("trade.proposals.noAttachedItem")}
++                        </button>
++                        <button
++                          type="button"
++                          className={proposalSideChoice === "need" ? "secondary is-active" : "secondary"}
++                          onClick={() => {
++                            setProposalSideChoice("need");
++                            setProposalDraftOfferId("");
++                          }}
++                        >
++                          {t("trade.labels.proposedNeed")}
++                        </button>
++                        <button
++                          type="button"
++                          className={proposalSideChoice === "offer" ? "secondary is-active" : "secondary"}
++                          onClick={() => {
++                            setProposalSideChoice("offer");
++                            setProposalDraftNeedId("");
++                          }}
++                        >
++                          {t("trade.labels.proposedOffer")}
++                        </button>
+                       </div>
+                       {proposalSideChoice === "need" ? (
+-                        <label className="field-label">
+-                          {t("trade.labels.proposedNeed")}
+-                          <select value={proposalDraftNeedId} onChange={(event) => setProposalDraftNeedId(event.target.value)} disabled={proposalSideLoading}>
+-                            <option value="">{t("trade.proposals.chooseNeedToPropose")}</option>
+-                            {activeProposalNeeds.map((need) => <option key={need.id} value={need.id}>{need.title}</option>)}
+-                          </select>
+-                        </label>
++                        <div className="proposal-edit-form__picker-card">
++                          <div>
++                            <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
++                            <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
++                            <p>{draftNeed ? sideMeta(draftNeed, i18n) : t("trade.proposals.chooseExistingNeedBody")}</p>
++                          </div>
++                          <Link
++                            href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
++                            className="button secondary"
++                            onClick={stashProposalEditDraft}
++                          >
++                            {draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}
++                          </Link>
++                        </div>
+                       ) : null}
+                       {proposalSideChoice === "offer" ? (
+-                        <label className="field-label">
+-                          {t("trade.labels.proposedOffer")}
+-                          <select value={proposalDraftOfferId} onChange={(event) => setProposalDraftOfferId(event.target.value)} disabled={proposalSideLoading}>
+-                            <option value="">{t("trade.proposals.chooseOfferToPropose")}</option>
+-                            {activeProposalOffers.map((offer) => <option key={offer.id} value={offer.id}>{offer.title}</option>)}
+-                          </select>
+-                        </label>
++                        <div className="proposal-edit-form__picker-card">
++                          <div>
++                            <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
++                            <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
++                            <p>{draftOffer ? sideMeta(draftOffer, i18n) : t("trade.proposals.chooseExistingOfferBody")}</p>
++                          </div>
++                          <Link
++                            href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
++                            className="button secondary"
++                            onClick={stashProposalEditDraft}
++                          >
++                            {draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}
++                          </Link>
++                        </div>
+                       ) : null}
+                     </div>
+                   )}
+@@ -1164,7 +1320,7 @@ export function ProposalConversationClient({
+                 {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
+                 <div className="proposal-edit-form__actions">
+                   <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
+-                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
++                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+                 </div>
+               </form>
+             ) : (
+diff --git a/apps/web/src/features/trade/ProposalSideChoosePage.tsx b/apps/web/src/features/trade/ProposalSideChoosePage.tsx
+new file mode 100644
+index 0000000..67f8de7
+--- /dev/null
++++ b/apps/web/src/features/trade/ProposalSideChoosePage.tsx
+@@ -0,0 +1,209 @@
++'use client';
++
++import Link from 'next/link';
++import type { NeedDto, OfferDto } from '@hellowhen/contracts';
++import { useEffect, useMemo, useState } from 'react';
++import { MobilePage, PageIntro } from '../../components/MobilePage';
++import { WebIcon } from '../../components/WebIcon';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++import { getInventoryMetadata, mediaSrc, normalizeInventoryList } from '../inventory/inventoryPresentation';
++
++type Side = 'need' | 'offer';
++type Inventory = NeedDto | OfferDto;
++type LoadState = 'idle' | 'loading' | 'live';
++
++type ProposalSideChoosePageProps = {
++  side: Side;
++  tradeId: string;
++  proposalId: string;
++  currentNeedId?: string;
++  currentOfferId?: string;
++};
++
++function isSelectable(item: Inventory) {
++  return item.status === 'active';
++}
++
++function itemSearchText(item: Inventory) {
++  return [
++    item.title,
++    item.description,
++    item.category,
++    getInventoryMetadata(item),
++    ...(item.tags ?? []),
++  ]
++    .filter(Boolean)
++    .join(' ')
++    .toLowerCase();
++}
++
++function proposalThreadEditHref(
++  tradeId: string,
++  proposalId: string,
++  next: { needId?: string; offerId?: string },
++) {
++  const params = new URLSearchParams();
++  params.set('editProposal', '1');
++  if (next.needId) params.set('proposalNeedId', next.needId);
++  if (next.offerId) params.set('proposalOfferId', next.offerId);
++  const query = params.toString();
++  return `/trades/${tradeId}/proposals/${proposalId}${query ? `?${query}` : ''}`;
++}
++
++function selectedIdForSide(side: Side, currentNeedId?: string, currentOfferId?: string) {
++  return side === 'need' ? currentNeedId : currentOfferId;
++}
++
++function ChooseOption({ item, side, active, href }: { item: Inventory; side: Side; active: boolean; href: string }) {
++  const image = item.media?.[0] ?? null;
++  return (
++    <Link href={href} className={active ? 'trade-side-option is-active' : 'trade-side-option'}>
++      <span className="trade-side-option__media" aria-hidden="true">
++        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={side === 'need' ? 'need' : 'offer'} size={24} decorative />}
++      </span>
++      <span className="trade-side-option__body">
++        <span className="trade-side-option__top">
++          <strong>{item.title}</strong>
++          <em>{item.status}</em>
++        </span>
++        <span>{getInventoryMetadata(item) || item.description}</span>
++      </span>
++    </Link>
++  );
++}
++
++export function ProposalSideChoosePage({
++  side,
++  tradeId,
++  proposalId,
++  currentNeedId = '',
++  currentOfferId = '',
++}: ProposalSideChoosePageProps) {
++  const auth = useWebAuth();
++  const { t } = useWebTranslation();
++  const [items, setItems] = useState<Inventory[]>([]);
++  const [query, setQuery] = useState('');
++  const [loadState, setLoadState] = useState<LoadState>('idle');
++  const [notice, setNotice] = useState('');
++  const label = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
++  const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
++  const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
++  const backHref = proposalThreadEditHref(tradeId, proposalId, { needId: currentNeedId, offerId: currentOfferId });
++
++  useEffect(() => {
++    if (!auth.hydrated) return;
++    let mounted = true;
++    async function loadItems() {
++      setLoadState('loading');
++      if (!auth.isAuthenticated) {
++        setItems([]);
++        setLoadState('idle');
++        return;
++      }
++      try {
++        const response = side === 'need' ? await api.needs.mine() : await api.offers.mine();
++        if (!mounted) return;
++        setItems(normalizeInventoryList(response, side) as Inventory[]);
++        setNotice('');
++        setLoadState('live');
++      } catch (loadError) {
++        if (!mounted) return;
++        setItems([]);
++        setLoadState('idle');
++        setNotice(getFriendlyApiErrorMessage(loadError, t('trade.sidePicker.savedItemsCouldNotLoad', { items: pluralLabel })));
++      }
++    }
++    void loadItems();
++    return () => {
++      mounted = false;
++    };
++  }, [auth.hydrated, auth.isAuthenticated, pluralLabel, side, t]);
++
++  const selectableItems = useMemo(() => items.filter(isSelectable), [items]);
++  const filteredItems = useMemo(() => {
++    const needle = query.trim().toLowerCase();
++    if (!needle) return selectableItems;
++    return selectableItems.filter((item) => itemSearchText(item).includes(needle));
++  }, [query, selectableItems]);
++
++  return (
++    <MobilePage className="trade-side-choose-page proposal-side-choose-page">
++      <PageIntro
++        eyebrow={t('trade.proposals.editProposal')}
++        title={side === 'need' ? t('trade.proposals.chooseExistingNeedTitle') : t('trade.proposals.chooseExistingOfferTitle')}
++        body={side === 'need' ? t('trade.proposals.chooseExistingNeedBody') : t('trade.proposals.chooseExistingOfferBody')}
++        action={<Link href={backHref} className="button secondary">{t('common.actions.back')}</Link>}
++      />
++
++      {!auth.hydrated ? (
++        <section className="mobile-card mobile-card--soft">
++          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
++          <h3>{t('trade.create.checkingAccount')}</h3>
++        </section>
++      ) : !auth.isAuthenticated ? (
++        <section className="mobile-card mobile-card--soft">
++          <span className="semantic-badge instruction">{t('common.states.signedOut')}</span>
++          <h3>{t('trade.create.signInChoose', { items: pluralLabel })}</h3>
++          <p>{t('trade.create.signInChooseBody')}</p>
++          <Link href={`/auth?next=${encodeURIComponent(backHref)}`} className="button">{t('auth.actions.signIn')}</Link>
++        </section>
++      ) : null}
++
++      <section className="mobile-card trade-side-choose-panel">
++        <div className="trade-side-choose-panel__top">
++          <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}>
++            <WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}
++          </span>
++          <span className="semantic-badge instruction">
++            {loadState === 'loading'
++              ? t('common.states.loading')
++              : loadState === 'live'
++                ? t('inventory.labels.liveInventory')
++                : t('inventory.messages.visibleItems', { count: selectableItems.length, items: pluralLabel })}
++          </span>
++        </div>
++
++        <label className="trade-search-field trade-side-choose-search">
++          <span className="sr-only">{t('trade.sidePicker.searchSaved', { items: pluralLabel })}</span>
++          <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
++          <input
++            value={query}
++            onChange={(event) => setQuery(event.target.value)}
++            placeholder={t('trade.sidePicker.searchSaved', { items: pluralLabel })}
++            type="search"
++            autoFocus
++          />
++        </label>
++
++        {notice ? <p className="form-message form-message--error">{notice}</p> : null}
++
++        {filteredItems.length ? (
++          <div className="trade-side-option-list trade-side-option-list--page">
++            {filteredItems.map((item) => {
++              const href = side === 'need'
++                ? proposalThreadEditHref(tradeId, proposalId, { needId: item.id, offerId: currentOfferId })
++                : proposalThreadEditHref(tradeId, proposalId, { needId: currentNeedId, offerId: item.id });
++              return (
++                <ChooseOption
++                  key={item.id}
++                  item={item}
++                  side={side}
++                  active={item.id === selectedId}
++                  href={href}
++                />
++              );
++            })}
++          </div>
++        ) : (
++          <div className="trade-side-empty-state trade-side-empty-state--page">
++            <strong>{query.trim() ? t('trade.sidePicker.noMatches') : t('trade.sidePicker.noSavedYet', { items: pluralLabel })}</strong>
++            <span>{query.trim() ? t('trade.sidePicker.noMatchesBody') : t('trade.proposals.noExistingItemsForEdit', { item: label.toLowerCase() })}</span>
++          </div>
++        )}
++      </section>
++    </MobilePage>
++  );
++}
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 605b9e5..dc0f243 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -198,6 +198,16 @@ export const trade = {
+     proposalNoteDeleted: 'Proposal note deleted.',
+     changeProposalItem: 'Proposal item',
+     noAttachedItem: 'No attached item',
++    chooseNeed: 'Choose Need',
++    chooseOffer: 'Choose Offer',
++    changeNeed: 'Change Need',
++    changeOffer: 'Change Offer',
++    noProposalItemSelected: 'No item selected yet',
++    chooseExistingNeedTitle: 'Choose an existing Need',
++    chooseExistingNeedBody: 'Pick one of your active Needs, then return to the proposal edit screen.',
++    chooseExistingOfferTitle: 'Choose an existing Offer',
++    chooseExistingOfferBody: 'Pick one of your active Offers, then return to the proposal edit screen.',
++    noExistingItemsForEdit: 'Create a {{item}} first, then come back to edit this proposal.',
+     showProposalItemDetails: 'Show details',
+     hideProposalItemDetails: 'Hide details',
+     noProposalItemImages: 'No images attached to this proposed item yet.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 901421d..6b3cca2 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -198,6 +198,16 @@ export const trade = {
+     proposalNoteDeleted: 'Note de proposition supprimée.',
+     changeProposalItem: 'Élément proposé',
+     noAttachedItem: 'Aucun élément attaché',
++    chooseNeed: 'Choisir un besoin',
++    chooseOffer: 'Choisir une offre',
++    changeNeed: 'Changer le besoin',
++    changeOffer: 'Changer l’offre',
++    noProposalItemSelected: 'Aucun élément sélectionné',
++    chooseExistingNeedTitle: 'Choisir un besoin existant',
++    chooseExistingNeedBody: 'Choisis un de tes besoins actifs, puis reviens à l’écran de modification de la proposition.',
++    chooseExistingOfferTitle: 'Choisir une offre existante',
++    chooseExistingOfferBody: 'Choisis une de tes offres actives, puis reviens à l’écran de modification de la proposition.',
++    noExistingItemsForEdit: 'Crée d’abord un(e) {{item}}, puis reviens modifier cette proposition.',
+     showProposalItemDetails: 'Afficher les détails',
+     hideProposalItemDetails: 'Masquer les détails',
+     noProposalItemImages: 'Aucune image ajoutée à cet élément proposé pour le moment.',

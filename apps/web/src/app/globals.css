@@ -2183,6 +2183,31 @@ html[data-theme="dark"] .inventory-empty-state__plus {
   background: color-mix(in srgb, var(--proposal-bg) 74%, var(--app-surface));
   color: var(--proposal-text);
 }
+.proposal-edit-form__picker-card {
+  display: grid;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--app-surface-soft) 82%, transparent);
+}
+.proposal-edit-form__picker-card strong,
+.proposal-edit-form__picker-card p {
+  display: block;
+  margin: 3px 0 0;
+}
+.proposal-edit-form__picker-card p {
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+@media (min-width: 520px) {
+  .proposal-edit-form__picker-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
 .message-actions button,
 .proposal-edit-form__actions button {
   min-height: 32px;
