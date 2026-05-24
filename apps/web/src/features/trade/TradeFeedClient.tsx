@@ -131,6 +131,8 @@ export function TradeFeedClient() {
   }, [appliedFilters, auth.user?.profile?.countryCode, demoDataEnabled, language, refreshSeed, seenTradeIds]);
 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
+  const hasAppliedFilters = Boolean(appliedFilters.q.trim() || appliedFilters.mode || appliedFilters.hasImages || appliedFilters.hasMoney || appliedFilters.postType);
+
 
   function refreshDiscoveryOrder() {
     setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
@@ -225,12 +227,76 @@ export function TradeFeedClient() {
       ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
 
       {!loading && !loadError && !filteredTrades.length ? (
-        <section className="mobile-card mobile-card--soft">
-          <h3>{t('trade.filters.noTradesFound')}</h3>
-          <p>{t('trade.filters.noTradesBody')}</p>
-          <button type="button" className="secondary" onClick={resetFilters}>{t('trade.filters.clearFilters')}</button>
-        </section>
+        hasAppliedFilters ? (
+          <section className="mobile-card mobile-card--soft">
+            <h3>{t('trade.filters.noTradesFound')}</h3>
+            <p>{t('trade.filters.noTradesBody')}</p>
+            <button type="button" className="secondary" onClick={resetFilters}>{t('trade.filters.clearFilters')}</button>
+          </section>
+        ) : (
+          <TradeEmptyFeedOnboarding
+            createTradeHref={createTradeHref}
+            needsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs' : '/needs'}
+            offersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers' : '/offers'}
+            starterNeedsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs%3Fsource%3Dstarter' : '/needs?source=starter'}
+            starterOffersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers%3Fsource%3Dstarter' : '/offers?source=starter'}
+            t={t}
+          />
+        )
       ) : null}
+    </section>
+  );
+}
+
+
+type TradeEmptyFeedOnboardingProps = {
+  createTradeHref: string;
+  needsHref: string;
+  offersHref: string;
+  starterNeedsHref: string;
+  starterOffersHref: string;
+  t: (key: string, values?: Record<string, string | number>) => string;
+};
+
+function TradeEmptyFeedOnboarding({ createTradeHref, needsHref, offersHref, starterNeedsHref, starterOffersHref, t }: TradeEmptyFeedOnboardingProps) {
+  const starterIdeas = [
+    t('trade.emptyFeed.ideaPortfolioPhotosLandingReview'),
+    t('trade.emptyFeed.ideaFrenchCorrectionCanva'),
+    t('trade.emptyFeed.ideaVideoEditLinkedIn'),
+  ];
+
+  return (
+    <section className="trade-empty-onboarding" aria-labelledby="trade-empty-onboarding-title">
+      <div className="trade-empty-onboarding__hero">
+        <span className="trade-empty-onboarding__icon" aria-hidden="true"><WebIcon name="trade" size={34} decorative /></span>
+        <span className="semantic-badge instruction">{t('trade.emptyFeed.betaBadge')}</span>
+        <h2 id="trade-empty-onboarding-title">{t('trade.emptyFeed.title')}</h2>
+        <p>{t('trade.emptyFeed.body')}</p>
+        <div className="trade-empty-onboarding__actions" aria-label={t('trade.emptyFeed.primaryActions')}>
+          <Link href={createTradeHref} className="button">{t('trade.emptyFeed.createTrade')}</Link>
+          <Link href={needsHref} className="button secondary">{t('trade.emptyFeed.createNeed')}</Link>
+          <Link href={offersHref} className="button secondary">{t('trade.emptyFeed.createOffer')}</Link>
+        </div>
+      </div>
+
+      <div className="trade-empty-onboarding__starter">
+        <div className="trade-empty-onboarding__starter-copy">
+          <span className="semantic-badge success">{t('trade.emptyFeed.starterBadge')}</span>
+          <h3>{t('trade.emptyFeed.starterTitle')}</h3>
+          <p>{t('trade.emptyFeed.starterBody')}</p>
+        </div>
+        <div className="trade-empty-onboarding__starter-actions">
+          <Link href={starterNeedsHref} className="button secondary"><WebIcon name="need" size={17} decorative /> {t('trade.emptyFeed.browseStarterNeeds')}</Link>
+          <Link href={starterOffersHref} className="button secondary"><WebIcon name="offer" size={17} decorative /> {t('trade.emptyFeed.browseStarterOffers')}</Link>
+        </div>
+      </div>
+
+      <div className="trade-empty-onboarding__ideas" aria-label={t('trade.emptyFeed.ideaTitle')}>
+        <strong>{t('trade.emptyFeed.ideaTitle')}</strong>
+        <div>
+          {starterIdeas.map((idea) => <span key={idea}>{idea}</span>)}
+        </div>
+      </div>
     </section>
   );
 }

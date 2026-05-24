@@ -44,10 +44,6 @@ export default function AccountSettingsPage() {
   const [twoFactorQrCode, setTwoFactorQrCode] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [twoFactorPassword, setTwoFactorPassword] = useState('');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [changePasswordCode, setChangePasswordCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [recoveryCodesCopied, setRecoveryCodesCopied] = useState(false);
   const [clientReady, setClientReady] = useState(false);
@@ -217,52 +213,6 @@ export default function AccountSettingsPage() {
   }
 
 
-  async function changePassword() {
-    setSaving(true);
-    setMessage(null);
-    setError(null);
-    try {
-      const normalizedCode = changePasswordCode.trim();
-
-      if (!currentPassword || !newPassword || !confirmPassword) {
-        setError(t('settings.security.changePasswordRequired'));
-        return;
-      }
-      if (newPassword.length < 8) {
-        setError(t('settings.security.changePasswordLength'));
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        setError(t('settings.security.changePasswordMismatch'));
-        return;
-      }
-      if (currentPassword === newPassword) {
-        setError(t('settings.security.changePasswordSame'));
-        return;
-      }
-      if (currentUser?.twoFactorEnabled && !normalizedCode) {
-        setError(t('settings.security.changePasswordCodeRequired'));
-        return;
-      }
-
-      const response = await api.auth.changePassword({
-        currentPassword,
-        newPassword,
-        confirmPassword,
-        code: normalizedCode || undefined,
-      }) as { message?: string };
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      setChangePasswordCode('');
-      setMessage(response.message ?? t('settings.security.passwordChanged'));
-    } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <MobilePage>
       <PageIntro
@@ -361,30 +311,12 @@ export default function AccountSettingsPage() {
           </label>
         ) : null}
         {authenticated ? (
-          <div className="two-factor-setup-box">
+          <div className="security-action-card">
             <div>
-              <p className="meta">{t('settings.security.changePasswordTitle')}</p>
-              <p>{t('settings.security.changePasswordBody')}</p>
+              <p className="meta">{t('settings.security.passwordAccountTitle')}</p>
+              <p>{t('settings.security.passwordAccountBody')}</p>
             </div>
-            <label className="field-label">
-              {t('settings.security.currentPassword')}
-              <input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" autoComplete="current-password" />
-            </label>
-            <label className="field-label">
-              {t('settings.security.newPassword')}
-              <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" autoComplete="new-password" />
-            </label>
-            <label className="field-label">
-              {t('settings.security.confirmNewPassword')}
-              <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type="password" autoComplete="new-password" />
-            </label>
-            {currentUser?.twoFactorEnabled ? (
-              <label className="field-label">
-                {t('settings.security.authenticatorOrRecovery')}
-                <input value={changePasswordCode} onChange={(event) => setChangePasswordCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" />
-              </label>
-            ) : null}
-            <button type="button" className="secondary" onClick={() => { void changePassword(); }} disabled={saving}>{t('settings.security.changePasswordAction')}</button>
+            <Link href="/account/security/password" className="button secondary">{t('settings.security.changePasswordAction')}</Link>
           </div>
         ) : null}
         {authReady ? (

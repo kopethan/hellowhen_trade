@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import type { InventoryItemType, InventoryTemplateDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { InventoryEmptyState } from '../../components/InventoryEmptyState';
@@ -161,11 +162,12 @@ function StarterTemplateCard({
 
 export function InventoryListClient({ kind }: InventoryListClientProps) {
   const auth = useWebAuth();
+  const searchParams = useSearchParams();
   const { t, language } = useWebTranslation();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
   const [query, setQuery] = useState('');
-  const [sourceTab, setSourceTab] = useState<SourceTab>('mine');
+  const [sourceTab, setSourceTab] = useState<SourceTab>(() => searchParams.get('source') === 'starter' ? 'starter' : 'mine');
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
   const [loading, setLoading] = useState(true);
   const [templateLoading, setTemplateLoading] = useState(true);
@@ -177,6 +179,12 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const [cloningTemplateId, setCloningTemplateId] = useState('');
   const demoDataEnabled = isWebDemoDataEnabled();
   const i18n = useMemo(() => ({ t, language }), [language, t]);
+
+  useEffect(() => {
+    if (searchParams.get('source') === 'starter') {
+      setSourceTab('starter');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let mounted = true;

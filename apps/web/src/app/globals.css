@@ -391,6 +391,14 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .account-session-card h3 { margin-top: 10px; }
 .profile-form-card { display: grid; gap: 16px; }
 .settings-panel { display: grid; gap: 14px; }
+
+.security-action-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 14px; }
+.security-action-card p { margin-bottom: 0; font-size: 13px; color: var(--app-text-muted); line-height: 1.45; }
+.security-action-card .button { flex: 0 0 auto; }
+@media (max-width: 520px) {
+  .security-action-card { align-items: stretch; flex-direction: column; }
+  .security-action-card .button { width: 100%; }
+}
 .choice-list { display: grid; gap: 9px; }
 .choice-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 66px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); color: var(--app-text); padding: 13px; text-align: left; }
 .choice-card span { display: grid; gap: 3px; }
@@ -415,6 +423,26 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .feed-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .feed-status-row p { margin: 0; font-size: 13px; font-weight: 800; }
 .feed-status-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.trade-empty-onboarding { display: grid; gap: 14px; width: min(880px, 100%); margin: 0 auto; }
+.trade-empty-onboarding__hero,
+.trade-empty-onboarding__starter,
+.trade-empty-onboarding__ideas { border: 1px solid var(--app-border); border-radius: 30px; background: color-mix(in srgb, var(--app-surface) 94%, transparent); box-shadow: var(--app-card-shadow); backdrop-filter: blur(18px); }
+.trade-empty-onboarding__hero { display: grid; justify-items: start; gap: 12px; padding: clamp(22px, 5vw, 34px); overflow: hidden; }
+.trade-empty-onboarding__icon { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 22px; border: 1px solid var(--app-border); background: var(--app-surface-soft); color: var(--app-text); box-shadow: var(--app-control-shadow); }
+.trade-empty-onboarding h2,
+.trade-empty-onboarding h3 { margin: 0; letter-spacing: -0.04em; }
+.trade-empty-onboarding h2 { max-width: 620px; font-size: clamp(27px, 5vw, 44px); line-height: 0.98; }
+.trade-empty-onboarding h3 { font-size: 20px; }
+.trade-empty-onboarding p { max-width: 660px; margin: 0; color: var(--app-text-muted); font-weight: 750; line-height: 1.55; }
+.trade-empty-onboarding__actions,
+.trade-empty-onboarding__starter-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.trade-empty-onboarding__starter { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 18px; }
+.trade-empty-onboarding__starter-copy { display: grid; gap: 8px; }
+.trade-empty-onboarding__starter-actions .button { display: inline-flex; align-items: center; gap: 7px; }
+.trade-empty-onboarding__ideas { display: grid; gap: 12px; padding: 18px; }
+.trade-empty-onboarding__ideas strong { font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--app-text-muted); }
+.trade-empty-onboarding__ideas div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.trade-empty-onboarding__ideas span { min-height: 82px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 13px; color: var(--app-text); font-size: 13px; font-weight: 850; line-height: 1.35; }
 .feed-refresh-button { cursor: pointer; font-family: inherit; }
 .feed-refresh-button:disabled { cursor: not-allowed; opacity: 0.68; }
 .trade-feed-list { display: grid; gap: 18px; }
@@ -1187,6 +1215,11 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
 }
 
 @media (max-width: 759px) {
+  .trade-empty-onboarding__starter { grid-template-columns: 1fr; }
+  .trade-empty-onboarding__actions .button,
+  .trade-empty-onboarding__starter-actions .button { width: 100%; }
+  .trade-empty-onboarding__ideas div { grid-template-columns: 1fr; }
+  .trade-empty-onboarding__ideas span { min-height: auto; }
   .square-stack-deck { padding: 10px 24px 30px 0; }
   .square-stack-deck__control { display: none !important; width: 42px; height: 42px; }
   .square-stack-deck__control--prev { top: -13px; left: -13px; }
