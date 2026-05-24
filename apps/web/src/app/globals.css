@@ -512,6 +512,15 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .proposal-conversation-package .proposal-side-preview { background: color-mix(in srgb, var(--app-surface) 82%, transparent); }
 .proposal-package-section { display: grid; gap: 7px; }
 .proposal-package-section__label { color: var(--proposal-text); font-size: 10px; font-weight: 950; letter-spacing: .1em; text-transform: uppercase; }
+.accepted-proposal-package { display: grid; gap: 11px; border: 1px solid color-mix(in srgb, var(--proposal-border) 76%, var(--app-border)); border-radius: 24px; background: color-mix(in srgb, var(--proposal-bg) 42%, var(--app-surface)); padding: 13px; box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08); }
+.accepted-proposal-package__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.accepted-proposal-package__header h3 { margin: 0; font-size: 17px; line-height: 1.15; }
+.accepted-proposal-package__body { margin: 0; color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.42; }
+.accepted-proposal-package__sides { display: grid; gap: 8px; }
+.accepted-proposal-package__note { display: grid; gap: 3px; margin: 0; border-left: 3px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); color: var(--app-text); padding-left: 10px; font-size: 13px; font-weight: 800; line-height: 1.42; overflow-wrap: anywhere; }
+.accepted-proposal-package__note span { color: var(--proposal-text); font-size: 10px; font-weight: 950; letter-spacing: .1em; text-transform: uppercase; }
+.accepted-proposal-package__locked { display: inline-flex; align-items: center; gap: 7px; width: fit-content; margin: 0; border: 1px solid color-mix(in srgb, var(--proposal-border) 58%, var(--app-border)); border-radius: 999px; background: color-mix(in srgb, var(--app-surface) 72%, transparent); color: var(--app-text-muted); padding: 7px 10px; font-size: 12px; font-weight: 900; line-height: 1.3; }
+.accepted-proposal-package .proposal-side-preview { background: color-mix(in srgb, var(--app-surface) 84%, transparent); }
 .proposal-empty-state { display: grid; place-items: center; gap: 7px; min-height: 150px; border: 2px dashed var(--app-border-strong); border-radius: 24px; background: var(--app-surface-soft); padding: 20px; text-align: center; }
 .proposal-empty-state span { color: var(--app-text-muted); }
 .proposal-side-picker { display: grid; gap: 10px; width: 100%; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 22px; background: var(--app-surface-soft); padding: 12px; }
@@ -2206,6 +2215,28 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 @media (min-width: 520px) {
   .proposal-edit-form__picker-card {
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+.proposal-edit-form__picker-grid,
+.proposal-side-details-stack {
+  display: grid;
+  gap: 10px;
+}
+.proposal-edit-form__picker-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.proposal-edit-form__picker-actions .button,
+.proposal-edit-form__picker-actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+@media (min-width: 620px) {
+  .proposal-edit-form__picker-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 .message-actions button,

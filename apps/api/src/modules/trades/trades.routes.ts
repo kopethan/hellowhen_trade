@@ -523,17 +523,18 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
     if (!proposal || proposal.applicantId !== applicantId) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
 
     const acceptedSideUpdate: { needId?: string; offerId?: string } = {};
-    if (trade.postType === 'open_need') {
-      if (!proposal.proposedOfferId) throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+    if (trade.postType === 'open_need' && !proposal.proposedOfferId) throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+    if (trade.postType === 'open_offer' && !proposal.proposedNeedId) throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+
+    if (proposal.proposedOfferId) {
       const proposedOffer = await tx.offer.findFirst({ where: { id: proposal.proposedOfferId, ownerId: applicantId } });
       if (!proposedOffer || inventoryUnavailable(proposedOffer.status)) throw Object.assign(new Error('invalid_proposal_offer'), { code: 'PROPOSAL_SIDE_UNAVAILABLE' });
-      acceptedSideUpdate.offerId = proposedOffer.id;
+      if (trade.postType === 'open_need') acceptedSideUpdate.offerId = proposedOffer.id;
     }
-    if (trade.postType === 'open_offer') {
-      if (!proposal.proposedNeedId) throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+    if (proposal.proposedNeedId) {
       const proposedNeed = await tx.need.findFirst({ where: { id: proposal.proposedNeedId, ownerId: applicantId } });
       if (!proposedNeed || inventoryUnavailable(proposedNeed.status)) throw Object.assign(new Error('invalid_proposal_need'), { code: 'PROPOSAL_SIDE_UNAVAILABLE' });
-      acceptedSideUpdate.needId = proposedNeed.id;
+      if (trade.postType === 'open_offer') acceptedSideUpdate.needId = proposedNeed.id;
     }
 
     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
@@ -773,25 +774,19 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
   let proposedNeedId: string | null = null;
   let proposedOfferId: string | null = null;
 
-  if (input.proposedNeedId && input.proposedOfferId) {
-    return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Choose either one Need or one Offer for this proposal, not both.' });
+  if (requiredSide === 'offer' && !input.proposedOfferId) {
+    return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
+  }
+  if (requiredSide === 'need' && !input.proposedNeedId) {
+    return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
   }
 
-  if (requiredSide === 'offer') {
-    if (!input.proposedOfferId) return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
+  if (input.proposedOfferId) {
     const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
     if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
     proposedOfferId = offer.id;
-  } else if (requiredSide === 'need') {
-    if (!input.proposedNeedId) return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
-    const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
-    if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
-    proposedNeedId = need.id;
-  } else if (input.proposedOfferId) {
-    const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
-    if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
-    proposedOfferId = offer.id;
-  } else if (input.proposedNeedId) {
+  }
+  if (input.proposedNeedId) {
     const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
     if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
     proposedNeedId = need.id;

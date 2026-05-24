@@ -33,10 +33,6 @@ async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null
   const nextNeedId = nextNeedProvided ? input.proposedNeedId ?? null : proposal.proposedNeedId ?? null;
   const nextOfferId = nextOfferProvided ? input.proposedOfferId ?? null : proposal.proposedOfferId ?? null;
 
-  if (nextNeedId && nextOfferId) {
-    throw Object.assign(new Error('proposal_side_mismatch'), { code: 'PROPOSAL_SIDE_MISMATCH' });
-  }
-
   if (requiredSide === 'offer' && !nextOfferId) {
     throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_OFFER_REQUIRED' });
   }
@@ -62,7 +58,6 @@ async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null
 
 function proposalSideErrorResponse(res: Response, error: unknown) {
   const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-  if (code === 'PROPOSAL_SIDE_MISMATCH') return res.status(400).json({ error: 'proposal_side_mismatch', message: 'Choose either one Need or one Offer for this proposal, not both.' });
   if (code === 'PROPOSAL_OFFER_REQUIRED') return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
   if (code === 'PROPOSAL_NEED_REQUIRED') return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
   if (code === 'INVALID_PROPOSAL_OFFER') return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });

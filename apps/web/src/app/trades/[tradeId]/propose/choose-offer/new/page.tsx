@@ -24,7 +24,9 @@ export default async function NewProposalOfferPage({ params, searchParams }: New
       afterCreateRedirect={{
         pathname: `/trades/${tradeId}`,
         selectedParam: 'proposalOfferId',
-        preservedParams: {},
+        preservedParams: {
+          proposalNeedId: resolvedSearchParams.proposalNeedId,
+        },
       }}
     />
   );

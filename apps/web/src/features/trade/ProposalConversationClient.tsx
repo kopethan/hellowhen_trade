@@ -35,7 +35,7 @@ type ProposalEditDraftSnapshot = {
   message?: string;
   needId?: string;
   offerId?: string;
-  sideChoice?: "none" | "need" | "offer";
+  sideChoice?: "none" | "need" | "offer" | "both";
 };
 
 function proposalEditDraftKey(proposalId: string) {
@@ -320,14 +320,13 @@ function ProposalSideDetails({
   );
 }
 
-function proposalSideItem(
+function proposalSideItems(
   proposal: TradeProposalDto,
-): { kind: "need"; item: NeedDto } | { kind: "offer"; item: OfferDto } | null {
-  if (proposal.proposedOffer)
-    return { kind: "offer", item: proposal.proposedOffer };
-  if (proposal.proposedNeed)
-    return { kind: "need", item: proposal.proposedNeed };
-  return null;
+): Array<{ kind: "need"; item: NeedDto } | { kind: "offer"; item: OfferDto }> {
+  const items: Array<{ kind: "need"; item: NeedDto } | { kind: "offer"; item: OfferDto }> = [];
+  if (proposal.proposedOffer) items.push({ kind: "offer", item: proposal.proposedOffer });
+  if (proposal.proposedNeed) items.push({ kind: "need", item: proposal.proposedNeed });
+  return items;
 }
 
 
@@ -339,10 +338,11 @@ function proposalSideRequirement(proposal: TradeProposalDto | null) {
 }
 
 function proposalApplicantStatus(proposal: TradeProposalDto, i18n?: TradeI18n) {
-  const sideItem = proposalSideItem(proposal);
-  if (sideItem?.kind === "offer")
+  if (proposal.proposedNeed && proposal.proposedOffer)
+    return i18n?.t?.("trade.proposals.needOfferProposal") ?? "Need + Offer proposal";
+  if (proposal.proposedOffer)
     return i18n?.t?.("trade.proposals.offerProposal") ?? "Offer proposal";
-  if (sideItem?.kind === "need")
+  if (proposal.proposedNeed)
     return i18n?.t?.("trade.proposals.needProposal") ?? "Need proposal";
   return i18n?.t?.("trade.proposals.tradeRequest") ?? "Trade request";
 }
@@ -456,7 +456,7 @@ export function ProposalConversationClient({
   const [proposalEditError, setProposalEditError] = useState<string | null>(null);
   const [proposalNeeds, setProposalNeeds] = useState<NeedDto[]>([]);
   const [proposalOffers, setProposalOffers] = useState<OfferDto[]>([]);
-  const [proposalSideChoice, setProposalSideChoice] = useState<"none" | "need" | "offer">("none");
+  const [proposalSideChoice, setProposalSideChoice] = useState<"none" | "need" | "offer" | "both">("none");
   const [proposalDraftNeedId, setProposalDraftNeedId] = useState("");
   const [proposalDraftOfferId, setProposalDraftOfferId] = useState("");
   const [proposalSideLoading, setProposalSideLoading] = useState(false);
@@ -468,11 +468,11 @@ export function ProposalConversationClient({
   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
   const initialEditAppliedRef = useRef(false);
 
-  const sideItem = useMemo(
-    () => (proposal ? proposalSideItem(proposal) : null),
+  const sideItems = useMemo(
+    () => (proposal ? proposalSideItems(proposal) : []),
     [proposal],
   );
-  const sideItemId = sideItem?.item.id ?? null;
+  const sideItemId = sideItems.map((side) => side.item.id).join(':') || null;
   const actorId = auth.user?.id ?? null;
   const isOwner = Boolean(
     proposal?.trade?.ownerId && actorId === proposal.trade.ownerId,
@@ -543,7 +543,7 @@ export function ProposalConversationClient({
       offerId: initialProposalOfferId || storedDraft?.offerId || proposal.proposedOfferId || "",
       sideChoice:
         storedDraft?.sideChoice ??
-        (initialProposalNeedId ? "need" : initialProposalOfferId ? "offer" : undefined),
+        (initialProposalNeedId && initialProposalOfferId ? "both" : initialProposalNeedId ? "need" : initialProposalOfferId ? "offer" : undefined),
     });
   }, [
     canEditProposalContent,
@@ -735,19 +735,9 @@ export function ProposalConversationClient({
     if (!auth.isAuthenticated) return;
     setProposalSideLoading(true);
     try {
-      if (requiredProposalSide === "offer") {
-        const response = await api.offers.mine();
-        setProposalOffers(normalizeOffers(response));
-        setProposalNeeds([]);
-      } else if (requiredProposalSide === "need") {
-        const response = await api.needs.mine();
-        setProposalNeeds(normalizeNeeds(response));
-        setProposalOffers([]);
-      } else {
-        const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
-        setProposalNeeds(normalizeNeeds(needsResponse));
-        setProposalOffers(normalizeOffers(offersResponse));
-      }
+      const [needsResponse, offersResponse] = await Promise.all([api.needs.mine(), api.offers.mine()]);
+      setProposalNeeds(normalizeNeeds(needsResponse));
+      setProposalOffers(normalizeOffers(offersResponse));
     } catch {
       setProposalEditError(t("trade.errors.couldNotLoadInventory"));
     } finally {
@@ -762,7 +752,7 @@ export function ProposalConversationClient({
     const nextMessage = seed?.message ?? (proposal.messageDeletedAt ? "" : proposal.message);
     const nextSideChoice =
       seed?.sideChoice ??
-      (nextNeedId ? "need" : nextOfferId ? "offer" : "none");
+      (nextNeedId && nextOfferId ? "both" : nextNeedId ? "need" : nextOfferId ? "offer" : "none");
     setProposalDraft(nextMessage);
     setProposalDraftNeedId(nextNeedId);
     setProposalDraftOfferId(nextOfferId);
@@ -799,35 +789,13 @@ export function ProposalConversationClient({
       setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
       return;
     }
-    if (!requiredProposalSide && proposalSideChoice === "need" && !proposalDraftNeedId) {
-      setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
-      return;
-    }
-    if (!requiredProposalSide && proposalSideChoice === "offer" && !proposalDraftOfferId) {
-      setProposalEditError(t("trade.proposals.chooseOfferBeforeSending"));
-      return;
-    }
 
     setActionLoading("proposal-edit");
     try {
       const payload: { message?: string; proposedNeedId?: string | null; proposedOfferId?: string | null } = {};
       if (message) payload.message = message;
-      if (requiredProposalSide === "offer") {
-        payload.proposedOfferId = proposalDraftOfferId;
-        payload.proposedNeedId = null;
-      } else if (requiredProposalSide === "need") {
-        payload.proposedNeedId = proposalDraftNeedId;
-        payload.proposedOfferId = null;
-      } else if (proposalSideChoice === "need") {
-        payload.proposedNeedId = proposalDraftNeedId;
-        payload.proposedOfferId = null;
-      } else if (proposalSideChoice === "offer") {
-        payload.proposedOfferId = proposalDraftOfferId;
-        payload.proposedNeedId = null;
-      } else {
-        payload.proposedNeedId = null;
-        payload.proposedOfferId = null;
-      }
+      payload.proposedNeedId = proposalDraftNeedId || null;
+      payload.proposedOfferId = proposalDraftOfferId || null;
       const response = await api.proposals.updateMessage(proposal.id, payload);
       const updated = normalizeProposal(response);
       if (!updated) throw new Error("missing_proposal_response");
@@ -1201,109 +1169,48 @@ export function ProposalConversationClient({
               <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
                 <div className="proposal-edit-form__side">
                   <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
-                  {requiredProposalSide === "offer" ? (
+                  <div className="proposal-edit-form__picker-grid">
                     <div className="proposal-edit-form__picker-card">
                       <div>
                         <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
                         <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                        <p>{draftOffer ? sideMeta(draftOffer, i18n) : t("trade.proposals.chooseExistingOfferBody")}</p>
+                        <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
                       </div>
-                      <Link
-                        href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
-                        className="button secondary"
-                        onClick={stashProposalEditDraft}
-                      >
-                        {draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}
-                      </Link>
+                      <div className="proposal-edit-form__picker-actions">
+                        <Link
+                          href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
+                          className="button secondary"
+                          onClick={stashProposalEditDraft}
+                        >
+                          {draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}
+                        </Link>
+                        {draftOffer && requiredProposalSide !== "offer" ? (
+                          <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button>
+                        ) : null}
+                      </div>
                     </div>
-                  ) : requiredProposalSide === "need" ? (
                     <div className="proposal-edit-form__picker-card">
                       <div>
                         <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
                         <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                        <p>{draftNeed ? sideMeta(draftNeed, i18n) : t("trade.proposals.chooseExistingNeedBody")}</p>
+                        <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
                       </div>
-                      <Link
-                        href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
-                        className="button secondary"
-                        onClick={stashProposalEditDraft}
-                      >
-                        {draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="proposal-edit-form__optional-side">
-                      <div className="proposal-edit-form__choice-row">
-                        <button
-                          type="button"
-                          className={proposalSideChoice === "none" ? "secondary is-active" : "secondary"}
-                          onClick={() => {
-                            setProposalSideChoice("none");
-                            setProposalDraftNeedId("");
-                            setProposalDraftOfferId("");
-                          }}
+                      <div className="proposal-edit-form__picker-actions">
+                        <Link
+                          href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
+                          className="button secondary"
+                          onClick={stashProposalEditDraft}
                         >
-                          {t("trade.proposals.noAttachedItem")}
-                        </button>
-                        <button
-                          type="button"
-                          className={proposalSideChoice === "need" ? "secondary is-active" : "secondary"}
-                          onClick={() => {
-                            setProposalSideChoice("need");
-                            setProposalDraftOfferId("");
-                          }}
-                        >
-                          {t("trade.labels.proposedNeed")}
-                        </button>
-                        <button
-                          type="button"
-                          className={proposalSideChoice === "offer" ? "secondary is-active" : "secondary"}
-                          onClick={() => {
-                            setProposalSideChoice("offer");
-                            setProposalDraftNeedId("");
-                          }}
-                        >
-                          {t("trade.labels.proposedOffer")}
-                        </button>
+                          {draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}
+                        </Link>
+                        {draftNeed && requiredProposalSide !== "need" ? (
+                          <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button>
+                        ) : null}
                       </div>
-                      {proposalSideChoice === "need" ? (
-                        <div className="proposal-edit-form__picker-card">
-                          <div>
-                            <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
-                            <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                            <p>{draftNeed ? sideMeta(draftNeed, i18n) : t("trade.proposals.chooseExistingNeedBody")}</p>
-                          </div>
-                          <Link
-                            href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
-                            className="button secondary"
-                            onClick={stashProposalEditDraft}
-                          >
-                            {draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}
-                          </Link>
-                        </div>
-                      ) : null}
-                      {proposalSideChoice === "offer" ? (
-                        <div className="proposal-edit-form__picker-card">
-                          <div>
-                            <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
-                            <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                            <p>{draftOffer ? sideMeta(draftOffer, i18n) : t("trade.proposals.chooseExistingOfferBody")}</p>
-                          </div>
-                          <Link
-                            href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
-                            className="button secondary"
-                            onClick={stashProposalEditDraft}
-                          >
-                            {draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}
-                          </Link>
-                        </div>
-                      ) : null}
                     </div>
-                  )}
-                  {requiredProposalSide === "need" && draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
-                  {requiredProposalSide === "offer" && draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
-                  {!requiredProposalSide && proposalSideChoice === "need" && draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
-                  {!requiredProposalSide && proposalSideChoice === "offer" && draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
+                  </div>
+                  {draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
+                  {draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
                 </div>
                 <label className="field-label">
                   {t("trade.labels.proposalMessage")}
@@ -1325,14 +1232,17 @@ export function ProposalConversationClient({
               </form>
             ) : (
               <>
-                {sideItem ? (
+                {sideItems.length ? (
                   <div className="proposal-side-review">
-                    <ProposalSidePreview
-                      kind={sideItem.kind}
-                      item={sideItem.item}
-                      compact
-                      i18n={i18n}
-                    />
+                    {sideItems.map((side) => (
+                      <ProposalSidePreview
+                        key={`${side.kind}-${side.item.id}`}
+                        kind={side.kind}
+                        item={side.item}
+                        compact
+                        i18n={i18n}
+                      />
+                    ))}
                     <button
                       type="button"
                       className="proposal-side-details-toggle"
@@ -1343,11 +1253,16 @@ export function ProposalConversationClient({
                         : t("trade.proposals.showProposalItemDetails")}
                     </button>
                     {proposalDetailsOpen ? (
-                      <ProposalSideDetails
-                        kind={sideItem.kind}
-                        item={sideItem.item}
-                        i18n={i18n}
-                      />
+                      <div className="proposal-side-details-stack">
+                        {sideItems.map((side) => (
+                          <ProposalSideDetails
+                            key={`${side.kind}-details-${side.item.id}`}
+                            kind={side.kind}
+                            item={side.item}
+                            i18n={i18n}
+                          />
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}

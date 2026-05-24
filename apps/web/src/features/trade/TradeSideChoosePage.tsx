@@ -106,8 +106,8 @@ function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?:
 function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '', context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
   if (context?.mode === 'proposal' && context.tradeId) {
     return side === 'need'
-      ? tradeProposalHref(context.tradeId, { needId: itemId, offerId: '' })
-      : tradeProposalHref(context.tradeId, { needId: '', offerId: itemId });
+      ? tradeProposalHref(context.tradeId, { needId: itemId, offerId: currentOfferId })
+      : tradeProposalHref(context.tradeId, { needId: currentNeedId, offerId: itemId });
   }
   return side === 'need'
     ? createTradeHref({ postType, needId: itemId, offerId: currentOfferId })
