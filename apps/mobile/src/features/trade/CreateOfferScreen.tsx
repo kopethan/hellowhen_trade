@@ -66,11 +66,23 @@ export function CreateOfferScreen({ route, navigation }: Props) {
         mediaIds,
       }) as CreateOfferResponse;
 
+      if (route.params?.returnTo === 'proposalDetail' && route.params.proposalId) {
+        navigation.navigate('ProposalDetail', {
+          proposalId: route.params.proposalId,
+          selectedProposalSide: { side: 'offer', kind: 'offer', id: response.offer.id },
+          selectedProposalNeedId: route.params.proposalNeedId,
+          selectedProposalOfferId: response.offer.id,
+        });
+        return;
+      }
+
       if (route.params?.returnTo === 'tradeProposal' && route.params.tradeId) {
         navigation.navigate('TradeDetail', {
           tradeId: route.params.tradeId,
           title: route.params.tradeTitle,
           selectedProposalSide: { side: 'offer', kind: 'offer', id: response.offer.id },
+          selectedProposalNeedId: route.params.proposalNeedId,
+          selectedProposalOfferId: response.offer.id,
         });
         return;
       }

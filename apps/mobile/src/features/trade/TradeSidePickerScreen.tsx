@@ -111,7 +111,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
 
   function createNewItem() {
     const returnTo = route.params.returnTo ?? 'createTrade';
-    const params = { returnTo, tradeId: route.params.tradeId, tradeTitle: route.params.tradeTitle };
+    const params = { returnTo, tradeId: route.params.tradeId, tradeTitle: route.params.tradeTitle, proposalId: route.params.proposalId, proposalNeedId: route.params.proposalNeedId, proposalOfferId: route.params.proposalOfferId };
     if (side === 'need') {
       navigation.navigate('CreateNeed', params);
       return;
@@ -120,11 +120,24 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
   }
 
   function choose(selection: TradeCreateSideSelection) {
+    const selectedProposalNeedId = selection.kind === 'need' ? selection.id : route.params.proposalNeedId;
+    const selectedProposalOfferId = selection.kind === 'offer' ? selection.id : route.params.proposalOfferId;
+    if (route.params.returnTo === 'proposalDetail' && route.params.proposalId) {
+      navigation.navigate('ProposalDetail', {
+        proposalId: route.params.proposalId,
+        selectedProposalSide: selection,
+        selectedProposalNeedId,
+        selectedProposalOfferId,
+      });
+      return;
+    }
     if (route.params.returnTo === 'tradeProposal' && route.params.tradeId) {
       navigation.navigate('TradeDetail', {
         tradeId: route.params.tradeId,
         title: route.params.tradeTitle,
         selectedProposalSide: selection,
+        selectedProposalNeedId,
+        selectedProposalOfferId,
       });
       return;
     }

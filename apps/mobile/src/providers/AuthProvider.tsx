@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import type { AuthUser, ForgotPasswordResponse } from '@hellowhen/contracts';
+import type { AuthUser, ForgotPasswordResponse, ResetPasswordResponse } from '@hellowhen/contracts';
 import { api } from '../lib/api';
 import { useAppSettings } from './AppSettingsProvider';
 import { clearAuthTokens, getAccessToken, getRefreshToken, setAccessToken, setRefreshToken } from '../lib/tokenStore';
@@ -13,10 +13,12 @@ type AuthContextValue = {
   user: AuthUser | null;
   hydrated: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<TwoFactorRequired | void>;
   register: (email: string, password: string, displayName: string, confirmPassword: string | undefined, acceptedTerms: boolean, ageConfirmed: boolean, countryCode?: string, preferredCurrency?: 'eur' | 'usd' | 'gbp') => Promise<void>;
   loginWithGoogleIdToken: (idToken: string, launchConfirmation?: { acceptedTerms: boolean; ageConfirmed: boolean; declaredAgeBucket: '18_plus' }) => Promise<void>;
   forgotPassword: (email: string) => Promise<ForgotPasswordResponse>;
+  resetPassword: (token: string, password: string, confirmPassword: string) => Promise<ResetPasswordResponse>;
+  completeTwoFactorLogin: (input: { challengeToken: string; code: string }) => Promise<void>;
   reauthenticate: (input: { password?: string; code?: string }) => Promise<void>;
   updateLocalProfile: (profile: AuthProfilePatch) => void;
   logout: () => Promise<void>;
@@ -110,8 +112,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: Boolean(user),
     async login(email, password) {
       const result = await api.auth.login({ email, password });
-      if (isTwoFactorRequired(result)) throw new Error(result.message || 'Two-step verification is required.');
+      if (isTwoFactorRequired(result)) return result;
       await applyAuthResult(result as AuthMeResponse);
+      return undefined;
     },
     async register(email, password, displayName, confirmPassword, acceptedTerms, ageConfirmed, countryCode, preferredCurrency) {
       const result = await api.auth.register({ email, password, confirmPassword, displayName, acceptedTerms, ageConfirmed, declaredAgeBucket: '18_plus', countryCode, preferredCurrency });
@@ -124,6 +127,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     },
     forgotPassword(email) {
       return api.auth.forgotPassword({ email });
+    },
+    resetPassword(token, password, confirmPassword) {
+      return api.auth.resetPassword({ token, password, confirmPassword });
+    },
+    async completeTwoFactorLogin(input) {
+      const result = await api.auth.loginTwoFactor(input);
+      await applyAuthResult(result as AuthMeResponse);
     },
     async reauthenticate(input) {
       await api.auth.reauthenticate(input);

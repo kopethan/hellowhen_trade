@@ -15,6 +15,7 @@ import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 
 type AuthMode = 'login' | 'register' | 'forgot';
+type TwoFactorChallenge = { challengeToken: string; message?: string };
 
 
 function authSubtitleKey(mode: AuthMode) {
@@ -37,6 +38,8 @@ export function LoginScreen() {
   const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [countryCode, setCountryCode] = useState('FR');
   const [showPassword, setShowPassword] = useState(false);
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<TwoFactorChallenge | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [authCompleted, setAuthCompleted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -62,9 +65,15 @@ export function LoginScreen() {
     setMode(nextMode);
     setError(null);
     setMessage(null);
+    setTwoFactorChallenge(null);
+    setTwoFactorCode('');
   }
 
   function validateLocalForm() {
+    if (twoFactorChallenge) {
+      if (!twoFactorCode.trim()) return t('auth.errors.twoFactorCodeRequired');
+      return null;
+    }
     if (!email.trim()) return t('auth.errors.emailRequired');
     if (mode !== 'forgot' && password.length < 8) return t('auth.errors.passwordMin');
     if (mode === 'register' && !displayName.trim()) return t('auth.errors.nameRequired');
@@ -85,7 +94,21 @@ export function LoginScreen() {
     let completed = false;
     try {
       if (mode === 'login') {
-        await auth.login(email.trim(), password);
+        if (twoFactorChallenge) {
+          await auth.completeTwoFactorLogin({ challengeToken: twoFactorChallenge.challengeToken, code: twoFactorCode.trim() });
+          finishAuthNavigation();
+          completed = true;
+          return;
+        }
+
+        const challenge = await auth.login(email.trim(), password);
+        if (challenge) {
+          setTwoFactorChallenge({ challengeToken: challenge.challengeToken, message: challenge.message });
+          setMessage(challenge.message || t('auth.twoFactorNotice'));
+          setTwoFactorCode('');
+          return;
+        }
+
         finishAuthNavigation();
         completed = true;
       } else if (mode === 'register') {
@@ -120,12 +143,25 @@ export function LoginScreen() {
           </View>
 
           <View style={styles.formStack}>
-            {mode === 'register' ? <AuthInput value={displayName} onChangeText={setDisplayName} placeholder={t('auth.fields.fullName')} /> : null}
-            <AuthInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder={t('auth.fields.email')} />
-            {mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder={t('auth.fields.password')} showPassword={showPassword} onToggle={() => setShowPassword((value) => !value)} /> : null}
-            {mode === 'register' ? <AuthInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder={t('auth.fields.confirmPassword')} secureTextEntry={!showPassword} /> : null}
+            {twoFactorChallenge ? (
+              <View style={[styles.twoFactorBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+                <SemanticBadge label={t('auth.modes.verifyCode')} tone="time" size="sm" />
+                <AppText style={styles.twoFactorTitle}>{t('auth.twoFactorNotice')}</AppText>
+                <AppText style={[styles.twoFactorBody, { color: theme.color.muted }]}>{t('auth.twoFactorRecoveryHint')}</AppText>
+                <AuthInput value={twoFactorCode} onChangeText={(value) => setTwoFactorCode(value.toUpperCase())} autoCapitalize="characters" autoCorrect={false} placeholder={t('auth.placeholders.twoFactorOrRecoveryCode')} />
+                <AppText style={[styles.twoFactorBody, { color: theme.color.muted }]}>{t('auth.twoFactorLostAccessPrefix')} {t('auth.twoFactorLostAccessLink')}.</AppText>
+                <Pressable accessibilityRole="button" onPress={() => { setTwoFactorChallenge(null); setTwoFactorCode(''); setPassword(''); setMessage(null); }} style={({ pressed }) => [styles.inlineButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+                  <AppText style={styles.inlineButtonText}>{t('auth.actions.backToLogin')}</AppText>
+                </Pressable>
+              </View>
+            ) : null}
 
-            {mode === 'register' ? (
+            {!twoFactorChallenge && mode === 'register' ? <AuthInput value={displayName} onChangeText={setDisplayName} placeholder={t('auth.fields.fullName')} /> : null}
+            {!twoFactorChallenge ? <AuthInput value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholder={t('auth.fields.email')} /> : null}
+            {!twoFactorChallenge && mode !== 'forgot' ? <PasswordInput value={password} onChangeText={setPassword} placeholder={t('auth.fields.password')} showPassword={showPassword} onToggle={() => setShowPassword((value) => !value)} /> : null}
+            {!twoFactorChallenge && mode === 'register' ? <AuthInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder={t('auth.fields.confirmPassword')} secureTextEntry={!showPassword} /> : null}
+
+            {!twoFactorChallenge && mode === 'register' ? (
               <View style={[styles.preferenceBlock, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
                 <View style={styles.preferenceHeader}>
                   <AppText style={styles.preferenceTitle}>{t('auth.localDisplay.title')}</AppText>
@@ -140,7 +176,7 @@ export function LoginScreen() {
               </View>
             ) : null}
 
-            {mode === 'register' ? (
+            {!twoFactorChallenge && mode === 'register' ? (
               <View style={styles.termsBlock}>
                 <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}>
                   <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
@@ -163,7 +199,7 @@ export function LoginScreen() {
           {message ? <InfoNotice tone="success" title={t('common.states.done')} body={message} /> : null}
 
           <View style={styles.actionStack}>
-            <AuthActionButton label={authCompleted ? t('auth.actions.openingApp') : submitting ? t('common.states.working') : mode === 'login' ? t('auth.actions.login') : mode === 'register' ? t('auth.actions.createAccount') : t('auth.actions.sendResetLink')} disabled={submitting || authCompleted} onPress={() => { void handleSubmit(); }} />
+            <AuthActionButton label={authCompleted ? t('auth.actions.openingApp') : submitting ? t('common.states.working') : twoFactorChallenge ? t('auth.actions.verifyCode') : mode === 'login' ? t('auth.actions.login') : mode === 'register' ? t('auth.actions.createAccount') : t('auth.actions.sendResetLink')} disabled={submitting || authCompleted} onPress={() => { void handleSubmit(); }} />
             <InfoNotice tone="info" title={t('auth.googleDisabledTitle')} body={t('auth.googleDisabledFirstLaunch')} />
           </View>
         </AppCard>
@@ -226,6 +262,11 @@ const styles = StyleSheet.create({
   checkboxMark: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
   termsText: { flex: 1, fontWeight: '700', lineHeight: 19 },
   actionStack: { gap: 10 },
+  twoFactorBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 },
+  twoFactorTitle: { fontSize: 18, fontWeight: '900' },
+  twoFactorBody: { lineHeight: 19, fontWeight: '700' },
+  inlineButton: { alignSelf: 'flex-start', borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+  inlineButtonText: { fontWeight: '900' },
   primaryButton: { minHeight: 52, borderRadius: 16, backgroundColor: '#2563EB', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900', textTransform: 'uppercase' },
   disabledButton: { opacity: 0.55 },

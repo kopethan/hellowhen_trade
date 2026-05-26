@@ -32,9 +32,12 @@ export type TradeSidePickerParams = {
   side: TradeCreateSide;
   selection?: TradeCreateSideSelection | null;
   postType?: TradePostType;
-  returnTo?: 'createTrade' | 'tradeProposal';
+  returnTo?: 'createTrade' | 'tradeProposal' | 'proposalDetail';
   tradeId?: string;
   tradeTitle?: string;
+  proposalId?: string;
+  proposalNeedId?: string;
+  proposalOfferId?: string;
 };
 export type TradeCreateReturnParams = { selectedTradeSide?: TradeCreateSideSelection } | undefined;
 

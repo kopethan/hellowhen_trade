@@ -15,6 +15,8 @@ import { LoginScreen } from '../features/auth/LoginScreen';
 import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
 import { ProfileScreen } from '../features/me/MeScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
+import { SecurityPasswordScreen } from '../features/settings/SecurityPasswordScreen';
+import { TwoFactorSecurityScreen } from '../features/settings/TwoFactorSecurityScreen';
 import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScreen';
 import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
 import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
@@ -46,21 +48,23 @@ export type RootStackParamList = {
   Wallet: undefined;
   Payouts: undefined;
   Settings: undefined;
+  SecurityPassword: undefined;
+  TwoFactorSecurity: undefined;
   BusinessAccounts: undefined;
   BuyCredits: undefined;
   SupportCenter: undefined;
   AccountDeletion: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
   LegalPolicy: { policy?: LegalPolicyKey } | undefined;
-  CreateNeed: { returnTo?: 'createTrade' | 'tradeProposal'; tradeId?: string; tradeTitle?: string } | undefined;
+  CreateNeed: { returnTo?: 'createTrade' | 'tradeProposal' | 'proposalDetail'; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string } | undefined;
   NeedDetail: { needId: string; title?: string };
-  CreateOffer: { returnTo?: 'createTrade' | 'tradeProposal'; tradeId?: string; tradeTitle?: string } | undefined;
+  CreateOffer: { returnTo?: 'createTrade' | 'tradeProposal' | 'proposalDetail'; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string } | undefined;
   OfferDetail: { offerId: string; title?: string };
   CreateTrade: TradeCreateReturnParams;
   TradeSidePicker: TradeSidePickerParams;
   CreateProposal: { tradeId: string; title?: string };
-  ProposalDetail: { proposalId: string };
-  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection };
+  ProposalDetail: { proposalId: string; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
+  TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
   UserProfile: { userId: string; displayName?: string };
   Login: undefined;
 };
@@ -113,6 +117,8 @@ const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedWalletScreen = withAuth(WalletScreen);
 const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
 const ProtectedSettingsScreen = withAuth(SettingsScreen);
+const ProtectedSecurityPasswordScreen = withAuth(SecurityPasswordScreen);
+const ProtectedTwoFactorSecurityScreen = withAuth(TwoFactorSecurityScreen);
 const ProtectedBusinessAccountsScreen = withAuth(BusinessAccountsScreen);
 const ProtectedBuyCreditsScreen = withAuth(BuyCreditsScreen);
 const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
@@ -183,6 +189,8 @@ export function RootNavigator() {
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}
       <Stack.Screen name="Settings" component={ProtectedSettingsScreen} />
+      <Stack.Screen name="SecurityPassword" component={ProtectedSecurityPasswordScreen} />
+      <Stack.Screen name="TwoFactorSecurity" component={ProtectedTwoFactorSecurityScreen} />
       {betaFeatures.businessAccountsVisible ? <Stack.Screen name="BusinessAccounts" component={ProtectedBusinessAccountsScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="BuyCredits" component={ProtectedBuyCreditsScreen} /> : null}
       <Stack.Screen name="SupportCenter" component={ProtectedSupportCenterScreen} />

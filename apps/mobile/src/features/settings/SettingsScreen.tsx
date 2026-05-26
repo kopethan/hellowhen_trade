@@ -175,6 +175,12 @@ export function SettingsScreen() {
             <Pressable accessibilityRole="button" disabled={saving || Boolean(auth.user?.emailVerifiedAt)} onPress={() => { void requestEmailVerification(); }} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (saving || Boolean(auth.user?.emailVerifiedAt)) && styles.disabled, pressed && styles.pressed]}>
               <AppText style={styles.choiceButtonText}>{t('common.actions.verifyEmail')}</AppText>
             </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('SecurityPassword')} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <AppText style={styles.choiceButtonText}>{t('settings.security.changePasswordAction')}</AppText>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => navigation.navigate('TwoFactorSecurity')} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+              <AppText style={styles.choiceButtonText}>{auth.user?.twoFactorEnabled ? t('settings.security.disableTwoStep') : t('settings.security.enableTwoStep')}</AppText>
+            </Pressable>
             <Pressable accessibilityRole="button" disabled={saving} onPress={() => { void logoutAllDevices(); }} style={({ pressed }) => [styles.choiceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, saving && styles.disabled, pressed && styles.pressed]}>
               <AppText style={styles.choiceButtonText}>{t('common.actions.logoutAllDevices')}</AppText>
             </Pressable>
