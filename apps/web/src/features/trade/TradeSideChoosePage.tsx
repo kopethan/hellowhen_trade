@@ -200,6 +200,7 @@ function StarterTemplateOption({
   t: (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
   onUse: (template: InventoryTemplateDto) => void;
 }) {
+  const image = template.media?.[0] ?? null;
   const metadata = templateMetadata(template);
   const tags = templateTags(template);
   const label = itemLabel;
@@ -207,7 +208,7 @@ function StarterTemplateOption({
   return (
     <article className="trade-side-template-option">
       <span className="trade-side-option__media" aria-hidden="true">
-        <WebIcon name={side === 'need' ? 'need' : 'offer'} size={24} decorative />
+        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={side === 'need' ? 'need' : 'offer'} size={24} decorative />}
       </span>
       <div className="trade-side-template-option__body">
         <div className="trade-side-option__top">

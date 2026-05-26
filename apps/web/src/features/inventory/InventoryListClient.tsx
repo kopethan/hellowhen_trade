@@ -133,11 +133,13 @@ function StarterTemplateCard({
   const metadata = templateMetadata(template, i18n);
   const tags = templateTags(template);
   const label = kindLabel(kind, i18n);
+  const image = template.media?.[0] ?? null;
+  const imageCount = template.media?.length ?? 0;
 
   return (
     <article className="inventory-template-card">
       <div className="inventory-template-card__media" aria-hidden="true">
-        <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={34} decorative />
+        {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={34} decorative />}
       </div>
       <div className="inventory-template-card__body">
         <div className="status-row">
@@ -150,6 +152,11 @@ function StarterTemplateCard({
         {tags.length ? (
           <div className="tag-row inventory-card__tags">
             {tags.slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}
+          </div>
+        ) : null}
+        {imageCount > 0 ? (
+          <div className="inventory-template-card__footer">
+            <strong>{i18n.t?.('media.labels.image') ?? 'image'} × {imageCount}</strong>
           </div>
         ) : null}
         <button type="button" className="button secondary inventory-template-card__button" disabled={disabled || cloning} onClick={() => onUse(template)}>
