@@ -1,0 +1,211 @@
+diff --git a/.env.example b/.env.example
+index 59c92ea..644a4ff 100644
+--- a/.env.example
++++ b/.env.example
+@@ -238,10 +238,20 @@ EXPO_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE=false
+ EXPO_PUBLIC_PRO_TRADE_PACKAGE_MAX_SUPPORTING_NEEDS=3
+ EXPO_PUBLIC_PRO_TRADE_PACKAGE_MAX_SUPPORTING_OFFERS=3
+ 
+-# Business/brand account scaffolding. Keep hidden for the first public beta unless explicitly testing Phase 21.6.
++# Business/brand account scaffolding. Keep disabled/hidden for the first public beta.
++# ENABLED can be turned on later for internal/admin API testing while VISIBLE remains false.
++BUSINESS_ACCOUNTS_ENABLED=false
+ BUSINESS_ACCOUNTS_VISIBLE=false
++BUSINESS_SPONSORED_CONTENT_ENABLED=false
++BUSINESS_CAMPAIGNS_ENABLED=false
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=false
+ NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED=false
++NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED=false
++EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=false
+ EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED=false
++EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED=false
+ 
+ # Hidden Plans foundation. Keep disabled/hidden for the first public launch.
+ PLANS_ENABLED=false
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 38a9f3a..52ab663 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -142,7 +142,10 @@ export const env = {
+   payoutsVisible: (process.env.PAYOUTS_VISIBLE ?? 'false').toLowerCase() === 'true',
+   moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+-  businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true',
++  businessAccountsEnabled: enabled(process.env.BUSINESS_ACCOUNTS_ENABLED),
++  businessAccountsVisible: enabled(process.env.BUSINESS_ACCOUNTS_VISIBLE),
++  businessSponsoredContentEnabled: enabled(process.env.BUSINESS_SPONSORED_CONTENT_ENABLED),
++  businessCampaignsEnabled: enabled(process.env.BUSINESS_CAMPAIGNS_ENABLED),
+   subscriptionsEnabled: enabled(process.env.SUBSCRIPTIONS_ENABLED),
+   proAccountsEnabled: enabled(process.env.PRO_ACCOUNTS_ENABLED),
+   proAccountsVisible: enabled(process.env.PRO_ACCOUNTS_VISIBLE),
+@@ -304,8 +307,20 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     errors.push('Money, wallet, payout, cash-trade, and money-trade flags must stay disabled/hidden for first launch.');
+   }
+ 
+-  if (env.businessAccountsVisible || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')) {
+-    errors.push('Business/brand accounts must stay hidden for first launch.');
++  const businessRuntimeEnabled = env.businessAccountsEnabled
++    || env.businessAccountsVisible
++    || env.businessSponsoredContentEnabled
++    || env.businessCampaignsEnabled
++    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')
++    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')
++    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED');
++  if (businessRuntimeEnabled) {
++    errors.push('Business/brand account, sponsored-content, and campaign flags must stay disabled/hidden for first launch.');
+   }
+ 
+   const subscriptionFlagsEnabled = env.subscriptionsEnabled
+@@ -389,6 +404,12 @@ export function validateProductionEnv() {
+   if (!isOriginOnlyUrl(env.webOrigin)) errors.push('WEB_ORIGIN must be an origin only, for example https://app.hellowhen.com without a path.');
+   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
+   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
++  if (env.businessAccountsVisible && !env.businessAccountsEnabled) errors.push('BUSINESS_ACCOUNTS_VISIBLE=true requires BUSINESS_ACCOUNTS_ENABLED=true in production.');
++  if ((env.businessSponsoredContentEnabled || env.businessCampaignsEnabled) && !env.businessAccountsEnabled) errors.push('Business sponsored-content and campaign flags require BUSINESS_ACCOUNTS_ENABLED=true in production.');
++  if (publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
++  if ((publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')) && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED and NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED require NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
++  if (publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
++  if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED and EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
+   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
+   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiDebugPlaceholders;
+   if (aiConfigured && env.aiProvider === 'none') {
+diff --git a/apps/api/src/middleware/featureGates.ts b/apps/api/src/middleware/featureGates.ts
+index 9a4f772..f140673 100644
+--- a/apps/api/src/middleware/featureGates.ts
++++ b/apps/api/src/middleware/featureGates.ts
+@@ -28,13 +28,34 @@ export function requirePayoutsVisible(surface = 'Payout features'): RequestHandl
+   return (_req, _res, next) => next();
+ }
+ 
+-export function requireBusinessAccountsVisible(surface = 'Business accounts'): RequestHandler {
+-  if (!env.businessAccountsVisible) {
++export function requireBusinessAccountsEnabled(surface = 'Business accounts'): RequestHandler {
++  if (!env.businessAccountsEnabled) {
+     return disabledSurface('business_accounts_disabled', `${surface} are disabled for this launch.`);
+   }
+   return (_req, _res, next) => next();
+ }
+ 
++export function requireBusinessAccountsVisible(surface = 'Business accounts'): RequestHandler {
++  if (!env.businessAccountsEnabled || !env.businessAccountsVisible) {
++    return disabledSurface('business_accounts_hidden', `${surface} are hidden for this launch.`);
++  }
++  return (_req, _res, next) => next();
++}
++
++export function requireBusinessSponsoredContentEnabled(surface = 'Business sponsored content'): RequestHandler {
++  if (!env.businessAccountsEnabled || !env.businessSponsoredContentEnabled) {
++    return disabledSurface('business_sponsored_content_disabled', `${surface} is disabled for this launch.`);
++  }
++  return (_req, _res, next) => next();
++}
++
++export function requireBusinessCampaignsEnabled(surface = 'Business campaigns'): RequestHandler {
++  if (!env.businessAccountsEnabled || !env.businessCampaignsEnabled) {
++    return disabledSurface('business_campaigns_disabled', `${surface} are disabled for this launch.`);
++  }
++  return (_req, _res, next) => next();
++}
++
+ export function requirePlansEnabled(surface = 'Plans'): RequestHandler {
+   if (!env.plansEnabled) {
+     return disabledSurface('plans_disabled', `${surface} are disabled for this launch.`);
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 3bd3ffb..adcb532 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -7,7 +7,7 @@ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+-import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
++import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+ import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
+@@ -126,7 +126,7 @@ adminRoutes.use(asyncRoute(async (req, res, next) => {
+ 
+ adminRoutes.use('/payouts', requirePayoutsVisible('Admin payout tools'));
+ adminRoutes.use('/stripe', requirePayoutsVisible('Admin Stripe payout tools'));
+-adminRoutes.use('/business-profiles', requireBusinessAccountsVisible('Admin business profiles'));
++adminRoutes.use('/business-profiles', requireBusinessAccountsEnabled('Admin business profiles'));
+ adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
+ adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
+ 
+diff --git a/apps/api/src/routes.ts b/apps/api/src/routes.ts
+index 50f0130..493877f 100644
+--- a/apps/api/src/routes.ts
++++ b/apps/api/src/routes.ts
+@@ -20,7 +20,7 @@ import { tradesRoutes } from './modules/trades/trades.routes.js';
+ import { usersRoutes } from './modules/users/users.routes.js';
+ import { usageRoutes } from './modules/usage/usage.routes.js';
+ import { walletRoutes } from './modules/wallet/wallet.routes.js';
+-import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireSubscriptionsEnabled, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
++import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requireSubscriptionsEnabled, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
+ 
+ export const routes = Router();
+ 
+@@ -28,7 +28,7 @@ routes.use('/health', healthRoutes);
+ routes.use('/inventory-templates', inventoryTemplatesRoutes);
+ routes.use('/auth', authRoutes);
+ routes.use('/account', accountRoutes);
+-routes.use('/business', requireBusinessAccountsVisible(), businessRoutes);
++routes.use('/business', requireBusinessAccountsEnabled(), businessRoutes);
+ routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);
+ routes.use('/profile', profileRoutes);
+ routes.use('/reports', reportsRoutes);
+diff --git a/apps/mobile/src/lib/betaFeatures.ts b/apps/mobile/src/lib/betaFeatures.ts
+index 239d4e6..86e320e 100644
+--- a/apps/mobile/src/lib/betaFeatures.ts
++++ b/apps/mobile/src/lib/betaFeatures.ts
+@@ -47,6 +47,7 @@ const proTradePackageFeatures = {
+   visible: proTradePackagesEnabled && enabled(process.env.EXPO_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE),
+ } as const;
+ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE);
++const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
+ const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED);
+ 
+ export const betaFeatures = {
+@@ -56,7 +57,10 @@ export const betaFeatures = {
+   payoutsVisible: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_PAYOUTS_VISIBLE),
+   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_MONEY_TRADES_ENABLED),
+   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_CASH_TRADES_ENABLED),
+-  businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
++  businessAccountsEnabled,
++  businessAccountsVisible: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
++  businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
++  businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
+   proSubscriptionFeatures,
+   proTradePackageFeatures,
+   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index 79eb3dd..9ad797c 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -47,6 +47,7 @@ const proTradePackageFeatures = {
+   visible: proTradePackagesEnabled && enabled(process.env.NEXT_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE),
+ } as const;
+ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
++const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
+ const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
+ 
+ export const betaFeatures = {
+@@ -56,7 +57,10 @@ export const betaFeatures = {
+   payoutsVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_PAYOUTS_VISIBLE),
+   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
+   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
+-  businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
++  businessAccountsEnabled,
++  businessAccountsVisible: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
++  businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
++  businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
+   proSubscriptionFeatures,
+   proTradePackageFeatures,
+   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,

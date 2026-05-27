@@ -47,6 +47,7 @@ const proTradePackageFeatures = {
   visible: proTradePackagesEnabled && enabled(process.env.NEXT_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE),
 } as const;
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
+const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
 
 export const betaFeatures = {
@@ -56,7 +57,10 @@ export const betaFeatures = {
   payoutsVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_PAYOUTS_VISIBLE),
   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
-  businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+  businessAccountsEnabled,
+  businessAccountsVisible: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+  businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
+  businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
   proSubscriptionFeatures,
   proTradePackageFeatures,
   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,

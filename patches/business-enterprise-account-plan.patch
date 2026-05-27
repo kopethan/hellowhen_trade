@@ -1,0 +1,725 @@
+diff --git a/docs/product/business-enterprise-account-plan.md b/docs/product/business-enterprise-account-plan.md
+new file mode 100644
+index 0000000..e0e616f
+--- /dev/null
++++ b/docs/product/business-enterprise-account-plan.md
+@@ -0,0 +1,719 @@
++# Business and Enterprise Account Plan
++
++## Status
++
++This document is for future planning only.
++
++The first public launch remains simple:
++
++```txt
++Free only
++18+ only
++No real ads
++No real AI
++No public Pro launch
++No public Business launch
++No wallet
++No payouts
++No money trades
++No Stripe
++No Airwallex
++Service / skill / need / offer exchange only
++```
++
++Business and Enterprise accounts must stay hidden until a later explicit launch decision.
++
++## Current repo foundation
++
++The current repo already contains hidden groundwork that can support Business accounts later:
++
++```txt
++BusinessProfile
++BusinessProfileMember
++MoneyProviderAccount.businessProfileId
++Need.businessProfileId
++Offer.businessProfileId
++Trade.businessProfileId
++InventoryTemplate.businessProfileId
++InventoryTemplate.sourceType = hellowhen | business | brand | partner
++```
++
++The current environment flags also keep Business accounts hidden:
++
++```txt
++BUSINESS_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++```
++
++The existing Business API is useful as a skeleton, but it is not ready for public use. It currently covers basic owned business profiles, member visibility, review requests, provider-account hooks, and admin status changes. It does not yet provide a safe full product flow for team invitations, business-owned content creation, sponsored placements, campaigns, budgets, or public discovery.
++
++## Product definition
++
++Business accounts are verified organization accounts.
++
++They are separate from individual Free and individual Pro accounts.
++
++Business accounts are for:
++
++```txt
++companies
++brands
++agencies
++enterprise partners
++organizations that want to publish reviewed opportunities, sponsored Needs/Offers, or library items
++```
++
++Business accounts should not be treated as normal person-to-person trading accounts. A Business may create opportunities that individual users can discover and respond to, but Business users should not replace the core individual marketplace.
++
++## Account type boundaries
++
++Keep these layers separate:
++
++| Layer | Purpose | Includes later | Must not include at first |
++| --- | --- | --- | --- |
++| Individual Free | First-launch default user | Basic Needs, Offers, Trades, proposals, profile, support | Pro, Business, ads, wallet, payouts |
++| Individual Pro | Future professional individual | Verification badge, profile tools, more media, Pro trade packages, analytics | Organization ownership, campaign budgets, KYB |
++| Business / Enterprise | Verified organization account | Brand profile, team members, sponsored Needs/Offers, library items, campaigns | Wallet, payouts, paid jobs, credits/tokens |
++| Ads | Placement/rendering layer | Sponsored slots, labels, frequency controls, provider SDKs later | Business identity, KYB, campaign budget source of truth |
++| Money Provider | Payment infrastructure | KYC/KYB, wallet, pay-ins, payouts, ledger, budgets | First-launch Business behavior |
++
++Product rule:
++
++```txt
++Business is an organization identity and reviewed-content system.
++Pro is an individual professional subscription.
++Ads are a placement layer.
++Money providers are financial infrastructure.
++```
++
++Do not collapse these into one feature.
++
++## Business profile model
++
++Use `BusinessProfile` as the organization record.
++
++Recommended profile types:
++
++```txt
++business
++agency
++brand
++enterprise
++```
++
++Recommended profile statuses:
++
++```txt
++draft
++pending_review
++verified
++restricted
++disabled
++rejected
++```
++
++The existing schema also contains `active`. Keep supporting it for compatibility, but future public behavior should prefer this safer interpretation:
++
++```txt
++draft:
++  created but not submitted
++
++pending_review:
++  waiting for admin review
++
++verified:
++  public Business identity is approved
++
++restricted:
++  visible only in limited/internal contexts or blocked from publishing
++
++disabled:
++  disabled by admin or owner action
++
++rejected:
++  review failed; not public
++```
++
++A Business profile should store at least:
++
++```txt
++owner user
++business type
++display name
++legal name
++handle
++website URL
++country
++preferred currency
++verification/review status
++reviewer
++review note
++reviewed timestamp
++verified timestamp
++```
++
++## Verification and KYB
++
++Business verification has two levels.
++
++### Level 1: Hellowhen business review
++
++Use this for non-money Business visibility.
++
++Required before public Business content:
++
++```txt
++owner is an individual 18+ Hellowhen account
++owner email is verified
++business display name is clear
++legal name is provided when available
++website or official public link is provided
++country is provided
++business type is selected
++admin review note is required
++admin reviewer and reviewedAt are stored
++```
++
++This review allows:
++
++```txt
++verified Business badge
++public Business profile later
++reviewed sponsored Needs/Offers later
++reviewed library templates later
++```
++
++It does not allow:
++
++```txt
++wallet
++campaign budgets
++credits/tokens/tickets/checks
++paid jobs
++payouts
++provider account production access
++```
++
++### Level 2: Provider KYB
++
++Use this only when money, budgets, payouts, or provider wallets are introduced.
++
++Provider KYB may use:
++
++```txt
++Airwallex later
++Stripe later
++another approved provider later
++```
++
++Provider KYB should be required before:
++
++```txt
++campaign budgets
++business wallet balances
++paid campaign opportunities
++voucher-like credits
++payout flows
++large spending limits
++```
++
++Product rule:
++
++```txt
++Hellowhen review can verify a public Business identity.
++Provider KYB is required for financial capabilities.
++```
++
++## Team and member roles
++
++Every Business team member must still be an individual Hellowhen account.
++
++Recommended roles:
++
++| Role | Meaning |
++| --- | --- |
++| owner | Full control over the Business profile, team, review submissions, and final responsibility |
++| admin | Manage Business content and team members, except owner transfer/destructive owner actions |
++| finance | Future-only budget, invoice, provider onboarding, and spending controls |
++| member | Draft content and participate in assigned workflows, but cannot publish or submit financial actions alone |
++
++Required future team flows before public Business launch:
++
++```txt
++invite member by email
++accept invite
++resend invite
++cancel invite
++remove member
++change member role
++leave business
++owner transfer, later only with sensitive-action reauth
++team audit log
++```
++
++Permission rule:
++
++```txt
++owner/admin can submit content for review
++member can draft content only
++finance has no special effect while money is disabled
++```
++
++## Sponsored Needs, Offers, and library items
++
++Business accounts should first create reviewed sponsored content, not normal personal trades.
++
++Recommended first Business content types:
++
++```txt
++Business Need
++Business Offer
++Business library template
++```
++
++Examples:
++
++```txt
++A verified agency needs landing page feedback.
++A verified brand offers a free creator briefing session.
++A verified partner publishes a starter library template users can clone.
++```
++
++Content flow:
++
++```txt
++Business creates draft
++Business owner/admin submits for review
++Admin reviews
++Admin approves or rejects
++Approved item becomes discoverable in allowed surfaces
++Individual user can clone, save, propose, or create a trade from it
++```
++
++Business-created content must always be labeled clearly:
++
++```txt
++Sponsored
++Business
++Verified brand
++By <Business display name>
++```
++
++Do not make sponsored Business content look identical to normal user content.
++
++### Library item behavior
++
++Business library templates should use the existing template model:
++
++```txt
++InventoryTemplate.sourceType = business | brand | partner
++InventoryTemplate.businessProfileId = <BusinessProfile id>
++```
++
++When an individual user clones a Business template:
++
++```txt
++created Need/Offer belongs to the user
++sourceTemplateId preserves template attribution
++Business does not automatically gain access to the user-owned clone
++```
++
++## Campaigns and jobs
++
++Do not launch full jobs first.
++
++Use safer product language:
++
++```txt
++campaign
++opportunity
++collaboration
++brief
++sponsored need
++sponsored offer
++```
++
++Avoid first:
++
++```txt
++job
++paid job
++salary
++contractor marketplace
++cash reward
++bounty
++commission
++voucher cash-out
++```
++
++Recommended campaign stages:
++
++### Stage 1: Sponsored Need / Offer
++
++One reviewed Business-created item appears in discovery.
++
++No money.
++
++### Stage 2: Campaign / opportunity
++
++A Business groups multiple reviewed items under one brief.
++
++Possible fields:
++
++```txt
++businessProfileId
++title
++brief
++description
++eligibility
++expected deliverables
++timeline
++number of spots
++linked Needs/Offers/templates
++review status
++```
++
++Still no money.
++
++### Stage 3: Paid campaign
++
++Only after provider KYB, legal/payment review, ledger, refunds, limits, and admin payout/budget tooling exist.
++
++## Business ads and placements
++
++Separate two concepts.
++
++### First-party sponsored Business placements
++
++These are promoted Hellowhen-native cards created by verified Business accounts and approved by admin.
++
++Possible future placements:
++
++```txt
++Trades feed deck
++Needs/Offers discovery surfaces
++Starter library surfaces
++Business profile page
++Campaign/opportunity list
++```
++
++Rules:
++
++```txt
++always label Sponsored
++never be the first card by default
++never hide the Business identity
++never use private proposal data for targeting
++never appear in private/sensitive flows
++```
++
++### External ad providers
++
++External ad providers such as AdSense or AdMob are separate from Business accounts.
++
++They must stay disabled until privacy/consent/store requirements are ready.
++
++Do not connect Business sponsored content to external ad provider SDKs in the first Business phase.
++
++## Disallowed placements
++
++Do not show Business sponsored content or ads in:
++
++```txt
++private proposal threads
++private chat
++proposal composer
++create Need form
++create Offer form
++create Trade form
++account security
++2FA
++password reset
++support ticket form before submit
++report flow
++admin pages
++wallet / payout screens
++```
++
++## Budget, credit, token, ticket, and check risk
++
++Business campaign budgets, credits, tokens, tickets, checks, coupons, perks, and vouchers are high-risk features.
++
++They may create requirements around:
++
++```txt
++stored value
++wallet balances
++advertising credits
++gift card or voucher rules
++refunds
++chargebacks
++tax/accounting treatment
++expiry rules
++consumer protection
++fraud controls
++provider approval
++KYB
++ledger reconciliation
++```
++
++Do not build these as simple app-only balances.
++
++Future rule:
++
++```txt
++Any Business budget or credit system must be owned by the Money Provider and Ledger roadmap, not by the Business profile roadmap alone.
++```
++
++Safe early substitute:
++
++```txt
++manual sponsored priority
++admin-approved placement
++manual start/end date
++manual internal notes
++```
++
++Unsafe first-launch items:
++
++```txt
++Business tops up credit
++campaign spends down balance
++tokens usable by users
++tickets/checks with value
++redeemable coupons
++user cash-out from Business campaign
++```
++
++## Admin review and moderation
++
++Before Business accounts become public, admin needs stronger controls.
++
++Minimum admin tools:
++
++```txt
++Business profile review queue
++verify / reject / restrict / disable Business profile
++mandatory admin note for each status action
++reviewer and reviewedAt stored
++Business action audit log
++view owner and members
++view linked Needs/Offers/Trades/templates
++review Business-created content
++approve/reject/hide/restore sponsored content
++emergency disable all content from one Business profile
++reports linked to Business profile/content
++support escalation from Business content
++```
++
++Business admin actions should be auditable:
++
++```txt
++who acted
++what action happened
++previous status
++next status
++target type
++target id
++reason/note
++timestamp
++```
++
++## First-launch hidden rules
++
++Keep Business hidden for the first public launch.
++
++Required defaults:
++
++```txt
++BUSINESS_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++```
++
++Also keep related future systems hidden:
++
++```txt
++ADS_ENABLED=false
++WEB_ADS_ENABLED=false
++MOBILE_ADS_ENABLED=false
++ADS_PROVIDER=none
++
++SUBSCRIPTIONS_ENABLED=false
++PRO_ACCOUNTS_ENABLED=false
++PRO_ACCOUNTS_VISIBLE=false
++PRO_TRIALS_ENABLED=false
++PRO_TRADE_PACKAGES_ENABLED=false
++
++MONEY_PROVIDER=none
++MONEY_PROVIDER_ACCOUNT_CREATION_ENABLED=false
++MONEY_PROVIDER_WALLET_SYNC_ENABLED=false
++MONEY_PROVIDER_PAYINS_ENABLED=false
++MONEY_PROVIDER_TRADE_MONEY_ENABLED=false
++MONEY_PROVIDER_PAYOUTS_ENABLED=false
++MONEY_PROVIDER_WEBHOOKS_ENABLED=false
++STRIPE_CONNECT_ENABLED=false
++AIRWALLEX_ENABLED=false
++AIRWALLEX_CONNECTED_ACCOUNTS_ENABLED=false
++
++AI_ENABLED=false
++```
++
++Do not show:
++
++```txt
++Business tab
++Business onboarding
++Business profile creation
++verified brand badge
++sponsored feed cards
++campaigns/jobs
++Business budgets
++credits/tokens/tickets/checks
++wallet/payout UI
++Stripe/Airwallex Business onboarding
++```
++
++## Recommended patch sequence
++
++### Patch B2 — Business flags and guard cleanup
++
++Add clearer separate flags:
++
++```txt
++BUSINESS_ACCOUNTS_ENABLED=false
++BUSINESS_ACCOUNTS_VISIBLE=false
++BUSINESS_SPONSORED_CONTENT_ENABLED=false
++BUSINESS_CAMPAIGNS_ENABLED=false
++```
++
++Goal:
++
++```txt
++visible controls public exposure
++enabled controls internal route/API access
++sponsored content and campaigns have separate switches
++```
++
++### Patch B3 — Admin Business review hardening
++
++Add:
++
++```txt
++mandatory review notes
++Business action audit log
++reviewer/timestamp consistency
++admin filters by status/type/country
++emergency disable action
++```
++
++### Patch B4 — Team/member foundation
++
++Add:
++
++```txt
++member invites
++accept/cancel invite
++role changes
++remove member
++owner/admin/member permission helpers
++team audit events
++```
++
++No sponsored content yet.
++
++### Patch B5 — Business-owned library templates
++
++Use existing template fields.
++
++Add:
++
++```txt
++Business draft template creation
++submit template for review
++admin approve/reject
++approved template appears in starter/library surfaces only when flags allow it
++clone keeps source attribution
++```
++
++### Patch B6 — Business-owned Needs/Offers
++
++Wire Business ownership into create/update flows behind flags.
++
++Rules:
++
++```txt
++owner/admin can create and submit
++member can draft
++admin review required before public discovery
++Business attribution is always visible
++```
++
++### Patch B7 — First-party sponsored placement model
++
++Add metadata for native sponsored placement:
++
++```txt
++placement
++priority
++label
++startsAt
++endsAt
++review status
++frequency cap later
++```
++
++No external ad SDKs.
++
++### Patch B8 — Campaign/opportunity skeleton
++
++Add hidden campaign models and APIs.
++
++No money.
++
++Use:
++
++```txt
++campaign
++opportunity
++collaboration
++brief
++```
++
++Avoid paid job language.
++
++### Patch B9 — Provider-backed Business budget sandbox
++
++Only after legal/payment/provider review.
++
++Requires:
++
++```txt
++Airwallex or Stripe KYB
++Business provider account
++ledger entries
++budget limits
++refund rules
++admin review
++webhooks
++reconciliation
++```
++
++## Implementation principle
++
++Build Business in this order:
++
++```txt
++identity
++review
++team
++reviewed content
++sponsored placement
++campaigns
++provider-backed budgets
++```
++
++Do not begin with money.
++
++Do not reveal Business in the first launch.

@@ -142,7 +142,10 @@ export const env = {
   payoutsVisible: (process.env.PAYOUTS_VISIBLE ?? 'false').toLowerCase() === 'true',
   moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
-  businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true',
+  businessAccountsEnabled: enabled(process.env.BUSINESS_ACCOUNTS_ENABLED),
+  businessAccountsVisible: enabled(process.env.BUSINESS_ACCOUNTS_VISIBLE),
+  businessSponsoredContentEnabled: enabled(process.env.BUSINESS_SPONSORED_CONTENT_ENABLED),
+  businessCampaignsEnabled: enabled(process.env.BUSINESS_CAMPAIGNS_ENABLED),
   subscriptionsEnabled: enabled(process.env.SUBSCRIPTIONS_ENABLED),
   proAccountsEnabled: enabled(process.env.PRO_ACCOUNTS_ENABLED),
   proAccountsVisible: enabled(process.env.PRO_ACCOUNTS_VISIBLE),
@@ -304,8 +307,20 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     errors.push('Money, wallet, payout, cash-trade, and money-trade flags must stay disabled/hidden for first launch.');
   }
 
-  if (env.businessAccountsVisible || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')) {
-    errors.push('Business/brand accounts must stay hidden for first launch.');
+  const businessRuntimeEnabled = env.businessAccountsEnabled
+    || env.businessAccountsVisible
+    || env.businessSponsoredContentEnabled
+    || env.businessCampaignsEnabled
+    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')
+    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')
+    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED');
+  if (businessRuntimeEnabled) {
+    errors.push('Business/brand account, sponsored-content, and campaign flags must stay disabled/hidden for first launch.');
   }
 
   const subscriptionFlagsEnabled = env.subscriptionsEnabled
@@ -389,6 +404,12 @@ export function validateProductionEnv() {
   if (!isOriginOnlyUrl(env.webOrigin)) errors.push('WEB_ORIGIN must be an origin only, for example https://app.hellowhen.com without a path.');
   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
+  if (env.businessAccountsVisible && !env.businessAccountsEnabled) errors.push('BUSINESS_ACCOUNTS_VISIBLE=true requires BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if ((env.businessSponsoredContentEnabled || env.businessCampaignsEnabled) && !env.businessAccountsEnabled) errors.push('Business sponsored-content and campaign flags require BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if (publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if ((publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')) && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED and NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED require NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if (publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED and EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiDebugPlaceholders;
   if (aiConfigured && env.aiProvider === 'none') {

@@ -28,9 +28,30 @@ export function requirePayoutsVisible(surface = 'Payout features'): RequestHandl
   return (_req, _res, next) => next();
 }
 
-export function requireBusinessAccountsVisible(surface = 'Business accounts'): RequestHandler {
-  if (!env.businessAccountsVisible) {
+export function requireBusinessAccountsEnabled(surface = 'Business accounts'): RequestHandler {
+  if (!env.businessAccountsEnabled) {
     return disabledSurface('business_accounts_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireBusinessAccountsVisible(surface = 'Business accounts'): RequestHandler {
+  if (!env.businessAccountsEnabled || !env.businessAccountsVisible) {
+    return disabledSurface('business_accounts_hidden', `${surface} are hidden for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireBusinessSponsoredContentEnabled(surface = 'Business sponsored content'): RequestHandler {
+  if (!env.businessAccountsEnabled || !env.businessSponsoredContentEnabled) {
+    return disabledSurface('business_sponsored_content_disabled', `${surface} is disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireBusinessCampaignsEnabled(surface = 'Business campaigns'): RequestHandler {
+  if (!env.businessAccountsEnabled || !env.businessCampaignsEnabled) {
+    return disabledSurface('business_campaigns_disabled', `${surface} are disabled for this launch.`);
   }
   return (_req, _res, next) => next();
 }

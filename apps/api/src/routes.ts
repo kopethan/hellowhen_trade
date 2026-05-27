@@ -20,7 +20,7 @@ import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
 import { usageRoutes } from './modules/usage/usage.routes.js';
 import { walletRoutes } from './modules/wallet/wallet.routes.js';
-import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireSubscriptionsEnabled, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
+import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requireSubscriptionsEnabled, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
 
 export const routes = Router();
 
@@ -28,7 +28,7 @@ routes.use('/health', healthRoutes);
 routes.use('/inventory-templates', inventoryTemplatesRoutes);
 routes.use('/auth', authRoutes);
 routes.use('/account', accountRoutes);
-routes.use('/business', requireBusinessAccountsVisible(), businessRoutes);
+routes.use('/business', requireBusinessAccountsEnabled(), businessRoutes);
 routes.use('/credits', requireMoneyFeaturesVisible('Credit purchase features'), creditsRoutes);
 routes.use('/profile', profileRoutes);
 routes.use('/reports', reportsRoutes);

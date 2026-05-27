@@ -7,7 +7,7 @@ import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
+import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
@@ -126,7 +126,7 @@ adminRoutes.use(asyncRoute(async (req, res, next) => {
 
 adminRoutes.use('/payouts', requirePayoutsVisible('Admin payout tools'));
 adminRoutes.use('/stripe', requirePayoutsVisible('Admin Stripe payout tools'));
-adminRoutes.use('/business-profiles', requireBusinessAccountsVisible('Admin business profiles'));
+adminRoutes.use('/business-profiles', requireBusinessAccountsEnabled('Admin business profiles'));
 adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
 adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
 
