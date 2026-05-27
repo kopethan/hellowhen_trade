@@ -28,6 +28,8 @@ import { NeedDetailScreen } from '../features/trade/NeedDetailScreen';
 import { MyOffersScreen } from '../features/trade/MyOffersScreen';
 import { OfferDetailScreen } from '../features/trade/OfferDetailScreen';
 import { ProposalDetailScreen } from '../features/trade/ProposalDetailScreen';
+import { TradePrivateProposalsScreen } from '../features/trade/TradePrivateProposalsScreen';
+import { TradePublicDiscussionScreen } from '../features/trade/TradePublicDiscussionScreen';
 import { TradeDeckFeedScreen } from '../features/trade/TradeDeckFeedScreen';
 import { TradeDetailScreen } from '../features/trade/TradeDetailScreen';
 import { WalletScreen } from '../features/wallet/WalletScreen';
@@ -64,6 +66,8 @@ export type RootStackParamList = {
   TradeSidePicker: TradeSidePickerParams;
   CreateProposal: { tradeId: string; title?: string };
   ProposalDetail: { proposalId: string; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
+  TradePublicDiscussion: { tradeId: string; title?: string };
+  TradePrivateProposals: { tradeId: string; title?: string; status?: string; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
   TradeDetail: { tradeId: string; title?: string; description?: string; amountCents?: number; currency?: string; creditAmount?: number; status?: string; expiresAt?: string | null; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
   UserProfile: { userId: string; displayName?: string };
   Login: undefined;
@@ -132,6 +136,8 @@ const ProtectedCreateTradeScreen = withAuth(CreateTradeScreen, 'Login to create 
 const ProtectedTradeSidePickerScreen = withAuth(TradeSidePickerScreen);
 const ProtectedCreateProposalScreen = withAuth(CreateProposalScreen, 'Login to send a proposal', 'Proposal messages are private, so you need an account before asking to trade.');
 const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
+const ProtectedTradePublicDiscussionScreen = withAuth(TradePublicDiscussionScreen, 'Login to view public discussion', 'Public discussion is available to logged-in members so moderation stays accountable.');
+const ProtectedTradePrivateProposalsScreen = withAuth(TradePrivateProposalsScreen, 'Login to view private proposals', 'Private proposal conversations are visible only to the trade owner and each applicant.');
 
 function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
   if (routeName === 'Trades') return 'trade';
@@ -203,6 +209,8 @@ export function RootNavigator() {
       <Stack.Screen name="CreateTrade" component={ProtectedCreateTradeScreen} />
       <Stack.Screen name="TradeSidePicker" component={ProtectedTradeSidePickerScreen} />
       <Stack.Screen name="CreateProposal" component={ProtectedCreateProposalScreen} />
+      <Stack.Screen name="TradePublicDiscussion" component={ProtectedTradePublicDiscussionScreen} />
+      <Stack.Screen name="TradePrivateProposals" component={ProtectedTradePrivateProposalsScreen} />
       <Stack.Screen name="ProposalDetail" component={ProtectedProposalDetailScreen} />
     </Stack.Navigator>
   );

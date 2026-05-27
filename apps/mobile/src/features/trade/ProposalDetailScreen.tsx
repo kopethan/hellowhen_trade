@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProposalActionStatus } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
+import { MobileIcon } from '../../components/MobileIcon';
 import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
@@ -28,6 +30,13 @@ type ProposalSideKind = 'need' | 'offer';
 type RequiredProposalSide = ProposalSideKind | null;
 type ProposalSideItem = NeedItem | OfferItem;
 type ActionLoading = ProposalActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | null;
+type ProposalActionSheet =
+  | { type: 'status'; status: ProposalActionStatus }
+  | { type: 'message-options'; message: ProposalMessageItem }
+  | { type: 'delete-message'; messageId: string }
+  | { type: 'proposal-note-options' }
+  | { type: 'delete-proposal-note' }
+  | null;
 
 function modeLabel(mode: string | null | undefined, t: TFunction) {
   if (mode === 'remote') return t('trade.modes.remote');
@@ -135,6 +144,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const [cancelTradeOpen, setCancelTradeOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
 
   const loadMessages = useCallback(async () => {
     const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
@@ -258,6 +268,11 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       setProposal(result.proposal);
       if (result.proposal.messages) setMessages(result.proposal.messages);
       setNotice(status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : status === 'declined' ? t('trade.proposals.proposalDeclined') : t('trade.proposals.proposalWithdrawn'));
+      setActionSheet(null);
+      setDetailsOpen(false);
+      setCancelTradeOpen(false);
+      setCancelReason('');
+      setCancelError(null);
       try { await loadMessages(); } catch { /* proposal response is still useful */ }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotUpdateProposal')));
@@ -267,11 +282,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   function confirmStatus(status: ProposalActionStatus) {
-    if (status === 'withdrawn') {
-      Alert.alert(t('trade.proposals.withdrawConfirmTitle'), t('trade.proposals.withdrawConfirmBody'), [
-        { text: t('trade.proposals.withdrawConfirmCancel'), style: 'cancel' },
-        { text: t('trade.proposals.withdrawConfirmAction'), style: 'destructive', onPress: () => { void updateStatus('withdrawn'); } },
-      ]);
+    if (status === 'accepted' || status === 'declined' || status === 'withdrawn') {
+      setActionSheet({ type: 'status', status });
       return;
     }
     void updateStatus(status);
@@ -349,10 +361,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   function confirmDeleteProposalNote() {
-    Alert.alert(t('trade.proposals.deleteProposalNoteTitle'), t('trade.proposals.deleteProposalNoteBody'), [
-      { text: t('trade.proposals.keepProposalNote'), style: 'cancel' },
-      { text: t('trade.proposals.deleteProposalNoteAction'), style: 'destructive', onPress: () => { void deleteProposalNote(); } },
-    ]);
+    setActionSheet({ type: 'delete-proposal-note' });
   }
 
   async function deleteProposalNote() {
@@ -365,6 +374,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       setEditingProposalNote(false);
       setProposalNoteDraft('');
       setNotice(t('trade.proposals.proposalNoteDeleted'));
+      setActionSheet(null);
       await loadMessages();
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotUpdateProposal')));
@@ -403,29 +413,18 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   function confirmDeletePrivateMessage(messageId: string) {
-    Alert.alert(t('trade.proposals.deleteMessageTitle'), t('trade.proposals.deleteMessageBody'), [
-      { text: t('trade.proposals.keepMessage'), style: 'cancel' },
-      { text: t('trade.proposals.deleteMessageAction'), style: 'destructive', onPress: () => { void deletePrivateMessage(messageId); } },
-    ]);
+    setActionSheet({ type: 'delete-message', messageId });
   }
 
   function openMessageOptions(message: ProposalMessageItem) {
     const canEdit = message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt;
     if (!canEdit) return;
-    Alert.alert(t('trade.proposals.proposalConversation'), undefined, [
-      { text: t('trade.proposals.editMessage'), onPress: () => startMessageEdit(message) },
-      { text: t('trade.proposals.deleteMessage'), style: 'destructive', onPress: () => confirmDeletePrivateMessage(message.id) },
-      { text: t('common.actions.cancel'), style: 'cancel' },
-    ]);
+    setActionSheet({ type: 'message-options', message });
   }
 
   function openProposalNoteOptions() {
     if (!canEditProposalContent) return;
-    Alert.alert(t('trade.proposals.proposalNote'), undefined, [
-      { text: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), onPress: startProposalNoteEdit },
-      ...(proposal?.messageDeletedAt ? [] : [{ text: t('trade.proposals.deleteProposalNote'), style: 'destructive' as const, onPress: confirmDeleteProposalNote }]),
-      { text: t('common.actions.cancel'), style: 'cancel' },
-    ]);
+    setActionSheet({ type: 'proposal-note-options' });
   }
 
   async function deletePrivateMessage(messageId: string) {
@@ -435,6 +434,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     try {
       const result = await api.proposals.deletePrivateMessage(route.params.proposalId, messageId) as MessageMutationResponse;
       if (result.proposal) setProposal(result.proposal);
+      setActionSheet(null);
       await loadMessages();
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.proposals.couldNotUpdateMessage')));
@@ -458,6 +458,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       await api.trades.updateStatus(proposal.trade.id, { status: 'cancelled', cancelReason: reason });
       setCancelTradeOpen(false);
       setCancelReason('');
+      setCancelError(null);
+      setDetailsOpen(false);
       setNotice(t('trade.proposals.tradeCancelled'));
       await refreshConversation();
     } catch (caughtError) {
@@ -466,6 +468,72 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       setActionLoading(null);
     }
   }
+
+  function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
+    if (!actionSheet) return { title: '', actions: [] };
+
+    if (actionSheet.type === 'status') {
+      const status = actionSheet.status;
+      if (status === 'accepted') {
+        return {
+          title: t('trade.proposals.acceptConfirmTitle'),
+          body: t('trade.proposals.acceptConfirmBody'),
+          actions: [{ key: 'accept', label: t('trade.proposals.accept'), icon: 'proposal-accepted', tone: 'primary', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('accepted'); } }],
+        };
+      }
+      if (status === 'declined') {
+        return {
+          title: t('trade.proposals.declineConfirmTitle'),
+          body: t('trade.proposals.declineConfirmBody'),
+          actions: [{ key: 'decline', label: t('trade.proposals.decline'), icon: 'proposal-declined', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('declined'); } }],
+        };
+      }
+      return {
+        title: t('trade.proposals.withdrawConfirmTitle'),
+        body: t('trade.proposals.withdrawConfirmBody'),
+        actions: [{ key: 'withdraw', label: t('trade.proposals.withdrawConfirmAction'), icon: 'proposal-declined', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('withdrawn'); } }],
+      };
+    }
+
+    if (actionSheet.type === 'message-options') {
+      const message = actionSheet.message;
+      return {
+        title: t('trade.proposals.proposalConversation'),
+        actions: [
+          { key: 'edit', label: t('trade.proposals.editMessage'), icon: 'more', onPress: () => { startMessageEdit(message); setActionSheet(null); } },
+          { key: 'delete', label: t('trade.proposals.deleteMessage'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-message', messageId: message.id }) },
+        ],
+      };
+    }
+
+    if (actionSheet.type === 'delete-message') {
+      const messageId = actionSheet.messageId;
+      return {
+        title: t('trade.proposals.deleteMessageTitle'),
+        body: t('trade.proposals.deleteMessageBody'),
+        actions: [{ key: 'confirm-delete', label: t('trade.proposals.deleteMessageAction'), icon: 'report-flag', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void deletePrivateMessage(messageId); } }],
+      };
+    }
+
+    if (actionSheet.type === 'proposal-note-options') {
+      const actions: AppActionSheetAction[] = [
+        { key: 'edit-note', label: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), icon: 'more', onPress: () => { startProposalNoteEdit(); setActionSheet(null); } },
+      ];
+      if (!proposal?.messageDeletedAt) {
+        actions.push({ key: 'delete-note', label: t('trade.proposals.deleteProposalNote'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-proposal-note' }) });
+      }
+      return { title: t('trade.proposals.proposalNote'), actions };
+    }
+
+    return {
+      title: t('trade.proposals.deleteProposalNoteTitle'),
+      body: t('trade.proposals.deleteProposalNoteBody'),
+      actions: [{ key: 'confirm-delete-note', label: t('trade.proposals.deleteProposalNoteAction'), icon: 'report-flag', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void deleteProposalNote(); } }],
+    };
+  }
+
+
+  const actionSheetConfig = getActionSheetConfig();
 
   const headerTitle = proposal
     ? isApplicant
@@ -507,10 +575,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
               isOwner={Boolean(isOwner)}
               isApplicant={Boolean(isApplicant)}
               tradeCancelled={tradeCancelled}
-              actionLoading={actionLoading}
-              onAccept={() => confirmStatus('accepted')}
-              onDecline={() => confirmStatus('declined')}
-              onWithdraw={() => confirmStatus('withdrawn')}
               onDetails={() => setDetailsOpen(true)}
               t={t}
             />
@@ -609,6 +673,14 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             }}
             t={t}
           />
+          <AppActionSheet
+            visible={Boolean(actionSheet)}
+            title={actionSheetConfig.title}
+            body={actionSheetConfig.body}
+            actions={actionSheetConfig.actions}
+            cancelLabel={t('common.actions.cancel')}
+            onClose={() => setActionSheet(null)}
+          />
         </KeyboardAvoidingView>
       )}
     </AppScreen>
@@ -624,9 +696,16 @@ function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () =>
   );
 }
 
-function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeCancelled, actionLoading, onAccept, onDecline, onWithdraw, onDetails, t }: { proposal: TradeProposalItem; statusHint: string; isOwner: boolean; isApplicant: boolean; tradeCancelled: boolean; actionLoading: ActionLoading; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onDetails: () => void; t: TFunction }) {
+function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeCancelled, onDetails, t }: { proposal: TradeProposalItem; statusHint: string; isOwner: boolean; isApplicant: boolean; tradeCancelled: boolean; onDetails: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   const sides = proposalSideItems(proposal);
+  const actionLabel = tradeCancelled
+    ? t('trade.proposals.showProposalItemDetails')
+    : isOwner && proposal.status === 'pending'
+      ? t('trade.proposals.reviewProposal')
+      : isApplicant && proposal.status === 'pending'
+        ? t('trade.proposals.manageProposal')
+        : t('trade.proposals.showProposalItemDetails');
   return (
     <View style={[styles.topSummary, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
       <View style={styles.summaryHeaderRow}>
@@ -635,15 +714,18 @@ function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeC
           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={isApplicant ? t('trade.labels.you') : undefined} variant="compact" showHandle />
         </View>
         <Pressable accessibilityRole="button" onPress={onDetails} style={({ pressed }) => [styles.textLinkButton, pressed && styles.pressed]}>
-          <AppText style={[styles.textLink, { color: theme.semantic.proposal.text }]}>{t('trade.proposals.showProposalItemDetails')}</AppText>
+          <AppText style={[styles.textLink, { color: theme.semantic.proposal.text }]}>{actionLabel}</AppText>
         </Pressable>
       </View>
       <AppText style={styles.summaryTitle} numberOfLines={2}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
       {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${formatStatus(proposal.trade.status, t)} ${t('trade.labels.trade').toLowerCase()}`} /> : <AppText style={[styles.summaryMeta, { color: theme.color.muted }]}>{t('trade.labels.serviceForService')} {t('trade.labels.trade').toLowerCase()}</AppText>) : null}
       {sides.length > 0 ? <View style={styles.summarySides}>{sides.map(({ kind, item }) => <CompactSidePill key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}</View> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>}
-      <AppText style={[styles.summaryHint, { color: theme.color.muted }]}>{statusHint}</AppText>
-      {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={onAccept} /><ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={onDecline} /></View> : null}
-      {isApplicant && proposal.status === 'pending' && !tradeCancelled ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={onWithdraw} /> : null}
+      <View style={[styles.summaryActionHint, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+        <AppText style={[styles.summaryHint, { color: theme.color.muted }]}>{statusHint}</AppText>
+        <Pressable accessibilityRole="button" onPress={onDetails} style={({ pressed }) => [styles.summaryActionButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+          <AppText style={[styles.summaryActionText, { color: theme.color.background }]}>{actionLabel}</AppText>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -684,7 +766,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
       <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
-          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10}><AppText style={[styles.moreButton, { color: theme.color.muted }]}>⋯</AppText></Pressable> : null}
+          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
         {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={Boolean(actionLoading)} muted /></View></View> : proposal.messageDeletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(proposal.messageDeletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{proposal.message}</AppText>{proposal.messageEditedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, language, t)}</AppText> : null}</>}
       </Pressable>
@@ -699,7 +781,7 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
       <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
-          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10}><AppText style={[styles.moreButton, { color: theme.color.muted }]}>⋯</AppText></Pressable> : null}
+          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
         {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelEdit} disabled={Boolean(actionLoading)} muted /></View></View> : message.deletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(message.deletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{message.body}</AppText>{message.editedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(message.editCount, message.editedAt, language, t)}</AppText> : null}</>}
       </Pressable>
@@ -742,18 +824,78 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
               </View>
             ) : null}
 
-            <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-              <AppText style={styles.sectionTitle}>{t('trade.labels.nextStep')}</AppText>
-              {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={onAccept} /><ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={onDecline} /></View> : null}
-              {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={onWithdraw} /> : null}
-              {canCancelAcceptedTrade ? cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : <ProposalActionButton label={t('trade.proposals.cancelAcceptedTrade')} variant="danger" disabled={Boolean(actionLoading)} onPress={onOpenCancelTrade} /> : null}
-              {proposal.trade?.id ? <Button title={t('trade.proposals.openTradeDetail')} onPress={onOpenTradeDetail} /> : null}
-              {proposal.status === 'accepted' && isProvider ? <InfoNotice tone="success" title={t('trade.proposals.acceptedProvider')} body={t('trade.proposals.acceptedProviderBody')} /> : null}
-            </View>
+            <ProposalActionCenter
+              proposal={proposal}
+              canCancelAcceptedTrade={canCancelAcceptedTrade}
+              isOwner={isOwner}
+              isApplicant={isApplicant}
+              isProvider={isProvider}
+              cancelTradeOpen={cancelTradeOpen}
+              cancelReason={cancelReason}
+              cancelError={cancelError}
+              actionLoading={actionLoading}
+              onAccept={onAccept}
+              onDecline={onDecline}
+              onWithdraw={onWithdraw}
+              onOpenCancelTrade={onOpenCancelTrade}
+              onChangeCancelReason={onChangeCancelReason}
+              onCancelCancelTrade={onCancelCancelTrade}
+              onSubmitCancelTrade={onSubmitCancelTrade}
+              onOpenTradeDetail={onOpenTradeDetail}
+              t={t}
+            />
           </ScrollView>
         </View>
       </View>
     </Modal>
+  );
+}
+
+
+function ProposalActionCenter({ proposal, canCancelAcceptedTrade, isOwner, isApplicant, isProvider, cancelTradeOpen, cancelReason, cancelError, actionLoading, onAccept, onDecline, onWithdraw, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onOpenTradeDetail, t }: { proposal: TradeProposalItem; canCancelAcceptedTrade: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onOpenTradeDetail: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const isPending = proposal.status === 'pending';
+  const isAccepted = proposal.status === 'accepted';
+  const isClosed = ['declined', 'withdrawn'].includes(proposal.status) || ['cancelled', 'closed'].includes(proposal.trade?.status ?? '');
+  const title = isPending && isOwner
+    ? t('trade.proposals.reviewProposal')
+    : isPending && isApplicant
+      ? t('trade.proposals.manageProposal')
+      : isAccepted
+        ? t('trade.proposals.acceptedConversation')
+        : t('trade.proposals.closedConversation');
+  const body = isPending && isOwner
+    ? t('trade.proposals.reviewProposalBody')
+    : isPending && isApplicant
+      ? t('trade.proposals.manageProposalBody')
+      : isAccepted
+        ? t('trade.proposals.acceptedActionsBody')
+        : t('trade.proposals.closedActionsBody');
+  return (
+    <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+      <View style={styles.actionCenterHeader}>
+        <View style={styles.actionCenterCopy}>
+          <AppText style={styles.sectionTitle}>{title}</AppText>
+          <AppText style={[styles.muted, { color: theme.color.muted }]}>{body}</AppText>
+        </View>
+        <StatusBadge status={proposal.status} label={formatStatus(proposal.status, t)} />
+      </View>
+
+      {isOwner && isPending ? (
+        <View style={styles.actionRow}>
+          <ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={onAccept} />
+          <ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={onDecline} />
+        </View>
+      ) : null}
+
+      {isApplicant && isPending ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={onWithdraw} /> : null}
+
+      {isAccepted && isProvider ? <InfoNotice tone="success" title={t('trade.proposals.acceptedProvider')} body={t('trade.proposals.acceptedProviderBody')} /> : null}
+
+      {canCancelAcceptedTrade ? cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
+
+      {proposal.trade?.id && !cancelTradeOpen ? <SmallActionButton label={t('trade.proposals.openTradeDetail')} onPress={onOpenTradeDetail} disabled={Boolean(actionLoading)} muted={isClosed} /> : null}
+    </View>
   );
 }
 
@@ -861,7 +1003,10 @@ const styles = StyleSheet.create({
   summaryTitle: { fontSize: 24, lineHeight: 29, fontWeight: '900', letterSpacing: -0.55 },
   summaryMeta: { lineHeight: 20, fontWeight: '800' },
   summarySides: { gap: 8 },
-  summaryHint: { lineHeight: 20, fontWeight: '700' },
+  summaryHint: { flex: 1, lineHeight: 20, fontWeight: '700' },
+  summaryActionHint: { borderRadius: 20, borderWidth: 1, padding: 12, gap: 12 },
+  summaryActionButton: { minHeight: 42, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  summaryActionText: { fontWeight: '900' },
   compactSidePill: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 },
   compactSideTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
   compactSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
@@ -874,7 +1019,7 @@ const styles = StyleSheet.create({
   chatBubble: { maxWidth: '88%', borderRadius: 22, borderWidth: 1, padding: 12, gap: 8 },
   chatBubbleMine: { borderBottomRightRadius: 7 },
   bubbleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  moreButton: { fontSize: 24, lineHeight: 24, fontWeight: '900', paddingHorizontal: 3 },
+  moreButton: { minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
   messageBody: { lineHeight: 21, fontWeight: '600' },
   messageMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
   messageDeleted: { fontStyle: 'italic', lineHeight: 20, fontWeight: '800', opacity: 0.74 },
@@ -901,6 +1046,8 @@ const styles = StyleSheet.create({
   peopleRow: { flexDirection: 'row', gap: 10 },
   personBox: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 12, gap: 8 },
   sectionTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
+  actionCenterHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  actionCenterCopy: { flex: 1, gap: 6 },
   packageEditorHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' },
   packagePickerRow: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
   packagePickerCopy: { gap: 6 },

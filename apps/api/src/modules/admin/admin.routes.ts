@@ -753,6 +753,10 @@ async function findRelatedTradeIdForReport(targetType: string, targetId: string)
     const message = await prisma.proposalMessage.findUnique({ where: { id: targetId }, select: { proposal: { select: { tradeId: true } } } });
     return message?.proposal?.tradeId ?? null;
   }
+  if (targetType === 'public_message') {
+    const message = await prisma.tradePublicMessage.findUnique({ where: { id: targetId }, select: { tradeId: true } });
+    return message?.tradeId ?? null;
+  }
   if (targetType === 'media') {
     const media = await prisma.mediaAsset.findUnique({ where: { id: targetId }, select: { entityType: true, entityId: true } });
     return media?.entityType === 'trade' ? media.entityId : null;
@@ -763,7 +767,7 @@ async function findRelatedTradeIdForReport(targetType: string, targetId: string)
 function reportSupportCategory(reason: string, targetType: string) {
   if (reason === 'illegal_unsafe' || reason === 'harassment' || reason === 'scam') return 'safety_concern';
   if (targetType === 'media' || reason === 'inappropriate_image') return 'media_issue';
-  if (targetType === 'trade' || targetType === 'proposal' || targetType === 'message') return 'trade_issue';
+  if (targetType === 'trade' || targetType === 'proposal' || targetType === 'message' || targetType === 'public_message') return 'trade_issue';
   if (targetType === 'user' || targetType === 'profile' || reason === 'fake_profile') return 'account_issue';
   return 'general_feedback';
 }

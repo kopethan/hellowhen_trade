@@ -599,6 +599,44 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .proposal-timeline-event__status { border-radius: 16px; background: color-mix(in srgb, var(--app-surface) 78%, transparent); color: var(--app-text-muted); font-size: 12px; font-weight: 850; line-height: 1.35; padding: 9px 10px; }
 .proposal-timeline-empty { justify-self: stretch; padding: 8px 2px 0; }
 .conversation-reply .field-error { grid-column: 1 / -1; }
+.trade-thread-split-section { gap: 14px; }
+.trade-thread-action-grid { display: grid; gap: 10px; }
+.trade-thread-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--app-border); border-radius: 24px; background: var(--app-surface); color: var(--app-text); padding: 13px; text-decoration: none; box-shadow: 0 16px 42px rgba(15, 23, 42, 0.07); }
+.trade-thread-action-card:hover, .trade-thread-action-card:focus-visible { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 28%, var(--app-surface)); transform: translateY(-1px); }
+.trade-thread-action-card__icon { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid color-mix(in srgb, var(--proposal-border) 60%, var(--app-border)); border-radius: 16px; background: color-mix(in srgb, var(--proposal-bg) 52%, var(--app-surface)); color: var(--proposal-text); }
+.trade-thread-action-card__body { display: grid; min-width: 0; gap: 3px; }
+.trade-thread-action-card__body strong { font-size: 15px; font-weight: 950; }
+.trade-thread-action-card__body small { color: var(--app-text-muted); font-size: 12px; font-weight: 750; line-height: 1.35; }
+.trade-thread-action-card__cta { display: inline-flex; align-items: center; min-height: 32px; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 0 10px; font-size: 11px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+.trade-thread-page-hero > .button { justify-self: start; }
+.public-discussion-section { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+.public-discussion-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 8px; }
+.public-discussion-toolbar__hint { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+.public-message-list { display: grid; gap: 0; }
+.public-message-group { display: grid; gap: 8px; }
+.public-message-date { justify-self: center; margin: 10px 0; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 5px 10px; font-size: 11px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+.public-message { display: grid; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); padding: 12px 0; }
+.public-message__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.public-message__meta { display: inline-flex; align-items: center; justify-content: flex-end; flex: 0 0 auto; gap: 4px; color: var(--app-text-muted); font-size: 11px; font-weight: 850; line-height: 1; }
+.public-message__menu-button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 0; line-height: 1; }
+.public-message__menu-button .web-icon { width: 18px; height: 18px; }
+.public-message__menu-button:hover, .public-message__menu-button:focus-visible, .public-message__menu-button[aria-expanded="true"] { border-color: var(--app-border); background: var(--app-surface-soft); color: var(--proposal-text); }
+.public-message__body { margin: 0; color: var(--app-text); font-size: 14px; font-weight: 750; line-height: 1.45; overflow-wrap: anywhere; }
+.public-message__body--deleted { color: var(--app-text-muted); font-style: italic; }
+.public-message__edited { margin: -2px 0 0; color: var(--app-text-muted); font-size: 11px; font-weight: 850; }
+.public-message__menu { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+.public-message__menu .report-content-block { display: grid; gap: 8px; width: 100%; }
+.public-message-edit-form { display: grid; gap: 9px; }
+.public-message-edit-form textarea { width: 100%; min-height: 78px; border: 1px solid var(--app-border-strong); border-radius: 18px; background: var(--app-surface-soft); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; resize: vertical; }
+.public-message-edit-form textarea:focus { border-color: var(--proposal-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--proposal-border) 24%, transparent); }
+.public-discussion-composer { position: sticky; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 20; border: 1px solid color-mix(in srgb, var(--proposal-border) 55%, var(--app-border)); border-radius: 24px; background: color-mix(in srgb, var(--app-bg) 88%, transparent); padding: 10px; box-shadow: 0 20px 58px rgba(15, 23, 42, 0.16); backdrop-filter: blur(16px); }
+.public-discussion-composer textarea { min-height: 48px; max-height: 140px; }
+.private-proposals-section { padding-top: 16px; }
+@media (max-width: 420px) {
+  .trade-thread-action-card { grid-template-columns: auto minmax(0, 1fr); }
+  .trade-thread-action-card__cta { grid-column: 2; width: fit-content; }
+  .public-message__header { align-items: flex-start; }
+}
 .proposal-confirm-modal { position: fixed; z-index: 190; inset: 0; display: grid; place-items: center; padding: calc(16px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom)); background: rgba(15, 23, 42, 0.46); backdrop-filter: blur(12px); }
 .proposal-confirm-modal__panel { display: grid; gap: 12px; width: min(100%, 420px); border: 1px solid color-mix(in srgb, var(--danger-border) 58%, var(--app-border)); border-radius: 28px; background: var(--app-bg); box-shadow: 0 28px 90px rgba(15, 23, 42, 0.34); padding: 16px; }
 .proposal-confirm-modal__panel h2 { margin: 0; color: var(--app-text); font-size: 21px; line-height: 1.12; }

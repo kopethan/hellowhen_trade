@@ -24,6 +24,7 @@ import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './ty
  type Props = NativeStackScreenProps<RootStackParamList, 'TradeDetail'>;
 type TradeResponse = { trade: TradeDeckItem };
 type ProposalsResponse = { proposals: TradeProposalItem[] };
+type PublicMessagesResponse = { messages: Array<{ id: string }> };
 type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
 type NeedsResponse = { needs: NeedItem[] };
 type OffersResponse = { offers: OfferItem[] };
@@ -67,6 +68,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   const params = route.params;
   const [trade, setTrade] = useState<TradeDeckItem>(() => fallback(params));
   const [proposals, setProposals] = useState<TradeProposalItem[]>([]);
+  const [publicMessageCount, setPublicMessageCount] = useState(0);
   const [proposalDraft, setProposalDraft] = useState('');
   const [proposalNeeds, setProposalNeeds] = useState<NeedItem[]>([]);
   const [proposalOffers, setProposalOffers] = useState<OfferItem[]>([]);
@@ -129,11 +131,19 @@ export function TradeDetailScreen({ route, navigation }: Props) {
         const proposalResult = await api.trades.proposals(params.tradeId) as ProposalsResponse;
         setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []);
       } catch { setProposals([]); }
+      if (auth.isAuthenticated) {
+        try {
+          const publicResult = await api.trades.publicMessages(params.tradeId, { take: 100 }) as PublicMessagesResponse;
+          setPublicMessageCount(Array.isArray(publicResult.messages) ? publicResult.messages.length : 0);
+        } catch { setPublicMessageCount(0); }
+      } else {
+        setPublicMessageCount(0);
+      }
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
       setTrade((current) => current.id === params.tradeId ? current : fallback(params));
     } finally { setLoading(false); }
-  }, [params]);
+  }, [auth.isAuthenticated, params]);
 
   useFocusEffect(useCallback(() => { void loadTrade(); }, [loadTrade]));
 
@@ -230,7 +240,18 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     <View style={styles.section}><AppText style={styles.sectionEyebrow}>{t('trade.labels.tradeDetails')}</AppText><View style={styles.detailRows}><DetailRow label={t('trade.labels.type')} value={postTypeLabel(trade, t)} theme={theme} /><DetailRow label={t('trade.labels.status')} value={formatStatus(trade.status, t)} theme={theme} /><DetailRow label={t('trade.labels.expiry')} value={expiryLabel(trade.expiresAt, t, language)} theme={theme} /><DetailRow label={t('trade.labels.exchange')} value={paymentLabel} theme={theme} />{createdLabel ? <DetailRow label={t('trade.labels.created')} value={createdLabel} theme={theme} /> : null}<DetailIdentityRow label={t('trade.labels.owner')} user={trade.owner} userId={trade.ownerId} theme={theme} />{trade.provider ? <DetailIdentityRow label={t('trade.labels.provider')} user={trade.provider} userId={trade.providerId} theme={theme} /> : null}</View><InfoNotice tone="info" title={t('trade.labels.nextStep')} body={statusHint(trade, role, t)} />{actions.length > 0 ? <View style={styles.actionStack}>{actions.map((action) => <ActionButton key={action.status} label={actionLoading === action.status || (action.status === 'disputed' && actionLoading === 'report') ? t('trade.detail.updated') : action.label} variant={action.variant ?? (action.status === 'cancelled' ? 'danger' : 'primary')} disabled={Boolean(actionLoading)} onPress={() => { void updateStatus(action.status); }} theme={theme} />)}</View> : null}</View>
 
     <Separator theme={theme} />
-    <View style={styles.section}><AppText style={styles.sectionEyebrow}>{role === 'owner' ? t('trade.proposals.title') : myProposal ? t('trade.proposals.yourProposal') : proposalActionTitle(trade, t)}</AppText>{error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}{message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}{loading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.detail.refreshing')}</AppText> : null}{!auth.isAuthenticated ? <SignedOutProposalBox trade={trade} onLogin={() => navigation.navigate('Login')} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status === 'active' ? <ProposalComposer trade={trade} requiredSide={requiredSide} value={proposalDraft} onChange={setProposalDraft} onSubmit={() => { void createProposal(); }} loading={creatingProposal} sideLoading={sideLoading} needs={activeProposalNeeds} offers={activeProposalOffers} selectedNeedId={selectedProposalNeedId} selectedOfferId={selectedProposalOfferId} onChooseNeed={() => navigation.navigate('TradeSidePicker', { side: 'need', selection: selectedProposalNeed ? { side: 'need', kind: 'need', id: selectedProposalNeed.id } : null, returnTo: 'tradeProposal', tradeId: trade.id, tradeTitle: detailTitle(trade, t), proposalNeedId: selectedProposalNeedId, proposalOfferId: selectedProposalOfferId })} onChooseOffer={() => navigation.navigate('TradeSidePicker', { side: 'offer', selection: selectedProposalOffer ? { side: 'offer', kind: 'offer', id: selectedProposalOffer.id } : null, returnTo: 'tradeProposal', tradeId: trade.id, tradeTitle: detailTitle(trade, t), proposalNeedId: selectedProposalNeedId, proposalOfferId: selectedProposalOfferId })} theme={theme} t={t} /> : null}{auth.isAuthenticated && role !== 'owner' && !myProposal && trade.status !== 'active' ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.notAccepting')}</AppText> : null}{role === 'owner' && proposals.length === 0 ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noProposalsOwner')}</AppText> : null}{role === 'owner' && acceptedProposal ? <InfoNotice tone="success" title={t('trade.proposals.acceptedConversation')} body={t('trade.proposals.acceptedConversationBody')} /> : null}<View style={styles.proposalStack}>{proposals.map((proposal) => <ProposalBlock key={proposal.id} proposal={proposal} currentUserId={auth.user?.id} onOpenThread={() => navigation.navigate('ProposalDetail', { proposalId: proposal.id })} theme={theme} t={t} />)}</View></View>
+    <ThreadSplitSection
+      publicMessageCount={publicMessageCount}
+      privateProposalCount={role === 'owner' ? proposals.length : myProposal ? 1 : 0}
+      role={role}
+      hasMyProposal={Boolean(myProposal)}
+      onOpenPublic={() => navigation.navigate('TradePublicDiscussion', { tradeId: trade.id, title: detailTitle(trade, t) })}
+      onOpenPrivate={() => navigation.navigate('TradePrivateProposals', { tradeId: trade.id, title: detailTitle(trade, t), status: trade.status })}
+      theme={theme}
+      t={t}
+    />
+    {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+    {message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}
   </ScrollView></AppFixedHeaderScreen>;
 }
 
@@ -394,6 +415,67 @@ function InventoryChoiceList<T extends NeedItem | OfferItem>({ title, emptyText,
   );
 }
 
+
+function ThreadSplitSection({ publicMessageCount, privateProposalCount, role, hasMyProposal, onOpenPublic, onOpenPrivate, theme, t }: { publicMessageCount: number; privateProposalCount: number; role: DetailRole; hasMyProposal: boolean; onOpenPublic: () => void; onOpenPrivate: () => void; theme: ThemeTokens; t: TFunction }) {
+  const privatePreview = role === 'owner'
+    ? t('trade.threadSplit.privateOwnerPreview')
+    : hasMyProposal
+      ? t('trade.threadSplit.privateApplicantPreview')
+      : t('trade.threadSplit.privateApplicantBody');
+  return (
+    <View style={styles.section}>
+      <View style={styles.threadSplitHeader}>
+        <SemanticBadge label={t('trade.threadSplit.eyebrow')} tone="trade" size="sm" />
+        <AppText style={styles.sectionTitle}>{t('trade.threadSplit.title')}</AppText>
+        <AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>{t('trade.threadSplit.body')}</AppText>
+      </View>
+      <View style={styles.threadActionGrid}>
+        <ThreadActionCard
+          title={t('trade.publicDiscussion.title')}
+          body={t('trade.threadSplit.publicBody')}
+          meta={publicMessageCount > 0 ? t('trade.publicDiscussion.messageCount', { count: publicMessageCount }) : t('trade.publicDiscussion.emptyTitle')}
+          icon="dispute"
+          tone="trade"
+          onPress={onOpenPublic}
+          theme={theme}
+          t={t}
+        />
+        <ThreadActionCard
+          title={t('trade.threadSplit.privateTitle')}
+          body={privatePreview}
+          meta={privateProposalCount > 0 ? t('trade.threadSplit.privateCount', { count: privateProposalCount }) : t('trade.proposals.noProposals')}
+          icon="proposal"
+          tone="proposal"
+          onPress={onOpenPrivate}
+          theme={theme}
+          t={t}
+        />
+      </View>
+    </View>
+  );
+}
+
+function ThreadActionCard({ title, body, meta, icon, tone, onPress, theme, t }: { title: string; body: string; meta: string; icon: 'dispute' | 'proposal'; tone: 'trade' | 'proposal'; onPress: () => void; theme: ThemeTokens; t: TFunction }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.threadActionCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={styles.threadActionTopRow}>
+        <View style={[styles.threadActionIcon, { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border }]}>
+          <MobileIcon name={icon} size={21} color={theme.semantic[tone].text} />
+        </View>
+        <MobileIcon name="chevron-right" size={20} color={theme.color.muted} />
+      </View>
+      <View style={styles.threadActionCopy}>
+        <AppText style={styles.threadActionTitle}>{title}</AppText>
+        <AppText style={[styles.threadActionBody, { color: theme.color.muted }]}>{body}</AppText>
+      </View>
+      <View style={styles.threadActionFooter}>
+        <AppText style={[styles.threadActionMeta, { color: theme.semantic[tone].text }]}>{meta}</AppText>
+        <AppText style={[styles.threadActionOpen, { color: theme.semantic[tone].text }]}>{t('common.actions.open')}</AppText>
+      </View>
+    </Pressable>
+  );
+}
+
 function SignedOutProposalBox({ trade, onLogin, theme, t }: { trade: TradeDeckItem; onLogin: () => void; theme: ThemeTokens; t: TFunction }) {
   return <View style={styles.composerBox}><AppText style={[styles.bodyCopy, { color: theme.color.muted }]}>{proposalHelper(trade, t)} {t('trade.proposals.signInReady')}</AppText><ActionButton label={t('common.actions.loginOrRegister')} variant="primary" onPress={onLogin} theme={theme} /></View>;
 }
@@ -452,4 +534,4 @@ function ProposalSideSummary({ proposal, theme, t }: { proposal: TradeProposalIt
 }
 function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) { const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }; const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text; return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>; }
 
-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, ownerLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, openSideInvite: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 8 }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, detailIdentity: { flex: 1, justifyContent: 'flex-end' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 12 }, proposalPromptBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 8 }, proposalPromptText: { lineHeight: 20, fontWeight: '800' }, messageComposerBlock: { gap: 8 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, inventoryChoiceBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 }, inventoryChoiceHeading: { gap: 7 }, inventoryEmptyBox: { borderRadius: 18, borderWidth: 1, padding: 12 }, inventoryChoiceRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }, inventoryChoiceSelected: { borderWidth: 2 }, inventoryChoiceCopy: { flex: 1, gap: 5 }, inventoryChoiceTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }, inventoryChoiceTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' }, inventoryChoiceMeta: { fontSize: 12, fontWeight: '900', lineHeight: 17 }, inventoryChoiceDescription: { fontSize: 12, lineHeight: 17, fontWeight: '700' }, inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 }, inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }, inventoryPickerHeading: { flex: 1, gap: 7 }, inventoryPickerIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, inventoryPickerSelectedBody: { gap: 6 }, inventoryPickerEmptyBody: { gap: 8 }, inventoryPickerActionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 }, inventoryPickerActionText: { fontWeight: '900' }, selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' }, selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, selectedSideDescription: { lineHeight: 20, fontWeight: '700' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 13, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, proposalIdentityLink: { flex: 1 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 5 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, threadLabel: { fontSize: 13, fontWeight: '900' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, ownerLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, openSideInvite: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 8 }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, detailIdentity: { flex: 1, justifyContent: 'flex-end' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 12 }, proposalPromptBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 8 }, proposalPromptText: { lineHeight: 20, fontWeight: '800' }, messageComposerBlock: { gap: 8 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, inventoryChoiceBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 }, inventoryChoiceHeading: { gap: 7 }, inventoryEmptyBox: { borderRadius: 18, borderWidth: 1, padding: 12 }, inventoryChoiceRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }, inventoryChoiceSelected: { borderWidth: 2 }, inventoryChoiceCopy: { flex: 1, gap: 5 }, inventoryChoiceTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }, inventoryChoiceTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' }, inventoryChoiceMeta: { fontSize: 12, fontWeight: '900', lineHeight: 17 }, inventoryChoiceDescription: { fontSize: 12, lineHeight: 17, fontWeight: '700' }, inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 }, inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }, inventoryPickerHeading: { flex: 1, gap: 7 }, inventoryPickerIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, inventoryPickerSelectedBody: { gap: 6 }, inventoryPickerEmptyBody: { gap: 8 }, inventoryPickerActionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 }, inventoryPickerActionText: { fontWeight: '900' }, selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' }, selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, selectedSideDescription: { lineHeight: 20, fontWeight: '700' }, threadSplitHeader: { gap: 8 }, threadActionGrid: { gap: 12 }, threadActionCard: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 12 }, threadActionTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, threadActionIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, threadActionCopy: { gap: 6 }, threadActionTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 }, threadActionBody: { lineHeight: 20, fontWeight: '700' }, threadActionFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, threadActionMeta: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: '900' }, threadActionOpen: { fontSize: 13, fontWeight: '900' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 13, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, proposalIdentityLink: { flex: 1 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 5 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, threadLabel: { fontSize: 13, fontWeight: '900' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });

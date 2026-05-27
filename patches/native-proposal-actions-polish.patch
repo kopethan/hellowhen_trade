@@ -1,0 +1,273 @@
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 0a074d8..5268a22 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { Alert, Button, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { ProposalActionStatus } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
+@@ -258,6 +258,10 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       setProposal(result.proposal);
+       if (result.proposal.messages) setMessages(result.proposal.messages);
+       setNotice(status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : status === 'declined' ? t('trade.proposals.proposalDeclined') : t('trade.proposals.proposalWithdrawn'));
++      setDetailsOpen(false);
++      setCancelTradeOpen(false);
++      setCancelReason('');
++      setCancelError(null);
+       try { await loadMessages(); } catch { /* proposal response is still useful */ }
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotUpdateProposal')));
+@@ -267,6 +271,20 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   }
+ 
+   function confirmStatus(status: ProposalActionStatus) {
++    if (status === 'accepted') {
++      Alert.alert(t('trade.proposals.acceptConfirmTitle'), t('trade.proposals.acceptConfirmBody'), [
++        { text: t('common.actions.cancel'), style: 'cancel' },
++        { text: t('trade.proposals.accept'), onPress: () => { void updateStatus('accepted'); } },
++      ]);
++      return;
++    }
++    if (status === 'declined') {
++      Alert.alert(t('trade.proposals.declineConfirmTitle'), t('trade.proposals.declineConfirmBody'), [
++        { text: t('common.actions.cancel'), style: 'cancel' },
++        { text: t('trade.proposals.decline'), style: 'destructive', onPress: () => { void updateStatus('declined'); } },
++      ]);
++      return;
++    }
+     if (status === 'withdrawn') {
+       Alert.alert(t('trade.proposals.withdrawConfirmTitle'), t('trade.proposals.withdrawConfirmBody'), [
+         { text: t('trade.proposals.withdrawConfirmCancel'), style: 'cancel' },
+@@ -458,6 +476,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       await api.trades.updateStatus(proposal.trade.id, { status: 'cancelled', cancelReason: reason });
+       setCancelTradeOpen(false);
+       setCancelReason('');
++      setCancelError(null);
++      setDetailsOpen(false);
+       setNotice(t('trade.proposals.tradeCancelled'));
+       await refreshConversation();
+     } catch (caughtError) {
+@@ -507,10 +527,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+               isOwner={Boolean(isOwner)}
+               isApplicant={Boolean(isApplicant)}
+               tradeCancelled={tradeCancelled}
+-              actionLoading={actionLoading}
+-              onAccept={() => confirmStatus('accepted')}
+-              onDecline={() => confirmStatus('declined')}
+-              onWithdraw={() => confirmStatus('withdrawn')}
+               onDetails={() => setDetailsOpen(true)}
+               t={t}
+             />
+@@ -624,9 +640,16 @@ function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () =>
+   );
+ }
+ 
+-function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeCancelled, actionLoading, onAccept, onDecline, onWithdraw, onDetails, t }: { proposal: TradeProposalItem; statusHint: string; isOwner: boolean; isApplicant: boolean; tradeCancelled: boolean; actionLoading: ActionLoading; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onDetails: () => void; t: TFunction }) {
++function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeCancelled, onDetails, t }: { proposal: TradeProposalItem; statusHint: string; isOwner: boolean; isApplicant: boolean; tradeCancelled: boolean; onDetails: () => void; t: TFunction }) {
+   const theme = useThemeTokens();
+   const sides = proposalSideItems(proposal);
++  const actionLabel = tradeCancelled
++    ? t('trade.proposals.showProposalItemDetails')
++    : isOwner && proposal.status === 'pending'
++      ? t('trade.proposals.reviewProposal')
++      : isApplicant && proposal.status === 'pending'
++        ? t('trade.proposals.manageProposal')
++        : t('trade.proposals.showProposalItemDetails');
+   return (
+     <View style={[styles.topSummary, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+       <View style={styles.summaryHeaderRow}>
+@@ -635,15 +658,18 @@ function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeC
+           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={isApplicant ? t('trade.labels.you') : undefined} variant="compact" showHandle />
+         </View>
+         <Pressable accessibilityRole="button" onPress={onDetails} style={({ pressed }) => [styles.textLinkButton, pressed && styles.pressed]}>
+-          <AppText style={[styles.textLink, { color: theme.semantic.proposal.text }]}>{t('trade.proposals.showProposalItemDetails')}</AppText>
++          <AppText style={[styles.textLink, { color: theme.semantic.proposal.text }]}>{actionLabel}</AppText>
+         </Pressable>
+       </View>
+       <AppText style={styles.summaryTitle} numberOfLines={2}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
+       {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${formatStatus(proposal.trade.status, t)} ${t('trade.labels.trade').toLowerCase()}`} /> : <AppText style={[styles.summaryMeta, { color: theme.color.muted }]}>{t('trade.labels.serviceForService')} {t('trade.labels.trade').toLowerCase()}</AppText>) : null}
+       {sides.length > 0 ? <View style={styles.summarySides}>{sides.map(({ kind, item }) => <CompactSidePill key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}</View> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>}
+-      <AppText style={[styles.summaryHint, { color: theme.color.muted }]}>{statusHint}</AppText>
+-      {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={onAccept} /><ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={onDecline} /></View> : null}
+-      {isApplicant && proposal.status === 'pending' && !tradeCancelled ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={onWithdraw} /> : null}
++      <View style={[styles.summaryActionHint, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++        <AppText style={[styles.summaryHint, { color: theme.color.muted }]}>{statusHint}</AppText>
++        <Pressable accessibilityRole="button" onPress={onDetails} style={({ pressed }) => [styles.summaryActionButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++          <AppText style={[styles.summaryActionText, { color: theme.color.background }]}>{actionLabel}</AppText>
++        </Pressable>
++      </View>
+     </View>
+   );
+ }
+@@ -742,14 +768,26 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
+               </View>
+             ) : null}
+ 
+-            <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+-              <AppText style={styles.sectionTitle}>{t('trade.labels.nextStep')}</AppText>
+-              {isOwner && proposal.status === 'pending' ? <View style={styles.actionRow}><ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={onAccept} /><ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={onDecline} /></View> : null}
+-              {isApplicant && proposal.status === 'pending' ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={onWithdraw} /> : null}
+-              {canCancelAcceptedTrade ? cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : <ProposalActionButton label={t('trade.proposals.cancelAcceptedTrade')} variant="danger" disabled={Boolean(actionLoading)} onPress={onOpenCancelTrade} /> : null}
+-              {proposal.trade?.id ? <Button title={t('trade.proposals.openTradeDetail')} onPress={onOpenTradeDetail} /> : null}
+-              {proposal.status === 'accepted' && isProvider ? <InfoNotice tone="success" title={t('trade.proposals.acceptedProvider')} body={t('trade.proposals.acceptedProviderBody')} /> : null}
+-            </View>
++            <ProposalActionCenter
++              proposal={proposal}
++              canCancelAcceptedTrade={canCancelAcceptedTrade}
++              isOwner={isOwner}
++              isApplicant={isApplicant}
++              isProvider={isProvider}
++              cancelTradeOpen={cancelTradeOpen}
++              cancelReason={cancelReason}
++              cancelError={cancelError}
++              actionLoading={actionLoading}
++              onAccept={onAccept}
++              onDecline={onDecline}
++              onWithdraw={onWithdraw}
++              onOpenCancelTrade={onOpenCancelTrade}
++              onChangeCancelReason={onChangeCancelReason}
++              onCancelCancelTrade={onCancelCancelTrade}
++              onSubmitCancelTrade={onSubmitCancelTrade}
++              onOpenTradeDetail={onOpenTradeDetail}
++              t={t}
++            />
+           </ScrollView>
+         </View>
+       </View>
+@@ -757,6 +795,54 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
+   );
+ }
+ 
++
++function ProposalActionCenter({ proposal, canCancelAcceptedTrade, isOwner, isApplicant, isProvider, cancelTradeOpen, cancelReason, cancelError, actionLoading, onAccept, onDecline, onWithdraw, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onOpenTradeDetail, t }: { proposal: TradeProposalItem; canCancelAcceptedTrade: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onOpenTradeDetail: () => void; t: TFunction }) {
++  const theme = useThemeTokens();
++  const isPending = proposal.status === 'pending';
++  const isAccepted = proposal.status === 'accepted';
++  const isClosed = ['declined', 'withdrawn'].includes(proposal.status) || ['cancelled', 'closed'].includes(proposal.trade?.status ?? '');
++  const title = isPending && isOwner
++    ? t('trade.proposals.reviewProposal')
++    : isPending && isApplicant
++      ? t('trade.proposals.manageProposal')
++      : isAccepted
++        ? t('trade.proposals.acceptedConversation')
++        : t('trade.proposals.closedConversation');
++  const body = isPending && isOwner
++    ? t('trade.proposals.reviewProposalBody')
++    : isPending && isApplicant
++      ? t('trade.proposals.manageProposalBody')
++      : isAccepted
++        ? t('trade.proposals.acceptedActionsBody')
++        : t('trade.proposals.closedActionsBody');
++  return (
++    <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <View style={styles.actionCenterHeader}>
++        <View style={styles.actionCenterCopy}>
++          <AppText style={styles.sectionTitle}>{title}</AppText>
++          <AppText style={[styles.muted, { color: theme.color.muted }]}>{body}</AppText>
++        </View>
++        <StatusBadge status={proposal.status} label={formatStatus(proposal.status, t)} />
++      </View>
++
++      {isOwner && isPending ? (
++        <View style={styles.actionRow}>
++          <ProposalActionButton label={actionLoading === 'accepted' ? t('trade.proposals.accepting') : t('trade.proposals.accept')} variant="primary" disabled={Boolean(actionLoading)} onPress={onAccept} />
++          <ProposalActionButton label={actionLoading === 'declined' ? t('trade.proposals.declining') : t('trade.proposals.decline')} variant="danger" disabled={Boolean(actionLoading)} onPress={onDecline} />
++        </View>
++      ) : null}
++
++      {isApplicant && isPending ? <ProposalActionButton label={actionLoading === 'withdrawn' ? t('trade.proposals.withdrawing') : t('trade.proposals.withdraw')} variant="danger" disabled={Boolean(actionLoading)} onPress={onWithdraw} /> : null}
++
++      {isAccepted && isProvider ? <InfoNotice tone="success" title={t('trade.proposals.acceptedProvider')} body={t('trade.proposals.acceptedProviderBody')} /> : null}
++
++      {canCancelAcceptedTrade ? cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
++
++      {proposal.trade?.id && !cancelTradeOpen ? <SmallActionButton label={t('trade.proposals.openTradeDetail')} onPress={onOpenTradeDetail} disabled={Boolean(actionLoading)} muted={isClosed} /> : null}
++    </View>
++  );
++}
++
+ function MiniPerson({ label, user, userId, displayName, tone }: { label: string; user?: TradeProposalItem['applicant']; userId?: string | null; displayName?: string | null; tone: 'need' | 'offer' }) {
+   const theme = useThemeTokens();
+   return <View style={[styles.personBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><SemanticBadge label={label} tone={tone} size="sm" /><UserIdentityPressable user={user} userId={userId} displayName={displayName} variant="compact" showHandle /></View>;
+@@ -861,7 +947,10 @@ const styles = StyleSheet.create({
+   summaryTitle: { fontSize: 24, lineHeight: 29, fontWeight: '900', letterSpacing: -0.55 },
+   summaryMeta: { lineHeight: 20, fontWeight: '800' },
+   summarySides: { gap: 8 },
+-  summaryHint: { lineHeight: 20, fontWeight: '700' },
++  summaryHint: { flex: 1, lineHeight: 20, fontWeight: '700' },
++  summaryActionHint: { borderRadius: 20, borderWidth: 1, padding: 12, gap: 12 },
++  summaryActionButton: { minHeight: 42, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
++  summaryActionText: { fontWeight: '900' },
+   compactSidePill: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 4 },
+   compactSideTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+   compactSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+@@ -901,6 +990,8 @@ const styles = StyleSheet.create({
+   peopleRow: { flexDirection: 'row', gap: 10 },
+   personBox: { flex: 1, borderRadius: 16, borderWidth: 1, padding: 12, gap: 8 },
+   sectionTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.2 },
++  actionCenterHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
++  actionCenterCopy: { flex: 1, gap: 6 },
+   packageEditorHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' },
+   packagePickerRow: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 10 },
+   packagePickerCopy: { gap: 6 },
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index a381907..a82ae77 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -214,6 +214,12 @@ export const trade = {
+     chooseExistingOfferBody: 'Pick one of your active Offers, then return to the proposal edit screen.',
+     noExistingItemsForEdit: 'Create a {{item}} first, then come back to edit this proposal.',
+     showProposalItemDetails: 'Show details',
++    reviewProposal: 'Review proposal',
++    reviewProposalBody: 'Check the proposed Need/Offer and keep chatting before you accept or decline.',
++    manageProposal: 'Manage proposal',
++    manageProposalBody: 'Edit your proposal package or withdraw it while it is still pending.',
++    acceptedActionsBody: 'The proposal is accepted. Keep chatting here and open the trade when you need the full trade status.',
++    closedActionsBody: 'This proposal is closed. The chat history stays visible for context.',
+     hideProposalItemDetails: 'Hide details',
+     noProposalItemImages: 'No images attached to this proposed item yet.',
+     editedCountAt: 'Edited {{count}} time · {{date}}',
+@@ -283,7 +289,11 @@ export const trade = {
+     declining: 'Declining...',
+     withdrawing: 'Withdrawing...',
+     accept: 'Accept',
++    acceptConfirmTitle: 'Accept this proposal?',
++    acceptConfirmBody: 'The trade will move in progress and this will become the accepted private conversation.',
+     decline: 'Decline',
++    declineConfirmTitle: 'Decline this proposal?',
++    declineConfirmBody: 'This will close the proposal thread. The conversation history will stay visible for context.',
+     withdraw: 'Withdraw proposal',
+     withdrawConfirmTitle: 'Withdraw this proposal?',
+     withdrawConfirmBody: 'The owner will not be able to accept it after you withdraw. Your proposed Need/Offer and proposal note will stay in the private thread for context.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index c85c6da..1da9249 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -214,6 +214,12 @@ export const trade = {
+     chooseExistingOfferBody: 'Choisis une de tes offres actives, puis reviens à l’écran de modification de la proposition.',
+     noExistingItemsForEdit: 'Crée d’abord un(e) {{item}}, puis reviens modifier cette proposition.',
+     showProposalItemDetails: 'Afficher les détails',
++    reviewProposal: 'Examiner la proposition',
++    reviewProposalBody: 'Vérifiez le besoin/l’offre proposé(e) et continuez à échanger avant d’accepter ou refuser.',
++    manageProposal: 'Gérer la proposition',
++    manageProposalBody: 'Modifiez votre proposition ou retirez-la tant qu’elle est encore en attente.',
++    acceptedActionsBody: 'La proposition est acceptée. Continuez la conversation ici et ouvrez l’échange pour voir son statut complet.',
++    closedActionsBody: 'Cette proposition est fermée. L’historique reste visible pour le contexte.',
+     hideProposalItemDetails: 'Masquer les détails',
+     noProposalItemImages: 'Aucune image ajoutée à cet élément proposé pour le moment.',
+     editedCountAt: 'Modifié {{count}} fois · {{date}}',
+@@ -283,7 +289,11 @@ export const trade = {
+     declining: 'Refus…',
+     withdrawing: 'Retrait…',
+     accept: 'Accepter',
++    acceptConfirmTitle: 'Accepter cette proposition ?',
++    acceptConfirmBody: 'L’échange passera en cours et cette conversation deviendra la conversation privée acceptée.',
+     decline: 'Refuser',
++    declineConfirmTitle: 'Refuser cette proposition ?',
++    declineConfirmBody: 'Cela fermera cette proposition. L’historique restera visible pour le contexte.',
+     withdraw: 'Retirer la proposition',
+     withdrawConfirmTitle: 'Retirer cette proposition ?',
+     withdrawConfirmBody: 'Le propriétaire ne pourra plus l’accepter après le retrait. Votre besoin/offre proposé et votre note resteront dans le fil privé pour garder le contexte.',

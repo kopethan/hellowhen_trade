@@ -68,7 +68,7 @@ function tradeProposalHref(tradeId: string, next: { needId?: string; offerId?: s
   if (next.needId) params.set('proposalNeedId', next.needId);
   if (next.offerId) params.set('proposalOfferId', next.offerId);
   const query = params.toString();
-  return `/trades/${tradeId}${query ? `?${query}` : ''}`;
+  return `/trades/${tradeId}/proposals${query ? `?${query}` : ''}`;
 }
 
 function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {

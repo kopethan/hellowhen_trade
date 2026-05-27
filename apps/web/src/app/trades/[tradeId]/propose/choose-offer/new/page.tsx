@@ -22,7 +22,7 @@ export default async function NewProposalOfferPage({ params, searchParams }: New
       mode="create"
       cancelHref={chooseOfferHref(tradeId, resolvedSearchParams)}
       afterCreateRedirect={{
-        pathname: `/trades/${tradeId}`,
+        pathname: `/trades/${tradeId}/proposals`,
         selectedParam: 'proposalOfferId',
         preservedParams: {
           proposalNeedId: resolvedSearchParams.proposalNeedId,

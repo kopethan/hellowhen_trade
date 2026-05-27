@@ -1,6 +1,7 @@
 'use client';
 
 import type { TradeActionStatus, TradeDto } from '@hellowhen/contracts';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
@@ -13,7 +14,6 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
-import { TradeProposalPanel } from './TradeProposalPanel';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getModeLabel, getNeedSide, getOfferSide, getStatusLabel, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeI18n, type TradeSide } from './tradePresentation';
@@ -84,6 +84,40 @@ function OpenResponseSection({ trade, i18n }: { trade: TradeDto; i18n?: TradeI18
       </div>
       <p>{copy.inviteBody}</p>
       <p className="meta">{i18n?.t?.('trade.proposals.usePrivateProposalArea') ?? 'Use the private proposal area below to respond to this post.'}</p>
+    </section>
+  );
+}
+
+
+function TradeThreadSplitSection({ trade, isOwner, i18n }: { trade: TradeDto; isOwner: boolean; i18n: TradeI18n }) {
+  const t = i18n.t ?? ((key: string) => key);
+  return (
+    <section className="trade-social-section trade-thread-split-section">
+      <div className="trade-section-heading">
+        <div>
+          <p className="eyebrow">{t('trade.threadSplit.eyebrow')}</p>
+          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {t('trade.threadSplit.title')}</h2>
+        </div>
+      </div>
+      <p className="meta">{t('trade.threadSplit.body')}</p>
+      <div className="trade-thread-action-grid">
+        <Link href={`/trades/${trade.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public">
+          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={22} decorative /></span>
+          <span className="trade-thread-action-card__body">
+            <strong>{t('trade.publicDiscussion.title')}</strong>
+            <small>{t('trade.threadSplit.publicBody')}</small>
+          </span>
+          <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
+        </Link>
+        <Link href={`/trades/${trade.id}/proposals`} className="trade-thread-action-card trade-thread-action-card--private">
+          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={22} decorative /></span>
+          <span className="trade-thread-action-card__body">
+            <strong>{t('trade.threadSplit.privateTitle')}</strong>
+            <small>{t(isOwner ? 'trade.threadSplit.privateOwnerPreview' : 'trade.threadSplit.privateApplicantPreview')}</small>
+          </span>
+          <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
+        </Link>
+      </div>
     </section>
   );
 }
@@ -312,7 +346,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         ) : null}
       </section>
 
-      <TradeProposalPanel trade={currentTrade} />
+      <TradeThreadSplitSection trade={currentTrade} isOwner={isOwner} i18n={i18n} />
 
       {isOwner ? (
         <section className="trade-social-section trade-social-section--compact trade-danger-zone">

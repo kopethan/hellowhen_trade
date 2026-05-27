@@ -15,11 +15,11 @@ type ReportAction = AdminReportActionRequest['action'];
 type LastAction = { tone: NoticeTone; title: string; body: string; details?: string[] };
 
 const statusFilters: StatusFilter[] = ['pending', 'reviewing', 'resolved', 'dismissed', 'all'];
-const targetFilters: TargetFilter[] = ['all', 'user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'media', 'plan', 'plan_place'];
+const targetFilters: TargetFilter[] = ['all', 'user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'plan', 'plan_place'];
 const reasonFilters: ReasonFilter[] = ['all', 'spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other'];
 const bulkReportActions: ReportAction[] = ['mark_reviewing', 'resolve', 'dismiss', 'reopen'];
 const noteRequiredReportActions: ReportAction[] = ['reopen', 'hide_target', 'restore_target', 'suspend_target_owner', 'unsuspend_target_owner', 'dismiss', 'resolve', 'escalate_to_support'];
-const visibilityTargetTypes = new Set(['trade', 'need', 'offer', 'media', 'plan', 'plan_place']);
+const visibilityTargetTypes = new Set(['trade', 'need', 'offer', 'public_message', 'media', 'plan', 'plan_place']);
 const adminNoteMinLength = 3;
 
 function labelize(value?: string | null) {
@@ -62,6 +62,7 @@ function hideTargetTitle(report: ReportDto) {
   if (report.targetType === 'need') return 'Need closed';
   if (report.targetType === 'offer') return 'Offer closed';
   if (report.targetType === 'media') return 'Media removed';
+  if (report.targetType === 'public_message') return 'Public message hidden';
   if (report.targetType === 'plan') return 'Plan hidden';
   if (report.targetType === 'plan_place') return 'Plan hidden after place report';
   return 'Target hidden';
@@ -72,6 +73,7 @@ function restoreTargetTitle(report: ReportDto) {
   if (report.targetType === 'need') return 'Need restored';
   if (report.targetType === 'offer') return 'Offer restored';
   if (report.targetType === 'media') return 'Media restored';
+  if (report.targetType === 'public_message') return 'Public message restored';
   if (report.targetType === 'plan') return 'Plan restored';
   if (report.targetType === 'plan_place') return 'Plan restored after place review';
   return 'Target restored';
@@ -96,6 +98,7 @@ function actionResultDetails(action: ReportAction, report: ReportDto, supportTic
     else if (report.targetType === 'need') details.push('This need is now closed and no longer active inventory.');
     else if (report.targetType === 'offer') details.push('This offer is now closed and no longer active inventory.');
     else if (report.targetType === 'media') details.push('This media is marked removed and should no longer be used publicly.');
+    else if (report.targetType === 'public_message') details.push('This public discussion message is hidden from the discussion without deleting audit history.');
     else if (report.targetType === 'plan') details.push('This hidden plan remains reversible and keeps audit history.');
     else if (report.targetType === 'plan_place') details.push('The parent plan was hidden because one of its places was reported.');
     else details.push('The target was removed from public surfaces without deleting audit history.');
@@ -105,6 +108,7 @@ function actionResultDetails(action: ReportAction, report: ReportDto, supportTic
     else if (report.targetType === 'need') details.push('This need is active again.');
     else if (report.targetType === 'offer') details.push('This offer is active again.');
     else if (report.targetType === 'media') details.push('This media is active again.');
+    else if (report.targetType === 'public_message') details.push('This public discussion message can appear in the discussion again.');
     else details.push('The target was restored without deleting previous audit history.');
   }
   if (action === 'suspend_target_owner') details.push('The owner account is restricted and active sessions were revoked.');

@@ -97,6 +97,12 @@ enum ProposalStatus {
   withdrawn
 }
 
+enum TradePublicMessageStatus {
+  visible
+  hidden
+  deleted
+}
+
 enum MediaEntityType {
   need
   offer
@@ -292,6 +298,7 @@ enum ReportTargetType {
   offer
   proposal
   message
+  public_message
   media
   plan
   plan_place
@@ -392,6 +399,8 @@ model User {
   providerTrades Trade[] @relation("ProvidedTrades")
   tradeProposals TradeProposal[] @relation("ApplicantProposals")
   proposalMessages ProposalMessage[] @relation("SentProposalMessages")
+  tradePublicMessages TradePublicMessage[] @relation("AuthoredTradePublicMessages")
+  hiddenTradePublicMessages TradePublicMessage[] @relation("HiddenTradePublicMessages")
   mediaAssets  MediaAsset[] @relation("OwnedMediaAssets")
   reviewedMediaAssets MediaAsset[] @relation("ReviewedMediaAssets")
   creditPurchases CreditPurchase[]
@@ -710,6 +719,7 @@ model Trade {
   payment  TradePayment?
   escrow   TradeEscrow?
   proposals TradeProposal[]
+  publicMessages TradePublicMessage[]
   ledgerEntries CreditLedgerEntry[]
 
   @@index([status, isPublic, createdAt])
@@ -768,6 +778,30 @@ model ProposalMessage {
 
   @@index([proposalId, createdAt])
   @@index([senderId, createdAt])
+}
+
+model TradePublicMessage {
+  id             String                   @id @default(cuid())
+  tradeId        String
+  authorId       String
+  body           String
+  status         TradePublicMessageStatus @default(visible)
+  editedAt       DateTime?
+  editCount      Int                      @default(0)
+  deletedAt      DateTime?
+  hiddenAt       DateTime?
+  hiddenById     String?
+  moderationNote String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  trade    Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  author   User  @relation("AuthoredTradePublicMessages", fields: [authorId], references: [id], onDelete: Cascade)
+  hiddenBy User? @relation("HiddenTradePublicMessages", fields: [hiddenById], references: [id], onDelete: SetNull)
+
+  @@index([tradeId, status, createdAt])
+  @@index([authorId, createdAt])
+  @@index([hiddenById, hiddenAt])
 }
 
 model MediaAsset {

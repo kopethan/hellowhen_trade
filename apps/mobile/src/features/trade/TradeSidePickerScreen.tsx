@@ -132,7 +132,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
       return;
     }
     if (route.params.returnTo === 'tradeProposal' && route.params.tradeId) {
-      navigation.navigate('TradeDetail', {
+      navigation.navigate('TradePrivateProposals', {
         tradeId: route.params.tradeId,
         title: route.params.tradeTitle,
         selectedProposalSide: selection,

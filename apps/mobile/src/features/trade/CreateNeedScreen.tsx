@@ -76,7 +76,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
       }
 
       if (route.params?.returnTo === 'tradeProposal' && route.params.tradeId) {
-        navigation.navigate('TradeDetail', {
+        navigation.navigate('TradePrivateProposals', {
           tradeId: route.params.tradeId,
           title: route.params.tradeTitle,
           selectedProposalSide: { side: 'need', kind: 'need', id: response.need.id },

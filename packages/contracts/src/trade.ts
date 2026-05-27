@@ -197,6 +197,12 @@ export const updateProposalMessageRequestSchema = z.object({
 });
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
 export const updateProposalPrivateMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+export const createTradePublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+export const updateTradePublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
+export const listTradePublicMessagesQuerySchema = z.object({
+  take: z.coerce.number().int().min(1).max(100).optional().default(50),
+  before: z.string().datetime().optional(),
+});
 
 export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional(), countryCode: z.string().nullable().optional() }).nullable().optional();
 export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
@@ -340,6 +346,23 @@ export const tradeSchema = z.object({
   media: z.array(mediaAssetSchema).optional()
 });
 export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), updatedAt: z.string().optional(), editedAt: z.string().nullable().optional(), editCount: z.number().int().optional().default(0), deletedAt: z.string().nullable().optional(), sender: userPreviewSchema.optional() });
+export const tradePublicMessageStatusSchema = z.enum(['visible', 'hidden', 'deleted']);
+export const tradePublicMessageSchema = z.object({
+  id: z.string(),
+  tradeId: z.string(),
+  authorId: z.string(),
+  body: z.string(),
+  status: tradePublicMessageStatusSchema.optional().default('visible'),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  editedAt: z.string().nullable().optional(),
+  editCount: z.number().int().optional().default(0),
+  deletedAt: z.string().nullable().optional(),
+  hiddenAt: z.string().nullable().optional(),
+  author: userPreviewSchema.optional(),
+});
+export const tradePublicMessagesResponseSchema = z.object({ messages: z.array(tradePublicMessageSchema) });
+export const tradePublicMessageResponseSchema = z.object({ message: tradePublicMessageSchema });
 export const tradeProposalSchema = z.object({
   id: z.string(),
   tradeId: z.string(),
@@ -381,6 +404,10 @@ export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
 export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
 export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
 export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
+export type TradePublicMessageStatus = z.infer<typeof tradePublicMessageStatusSchema>;
+export type TradePublicMessageDto = z.infer<typeof tradePublicMessageSchema>;
+export type TradePublicMessagesResponse = z.infer<typeof tradePublicMessagesResponseSchema>;
+export type TradePublicMessageResponse = z.infer<typeof tradePublicMessageResponseSchema>;
 export type CreateNeedRequest = z.infer<typeof createNeedRequestSchema>;
 export type CreateOfferRequest = z.infer<typeof createOfferRequestSchema>;
 export type CreateTradeRequest = z.infer<typeof createTradeRequestSchema>;
@@ -396,3 +423,6 @@ export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusReq
 export type UpdateProposalMessageRequest = z.infer<typeof updateProposalMessageRequestSchema>;
 export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;
 export type UpdateProposalPrivateMessageRequest = z.infer<typeof updateProposalPrivateMessageRequestSchema>;
+export type CreateTradePublicMessageRequest = z.infer<typeof createTradePublicMessageRequestSchema>;
+export type UpdateTradePublicMessageRequest = z.infer<typeof updateTradePublicMessageRequestSchema>;
+export type ListTradePublicMessagesQuery = z.infer<typeof listTradePublicMessagesQuerySchema>;

@@ -1,0 +1,106 @@
+diff --git a/apps/mobile/src/components/MobileIcon.tsx b/apps/mobile/src/components/MobileIcon.tsx
+index 8759e29..b2e97ca 100644
+--- a/apps/mobile/src/components/MobileIcon.tsx
++++ b/apps/mobile/src/components/MobileIcon.tsx
+@@ -14,6 +14,7 @@ export type MobileIconName =
+   | 'filter'
+   | 'help'
+   | 'image'
++  | 'more'
+   | 'need'
+   | 'offer'
+   | 'payout'
+@@ -65,6 +66,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
+       return <><Circle cx={12} cy={12} r={8} stroke={color} strokeWidth={2} fill="none" /><Path d="M11.233 13.5455V13.4943C11.2386 12.9517 11.2955 12.5199 11.4034 12.1989C11.5114 11.8778 11.6648 11.6179 11.8636 11.419C12.0625 11.2202 12.3011 11.0369 12.5795 10.8693C12.7472 10.767 12.8977 10.6463 13.0312 10.5071C13.1648 10.3651 13.2699 10.2017 13.3466 10.017C13.4261 9.83239 13.4659 9.62784 13.4659 9.40341C13.4659 9.125 13.4006 8.88352 13.2699 8.67898C13.1392 8.47443 12.9645 8.31676 12.7457 8.20597C12.527 8.09517 12.2841 8.03977 12.017 8.03977C11.7841 8.03977 11.5597 8.08807 11.3438 8.18466C11.1278 8.28125 10.9474 8.43324 10.8026 8.64062C10.6577 8.84801 10.5739 9.11932 10.5511 9.45455H9.47727C9.5 8.97159 9.625 8.55824 9.85227 8.21449C10.0824 7.87074 10.3849 7.60795 10.7599 7.42614C11.1378 7.24432 11.5568 7.15341 12.017 7.15341C12.517 7.15341 12.9517 7.25284 13.321 7.4517C13.6932 7.65057 13.9801 7.9233 14.1818 8.26989C14.3864 8.61648 14.4886 9.01136 14.4886 9.45455C14.4886 9.76705 14.4403 10.0497 14.3438 10.3026C14.25 10.5554 14.1136 10.7812 13.9347 10.9801C13.7585 11.179 13.5455 11.3551 13.2955 11.5085C13.0455 11.6648 12.8452 11.8295 12.6946 12.0028C12.544 12.1733 12.4347 12.3764 12.3665 12.6122C12.2983 12.848 12.2614 13.142 12.2557 13.4943V13.5455H11.233ZM11.7784 16.0682C11.5682 16.0682 11.3878 15.9929 11.2372 15.8423C11.0866 15.6918 11.0114 15.5114 11.0114 15.3011C11.0114 15.0909 11.0866 14.9105 11.2372 14.7599C11.3878 14.6094 11.5682 14.5341 11.7784 14.5341C11.9886 14.5341 12.169 14.6094 12.3196 14.7599C12.4702 14.9105 12.5455 15.0909 12.5455 15.3011C12.5455 15.4403 12.5099 15.5682 12.4389 15.6847C12.3707 15.8011 12.2784 15.8949 12.1619 15.9659C12.0483 16.0341 11.9205 16.0682 11.7784 16.0682Z" fill={color} /></>;
+     case 'image':
+       return <><Rect x={4} y={5} width={16} height={14} rx={2.5} stroke={color} strokeWidth={1.8} fill="none" /><Circle cx={9} cy={10} r={1.5} fill={color} /><Path d="M5.5 17L10 12.5L13 15.5L15 13.5L18.5 17" strokeWidth={1.8} {...strokeProps} /></>;
++    case 'more':
++      return <><Circle cx={5} cy={12} r={2} fill={color} /><Circle cx={12} cy={12} r={2} fill={color} /><Circle cx={19} cy={12} r={2} fill={color} /></>;
+     case 'need':
+       return <><Path d="M3.25 13.4L5.45 12.5L8 18.8L5.8 19.7L3.25 13.4Z" strokeWidth={1.3} {...strokeProps} /><Path d="M6.1 17.8C7.15 17 8.1 16.6 9 16.72C10.05 16.85 11.35 18.12 12.55 17.88C14.8 17.42 18.55 15.65 20.85 14.55C21.65 14.17 22.05 13.48 21.76 12.74C21.47 11.98 20.58 11.78 19.74 12.05L14.95 13.58" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 14.1C10.9 14.85 12.55 15.45 13.62 15.05C14.55 14.7 14.95 13.58 14.95 13.58C14.2 13.22 13.02 13.15 11.95 12.55C10.2 11.58 9.45 10.92 8.1 11.35C7.42 11.57 6.4 12.12 5.2 12.88" strokeWidth={1.35} {...strokeProps} /><Path d="M15.5 3.75H18.25V6.5H15.5V3.75Z" strokeWidth={1.25} {...strokeProps} /><Circle cx={10.5} cy={7} r={1.75} stroke={color} strokeWidth={1.25} fill="none" /><Path d="M14.3 10.1H17.4L15.85 12.75L14.3 10.1Z" strokeWidth={1.25} {...strokeProps} /></>;
+     case 'offer':
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 5268a22..442427a 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -9,6 +9,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
++import { MobileIcon } from '../../components/MobileIcon';
+ import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useAuth } from '../../providers/AuthProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+@@ -710,7 +711,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
+       <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
+         <View style={styles.bubbleHeader}>
+           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
+-          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10}><AppText style={[styles.moreButton, { color: theme.color.muted }]}>⋯</AppText></Pressable> : null}
++          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+         </View>
+         {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={Boolean(actionLoading)} muted /></View></View> : proposal.messageDeletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(proposal.messageDeletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{proposal.message}</AppText>{proposal.messageEditedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, language, t)}</AppText> : null}</>}
+       </Pressable>
+@@ -725,7 +726,7 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
+       <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
+         <View style={styles.bubbleHeader}>
+           <UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
+-          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10}><AppText style={[styles.moreButton, { color: theme.color.muted }]}>⋯</AppText></Pressable> : null}
++          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+         </View>
+         {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelEdit} disabled={Boolean(actionLoading)} muted /></View></View> : message.deletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(message.deletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{message.body}</AppText>{message.editedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(message.editCount, message.editedAt, language, t)}</AppText> : null}</>}
+       </Pressable>
+@@ -963,7 +964,7 @@ const styles = StyleSheet.create({
+   chatBubble: { maxWidth: '88%', borderRadius: 22, borderWidth: 1, padding: 12, gap: 8 },
+   chatBubbleMine: { borderBottomRightRadius: 7 },
+   bubbleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+-  moreButton: { fontSize: 24, lineHeight: 24, fontWeight: '900', paddingHorizontal: 3 },
++  moreButton: { minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
+   messageBody: { lineHeight: 21, fontWeight: '600' },
+   messageMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+   messageDeleted: { fontStyle: 'italic', lineHeight: 20, fontWeight: '800', opacity: 0.74 },
+diff --git a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+index ec5247d..ee7eddb 100644
+--- a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+@@ -247,7 +247,7 @@ function PublicMessageRow({ message, currentUserId, actionTarget, editDraft, sen
+         <UserIdentityPressable user={message.author} userId={message.authorId} displayName={messageDisplayName(message, currentUserId, t)} variant="row" subtitle={timeLabel(message.createdAt, language)} style={styles.messageIdentity} />
+         {deleted ? null : (
+           <Pressable accessibilityRole="button" onPress={isOwn ? onOwnActions : onReport} style={({ pressed }) => [styles.messageMenuButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-            <AppText style={[styles.menuDots, { color: theme.color.muted }]}>⋯</AppText>
++            <MobileIcon name="more" size={19} color={theme.color.muted} />
+           </Pressable>
+         )}
+       </View>
+@@ -293,7 +293,6 @@ const styles = StyleSheet.create({
+   messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+   messageIdentity: { flex: 1 },
+   messageMenuButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+-  menuDots: { fontSize: 20, lineHeight: 20, fontWeight: '900' },
+   messageBody: { fontSize: 16, lineHeight: 23, fontWeight: '600' },
+   deletedBody: { fontSize: 15, lineHeight: 22, fontWeight: '800', fontStyle: 'italic' },
+   traceText: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+diff --git a/apps/web/src/components/WebIcon.tsx b/apps/web/src/components/WebIcon.tsx
+index b5716b3..b41a0b2 100644
+--- a/apps/web/src/components/WebIcon.tsx
++++ b/apps/web/src/components/WebIcon.tsx
+@@ -9,6 +9,7 @@ export type WebIconName =
+   | 'dispute'
+   | 'filter'
+   | 'help'
++  | 'more'
+   | 'need'
+   | 'offer'
+   | 'profile'
+diff --git a/apps/web/src/features/trade/TradePublicDiscussionClient.tsx b/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
+index 9aba0a6..687d2af 100644
+--- a/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
++++ b/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
+@@ -224,7 +224,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+                       <div className="public-message__meta">
+                         <time dateTime={message.createdAt}>{formatWebDateTime(message.createdAt, '—', language)}</time>
+                         {!deleted ? (
+-                          <button type="button" className="public-message__menu-button" onClick={() => setOpenMenuId((current) => current === message.id ? null : message.id)} aria-expanded={menuOpen} aria-label={t('trade.publicDiscussion.messageActions')}>⋯</button>
++                          <button type="button" className="public-message__menu-button" onClick={() => setOpenMenuId((current) => current === message.id ? null : message.id)} aria-expanded={menuOpen} aria-label={t('trade.publicDiscussion.messageActions')}><WebIcon name="more" size={19} decorative /></button>
+                         ) : null}
+                       </div>
+                     </header>

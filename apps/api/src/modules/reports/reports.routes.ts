@@ -97,6 +97,15 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
     return message ? { type: targetType, id: message.id, label, ownerId: message.senderId, owner: message.sender, url: message.proposal?.tradeId ? `/trades/${message.proposal.tradeId}` : null } : null;
   }
 
+  if (targetType === 'public_message') {
+    const message = await prisma.tradePublicMessage.findUnique({
+      where: { id: targetId },
+      include: { author: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true, status: true, isPublic: true } } },
+    });
+    const label = message?.body?.trim() ? `${message.body.trim().slice(0, 72)}${message.body.trim().length > 72 ? '…' : ''}` : 'Public discussion message';
+    return message ? { type: targetType, id: message.id, label, ownerId: message.authorId, owner: message.author, status: message.status, isPublic: message.trade?.isPublic ?? null, url: message.tradeId ? `/trades/${message.tradeId}/discussion` : null } : null;
+  }
+
   const media = await prisma.mediaAsset.findUnique({ where: { id: targetId }, include: { owner: { select: reportUserSelect } } });
   return media ? { type: targetType, id: media.id, label: media.filename || media.storageKey || 'Media asset', ownerId: media.ownerId, owner: media.owner, status: media.status, url: media.url } : null;
 }
@@ -172,6 +181,26 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
             { applicantId: actorId },
             { trade: { ownerId: actorId } },
             { trade: { providerId: actorId } },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    return message ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+  }
+
+  if (target.type === 'public_message') {
+    const message = await prisma.tradePublicMessage.findFirst({
+      where: {
+        id: target.id,
+        status: 'visible',
+        author: { trustTier: { not: 'restricted' } },
+        trade: {
+          OR: [
+            publicTradeVisibilityWhere(),
+            { ownerId: actorId },
+            { providerId: actorId },
+            { proposals: { some: { applicantId: actorId } } },
           ],
         },
       },
@@ -333,6 +362,14 @@ export async function moderateReportedTarget(targetType: ReportTargetType, targe
     const place = await prisma.planPlace.findUnique({ where: { id: targetId }, select: { planId: true } });
     if (!place) return null;
     await prisma.plan.update({ where: { id: place.planId }, data: { status: action === 'restore_target' ? 'open' : 'hidden' } });
+  }
+  else if (targetType === 'public_message') {
+    await prisma.tradePublicMessage.update({
+      where: { id: targetId },
+      data: action === 'restore_target'
+        ? { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null }
+        : { status: 'hidden', hiddenAt: new Date(), hiddenById: adminId, moderationNote: reason },
+    });
   }
   else if (targetType === 'media') await prisma.mediaAsset.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'active' : 'removed', reviewedAt: new Date(), reviewerId: adminId, reviewNote: reason } });
   else return null;

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { MediaAsset, Prisma } from '@prisma/client';
-import { createTradeProposalRequestSchema, createTradeRequestSchema, listTradesFeedQuerySchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
@@ -114,6 +114,49 @@ function betaMoneyDisabledPayload() {
     error: 'money_trades_disabled',
     message: 'Money, wallet, and credit trades are disabled for the first beta. Create Need + Offer exchanges only.'
   };
+}
+
+function canReadTradeDiscussionWhere(actorId: string, tradeId: string): Prisma.TradeWhereInput {
+  return {
+    id: tradeId,
+    OR: [
+      publicTradeVisibilityWhere(),
+      { ownerId: actorId },
+      { providerId: actorId },
+      { proposals: { some: { applicantId: actorId } } },
+    ],
+  };
+}
+
+async function loadReadableTradeForDiscussion(tradeId: string, actorId: string) {
+  const trade = await prisma.trade.findFirst({
+    where: canReadTradeDiscussionWhere(actorId, tradeId),
+    select: { id: true, ownerId: true, providerId: true, status: true, isPublic: true },
+  });
+  if (!trade) return null;
+  if (trade.ownerId !== actorId && await usersHaveBlockBetween(actorId, trade.ownerId)) return null;
+  return trade;
+}
+
+function canWritePublicDiscussion(trade: { status: string; isPublic: boolean }) {
+  return trade.status === 'active' && trade.isPublic;
+}
+
+function publicDiscussionMessageSelect() {
+  return {
+    id: true,
+    tradeId: true,
+    authorId: true,
+    body: true,
+    status: true,
+    editedAt: true,
+    editCount: true,
+    deletedAt: true,
+    hiddenAt: true,
+    createdAt: true,
+    updatedAt: true,
+    author: { select: publicUserPreviewSelect },
+  } as const;
 }
 
 function proposalSideRequirement(postType?: string | null) {
@@ -570,6 +613,97 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
     : hydratedTrades;
   res.json({ trades: sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields) });
 }));
+
+tradesRoutes.get('/:tradeId/public-messages', requireAuth, asyncRoute(async (req, res) => {
+  const input = listTradePublicMessagesQuerySchema.parse(req.query);
+  const actorId = req.user!.id;
+  const tradeId = req.params.tradeId;
+  if (!tradeId) return res.status(400).json({ error: 'invalid_trade_id' });
+  const trade = await loadReadableTradeForDiscussion(tradeId, actorId);
+  if (!trade) return res.status(404).json({ error: 'not_found' });
+
+  const messages = await prisma.tradePublicMessage.findMany({
+    where: {
+      tradeId: trade.id,
+      status: { not: 'hidden' },
+      author: { trustTier: { not: 'restricted' } },
+      ...(input.before ? { createdAt: { lt: new Date(input.before) } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+    take: input.take,
+    select: publicDiscussionMessageSelect(),
+  });
+
+  return res.json({ messages: messages.reverse() });
+}));
+
+tradesRoutes.post('/:tradeId/public-messages', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = createTradePublicMessageRequestSchema.parse(req.body ?? {});
+  const actorId = req.user!.id;
+  const tradeId = req.params.tradeId;
+  if (!tradeId) return res.status(400).json({ error: 'invalid_trade_id' });
+  const trade = await loadReadableTradeForDiscussion(tradeId, actorId);
+  if (!trade) return res.status(404).json({ error: 'not_found' });
+  if (!canWritePublicDiscussion(trade)) {
+    return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this trade.' });
+  }
+
+  const message = await prisma.tradePublicMessage.create({
+    data: { tradeId: trade.id, authorId: actorId, body: input.body },
+    select: publicDiscussionMessageSelect(),
+  });
+  return res.status(201).json({ message });
+}));
+
+tradesRoutes.patch('/:tradeId/public-messages/:messageId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = updateTradePublicMessageRequestSchema.parse(req.body ?? {});
+  const actorId = req.user!.id;
+  const tradeId = req.params.tradeId;
+  const messageId = req.params.messageId;
+  if (!tradeId || !messageId) return res.status(400).json({ error: 'invalid_message_id' });
+  const trade = await loadReadableTradeForDiscussion(tradeId, actorId);
+  if (!trade) return res.status(404).json({ error: 'not_found' });
+
+  const existing = await prisma.tradePublicMessage.findUnique({ where: { id: messageId } });
+  if (!existing || existing.tradeId !== trade.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
+  if (existing.authorId !== actorId) return res.status(403).json({ error: 'forbidden' });
+  if (existing.status === 'deleted' || existing.deletedAt) {
+    return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
+  }
+
+  const message = await prisma.tradePublicMessage.update({
+    where: { id: existing.id },
+    data: { body: input.body, status: 'visible', editedAt: new Date(), editCount: { increment: 1 }, deletedAt: null },
+    select: publicDiscussionMessageSelect(),
+  });
+  return res.json({ message });
+}));
+
+tradesRoutes.delete('/:tradeId/public-messages/:messageId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const actorId = req.user!.id;
+  const tradeId = req.params.tradeId;
+  const messageId = req.params.messageId;
+  if (!tradeId || !messageId) return res.status(400).json({ error: 'invalid_message_id' });
+  const trade = await loadReadableTradeForDiscussion(tradeId, actorId);
+  if (!trade) return res.status(404).json({ error: 'not_found' });
+
+  const existing = await prisma.tradePublicMessage.findUnique({ where: { id: messageId } });
+  if (!existing || existing.tradeId !== trade.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
+  if (existing.authorId !== actorId) return res.status(403).json({ error: 'forbidden' });
+
+  if (existing.status === 'deleted' || existing.deletedAt) {
+    const message = await prisma.tradePublicMessage.findUniqueOrThrow({ where: { id: existing.id }, select: publicDiscussionMessageSelect() });
+    return res.json({ message });
+  }
+
+  const message = await prisma.tradePublicMessage.update({
+    where: { id: existing.id },
+    data: { body: '', status: 'deleted', deletedAt: new Date() },
+    select: publicDiscussionMessageSelect(),
+  });
+  return res.json({ message });
+}));
+
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
   const trades = await prisma.trade.findMany({ where: { AND: [{ OR: [{ ownerId: actorId }, { providerId: actorId }] }, ...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });

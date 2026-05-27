@@ -207,7 +207,7 @@ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string;
   );
 }
 
-export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
+export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: TradeDto; variant?: 'inline' | 'page' }) {
   const auth = useWebAuth();
   const searchParams = useSearchParams();
   const { t, language } = useWebTranslation();
@@ -378,10 +378,10 @@ export function TradeProposalPanel({ trade }: { trade: TradeDto }) {
   }
 
   return (
-    <section className="trade-social-section">
+    <section className={variant === 'page' ? 'trade-social-section private-proposals-section' : 'trade-social-section'}>
       <div className="trade-section-heading">
         <div>
-          <p className="eyebrow">{t('trade.labels.privateThread')}</p>
+          <p className="eyebrow">{t('trade.threadSplit.privateTitle')}</p>
           <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownActiveProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
         </div>
         {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}

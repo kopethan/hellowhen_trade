@@ -1,0 +1,412 @@
+diff --git a/apps/api/prisma/migrations/20260527110000_trade_public_discussion/migration.sql b/apps/api/prisma/migrations/20260527110000_trade_public_discussion/migration.sql
+new file mode 100644
+index 0000000..7778eb7
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260527110000_trade_public_discussion/migration.sql
+@@ -0,0 +1,30 @@
++-- Add public discussion messages for trades.
++CREATE TYPE "TradePublicMessageStatus" AS ENUM ('visible', 'hidden', 'deleted');
++
++ALTER TYPE "ReportTargetType" ADD VALUE 'public_message';
++
++CREATE TABLE "TradePublicMessage" (
++    "id" TEXT NOT NULL,
++    "tradeId" TEXT NOT NULL,
++    "authorId" TEXT NOT NULL,
++    "body" TEXT NOT NULL,
++    "status" "TradePublicMessageStatus" NOT NULL DEFAULT 'visible',
++    "editedAt" TIMESTAMP(3),
++    "editCount" INTEGER NOT NULL DEFAULT 0,
++    "deletedAt" TIMESTAMP(3),
++    "hiddenAt" TIMESTAMP(3),
++    "hiddenById" TEXT,
++    "moderationNote" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "TradePublicMessage_pkey" PRIMARY KEY ("id")
++);
++
++CREATE INDEX "TradePublicMessage_tradeId_status_createdAt_idx" ON "TradePublicMessage"("tradeId", "status", "createdAt");
++CREATE INDEX "TradePublicMessage_authorId_createdAt_idx" ON "TradePublicMessage"("authorId", "createdAt");
++CREATE INDEX "TradePublicMessage_hiddenById_hiddenAt_idx" ON "TradePublicMessage"("hiddenById", "hiddenAt");
++
++ALTER TABLE "TradePublicMessage" ADD CONSTRAINT "TradePublicMessage_tradeId_fkey" FOREIGN KEY ("tradeId") REFERENCES "Trade"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "TradePublicMessage" ADD CONSTRAINT "TradePublicMessage_authorId_fkey" FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "TradePublicMessage" ADD CONSTRAINT "TradePublicMessage_hiddenById_fkey" FOREIGN KEY ("hiddenById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index f598213..4d1e2d7 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -97,6 +97,12 @@ enum ProposalStatus {
+   withdrawn
+ }
+ 
++enum TradePublicMessageStatus {
++  visible
++  hidden
++  deleted
++}
++
+ enum MediaEntityType {
+   need
+   offer
+@@ -292,6 +298,7 @@ enum ReportTargetType {
+   offer
+   proposal
+   message
++  public_message
+   media
+   plan
+   plan_place
+@@ -392,6 +399,8 @@ model User {
+   providerTrades Trade[] @relation("ProvidedTrades")
+   tradeProposals TradeProposal[] @relation("ApplicantProposals")
+   proposalMessages ProposalMessage[] @relation("SentProposalMessages")
++  tradePublicMessages TradePublicMessage[] @relation("AuthoredTradePublicMessages")
++  hiddenTradePublicMessages TradePublicMessage[] @relation("HiddenTradePublicMessages")
+   mediaAssets  MediaAsset[] @relation("OwnedMediaAssets")
+   reviewedMediaAssets MediaAsset[] @relation("ReviewedMediaAssets")
+   creditPurchases CreditPurchase[]
+@@ -710,6 +719,7 @@ model Trade {
+   payment  TradePayment?
+   escrow   TradeEscrow?
+   proposals TradeProposal[]
++  publicMessages TradePublicMessage[]
+   ledgerEntries CreditLedgerEntry[]
+ 
+   @@index([status, isPublic, createdAt])
+@@ -770,6 +780,30 @@ model ProposalMessage {
+   @@index([senderId, createdAt])
+ }
+ 
++model TradePublicMessage {
++  id             String                   @id @default(cuid())
++  tradeId        String
++  authorId       String
++  body           String
++  status         TradePublicMessageStatus @default(visible)
++  editedAt       DateTime?
++  editCount      Int                      @default(0)
++  deletedAt      DateTime?
++  hiddenAt       DateTime?
++  hiddenById     String?
++  moderationNote String?
++  createdAt      DateTime                 @default(now())
++  updatedAt      DateTime                 @updatedAt
++
++  trade    Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
++  author   User  @relation("AuthoredTradePublicMessages", fields: [authorId], references: [id], onDelete: Cascade)
++  hiddenBy User? @relation("HiddenTradePublicMessages", fields: [hiddenById], references: [id], onDelete: SetNull)
++
++  @@index([tradeId, status, createdAt])
++  @@index([authorId, createdAt])
++  @@index([hiddenById, hiddenAt])
++}
++
+ model MediaAsset {
+   id          String           @id @default(cuid())
+   ownerId     String
+diff --git a/apps/api/src/modules/reports/reports.routes.ts b/apps/api/src/modules/reports/reports.routes.ts
+index 58307f6..4aa73eb 100644
+--- a/apps/api/src/modules/reports/reports.routes.ts
++++ b/apps/api/src/modules/reports/reports.routes.ts
+@@ -97,6 +97,15 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
+     return message ? { type: targetType, id: message.id, label, ownerId: message.senderId, owner: message.sender, url: message.proposal?.tradeId ? `/trades/${message.proposal.tradeId}` : null } : null;
+   }
+ 
++  if (targetType === 'public_message') {
++    const message = await prisma.tradePublicMessage.findUnique({
++      where: { id: targetId },
++      include: { author: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true, status: true, isPublic: true } } },
++    });
++    const label = message?.body?.trim() ? `${message.body.trim().slice(0, 72)}${message.body.trim().length > 72 ? '…' : ''}` : 'Public discussion message';
++    return message ? { type: targetType, id: message.id, label, ownerId: message.authorId, owner: message.author, status: message.status, isPublic: message.trade?.isPublic ?? null, url: message.tradeId ? `/trades/${message.tradeId}/discussion` : null } : null;
++  }
++
+   const media = await prisma.mediaAsset.findUnique({ where: { id: targetId }, include: { owner: { select: reportUserSelect } } });
+   return media ? { type: targetType, id: media.id, label: media.filename || media.storageKey || 'Media asset', ownerId: media.ownerId, owner: media.owner, status: media.status, url: media.url } : null;
+ }
+@@ -180,6 +189,26 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
+     return message ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+   }
+ 
++  if (target.type === 'public_message') {
++    const message = await prisma.tradePublicMessage.findFirst({
++      where: {
++        id: target.id,
++        status: 'visible',
++        author: { trustTier: { not: 'restricted' } },
++        trade: {
++          OR: [
++            publicTradeVisibilityWhere(),
++            { ownerId: actorId },
++            { providerId: actorId },
++            { proposals: { some: { applicantId: actorId } } },
++          ],
++        },
++      },
++      select: { id: true },
++    });
++    return message ? { allowed: true } : { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
++  }
++
+   if (target.type === 'plan') {
+     if (!env.plansEnabled) return { allowed: false, status: 404, error: 'target_not_found', message: 'The reported item could not be found.' };
+     const plan = await prisma.plan.findFirst({
+@@ -334,6 +363,14 @@ export async function moderateReportedTarget(targetType: ReportTargetType, targe
+     if (!place) return null;
+     await prisma.plan.update({ where: { id: place.planId }, data: { status: action === 'restore_target' ? 'open' : 'hidden' } });
+   }
++  else if (targetType === 'public_message') {
++    await prisma.tradePublicMessage.update({
++      where: { id: targetId },
++      data: action === 'restore_target'
++        ? { status: 'visible', hiddenAt: null, hiddenById: null, moderationNote: null }
++        : { status: 'hidden', hiddenAt: new Date(), hiddenById: adminId, moderationNote: reason },
++    });
++  }
+   else if (targetType === 'media') await prisma.mediaAsset.update({ where: { id: targetId }, data: { status: action === 'restore_target' ? 'active' : 'removed', reviewedAt: new Date(), reviewerId: adminId, reviewNote: reason } });
+   else return null;
+ 
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 8392ae8..8e403bd 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -1,6 +1,6 @@
+ import { Router } from 'express';
+ import type { MediaAsset, Prisma } from '@prisma/client';
+-import { createTradeProposalRequestSchema, createTradeRequestSchema, listTradesFeedQuerySchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
++import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -116,6 +116,49 @@ function betaMoneyDisabledPayload() {
+   };
+ }
+ 
++function canReadTradeDiscussionWhere(actorId: string, tradeId: string): Prisma.TradeWhereInput {
++  return {
++    id: tradeId,
++    OR: [
++      publicTradeVisibilityWhere(),
++      { ownerId: actorId },
++      { providerId: actorId },
++      { proposals: { some: { applicantId: actorId } } },
++    ],
++  };
++}
++
++async function loadReadableTradeForDiscussion(tradeId: string, actorId: string) {
++  const trade = await prisma.trade.findFirst({
++    where: canReadTradeDiscussionWhere(actorId, tradeId),
++    select: { id: true, ownerId: true, providerId: true, status: true, isPublic: true },
++  });
++  if (!trade) return null;
++  if (trade.ownerId !== actorId && await usersHaveBlockBetween(actorId, trade.ownerId)) return null;
++  return trade;
++}
++
++function canWritePublicDiscussion(trade: { status: string; isPublic: boolean }) {
++  return trade.status === 'active' && trade.isPublic;
++}
++
++function publicDiscussionMessageSelect() {
++  return {
++    id: true,
++    tradeId: true,
++    authorId: true,
++    body: true,
++    status: true,
++    editedAt: true,
++    editCount: true,
++    deletedAt: true,
++    hiddenAt: true,
++    createdAt: true,
++    updatedAt: true,
++    author: { select: publicUserPreviewSelect },
++  } as const;
++}
++
+ function proposalSideRequirement(postType?: string | null) {
+   if (postType === 'open_need') return 'offer' as const;
+   if (postType === 'open_offer') return 'need' as const;
+@@ -570,6 +613,87 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+     : hydratedTrades;
+   res.json({ trades: sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields) });
+ }));
++
++tradesRoutes.get('/:tradeId/public-messages', requireAuth, asyncRoute(async (req, res) => {
++  const input = listTradePublicMessagesQuerySchema.parse(req.query);
++  const actorId = req.user!.id;
++  const trade = await loadReadableTradeForDiscussion(req.params.tradeId, actorId);
++  if (!trade) return res.status(404).json({ error: 'not_found' });
++
++  const messages = await prisma.tradePublicMessage.findMany({
++    where: {
++      tradeId: trade.id,
++      status: { not: 'hidden' },
++      author: { trustTier: { not: 'restricted' } },
++      ...(input.before ? { createdAt: { lt: new Date(input.before) } } : {}),
++    },
++    orderBy: { createdAt: 'desc' },
++    take: input.take,
++    select: publicDiscussionMessageSelect(),
++  });
++
++  return res.json({ messages: messages.reverse() });
++}));
++
++tradesRoutes.post('/:tradeId/public-messages', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = createTradePublicMessageRequestSchema.parse(req.body ?? {});
++  const actorId = req.user!.id;
++  const trade = await loadReadableTradeForDiscussion(req.params.tradeId, actorId);
++  if (!trade) return res.status(404).json({ error: 'not_found' });
++  if (!canWritePublicDiscussion(trade)) {
++    return res.status(409).json({ error: 'public_discussion_closed', message: 'Public discussion is closed for this trade.' });
++  }
++
++  const message = await prisma.tradePublicMessage.create({
++    data: { tradeId: trade.id, authorId: actorId, body: input.body },
++    select: publicDiscussionMessageSelect(),
++  });
++  return res.status(201).json({ message });
++}));
++
++tradesRoutes.patch('/:tradeId/public-messages/:messageId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = updateTradePublicMessageRequestSchema.parse(req.body ?? {});
++  const actorId = req.user!.id;
++  const trade = await loadReadableTradeForDiscussion(req.params.tradeId, actorId);
++  if (!trade) return res.status(404).json({ error: 'not_found' });
++
++  const existing = await prisma.tradePublicMessage.findUnique({ where: { id: req.params.messageId } });
++  if (!existing || existing.tradeId !== trade.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
++  if (existing.authorId !== actorId) return res.status(403).json({ error: 'forbidden' });
++  if (existing.status === 'deleted' || existing.deletedAt) {
++    return res.status(409).json({ error: 'message_deleted', message: 'Deleted messages cannot be edited.' });
++  }
++
++  const message = await prisma.tradePublicMessage.update({
++    where: { id: existing.id },
++    data: { body: input.body, status: 'visible', editedAt: new Date(), editCount: { increment: 1 }, deletedAt: null },
++    select: publicDiscussionMessageSelect(),
++  });
++  return res.json({ message });
++}));
++
++tradesRoutes.delete('/:tradeId/public-messages/:messageId', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
++  const actorId = req.user!.id;
++  const trade = await loadReadableTradeForDiscussion(req.params.tradeId, actorId);
++  if (!trade) return res.status(404).json({ error: 'not_found' });
++
++  const existing = await prisma.tradePublicMessage.findUnique({ where: { id: req.params.messageId } });
++  if (!existing || existing.tradeId !== trade.id || existing.status === 'hidden') return res.status(404).json({ error: 'not_found' });
++  if (existing.authorId !== actorId) return res.status(403).json({ error: 'forbidden' });
++
++  if (existing.status === 'deleted' || existing.deletedAt) {
++    const message = await prisma.tradePublicMessage.findUniqueOrThrow({ where: { id: existing.id }, select: publicDiscussionMessageSelect() });
++    return res.json({ message });
++  }
++
++  const message = await prisma.tradePublicMessage.update({
++    where: { id: existing.id },
++    data: { body: '', status: 'deleted', deletedAt: new Date() },
++    select: publicDiscussionMessageSelect(),
++  });
++  return res.json({ message });
++}));
++
+ tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const trades = await prisma.trade.findMany({ where: { AND: [{ OR: [{ ownerId: actorId }, { providerId: actorId }] }, ...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index c5897e8..5db13b3 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -26,7 +26,7 @@ export function createApiClient(options: ApiClientOptions) {
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+-    trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }) },
++    trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }), publicMessages: (tradeId: string, query?: Record<string, unknown>) => requestJson(options, `/trades/${tradeId}/public-messages${buildQueryString(query)}`), sendPublicMessage: (tradeId: string, body: CreateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (tradeId: string, messageId: string, body: UpdateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (tradeId: string, messageId: string) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'DELETE' }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+     admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: () => requestJson(options, '/admin/business-profiles'), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+diff --git a/packages/contracts/src/reports.ts b/packages/contracts/src/reports.ts
+index 94ed059..603443b 100644
+--- a/packages/contracts/src/reports.ts
++++ b/packages/contracts/src/reports.ts
+@@ -18,7 +18,7 @@ export const reportUserPreviewSchema = z.object({
+   profile: reportUserProfilePreviewSchema,
+ }).passthrough();
+ 
+-export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'media', 'plan', 'plan_place']);
++export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'plan', 'plan_place']);
+ export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other']);
+ export const reportStatusSchema = z.enum(['pending', 'reviewing', 'resolved', 'dismissed']);
+ 
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 38042f3..f690328 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -197,6 +197,12 @@ export const updateProposalMessageRequestSchema = z.object({
+ });
+ export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
+ export const updateProposalPrivateMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
++export const createTradePublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
++export const updateTradePublicMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
++export const listTradePublicMessagesQuerySchema = z.object({
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++  before: z.string().datetime().optional(),
++});
+ 
+ export const profilePreviewSchema = z.object({ displayName: z.string().nullable().optional(), handle: z.string().nullable().optional(), avatarUrl: z.string().nullable().optional(), countryCode: z.string().nullable().optional() }).nullable().optional();
+ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePreviewSchema });
+@@ -340,6 +346,23 @@ export const tradeSchema = z.object({
+   media: z.array(mediaAssetSchema).optional()
+ });
+ export const proposalMessageSchema = z.object({ id: z.string(), proposalId: z.string(), senderId: z.string(), body: z.string(), createdAt: z.string(), updatedAt: z.string().optional(), editedAt: z.string().nullable().optional(), editCount: z.number().int().optional().default(0), deletedAt: z.string().nullable().optional(), sender: userPreviewSchema.optional() });
++export const tradePublicMessageStatusSchema = z.enum(['visible', 'hidden', 'deleted']);
++export const tradePublicMessageSchema = z.object({
++  id: z.string(),
++  tradeId: z.string(),
++  authorId: z.string(),
++  body: z.string(),
++  status: tradePublicMessageStatusSchema.optional().default('visible'),
++  createdAt: z.string(),
++  updatedAt: z.string().optional(),
++  editedAt: z.string().nullable().optional(),
++  editCount: z.number().int().optional().default(0),
++  deletedAt: z.string().nullable().optional(),
++  hiddenAt: z.string().nullable().optional(),
++  author: userPreviewSchema.optional(),
++});
++export const tradePublicMessagesResponseSchema = z.object({ messages: z.array(tradePublicMessageSchema) });
++export const tradePublicMessageResponseSchema = z.object({ message: tradePublicMessageSchema });
+ export const tradeProposalSchema = z.object({
+   id: z.string(),
+   tradeId: z.string(),
+@@ -381,6 +404,10 @@ export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
+ export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
+ export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
+ export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
++export type TradePublicMessageStatus = z.infer<typeof tradePublicMessageStatusSchema>;
++export type TradePublicMessageDto = z.infer<typeof tradePublicMessageSchema>;
++export type TradePublicMessagesResponse = z.infer<typeof tradePublicMessagesResponseSchema>;
++export type TradePublicMessageResponse = z.infer<typeof tradePublicMessageResponseSchema>;
+ export type CreateNeedRequest = z.infer<typeof createNeedRequestSchema>;
+ export type CreateOfferRequest = z.infer<typeof createOfferRequestSchema>;
+ export type CreateTradeRequest = z.infer<typeof createTradeRequestSchema>;
+@@ -396,3 +423,6 @@ export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusReq
+ export type UpdateProposalMessageRequest = z.infer<typeof updateProposalMessageRequestSchema>;
+ export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;
+ export type UpdateProposalPrivateMessageRequest = z.infer<typeof updateProposalPrivateMessageRequestSchema>;
++export type CreateTradePublicMessageRequest = z.infer<typeof createTradePublicMessageRequestSchema>;
++export type UpdateTradePublicMessageRequest = z.infer<typeof updateTradePublicMessageRequestSchema>;
++export type ListTradePublicMessagesQuery = z.infer<typeof listTradePublicMessagesQuerySchema>;

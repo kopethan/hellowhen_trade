@@ -1,0 +1,400 @@
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 442427a..39e6e56 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -1,11 +1,12 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { ProposalActionStatus } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+@@ -29,6 +30,13 @@ type ProposalSideKind = 'need' | 'offer';
+ type RequiredProposalSide = ProposalSideKind | null;
+ type ProposalSideItem = NeedItem | OfferItem;
+ type ActionLoading = ProposalActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | null;
++type ProposalActionSheet =
++  | { type: 'status'; status: ProposalActionStatus }
++  | { type: 'message-options'; message: ProposalMessageItem }
++  | { type: 'delete-message'; messageId: string }
++  | { type: 'proposal-note-options' }
++  | { type: 'delete-proposal-note' }
++  | null;
+ 
+ function modeLabel(mode: string | null | undefined, t: TFunction) {
+   if (mode === 'remote') return t('trade.modes.remote');
+@@ -136,6 +144,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const [cancelTradeOpen, setCancelTradeOpen] = useState(false);
+   const [cancelReason, setCancelReason] = useState('');
+   const [cancelError, setCancelError] = useState<string | null>(null);
++  const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
+ 
+   const loadMessages = useCallback(async () => {
+     const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
+@@ -259,6 +268,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       setProposal(result.proposal);
+       if (result.proposal.messages) setMessages(result.proposal.messages);
+       setNotice(status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : status === 'declined' ? t('trade.proposals.proposalDeclined') : t('trade.proposals.proposalWithdrawn'));
++      setActionSheet(null);
+       setDetailsOpen(false);
+       setCancelTradeOpen(false);
+       setCancelReason('');
+@@ -272,25 +282,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   }
+ 
+   function confirmStatus(status: ProposalActionStatus) {
+-    if (status === 'accepted') {
+-      Alert.alert(t('trade.proposals.acceptConfirmTitle'), t('trade.proposals.acceptConfirmBody'), [
+-        { text: t('common.actions.cancel'), style: 'cancel' },
+-        { text: t('trade.proposals.accept'), onPress: () => { void updateStatus('accepted'); } },
+-      ]);
+-      return;
+-    }
+-    if (status === 'declined') {
+-      Alert.alert(t('trade.proposals.declineConfirmTitle'), t('trade.proposals.declineConfirmBody'), [
+-        { text: t('common.actions.cancel'), style: 'cancel' },
+-        { text: t('trade.proposals.decline'), style: 'destructive', onPress: () => { void updateStatus('declined'); } },
+-      ]);
+-      return;
+-    }
+-    if (status === 'withdrawn') {
+-      Alert.alert(t('trade.proposals.withdrawConfirmTitle'), t('trade.proposals.withdrawConfirmBody'), [
+-        { text: t('trade.proposals.withdrawConfirmCancel'), style: 'cancel' },
+-        { text: t('trade.proposals.withdrawConfirmAction'), style: 'destructive', onPress: () => { void updateStatus('withdrawn'); } },
+-      ]);
++    if (status === 'accepted' || status === 'declined' || status === 'withdrawn') {
++      setActionSheet({ type: 'status', status });
+       return;
+     }
+     void updateStatus(status);
+@@ -368,10 +361,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   }
+ 
+   function confirmDeleteProposalNote() {
+-    Alert.alert(t('trade.proposals.deleteProposalNoteTitle'), t('trade.proposals.deleteProposalNoteBody'), [
+-      { text: t('trade.proposals.keepProposalNote'), style: 'cancel' },
+-      { text: t('trade.proposals.deleteProposalNoteAction'), style: 'destructive', onPress: () => { void deleteProposalNote(); } },
+-    ]);
++    setActionSheet({ type: 'delete-proposal-note' });
+   }
+ 
+   async function deleteProposalNote() {
+@@ -384,6 +374,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       setEditingProposalNote(false);
+       setProposalNoteDraft('');
+       setNotice(t('trade.proposals.proposalNoteDeleted'));
++      setActionSheet(null);
+       await loadMessages();
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotUpdateProposal')));
+@@ -422,29 +413,18 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   }
+ 
+   function confirmDeletePrivateMessage(messageId: string) {
+-    Alert.alert(t('trade.proposals.deleteMessageTitle'), t('trade.proposals.deleteMessageBody'), [
+-      { text: t('trade.proposals.keepMessage'), style: 'cancel' },
+-      { text: t('trade.proposals.deleteMessageAction'), style: 'destructive', onPress: () => { void deletePrivateMessage(messageId); } },
+-    ]);
++    setActionSheet({ type: 'delete-message', messageId });
+   }
+ 
+   function openMessageOptions(message: ProposalMessageItem) {
+     const canEdit = message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt;
+     if (!canEdit) return;
+-    Alert.alert(t('trade.proposals.proposalConversation'), undefined, [
+-      { text: t('trade.proposals.editMessage'), onPress: () => startMessageEdit(message) },
+-      { text: t('trade.proposals.deleteMessage'), style: 'destructive', onPress: () => confirmDeletePrivateMessage(message.id) },
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-    ]);
++    setActionSheet({ type: 'message-options', message });
+   }
+ 
+   function openProposalNoteOptions() {
+     if (!canEditProposalContent) return;
+-    Alert.alert(t('trade.proposals.proposalNote'), undefined, [
+-      { text: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), onPress: startProposalNoteEdit },
+-      ...(proposal?.messageDeletedAt ? [] : [{ text: t('trade.proposals.deleteProposalNote'), style: 'destructive' as const, onPress: confirmDeleteProposalNote }]),
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-    ]);
++    setActionSheet({ type: 'proposal-note-options' });
+   }
+ 
+   async function deletePrivateMessage(messageId: string) {
+@@ -454,6 +434,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     try {
+       const result = await api.proposals.deletePrivateMessage(route.params.proposalId, messageId) as MessageMutationResponse;
+       if (result.proposal) setProposal(result.proposal);
++      setActionSheet(null);
+       await loadMessages();
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.proposals.couldNotUpdateMessage')));
+@@ -488,6 +469,72 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     }
+   }
+ 
++  function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
++    if (!actionSheet) return { title: '', actions: [] };
++
++    if (actionSheet.type === 'status') {
++      const status = actionSheet.status;
++      if (status === 'accepted') {
++        return {
++          title: t('trade.proposals.acceptConfirmTitle'),
++          body: t('trade.proposals.acceptConfirmBody'),
++          actions: [{ key: 'accept', label: t('trade.proposals.accept'), icon: 'proposal-accepted', tone: 'primary', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('accepted'); } }],
++        };
++      }
++      if (status === 'declined') {
++        return {
++          title: t('trade.proposals.declineConfirmTitle'),
++          body: t('trade.proposals.declineConfirmBody'),
++          actions: [{ key: 'decline', label: t('trade.proposals.decline'), icon: 'proposal-declined', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('declined'); } }],
++        };
++      }
++      return {
++        title: t('trade.proposals.withdrawConfirmTitle'),
++        body: t('trade.proposals.withdrawConfirmBody'),
++        actions: [{ key: 'withdraw', label: t('trade.proposals.withdrawConfirmAction'), icon: 'proposal-declined', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('withdrawn'); } }],
++      };
++    }
++
++    if (actionSheet.type === 'message-options') {
++      const message = actionSheet.message;
++      return {
++        title: t('trade.proposals.proposalConversation'),
++        actions: [
++          { key: 'edit', label: t('trade.proposals.editMessage'), icon: 'more', onPress: () => { startMessageEdit(message); setActionSheet(null); } },
++          { key: 'delete', label: t('trade.proposals.deleteMessage'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-message', messageId: message.id }) },
++        ],
++      };
++    }
++
++    if (actionSheet.type === 'delete-message') {
++      const messageId = actionSheet.messageId;
++      return {
++        title: t('trade.proposals.deleteMessageTitle'),
++        body: t('trade.proposals.deleteMessageBody'),
++        actions: [{ key: 'confirm-delete', label: t('trade.proposals.deleteMessageAction'), icon: 'report-flag', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void deletePrivateMessage(messageId); } }],
++      };
++    }
++
++    if (actionSheet.type === 'proposal-note-options') {
++      const actions: AppActionSheetAction[] = [
++        { key: 'edit-note', label: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), icon: 'more', onPress: () => { startProposalNoteEdit(); setActionSheet(null); } },
++      ];
++      if (!proposal?.messageDeletedAt) {
++        actions.push({ key: 'delete-note', label: t('trade.proposals.deleteProposalNote'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-proposal-note' }) });
++      }
++      return { title: t('trade.proposals.proposalNote'), actions };
++    }
++
++    return {
++      title: t('trade.proposals.deleteProposalNoteTitle'),
++      body: t('trade.proposals.deleteProposalNoteBody'),
++      actions: [{ key: 'confirm-delete-note', label: t('trade.proposals.deleteProposalNoteAction'), icon: 'report-flag', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void deleteProposalNote(); } }],
++    };
++  }
++
++
++  const actionSheetConfig = getActionSheetConfig();
++
+   const headerTitle = proposal
+     ? isApplicant
+       ? proposal.trade?.owner?.profile?.displayName || proposal.trade?.owner?.profile?.handle || t('trade.labels.owner')
+@@ -626,6 +673,14 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+             }}
+             t={t}
+           />
++          <AppActionSheet
++            visible={Boolean(actionSheet)}
++            title={actionSheetConfig.title}
++            body={actionSheetConfig.body}
++            actions={actionSheetConfig.actions}
++            cancelLabel={t('common.actions.cancel')}
++            onClose={() => setActionSheet(null)}
++          />
+         </KeyboardAvoidingView>
+       )}
+     </AppScreen>
+diff --git a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+index ee7eddb..d003427 100644
+--- a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useMemo, useState } from 'react';
+-import { Alert, KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { TradePublicMessageDto } from '@hellowhen/contracts';
+@@ -8,6 +8,7 @@ import type { ThemeTokens } from '@hellowhen/theme';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -25,6 +26,7 @@ type MessagesResponse = { messages: TradePublicMessageItem[] };
+ type MessageResponse = { message: TradePublicMessageItem };
+ type TradePublicMessageItem = TradePublicMessageDto & { author?: TradeOwnerPreview | null };
+ type MessageActionTarget = { messageId: string; mode: 'edit' | 'report' } | null;
++type MessageActionSheet = { type: 'own'; message: TradePublicMessageItem } | { type: 'report'; message: TradePublicMessageItem } | { type: 'delete'; message: TradePublicMessageItem } | null;
+ 
+ type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ 
+@@ -58,6 +60,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+   const [draft, setDraft] = useState('');
+   const [editDraft, setEditDraft] = useState('');
+   const [actionTarget, setActionTarget] = useState<MessageActionTarget>(null);
++  const [actionSheet, setActionSheet] = useState<MessageActionSheet>(null);
+   const [loading, setLoading] = useState(false);
+   const [sending, setSending] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+@@ -120,6 +123,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+       const result = await api.trades.updatePublicMessage(route.params.tradeId, messageId, { body }) as MessageResponse;
+       setMessages((current) => current.map((message) => message.id === messageId ? result.message : message));
+       setActionTarget(null);
++      setActionSheet(null);
+       setEditDraft('');
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.publicDiscussion.couldNotUpdate')));
+@@ -128,12 +132,6 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+     }
+   }
+ 
+-  function confirmDelete(messageId: string) {
+-    Alert.alert(t('trade.publicDiscussion.messageActions'), t('trade.publicDiscussion.deleteConfirm'), [
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-      { text: t('common.actions.remove'), style: 'destructive', onPress: () => { void deleteMessage(messageId); } },
+-    ]);
+-  }
+ 
+   async function deleteMessage(messageId: string) {
+     setSending(true);
+@@ -144,6 +142,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+       setMessages((current) => current.map((message) => message.id === messageId ? result.message : message));
+       setNotice(t('trade.publicDiscussion.messageDeleted'));
+       setActionTarget(null);
++      setActionSheet(null);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.publicDiscussion.couldNotDelete')));
+     } finally {
+@@ -153,21 +152,68 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+ 
+   function openOwnActions(message: TradePublicMessageItem) {
+     if (message.status === 'deleted') return;
+-    Alert.alert(t('trade.publicDiscussion.messageActions'), t('trade.publicDiscussion.messageMenuHintOwn'), [
+-      { text: t('trade.publicDiscussion.editMessage'), onPress: () => { setActionTarget({ messageId: message.id, mode: 'edit' }); setEditDraft(message.body); } },
+-      { text: t('trade.publicDiscussion.deleteMessage'), style: 'destructive', onPress: () => confirmDelete(message.id) },
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-    ]);
++    setActionSheet({ type: 'own', message });
+   }
+ 
+   function openReport(message: TradePublicMessageItem) {
+     if (message.status === 'deleted') return;
+-    Alert.alert(t('trade.publicDiscussion.messageActions'), t('trade.publicDiscussion.messageMenuHintOther'), [
+-      { text: t('trade.publicDiscussion.reportMessage'), style: 'destructive', onPress: () => setActionTarget({ messageId: message.id, mode: 'report' }) },
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-    ]);
++    setActionSheet({ type: 'report', message });
++  }
++
++  let actionSheetActions: AppActionSheetAction[] = [];
++  if (actionSheet?.type === 'own') {
++    const message = actionSheet.message;
++    actionSheetActions = [
++      {
++        key: 'edit',
++        label: t('trade.publicDiscussion.editMessage'),
++        icon: 'more',
++        onPress: () => {
++          setActionTarget({ messageId: message.id, mode: 'edit' });
++          setEditDraft(message.body);
++          setActionSheet(null);
++        },
++      },
++      {
++        key: 'delete',
++        label: t('trade.publicDiscussion.deleteMessage'),
++        helper: t('trade.publicDiscussion.deleteConfirm'),
++        icon: 'report-flag',
++        tone: 'danger',
++        onPress: () => setActionSheet({ type: 'delete', message }),
++      },
++    ];
++  } else if (actionSheet?.type === 'report') {
++    const message = actionSheet.message;
++    actionSheetActions = [
++      {
++        key: 'report',
++        label: t('trade.publicDiscussion.reportMessage'),
++        helper: t('trade.publicDiscussion.messageMenuHintOther'),
++        icon: 'report-flag',
++        tone: 'danger',
++        onPress: () => {
++          setActionTarget({ messageId: message.id, mode: 'report' });
++          setActionSheet(null);
++        },
++      },
++    ];
++  } else if (actionSheet?.type === 'delete') {
++    const message = actionSheet.message;
++    actionSheetActions = [
++      {
++        key: 'confirm-delete',
++        label: t('trade.publicDiscussion.deleteMessage'),
++        helper: t('trade.publicDiscussion.deleteConfirm'),
++        icon: 'report-flag',
++        tone: 'danger',
++        disabled: sending,
++        onPress: () => { void deleteMessage(message.id); },
++      },
++    ];
+   }
+ 
++
+   const canSend = draft.trim().length > 0 && !sending;
+ 
+   return (
+@@ -224,6 +270,14 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+           </Pressable>
+         </View>
+       </KeyboardAvoidingView>
++      <AppActionSheet
++        visible={Boolean(actionSheet)}
++        title={t('trade.publicDiscussion.messageActions')}
++        body={actionSheet?.type === 'own' ? t('trade.publicDiscussion.messageMenuHintOwn') : actionSheet?.type === 'report' ? t('trade.publicDiscussion.messageMenuHintOther') : actionSheet?.type === 'delete' ? t('trade.publicDiscussion.deleteConfirm') : undefined}
++        actions={actionSheetActions}
++        cancelLabel={t('common.actions.cancel')}
++        onClose={() => setActionSheet(null)}
++      />
+     </AppFixedHeaderScreen>
+   );
+ }
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index cd91f3c..7479e71 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -617,9 +617,10 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .public-message-date { justify-self: center; margin: 10px 0; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 5px 10px; font-size: 11px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+ .public-message { display: grid; gap: 8px; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); padding: 12px 0; }
+ .public-message__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+-.public-message__meta { display: inline-flex; align-items: center; flex: 0 0 auto; gap: 5px; color: var(--app-text-muted); font-size: 11px; font-weight: 850; }
+-.public-message__menu-button { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); font-size: 17px; font-weight: 950; line-height: 1; }
+-.public-message__menu-button:hover, .public-message__menu-button:focus-visible { border-color: var(--proposal-border); color: var(--proposal-text); }
++.public-message__meta { display: inline-flex; align-items: center; justify-content: flex-end; flex: 0 0 auto; gap: 4px; color: var(--app-text-muted); font-size: 11px; font-weight: 850; line-height: 1; }
++.public-message__menu-button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 0; line-height: 1; }
++.public-message__menu-button .web-icon { width: 18px; height: 18px; }
++.public-message__menu-button:hover, .public-message__menu-button:focus-visible, .public-message__menu-button[aria-expanded="true"] { border-color: var(--app-border); background: var(--app-surface-soft); color: var(--proposal-text); }
+ .public-message__body { margin: 0; color: var(--app-text); font-size: 14px; font-weight: 750; line-height: 1.45; overflow-wrap: anywhere; }
+ .public-message__body--deleted { color: var(--app-text-muted); font-style: italic; }
+ .public-message__edited { margin: -2px 0 0; color: var(--app-text-muted); font-size: 11px; font-weight: 850; }

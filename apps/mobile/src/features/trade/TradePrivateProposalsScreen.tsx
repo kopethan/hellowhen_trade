@@ -1,0 +1,352 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { TradePostType, TradeStatus } from '@hellowhen/contracts';
+import type { ThemeTokens } from '@hellowhen/theme';
+import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { api } from '../../lib/api';
+import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+import { AppHeader } from '../../components/AppHeader';
+import { AppText } from '../../components/AppText';
+import { MobileIcon } from '../../components/MobileIcon';
+import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+import { useAuth } from '../../providers/AuthProvider';
+import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
+import { UserIdentityPressable } from '../users/UserIdentityPressable';
+import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'TradePrivateProposals'>;
+type TradeResponse = { trade: TradeDeckItem };
+type ProposalsResponse = { proposals: TradeProposalItem[] };
+type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
+type NeedsResponse = { needs: NeedItem[] };
+type OffersResponse = { offers: OfferItem[] };
+type DetailRole = 'owner' | 'provider' | 'applicant' | 'viewer';
+type RequiredProposalSide = 'need' | 'offer' | null;
+type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+
+const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
+function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
+function fallback(params: RootStackParamList['TradePrivateProposals']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade', description: '', creditAmount: 0, amountCents: 0, currency: 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, closedAt: null, postType: 'need_offer' }; }
+function compactList(values: Array<string | null | undefined>) { return values.map((value) => value?.trim()).filter(Boolean).join(' · '); }
+function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
+function tradePostType(trade: TradeDeckItem): TradePostType { return trade.postType ?? 'need_offer'; }
+function requiredProposalSide(trade: TradeDeckItem): RequiredProposalSide { const postType = tradePostType(trade); if (postType === 'open_need' && !trade.offerId) return 'offer'; if (postType === 'open_offer' && !trade.needId) return 'need'; return null; }
+function proposalActionTitle(trade: TradeDeckItem, t: TFunction) { const side = requiredProposalSide(trade); if (side === 'offer') return t('trade.proposals.proposeOffer'); if (side === 'need') return t('trade.proposals.proposeNeed'); return t('trade.proposals.askToTrade'); }
+function proposalHelper(trade: TradeDeckItem, t: TFunction) { const side = requiredProposalSide(trade); if (side === 'offer') return t('trade.proposals.helperNativeOffer'); if (side === 'need') return t('trade.proposals.helperNativeNeed'); return t('trade.proposals.helperNativeTrade'); }
+function detailTitle(trade: TradeDeckItem, t: TFunction) { const need = trade.need?.title || trade.title || t('trade.labels.needDetails'); const offer = trade.offer?.title || t('trade.labels.offerDetails'); if (trade.postType === 'open_need') return need; if (trade.postType === 'open_offer') return offer; return compactList([need, offer]).replace(' · ', ' ↔ '); }
+function needMeta(need: NeedItem | null | undefined, t: TFunction) { return compactList([need?.category, need?.timing, modeLabel(need?.mode, t), need?.locationLabel]) || t('trade.detail.needDetailsFallback'); }
+function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode, t), offer?.locationLabel]) || t('trade.detail.offerDetailsFallback'); }
+function proposalInventoryMeta(kind: 'need' | 'offer', item: NeedItem | OfferItem, t: TFunction) { return kind === 'need' ? needMeta(item as NeedItem, t) : offerMeta(item as OfferItem, t); }
+function proposalInventoryDescription(item: NeedItem | OfferItem, t: TFunction) { return item.description?.trim() || t('trade.labels.noDescription'); }
+function isNeedAvailable(need: NeedItem) { return need.status === 'active'; }
+function isOfferAvailable(offer: OfferItem) { return offer.status === 'active'; }
+function upsertProposal(proposals: TradeProposalItem[], next: TradeProposalItem) { return proposals.some((proposal) => proposal.id === next.id) ? proposals.map((proposal) => proposal.id === next.id ? { ...proposal, ...next } : proposal) : [next, ...proposals]; }
+function formatStatus(status: string, t: TFunction) { const label = t(`trade.statuses.${status}`); return label === `trade.statuses.${status}` ? status.replace(/_/g, ' ') : label; }
+
+export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+  const auth = useAuth();
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const [trade, setTrade] = useState<TradeDeckItem>(() => fallback(route.params));
+  const [proposals, setProposals] = useState<TradeProposalItem[]>([]);
+  const [proposalDraft, setProposalDraft] = useState('');
+  const [proposalNeeds, setProposalNeeds] = useState<NeedItem[]>([]);
+  const [proposalOffers, setProposalOffers] = useState<OfferItem[]>([]);
+  const [selectedProposalNeedId, setSelectedProposalNeedId] = useState(route.params.selectedProposalNeedId ?? '');
+  const [selectedProposalOfferId, setSelectedProposalOfferId] = useState(route.params.selectedProposalOfferId ?? '');
+  const [loading, setLoading] = useState(false);
+  const [sideLoading, setSideLoading] = useState(false);
+  const [creatingProposal, setCreatingProposal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let appliedBundledSelection = false;
+    if (typeof route.params.selectedProposalNeedId === 'string') {
+      setSelectedProposalNeedId(route.params.selectedProposalNeedId);
+      appliedBundledSelection = true;
+    }
+    if (typeof route.params.selectedProposalOfferId === 'string') {
+      setSelectedProposalOfferId(route.params.selectedProposalOfferId);
+      appliedBundledSelection = true;
+    }
+    if (appliedBundledSelection) return;
+    const selection = route.params.selectedProposalSide;
+    if (!selection || selection.kind === 'money') return;
+    if (selection.kind === 'need') setSelectedProposalNeedId(selection.id);
+    if (selection.kind === 'offer') setSelectedProposalOfferId(selection.id);
+  }, [route.params.selectedProposalNeedId, route.params.selectedProposalOfferId, route.params.selectedProposalSide]);
+
+  const loadTrade = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.trades.get(route.params.tradeId) as TradeResponse;
+      setTrade(result.trade);
+      const proposalResult = await api.trades.proposals(route.params.tradeId) as ProposalsResponse;
+      setProposals(Array.isArray(proposalResult.proposals) ? proposalResult.proposals : []);
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError));
+    } finally {
+      setLoading(false);
+    }
+  }, [route.params.tradeId]);
+
+  useFocusEffect(useCallback(() => { void loadTrade(); }, [loadTrade]));
+
+  const role = useMemo<DetailRole>(() => {
+    if (trade.ownerId === auth.user?.id) return 'owner';
+    if (trade.providerId && trade.providerId === auth.user?.id) return 'provider';
+    if (proposals.some((proposal) => proposal.applicantId === auth.user?.id && proposal.status === 'accepted')) return 'provider';
+    if (proposals.some((proposal) => proposal.applicantId === auth.user?.id)) return 'applicant';
+    return 'viewer';
+  }, [auth.user?.id, proposals, trade.ownerId, trade.providerId]);
+
+  const myProposal = useMemo(() => proposals.find((proposal) => proposal.applicantId === auth.user?.id) ?? null, [auth.user?.id, proposals]);
+  const requiredSide = requiredProposalSide(trade);
+  const activeProposalNeeds = useMemo(() => proposalNeeds.filter(isNeedAvailable), [proposalNeeds]);
+  const activeProposalOffers = useMemo(() => proposalOffers.filter(isOfferAvailable), [proposalOffers]);
+  const selectedProposalNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === selectedProposalNeedId) ?? null, [activeProposalNeeds, selectedProposalNeedId]);
+  const selectedProposalOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === selectedProposalOfferId) ?? null, [activeProposalOffers, selectedProposalOfferId]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated || role === 'owner' || myProposal || trade.status !== 'active') return;
+    let mounted = true;
+    async function loadProposalInventory() {
+      setSideLoading(true);
+      try {
+        const [needsResult, offersResult] = await Promise.all([api.needs.mine() as Promise<NeedsResponse>, api.offers.mine() as Promise<OffersResponse>]);
+        const needs = Array.isArray(needsResult.needs) ? needsResult.needs : [];
+        const offers = Array.isArray(offersResult.offers) ? offersResult.offers : [];
+        if (!mounted) return;
+        setProposalNeeds(needs);
+        setProposalOffers(offers);
+        setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current && isNeedAvailable(need)) ? current : '');
+        setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current && isOfferAvailable(offer)) ? current : '');
+      } catch (caughtError) {
+        if (mounted) setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotLoadInventory')));
+      } finally {
+        if (mounted) setSideLoading(false);
+      }
+    }
+    void loadProposalInventory();
+    return () => { mounted = false; };
+  }, [auth.isAuthenticated, myProposal, role, t, trade.status]);
+
+  async function createProposal() {
+    const trimmed = proposalDraft.trim();
+    if (trimmed.length < 3) return;
+    if (requiredSide === 'offer' && !selectedProposalOffer) { setError(t('trade.proposals.chooseOfferFirst')); return; }
+    if (requiredSide === 'need' && !selectedProposalNeed) { setError(t('trade.proposals.chooseNeedFirst')); return; }
+    setCreatingProposal(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result = await api.trades.createProposal(trade.id, {
+        message: trimmed,
+        ...(selectedProposalOffer ? { proposedOfferId: selectedProposalOffer.id } : {}),
+        ...(selectedProposalNeed ? { proposedNeedId: selectedProposalNeed.id } : {}),
+      }) as ProposalResponse;
+      setProposals((current) => upsertProposal(current, result.proposal));
+      setProposalDraft('');
+      setMessage(t('trade.proposals.proposalSentNative'));
+      navigation.navigate('ProposalDetail', { proposalId: result.proposal.id });
+    } catch (caughtError) {
+      const body = caughtError && typeof caughtError === 'object' && 'body' in caughtError ? (caughtError as { body?: { proposal?: TradeProposalItem } }).body : undefined;
+      if (body?.proposal?.id) {
+        navigation.navigate('ProposalDetail', { proposalId: body.proposal.id });
+        return;
+      }
+      setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotSendProposal')));
+    } finally {
+      setCreatingProposal(false);
+    }
+  }
+
+  const openPicker = useCallback((side: 'need' | 'offer') => {
+    const selected = side === 'need' ? selectedProposalNeed : selectedProposalOffer;
+    const selection = selected
+      ? side === 'need'
+        ? { side: 'need' as const, kind: 'need' as const, id: selected.id }
+        : { side: 'offer' as const, kind: 'offer' as const, id: selected.id }
+      : null;
+
+    navigation.navigate('TradeSidePicker', {
+      side,
+      selection,
+      returnTo: 'tradeProposal',
+      tradeId: trade.id,
+      tradeTitle: detailTitle(trade, t),
+      proposalNeedId: selectedProposalNeedId,
+      proposalOfferId: selectedProposalOfferId,
+    });
+  }, [navigation, selectedProposalNeed, selectedProposalNeedId, selectedProposalOffer, selectedProposalOfferId, t, trade]);
+
+  return (
+    <AppFixedHeaderScreen header={<AppHeader title={t('trade.threadSplit.privateTitle')} onBack={() => navigation.goBack()} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+        <View style={[styles.introCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <SemanticBadge label={t('trade.threadSplit.privateTitle')} tone="proposal" size="sm" />
+          <AppText style={styles.introTitle}>{detailTitle(trade, t)}</AppText>
+          <AppText style={[styles.introBody, { color: theme.color.muted }]}>{role === 'owner' ? t('trade.threadSplit.privateOwnerBody') : t('trade.threadSplit.privateApplicantBody')}</AppText>
+        </View>
+        {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+        {message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}
+        {role === 'owner' ? <OwnerProposalList proposals={proposals} currentUserId={auth.user?.id} loading={loading} theme={theme} t={t} onOpen={(proposalId) => navigation.navigate('ProposalDetail', { proposalId })} /> : null}
+        {role !== 'owner' && myProposal ? <ApplicantProposalCard proposal={myProposal} currentUserId={auth.user?.id} theme={theme} t={t} onOpen={() => navigation.navigate('ProposalDetail', { proposalId: myProposal.id })} /> : null}
+        {role !== 'owner' && !myProposal && trade.status === 'active' ? (
+          <ProposalComposer
+            trade={trade}
+            requiredSide={requiredSide}
+            value={proposalDraft}
+            onChange={setProposalDraft}
+            onSubmit={() => { void createProposal(); }}
+            loading={creatingProposal}
+            sideLoading={sideLoading}
+            needs={activeProposalNeeds}
+            offers={activeProposalOffers}
+            selectedNeed={selectedProposalNeed}
+            selectedOffer={selectedProposalOffer}
+            onChooseNeed={() => openPicker('need')}
+            onChooseOffer={() => openPicker('offer')}
+            theme={theme}
+            t={t}
+          />
+        ) : null}
+        {role !== 'owner' && !myProposal && trade.status !== 'active' ? <InfoNotice tone="info" title={t('trade.proposals.notAccepting')} body={t('trade.proposals.closedActionsBody')} /> : null}
+      </ScrollView>
+    </AppFixedHeaderScreen>
+  );
+}
+
+function OwnerProposalList({ proposals, currentUserId, loading, theme, t, onOpen }: { proposals: TradeProposalItem[]; currentUserId?: string; loading: boolean; theme: ThemeTokens; t: TFunction; onOpen: (proposalId: string) => void }) {
+  if (proposals.length === 0 && !loading) return <InfoNotice tone="info" title={t('trade.proposals.noProposals')} body={t('trade.proposals.noProposalsOwner')} />;
+  return <View style={styles.stack}>{proposals.map((proposal) => <ProposalListCard key={proposal.id} proposal={proposal} currentUserId={currentUserId} theme={theme} t={t} onOpen={() => onOpen(proposal.id)} />)}</View>;
+}
+
+function ApplicantProposalCard({ proposal, currentUserId, theme, t, onOpen }: { proposal: TradeProposalItem; currentUserId?: string; theme: ThemeTokens; t: TFunction; onOpen: () => void }) {
+  return <View style={styles.stack}><InfoNotice tone="info" title={t('trade.proposals.yourProposal')} body={t('trade.threadSplit.privateApplicantBody')} /><ProposalListCard proposal={proposal} currentUserId={currentUserId} theme={theme} t={t} onOpen={onOpen} /></View>;
+}
+
+function ProposalListCard({ proposal, currentUserId, theme, t, onOpen }: { proposal: TradeProposalItem; currentUserId?: string; theme: ThemeTokens; t: TFunction; onOpen: () => void }) {
+  const isApplicant = proposal.applicantId === currentUserId;
+  const lastMessage = proposal.messages?.[proposal.messages.length - 1]?.body || proposal.message;
+  return (
+    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.proposalCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={styles.proposalHeader}>
+        <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={isApplicant ? t('trade.labels.you') : undefined} variant="row" subtitle={t('trade.labels.applicant')} style={styles.proposalIdentity} />
+        <StatusBadge status={proposal.status} label={formatStatus(proposal.status, t)} size="sm" />
+      </View>
+      <ProposalSideSummary proposal={proposal} theme={theme} t={t} />
+      <AppText style={[styles.proposalPreview, { color: theme.color.muted }]} numberOfLines={2}>{lastMessage}</AppText>
+      <View style={styles.openRow}><AppText style={[styles.openText, { color: theme.semantic.proposal.bg }]}>{t('trade.proposals.openPrivateThread')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.proposal.bg} /></View>
+    </Pressable>
+  );
+}
+
+function ProposalSideSummary({ proposal, theme, t }: { proposal: TradeProposalItem; theme: ThemeTokens; t: TFunction }) {
+  const entries = [proposal.proposedOffer ? { kind: 'offer' as const, item: proposal.proposedOffer as OfferItem, label: t('trade.labels.proposedOffer') } : null, proposal.proposedNeed ? { kind: 'need' as const, item: proposal.proposedNeed as NeedItem, label: t('trade.labels.proposedNeed') } : null].filter(Boolean) as Array<{ kind: 'need' | 'offer'; item: NeedItem | OfferItem; label: string }>;
+  if (entries.length === 0) return null;
+  return <View style={styles.sideSummaryStack}>{entries.map((entry) => <InventoryPreviewCard key={`${entry.kind}-${entry.item.id}`} item={entry.item} kind={entry.kind} label={entry.label} theme={theme} t={t} compact />)}</View>;
+}
+
+function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
+  const missingInventory = (requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0);
+  const disabled = loading || value.trim().length < 3 || (requiredSide === 'offer' && !selectedOffer) || (requiredSide === 'need' && !selectedNeed) || missingInventory;
+  const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
+  const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : proposalActionTitle(trade, t);
+  return (
+    <View style={styles.stack}>
+      <InfoNotice tone="instruction" title={proposalActionTitle(trade, t)} body={proposalHelper(trade, t)} />
+      {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
+      {requiredSide === 'need' ? (
+        <>
+          <InventoryPickerShortcut kind="need" title={t('trade.proposals.chooseNeedToPropose')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedFirst')} onChoose={onChooseNeed} theme={theme} t={t} />
+          <InventoryPickerShortcut kind="offer" title={t('trade.proposals.attachOfferToProposal')} count={offers.length} item={selectedOffer} emptyText={t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
+        </>
+      ) : (
+        <>
+          <InventoryPickerShortcut kind="offer" title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} count={offers.length} item={selectedOffer} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
+          <InventoryPickerShortcut kind="need" title={t('trade.proposals.attachNeedToProposal')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedOptional')} onChoose={onChooseNeed} theme={theme} t={t} />
+        </>
+      )}
+      <View style={styles.messageComposerBlock}>
+        <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
+        <TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+      </View>
+      {missingInventory ? <InfoNotice tone="warning" title={t('trade.proposals.savedInventoryNeeded')} body={requiredSide === 'offer' ? t('trade.proposals.addOfferBeforeProposing') : t('trade.proposals.addNeedBeforeProposing')} /> : null}
+      <ActionButton label={submitLabel} variant="primary" disabled={disabled} onPress={onSubmit} theme={theme} />
+    </View>
+  );
+}
+
+function InventoryPickerShortcut({ kind, title, count, item, emptyText, onChoose, theme, t }: { kind: 'need' | 'offer'; title: string; count: number; item: NeedItem | OfferItem | null; emptyText: string; onChoose: () => void; theme: ThemeTokens; t: TFunction }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onChoose} style={({ pressed }) => [styles.inventoryPickerShortcut, { backgroundColor: theme.color.subtleSurface, borderColor: item ? theme.semantic[kind].border : theme.color.border }, pressed && styles.pressed]}>
+      <View style={styles.inventoryPickerTopRow}>
+        <View style={styles.inventoryPickerHeading}>
+          <SemanticBadge label={kind === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer')} tone={kind} size="sm" />
+          <AppText style={styles.threadLabel}>{title}</AppText>
+        </View>
+        <View style={[styles.inventoryPickerIcon, { backgroundColor: theme.semantic[kind].softBg }]}><MobileIcon name={kind} size={18} color={theme.semantic[kind].text} /></View>
+      </View>
+      {item ? <InventoryPreviewCard item={item} kind={kind} label={t('trade.labels.selected')} theme={theme} t={t} /> : <View style={styles.inventoryPickerEmptyBody}><AppText style={[styles.muted, { color: theme.color.muted }]}>{count > 0 ? t('trade.proposals.chooseFromSavedItems', { count }) : emptyText}</AppText><AppText style={[styles.inventoryPickerActionText, { color: theme.semantic.proposal.bg }]}>{t('trade.proposals.openPicker')}</AppText></View>}
+    </Pressable>
+  );
+}
+
+function InventoryPreviewCard({ item, kind, label, theme, t, compact }: { item: NeedItem | OfferItem; kind: 'need' | 'offer'; label: string; theme: ThemeTokens; t: TFunction; compact?: boolean }) {
+  return (
+    <View style={[styles.selectedSidePreview, { backgroundColor: theme.semantic[kind].softBg, borderColor: theme.semantic[kind].border }, compact && styles.selectedSidePreviewCompact]}>
+      <View style={styles.selectedSideHeader}><SemanticBadge label={label} tone={kind} size="sm" /><MobileIcon name={kind} size={18} color={theme.semantic[kind].text} /></View>
+      <AppText style={styles.selectedSideTitle} numberOfLines={2}>{item.title}</AppText>
+      <AppText style={[styles.selectedSideMeta, { color: theme.semantic[kind].text }]} numberOfLines={1}>{proposalInventoryMeta(kind, item, t)}</AppText>
+      {!compact ? <AppText style={[styles.selectedSideDescription, { color: theme.semantic[kind].text }]} numberOfLines={2}>{proposalInventoryDescription(item, t)}</AppText> : null}
+    </View>
+  );
+}
+
+function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) {
+  const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border };
+  const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text;
+  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>;
+}
+
+const styles = StyleSheet.create({
+  content: { paddingBottom: 56, gap: 14 },
+  introCard: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 8 },
+  introTitle: { fontSize: 24, lineHeight: 29, fontWeight: '900', letterSpacing: -0.45 },
+  introBody: { lineHeight: 20, fontWeight: '700' },
+  stack: { gap: 14 },
+  proposalCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 12 },
+  proposalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  proposalIdentity: { flex: 1 },
+  sideSummaryStack: { gap: 8 },
+  proposalPreview: { lineHeight: 20, fontWeight: '700' },
+  openRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  openText: { fontWeight: '900' },
+  messageComposerBlock: { gap: 8 },
+  threadLabel: { fontSize: 13, fontWeight: '900' },
+  textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' },
+  inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 },
+  inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  inventoryPickerHeading: { flex: 1, gap: 7 },
+  inventoryPickerIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  inventoryPickerEmptyBody: { gap: 8 },
+  inventoryPickerActionText: { fontWeight: '900' },
+  selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 },
+  selectedSidePreviewCompact: { padding: 12 },
+  selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' },
+  selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' },
+  selectedSideDescription: { lineHeight: 20, fontWeight: '700' },
+  muted: { lineHeight: 20, fontWeight: '700' },
+  actionButton: { minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 },
+  actionButtonText: { fontWeight: '900' },
+  disabledButton: { opacity: 0.52 },
+  pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] },
+});

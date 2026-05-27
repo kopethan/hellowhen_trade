@@ -5,6 +5,7 @@ export const report = {
   trade: 'Signaler l’échange',
   need: 'Signaler le besoin',
   offer: 'Signaler l’offre',
+  publicMessage: 'Signaler le message',
   button: 'Signaler',
   cancel: 'Annuler le signalement',
   reason: 'Raison',
@@ -33,5 +34,6 @@ export const report = {
     content: 'Les signalements sont privés et aident les modérateurs à examiner les contenus dangereux, trompeurs ou inappropriés.',
     trade: 'Utilise ceci pour un problème de contenu public. Si tu participes à l’échange et as besoin d’aide, utilise le flux de problème/assistance de l’échange.',
     profile: 'Les signalements sont privés. Le propriétaire du profil ne verra pas ton message.',
+    publicMessage: 'Les signalements sont privés. L’auteur du message ne verra pas le texte de ton signalement.',
   },
 } as const;

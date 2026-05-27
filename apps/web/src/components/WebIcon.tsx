@@ -9,6 +9,7 @@ export type WebIconName =
   | 'dispute'
   | 'filter'
   | 'help'
+  | 'more'
   | 'need'
   | 'offer'
   | 'profile'

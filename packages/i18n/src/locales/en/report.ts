@@ -5,6 +5,7 @@ export const report = {
   trade: 'Report trade',
   need: 'Report need',
   offer: 'Report offer',
+  publicMessage: 'Report message',
   button: 'Report',
   cancel: 'Cancel report',
   reason: 'Reason',
@@ -33,5 +34,6 @@ export const report = {
     content: 'Reports are private and help moderators review unsafe, misleading, or inappropriate content.',
     trade: 'Use this for public content problems. If you are involved in the trade and need help resolving it, use the trade problem/support flow.',
     profile: 'Reports are private. The profile owner will not see your report message.',
+    publicMessage: 'Reports are private. The message author will not see your report text.',
   },
 } as const;
