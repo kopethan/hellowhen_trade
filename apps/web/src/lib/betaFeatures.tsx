@@ -4,6 +4,11 @@ const firstLaunchGuardsEnabled = !disabled(process.env.NEXT_PUBLIC_FIRST_LAUNCH_
 const forceFirstLaunchSafeFlags = process.env.NODE_ENV === 'production' && firstLaunchGuardsEnabled;
 
 const rawMoneyProvider = (process.env.NEXT_PUBLIC_MONEY_PROVIDER ?? 'none').toLowerCase() as 'none' | 'stripe' | 'airwallex';
+const rawAdsProviderValue = (process.env.NEXT_PUBLIC_ADS_PROVIDER ?? 'none').toLowerCase();
+const rawAdsProvider = (['none', 'adsense', 'admob'].includes(rawAdsProviderValue) ? rawAdsProviderValue : 'none') as 'none' | 'adsense' | 'admob';
+const adsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_ADS_ENABLED);
+const webAdsEnabled = adsEnabled && enabled(process.env.NEXT_PUBLIC_WEB_ADS_ENABLED);
+const adsDebugPlaceholders = process.env.NODE_ENV !== 'production' && webAdsEnabled && enabled(process.env.NEXT_PUBLIC_ADS_DEBUG_PLACEHOLDERS);
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
 
@@ -15,6 +20,10 @@ export const betaFeatures = {
   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
   businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+  adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
+  adsEnabled,
+  webAdsEnabled,
+  adsDebugPlaceholders,
   plansEnabled,
   plansVisible: plansEnabled && enabled(process.env.NEXT_PUBLIC_PLANS_VISIBLE),
 } as const;

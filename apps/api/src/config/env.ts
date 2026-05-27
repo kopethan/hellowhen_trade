@@ -22,6 +22,7 @@ function disabled(value: string | undefined, defaultValue = false) {
 }
 
 const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
+const adsProviders = new Set(['none', 'adsense', 'admob']);
 const airwallexEnvironments = new Set(['demo', 'production']);
 
 function parseMoneyProvider(value: string | undefined) {
@@ -32,6 +33,11 @@ function parseMoneyProvider(value: string | undefined) {
 function parseAirwallexEnv(value: string | undefined) {
   const raw = String(value ?? 'demo').toLowerCase();
   return airwallexEnvironments.has(raw) ? raw as 'demo' | 'production' : 'demo';
+}
+
+function parseAdsProvider(value: string | undefined) {
+  const raw = String(value ?? 'none').toLowerCase();
+  return adsProviders.has(raw) ? raw as 'none' | 'adsense' | 'admob' : 'none';
 }
 
 export const env = {
@@ -131,6 +137,11 @@ export const env = {
   moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true',
+  adsEnabled: (process.env.ADS_ENABLED ?? 'false').toLowerCase() === 'true',
+  webAdsEnabled: (process.env.WEB_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
+  mobileAdsEnabled: (process.env.MOBILE_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
+  adsProvider: parseAdsProvider(process.env.ADS_PROVIDER),
+  adsDebugPlaceholders: (process.env.ADS_DEBUG_PLACEHOLDERS ?? 'false').toLowerCase() === 'true',
   plansEnabled: (process.env.PLANS_ENABLED ?? 'false').toLowerCase() === 'true',
   plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true',
   firstLaunchGuardsEnabled: !disabled(process.env.FIRST_LAUNCH_GUARDS_ENABLED, false)
@@ -272,6 +283,22 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     errors.push('Business/brand accounts must stay hidden for first launch.');
   }
 
+  const webAdsProviderFlag = publicFlagValue('NEXT_PUBLIC_ADS_PROVIDER');
+  const mobileAdsProviderFlag = publicFlagValue('EXPO_PUBLIC_ADS_PROVIDER');
+  const adsUiEnabled = env.adsEnabled
+    || env.webAdsEnabled
+    || env.mobileAdsEnabled
+    || env.adsDebugPlaceholders
+    || publicFlagEnabled('NEXT_PUBLIC_ADS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_WEB_ADS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_ADS_DEBUG_PLACEHOLDERS')
+    || publicFlagEnabled('EXPO_PUBLIC_ADS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_MOBILE_ADS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS');
+  if (adsUiEnabled || env.adsProvider !== 'none' || (webAdsProviderFlag && webAdsProviderFlag !== 'none') || (mobileAdsProviderFlag && mobileAdsProviderFlag !== 'none')) {
+    errors.push('Ads must stay disabled and ADS_PROVIDER must stay none for first launch.');
+  }
+
   if (env.plansEnabled || env.plansVisible || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE')) {
     errors.push('Plans must stay disabled and hidden for first launch.');
   }
@@ -292,6 +319,9 @@ export function validateProductionEnv() {
   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
+  if ((env.webAdsEnabled || env.mobileAdsEnabled) && !env.adsEnabled) errors.push('WEB_ADS_ENABLED=true or MOBILE_ADS_ENABLED=true requires ADS_ENABLED=true in production.');
+  if (env.adsDebugPlaceholders) errors.push('ADS_DEBUG_PLACEHOLDERS must stay false in production.');
+  if (env.adsProvider !== 'none' && !env.adsEnabled) errors.push('ADS_PROVIDER requires ADS_ENABLED=true in production.');
   const googleClientIdsConfigured = Boolean(env.googleWebClientId || env.googleIosClientId || env.googleAndroidClientId);
   if (env.googleSignInEnabled && !googleClientIdsConfigured) errors.push('GOOGLE_SIGN_IN_ENABLED=true requires at least one Google OAuth client ID.');
   if (!env.googleSignInEnabled && googleClientIdsConfigured) errors.push('Google OAuth client IDs are configured while GOOGLE_SIGN_IN_ENABLED=false. Keep Google sign-in disabled for first launch or explicitly enable it later.');
