@@ -56,18 +56,18 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
 }
 
 needsRoutes.get('/mine', asyncRoute(async (req, res) => {
-  const needs = await prisma.need.findMany({ where: { ownerId: req.user!.id }, orderBy: { createdAt: 'desc' } });
+  const needs = await prisma.need.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
   res.json({ needs: await withMedia('need', needs) });
 }));
 
 needsRoutes.get('/:needId', asyncRoute(async (req, res) => {
-  const need = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
+  const need = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
   if (!need) return res.status(404).json({ error: 'not_found' });
   res.json({ need: await withOneMedia('need', need) });
 }));
 
 needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
-  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
+  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const [linkedTradeCount, active] = await Promise.all([
     prisma.trade.count({ where: { needId: existing.id } }),
@@ -84,6 +84,7 @@ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
 
 needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createNeedRequestSchema.parse(req.body);
+  if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
   const need = await prisma.need.create({
     data: {
       ownerId: req.user!.id,
@@ -105,7 +106,8 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
 
 needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateNeedRequestSchema.parse(req.body);
-  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
+  if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
+  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const active = await loadActiveLinkedTrades(existing.id);
   if (active.activeTradeCount > 0) {
@@ -117,7 +119,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
 }));
 
 needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
-  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
+  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   const active = await loadActiveLinkedTrades(existing.id);
   if (active.activeTradeCount > 0) {

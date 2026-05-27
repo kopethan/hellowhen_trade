@@ -793,8 +793,8 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
   }
 
   const [need, offer, wallet] = await Promise.all([
-    needsOwnNeed && !needIsMoney ? prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }) : Promise.resolve(null),
-    needsOwnOffer && !offerIsMoney ? prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }) : Promise.resolve(null),
+    needsOwnNeed && !needIsMoney ? prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId, businessProfileId: null } }) : Promise.resolve(null),
+    needsOwnOffer && !offerIsMoney ? prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId, businessProfileId: null } }) : Promise.resolve(null),
     offerIsMoney && input.amountCents > 0 ? prisma.wallet.findUnique({ where: { userId: actorId } }) : Promise.resolve(null)
   ]);
   if (needsOwnNeed && !needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: postType === 'open_need' ? 'Choose one of your saved needs for this Open Need post.' : 'Choose one of your saved needs for this trade.' });
@@ -947,12 +947,12 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
     }
 
     if (input.proposedOfferId) {
-      const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
+      const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId, businessProfileId: null } });
       if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
       proposedOfferId = offer.id;
     }
     if (input.proposedNeedId) {
-      const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
+      const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId, businessProfileId: null } });
       if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
       proposedNeedId = need.id;
     }

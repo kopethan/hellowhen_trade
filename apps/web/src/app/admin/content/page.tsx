@@ -8,12 +8,12 @@ import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionT
 import { formatWebDateTime } from '../../../lib/webFormat';
 
 type ContentTypeFilter = 'all' | 'trade' | 'need' | 'offer';
-type ContentAction = 'hide' | 'restore' | 'close' | 'mark_reviewed';
+type ContentAction = 'approve' | 'reject' | 'hide' | 'restore' | 'close' | 'mark_reviewed';
 
 type Notice = { tone: 'info' | 'warning' | 'danger' | 'success'; body: string };
 
 const contentTypes: ContentTypeFilter[] = ['all', 'trade', 'need', 'offer'];
-const statusOptions = ['all', 'active', 'draft', 'closed', 'expired', 'funded', 'in_progress', 'submitted', 'disputed', 'completed', 'cancelled', 'fulfilled', 'accepted'];
+const statusOptions = ['all', 'pending_review', 'active', 'draft', 'rejected', 'closed', 'expired', 'funded', 'in_progress', 'submitted', 'disputed', 'completed', 'cancelled', 'fulfilled', 'accepted'];
 
 function labelize(value?: string | null) {
   return value ? value.replaceAll('_', ' ') : 'unknown';
@@ -21,6 +21,8 @@ function labelize(value?: string | null) {
 
 function statusTone(value?: string | null) {
   if (value === 'active' || value === 'completed' || value === 'fulfilled' || value === 'accepted') return 'success';
+  if (value === 'pending_review') return 'warning';
+  if (value === 'rejected') return 'danger';
   if (value === 'funded' || value === 'in_progress' || value === 'submitted') return 'warning';
   if (value === 'disputed' || value === 'cancelled') return 'danger';
   if (value === 'closed' || value === 'expired') return 'admin';
@@ -50,6 +52,8 @@ function contentMeta(item: AdminContentItemDto) {
 }
 
 function actionDescription(action: ContentAction, item: AdminContentItemDto) {
+  if (action === 'approve') return 'Approve makes a Business-owned Need/Offer public after review.';
+  if (action === 'reject') return 'Reject keeps a Business-owned Need/Offer hidden and records the review decision.';
   if (action === 'hide') return item.type === 'trade' ? 'Hide removes the trade from public discovery without deleting it.' : 'Hide closes this inventory item without deleting it.';
   if (action === 'restore') return 'Restore makes this item active/public again when safe.';
   if (action === 'close') return 'Close ends this item. For funded or disputed trades, use the dispute flow instead.';
@@ -63,6 +67,7 @@ export default function AdminContentModerationPage() {
   const [status, setStatus] = useState('active');
   const [query, setQuery] = useState('');
   const [ownerId, setOwnerId] = useState('');
+  const [businessProfileId, setBusinessProfileId] = useState('');
   const [items, setItems] = useState<AdminContentItemDto[]>([]);
   const [selectedItem, setSelectedItem] = useState<AdminContentItemDto | null>(null);
   const [note, setNote] = useState('');
@@ -81,6 +86,7 @@ export default function AdminContentModerationPage() {
     if (status !== 'all') params.set('status', status);
     if (query.trim()) params.set('q', query.trim());
     if (ownerId.trim()) params.set('ownerId', ownerId.trim());
+    if (businessProfileId.trim()) params.set('businessProfileId', businessProfileId.trim());
     const text = params.toString();
     return text ? `?${text}` : '';
   }
@@ -104,8 +110,8 @@ export default function AdminContentModerationPage() {
 
   async function applyAction(action: ContentAction) {
     if (!token || !selectedItem) return;
-    if ((action === 'hide' || action === 'restore' || action === 'close') && !note.trim()) {
-      setNotice({ tone: 'warning', body: 'Add an internal note before changing content visibility or status.' });
+    if ((action === 'approve' || action === 'reject' || action === 'hide' || action === 'restore' || action === 'close') && !note.trim()) {
+      setNotice({ tone: 'warning', body: 'Add an internal note before approving, rejecting, or changing content visibility/status.' });
       return;
     }
     setLoading(true);
@@ -143,7 +149,7 @@ export default function AdminContentModerationPage() {
         <div>
           <p className="eyebrow">Phase 24.1</p>
           <h1>Trades, needs, and offers</h1>
-          <p>Hide, restore, close, or mark reviewed content without deleting user data. Every action writes to the admin audit log.</p>
+          <p>Approve Business-owned Needs/Offers after review, or hide, restore, close, and mark reviewed content without deleting user data. Every action writes to the admin audit log.</p>
         </div>
         <div className="admin-console__login-grid">
           <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
@@ -165,6 +171,7 @@ export default function AdminContentModerationPage() {
               {statusOptions.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
             </select>
             <input value={ownerId} onChange={(event) => setOwnerId(event.target.value)} placeholder="Owner ID optional" />
+            <input value={businessProfileId} onChange={(event) => setBusinessProfileId(event.target.value)} placeholder="Business profile ID optional" />
             <button type="button" onClick={() => { void loadContent(); }} disabled={loading || !token}>Load content</button>
           </div>
           <div className="admin-user-list">
@@ -192,10 +199,11 @@ export default function AdminContentModerationPage() {
                 <span className={`semantic-badge ${typeTone(selectedItem.type)}`}>{selectedItem.type}</span>
                 <span className={`semantic-badge ${statusTone(selectedItem.status)}`}>{labelize(selectedItem.status)}</span>
                 {selectedItem.type === 'trade' ? <span className={`semantic-badge ${selectedItem.isPublic ? 'success' : 'admin'}`}>{selectedItem.isPublic ? 'public' : 'hidden'}</span> : null}
+                {selectedItem.businessProfileId ? <span className="semantic-badge instruction">Business-owned</span> : null}
                 {selectedItem.publicDiscoverable === false ? <span className="semantic-badge warning">not public-discoverable</span> : selectedItem.publicDiscoverable === true ? <span className="semantic-badge success">public-discoverable</span> : null}
               </div>
               <h2>{selectedItem.title}</h2>
-              <p className="meta">Owner: {personLabel(selectedItem.owner)} · {selectedItem.ownerId}</p>
+              <p className="meta">Owner: {personLabel(selectedItem.owner)} · {selectedItem.ownerId}{selectedItem.businessProfileId ? ` · Business ${selectedItem.businessProfileId}` : ''}</p>
               <p>{selectedItem.description}</p>
               {selectedItem.visibilityBlockers?.length ? (
                 <p className="notice-box warning">Public discovery blockers: {selectedItem.visibilityBlockers.join(' · ')}</p>
@@ -207,6 +215,8 @@ export default function AdminContentModerationPage() {
               </div>
               <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Internal admin note. Required before visibility/status actions." rows={4} />
               <div className="admin-action-grid">
+                {selectedItem.type !== 'trade' && selectedItem.businessProfileId ? <button type="button" className="success" onClick={() => { void applyAction('approve'); }} disabled={loading || !token}>Approve</button> : null}
+                {selectedItem.type !== 'trade' && selectedItem.businessProfileId ? <button type="button" className="warning" onClick={() => { void applyAction('reject'); }} disabled={loading || !token}>Reject</button> : null}
                 <button type="button" className="warning" onClick={() => { void applyAction('hide'); }} disabled={loading || !token}>Hide</button>
                 <button type="button" className="success" onClick={() => { void applyAction('restore'); }} disabled={loading || !token}>Restore</button>
                 <button type="button" className="danger" onClick={() => { void applyAction('close'); }} disabled={loading || !token}>Close</button>

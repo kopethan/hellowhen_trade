@@ -7,8 +7,8 @@ import {
   INVENTORY_TITLE_MIN_LENGTH
 } from './inventoryLimits.js';
 
-export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
-export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
+export const needStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'fulfilled', 'closed', 'expired']);
+export const offerStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'accepted', 'closed', 'expired']);
 export const tradePostTypeSchema = z.enum(['need_offer', 'open_need', 'open_offer']);
 export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
 export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
@@ -22,7 +22,7 @@ export const discoveryLanguageSchema = z.enum(['en', 'fr']);
 export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
 export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
 export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
-export const inventoryTemplateStatusSchema = z.enum(['draft', 'active', 'archived']);
+export const inventoryTemplateStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']);
 export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
 export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
 export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
@@ -233,6 +233,7 @@ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePrev
 export const needSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
+  businessProfileId: z.string().nullable().optional(),
   sourceTemplateId: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),
@@ -252,6 +253,7 @@ export const needSchema = z.object({
 export const offerSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
+  businessProfileId: z.string().nullable().optional(),
   sourceTemplateId: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),

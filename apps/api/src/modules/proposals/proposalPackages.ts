@@ -81,7 +81,7 @@ function expectedPackageKindForTrade(trade: TradeForProposalPackage): TradePacka
 
 async function assertApplicantOwnsActiveOffers(actorId: string, offerIds: string[]) {
   if (!offerIds.length) return;
-  const offers = await prisma.offer.findMany({ where: { id: { in: offerIds }, ownerId: actorId }, select: { id: true, status: true } });
+  const offers = await prisma.offer.findMany({ where: { id: { in: offerIds }, ownerId: actorId, businessProfileId: null }, select: { id: true, status: true } });
   const activeIds = new Set(offers.filter((offer) => offer.status === 'active').map((offer) => offer.id));
   if (offerIds.some((id) => !activeIds.has(id))) {
     throwPackageError('INVALID_PROPOSAL_PACKAGE_OFFER', { offerIds });
@@ -90,7 +90,7 @@ async function assertApplicantOwnsActiveOffers(actorId: string, offerIds: string
 
 async function assertApplicantOwnsActiveNeeds(actorId: string, needIds: string[]) {
   if (!needIds.length) return;
-  const needs = await prisma.need.findMany({ where: { id: { in: needIds }, ownerId: actorId }, select: { id: true, status: true } });
+  const needs = await prisma.need.findMany({ where: { id: { in: needIds }, ownerId: actorId, businessProfileId: null }, select: { id: true, status: true } });
   const activeIds = new Set(needs.filter((need) => need.status === 'active').map((need) => need.id));
   if (needIds.some((id) => !activeIds.has(id))) {
     throwPackageError('INVALID_PROPOSAL_PACKAGE_NEED', { needIds });

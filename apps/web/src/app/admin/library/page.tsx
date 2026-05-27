@@ -7,7 +7,7 @@ import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionT
 
 type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
 type TemplateKind = 'need' | 'offer';
-type TemplateStatus = 'draft' | 'active' | 'archived';
+type TemplateStatus = 'draft' | 'pending_review' | 'active' | 'rejected' | 'archived';
 type ItemType = 'service' | 'goods' | 'other';
 type ExchangeMode = 'remote' | 'local' | 'hybrid';
 
@@ -33,6 +33,8 @@ type AdminLibraryTemplateDto = {
   createdAt: string;
   updatedAt: string;
   media?: MediaAssetDto[];
+  businessProfileId?: string | null;
+  businessProfile?: { id: string; displayName: string; handle?: string | null; type?: string; status?: string } | null;
   _count?: { createdNeeds?: number; createdOffers?: number };
 };
 
@@ -121,6 +123,8 @@ export default function AdminLibraryPage() {
   const [kindFilter, setKindFilter] = useState<'all' | TemplateKind>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | TemplateStatus>('active');
   const [query, setQuery] = useState('');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState<'all' | 'hellowhen' | 'business' | 'brand' | 'partner'>('all');
+  const [reviewNote, setReviewNote] = useState('');
   const [form, setForm] = useState<LibraryFormState>(emptyForm);
   const [templateMedia, setTemplateMedia] = useState<MediaAssetDto[]>([]);
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
@@ -180,6 +184,7 @@ export default function AdminLibraryPage() {
       if (kindFilter !== 'all') params.set('kind', kindFilter);
       if (statusFilter !== 'all') params.set('status', statusFilter);
       if (query.trim()) params.set('q', query.trim());
+      if (sourceTypeFilter !== 'all') params.set('sourceType', sourceTypeFilter);
       const suffix = params.toString() ? `?${params}` : '';
       const response = await fetch(`${apiBase}/admin/library${suffix}`, { headers });
       if (!response.ok) throw new Error('Could not load starter library templates.');
@@ -229,7 +234,7 @@ export default function AdminLibraryPage() {
     }
   }
 
-  async function changeTemplateVisibility(template: AdminLibraryTemplateDto, action: 'hide' | 'restore') {
+  async function changeTemplateVisibility(template: AdminLibraryTemplateDto, action: 'approve' | 'reject' | 'hide' | 'restore') {
     if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
     setLoading(true);
     setNotice(null);
@@ -237,7 +242,7 @@ export default function AdminLibraryPage() {
       const response = await fetch(`${apiBase}/admin/library/${template.id}/action`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, note: reviewNote.trim() || undefined }),
       });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null) as { message?: string } | null;
@@ -250,7 +255,8 @@ export default function AdminLibraryPage() {
         setTemplateMedia(data.template.media ?? []);
         setForm(fillForm(data.template));
       }
-      setNotice({ tone: 'success', body: action === 'hide' ? 'Starter template hidden from public starter lists.' : 'Starter template restored to public starter lists.' });
+      setReviewNote('');
+      setNotice({ tone: 'success', body: action === 'approve' ? 'Template approved for public starter lists.' : action === 'reject' ? 'Template rejected.' : action === 'hide' ? 'Starter template hidden from public starter lists.' : 'Starter template restored to public starter lists.' });
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update starter template.' });
     } finally {
@@ -292,6 +298,7 @@ export default function AdminLibraryPage() {
   }
 
   const activeCount = templates.filter((template) => template.status === 'active').length;
+  const reviewCount = templates.filter((template) => template.status === 'pending_review').length;
   const hiddenCount = templates.filter((template) => template.status === 'archived').length;
 
   return (
@@ -307,6 +314,7 @@ export default function AdminLibraryPage() {
         <div className="admin-money-strip">
           <span><small>Loaded</small><strong>{countLabel(templates.length)}</strong></span>
           <span><small>Active</small><strong>{countLabel(activeCount)}</strong></span>
+          <span><small>Review</small><strong>{countLabel(reviewCount)}</strong></span>
           <span><small>Hidden</small><strong>{countLabel(hiddenCount)}</strong></span>
         </div>
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
@@ -325,9 +333,18 @@ export default function AdminLibraryPage() {
             </select>
             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | TemplateStatus)}>
               <option value="active">active</option>
+              <option value="pending_review">pending review</option>
               <option value="draft">draft</option>
+              <option value="rejected">rejected</option>
               <option value="archived">hidden</option>
               <option value="all">all statuses</option>
+            </select>
+            <select value={sourceTypeFilter} onChange={(event) => setSourceTypeFilter(event.target.value as 'all' | 'hellowhen' | 'business' | 'brand' | 'partner')}>
+              <option value="all">all sources</option>
+              <option value="hellowhen">hellowhen</option>
+              <option value="business">business</option>
+              <option value="brand">brand</option>
+              <option value="partner">partner</option>
             </select>
             <button type="button" onClick={() => { void loadTemplates(); }} disabled={loading || !token}>Load library</button>
           </div>
@@ -336,10 +353,10 @@ export default function AdminLibraryPage() {
               <button key={template.id} type="button" className={selectedTemplate?.id === template.id ? 'admin-user-row is-active' : 'admin-user-row'} onClick={() => selectTemplate(template)}>
                 <span>
                   <strong>{template.title}</strong>
-                  <small>{template.kind} · {template.itemType} · {template.languageCode.toUpperCase()}{template.countryCode ? `-${template.countryCode}` : ''} · {template.key}</small>
-                  <small>{templateUsageLabel(template)} · {(template.media ?? []).length} image(s) · sort {template.sortOrder ?? 0}</small>
+                  <small>{template.kind} · {template.itemType} · {template.sourceType} · {template.languageCode.toUpperCase()}{template.countryCode ? `-${template.countryCode}` : ''} · {template.key}</small>
+                  <small>{template.businessProfile ? `${template.businessProfile.displayName} · ${template.businessProfile.status ?? 'business'}` : 'Hellowhen-owned'} · {templateUsageLabel(template)} · {(template.media ?? []).length} image(s) · sort {template.sortOrder ?? 0}</small>
                 </span>
-                <em className={`semantic-badge ${template.status === 'active' ? 'success' : template.status === 'archived' ? 'warning' : 'admin'}`}>{template.status === 'archived' ? 'hidden' : template.status}</em>
+                <em className={`semantic-badge ${template.status === 'active' ? 'success' : template.status === 'pending_review' ? 'warning' : template.status === 'archived' ? 'warning' : template.status === 'rejected' ? 'danger' : 'admin'}`}>{template.status === 'archived' ? 'hidden' : template.status.replace('_', ' ')}</em>
               </button>
             ))}
             {templates.length === 0 ? <p>No starter templates loaded yet.</p> : null}
@@ -355,7 +372,7 @@ export default function AdminLibraryPage() {
             <label><span>Description</span><textarea value={form.description} onChange={(event) => updateForm('description', event.target.value)} rows={5} maxLength={500} /></label>
             <div className="admin-template-form__grid">
               <label><span>Item type</span><select value={form.itemType} onChange={(event) => updateForm('itemType', event.target.value as ItemType)}><option value="service">service</option><option value="goods">goods</option><option value="other">other</option></select></label>
-              <label><span>Status</span><select value={form.status} onChange={(event) => updateForm('status', event.target.value as TemplateStatus)}><option value="active">active</option><option value="draft">draft</option><option value="archived">hidden</option></select></label>
+              <label><span>Status</span><select value={form.status} onChange={(event) => updateForm('status', event.target.value as TemplateStatus)}><option value="active">active</option><option value="pending_review">pending review</option><option value="draft">draft</option><option value="rejected">rejected</option><option value="archived">hidden</option></select></label>
               <label><span>Language</span><select value={form.languageCode} onChange={(event) => updateForm('languageCode', event.target.value as 'en' | 'fr')}><option value="en">English</option><option value="fr">French</option></select></label>
               <label><span>Country code</span><input value={form.countryCode} onChange={(event) => updateForm('countryCode', event.target.value.toUpperCase().slice(0, 2))} placeholder="Optional" /></label>
               <label><span>Category</span><input value={form.category} onChange={(event) => updateForm('category', event.target.value)} /></label>
@@ -392,6 +409,9 @@ export default function AdminLibraryPage() {
             <div className="cta-row">
               <button type="button" onClick={() => { void saveTemplate(); }} disabled={loading || !token}>{selectedTemplate ? 'Save changes' : 'Create template'}</button>
               <button type="button" className="secondary" onClick={() => resetForm()}>New template</button>
+              {selectedTemplate ? <input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="Admin review note for Business items" /> : null}
+              {selectedTemplate?.status === 'pending_review' ? <button type="button" className="success" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'approve'); }} disabled={loading || !token}>Approve</button> : null}
+              {selectedTemplate?.status === 'pending_review' ? <button type="button" className="danger" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'reject'); }} disabled={loading || !token}>Reject</button> : null}
               {selectedTemplate?.status === 'archived' ? <button type="button" className="success" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'restore'); }} disabled={loading || !token}>Restore</button> : null}
               {selectedTemplate && selectedTemplate.status !== 'archived' ? <button type="button" className="danger" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'hide'); }} disabled={loading || !token}>Hide</button> : null}
             </div>

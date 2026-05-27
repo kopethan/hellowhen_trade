@@ -512,6 +512,8 @@ export declare const adminContentTypeSchema: z.ZodEnum<{
 }>;
 export declare const adminContentActionRequestSchema: z.ZodObject<{
     action: z.ZodEnum<{
+        approve: "approve";
+        reject: "reject";
         restore: "restore";
         mark_reviewed: "mark_reviewed";
         hide: "hide";
@@ -528,6 +530,7 @@ export declare const adminListContentQuerySchema: z.ZodObject<{
     }>>>;
     q: z.ZodOptional<z.ZodString>;
     ownerId: z.ZodOptional<z.ZodString>;
+    businessProfileId: z.ZodOptional<z.ZodString>;
     status: z.ZodOptional<z.ZodString>;
     take: z.ZodDefault<z.ZodOptional<z.ZodCoercedNumber<unknown>>>;
 }, z.core.$strip>;
@@ -566,6 +569,8 @@ export declare const adminContentItemSchema: z.ZodObject<{
         trade: "trade";
     }>;
     ownerId: z.ZodString;
+    businessProfileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    businessProfile: z.ZodOptional<z.ZodNullable<z.ZodUnknown>>;
     title: z.ZodString;
     description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
     status: z.ZodString;

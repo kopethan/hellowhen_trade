@@ -100,13 +100,14 @@ export const adminUserModerationActionRequestSchema = z.object({
 });
 export const adminContentTypeSchema = z.enum(['trade', 'need', 'offer']);
 export const adminContentActionRequestSchema = z.object({
-    action: z.enum(['hide', 'restore', 'close', 'mark_reviewed']),
+    action: z.enum(['approve', 'reject', 'hide', 'restore', 'close', 'mark_reviewed']),
     note: z.string().trim().min(3).max(1200).optional(),
 });
 export const adminListContentQuerySchema = z.object({
     type: z.enum(['all', 'trade', 'need', 'offer']).optional().default('all'),
     q: z.string().trim().min(1).max(120).optional(),
     ownerId: z.string().trim().min(1).optional(),
+    businessProfileId: z.string().trim().min(1).optional(),
     status: z.string().trim().min(1).max(40).optional(),
     take: z.coerce.number().int().min(1).max(250).optional().default(100),
 });
@@ -115,6 +116,8 @@ export const adminContentItemSchema = z.object({
     id: z.string(),
     type: adminContentTypeSchema,
     ownerId: z.string(),
+    businessProfileId: z.string().nullable().optional(),
+    businessProfile: z.unknown().nullable().optional(),
     title: z.string(),
     description: z.string().optional().default(''),
     status: z.string(),

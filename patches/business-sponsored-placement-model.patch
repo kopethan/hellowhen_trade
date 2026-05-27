@@ -1,0 +1,1332 @@
+diff --git a/apps/api/prisma/migrations/20260527213000_business_sponsored_placements/migration.sql b/apps/api/prisma/migrations/20260527213000_business_sponsored_placements/migration.sql
+new file mode 100644
+index 0000000..a324637
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260527213000_business_sponsored_placements/migration.sql
+@@ -0,0 +1,68 @@
++-- Hidden first-party Business sponsored placement foundation.
++-- This only stores reviewed placement intent. It does not add ad SDKs,
++-- impression/click tracking, campaign budgets, credits, tokens, or money flow.
++CREATE TYPE "BusinessSponsoredPlacementSurface" AS ENUM (
++  'trades_feed',
++  'starter_library',
++  'needs_list',
++  'offers_list',
++  'business_profile'
++);
++
++CREATE TYPE "BusinessSponsoredPlacementTargetType" AS ENUM (
++  'need',
++  'offer',
++  'inventory_template'
++);
++
++CREATE TYPE "BusinessSponsoredPlacementStatus" AS ENUM (
++  'draft',
++  'pending_review',
++  'approved',
++  'rejected',
++  'paused',
++  'archived'
++);
++
++CREATE TABLE "BusinessSponsoredPlacement" (
++  "id" TEXT NOT NULL,
++  "businessProfileId" TEXT NOT NULL,
++  "targetType" "BusinessSponsoredPlacementTargetType" NOT NULL,
++  "targetId" TEXT NOT NULL,
++  "surface" "BusinessSponsoredPlacementSurface" NOT NULL,
++  "status" "BusinessSponsoredPlacementStatus" NOT NULL DEFAULT 'draft',
++  "label" TEXT NOT NULL DEFAULT 'Sponsored',
++  "priority" INTEGER NOT NULL DEFAULT 0,
++  "startsAt" TIMESTAMP(3),
++  "endsAt" TIMESTAMP(3),
++  "createdById" TEXT NOT NULL,
++  "submittedAt" TIMESTAMP(3),
++  "reviewedById" TEXT,
++  "reviewedAt" TIMESTAMP(3),
++  "reviewNote" TEXT,
++  "archivedAt" TIMESTAMP(3),
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++
++  CONSTRAINT "BusinessSponsoredPlacement_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "BusinessSponsoredPlacement_businessProfileId_targetType_targetId_surface_key"
++  ON "BusinessSponsoredPlacement"("businessProfileId", "targetType", "targetId", "surface");
++CREATE INDEX "BusinessSponsoredPlacement_businessProfileId_status_idx" ON "BusinessSponsoredPlacement"("businessProfileId", "status");
++CREATE INDEX "BusinessSponsoredPlacement_targetType_targetId_idx" ON "BusinessSponsoredPlacement"("targetType", "targetId");
++CREATE INDEX "BusinessSponsoredPlacement_surface_status_priority_idx" ON "BusinessSponsoredPlacement"("surface", "status", "priority");
++CREATE INDEX "BusinessSponsoredPlacement_createdById_createdAt_idx" ON "BusinessSponsoredPlacement"("createdById", "createdAt");
++CREATE INDEX "BusinessSponsoredPlacement_reviewedById_reviewedAt_idx" ON "BusinessSponsoredPlacement"("reviewedById", "reviewedAt");
++
++ALTER TABLE "BusinessSponsoredPlacement"
++  ADD CONSTRAINT "BusinessSponsoredPlacement_businessProfileId_fkey"
++  FOREIGN KEY ("businessProfileId") REFERENCES "BusinessProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessSponsoredPlacement"
++  ADD CONSTRAINT "BusinessSponsoredPlacement_createdById_fkey"
++  FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessSponsoredPlacement"
++  ADD CONSTRAINT "BusinessSponsoredPlacement_reviewedById_fkey"
++  FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 7f4fdbe..32874e1 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -338,6 +338,30 @@ enum BusinessProfileInvitationStatus {
+   expired
+ }
+ 
++
++enum BusinessSponsoredPlacementSurface {
++  trades_feed
++  starter_library
++  needs_list
++  offers_list
++  business_profile
++}
++
++enum BusinessSponsoredPlacementTargetType {
++  need
++  offer
++  inventory_template
++}
++
++enum BusinessSponsoredPlacementStatus {
++  draft
++  pending_review
++  approved
++  rejected
++  paused
++  archived
++}
++
+ enum MoneyProviderTransactionType {
+   payin
+   internal_transfer
+@@ -504,6 +528,8 @@ model User {
+   businessProfileTeamAuditLogs BusinessProfileTeamAuditLog[] @relation("BusinessProfileTeamAuditLogs")
+   businessProfileTeamAuditTargets BusinessProfileTeamAuditLog[] @relation("BusinessProfileTeamAuditTargets")
+   reviewedBusinessProfiles BusinessProfile[] @relation("ReviewedBusinessProfiles")
++  createdBusinessSponsoredPlacements BusinessSponsoredPlacement[] @relation("CreatedBusinessSponsoredPlacements")
++  reviewedBusinessSponsoredPlacements BusinessSponsoredPlacement[] @relation("ReviewedBusinessSponsoredPlacements")
+   moneyProviderTransactions MoneyProviderTransaction[]
+   moneyPolicyAcknowledgements MoneyPolicyAcknowledgement[]
+   adminAuditLogs AdminAuditLog[] @relation("AdminAuditLogs")
+@@ -1264,6 +1290,7 @@ model BusinessProfile {
+   offers                Offer[]
+   trades                Trade[]
+   inventoryTemplates    InventoryTemplate[]
++  sponsoredPlacements   BusinessSponsoredPlacement[]
+ 
+   @@index([ownerId, status])
+   @@index([type, status])
+@@ -1336,6 +1363,39 @@ model BusinessProfileTeamAuditLog {
+   @@index([action, createdAt])
+ }
+ 
++
++model BusinessSponsoredPlacement {
++  id                String                           @id @default(cuid())
++  businessProfileId String
++  targetType        BusinessSponsoredPlacementTargetType
++  targetId          String
++  surface           BusinessSponsoredPlacementSurface
++  status            BusinessSponsoredPlacementStatus @default(draft)
++  label             String                           @default("Sponsored")
++  priority          Int                              @default(0)
++  startsAt          DateTime?
++  endsAt            DateTime?
++  createdById       String
++  submittedAt       DateTime?
++  reviewedById      String?
++  reviewedAt        DateTime?
++  reviewNote        String?
++  archivedAt        DateTime?
++  createdAt         DateTime                         @default(now())
++  updatedAt         DateTime                         @updatedAt
++
++  businessProfile   BusinessProfile                  @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
++  createdBy         User                             @relation("CreatedBusinessSponsoredPlacements", fields: [createdById], references: [id], onDelete: Cascade)
++  reviewer          User?                            @relation("ReviewedBusinessSponsoredPlacements", fields: [reviewedById], references: [id], onDelete: SetNull)
++
++  @@unique([businessProfileId, targetType, targetId, surface])
++  @@index([businessProfileId, status])
++  @@index([targetType, targetId])
++  @@index([surface, status, priority])
++  @@index([createdById, createdAt])
++  @@index([reviewedById, reviewedAt])
++}
++
+ model MoneyPolicyAcknowledgement {
+   id                   String   @id @default(cuid())
+   userId               String
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index ea47eb0..2845c28 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1,13 +1,13 @@
+ import { randomUUID } from 'node:crypto';
+ import { Router } from 'express';
+ import { z } from 'zod';
+-import { adminBusinessProfileActionRequestSchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
++import { adminBusinessProfileActionRequestSchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+ import { hasProAccess } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+-import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
++import { requireBusinessAccountsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+ import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
+@@ -127,6 +127,7 @@ adminRoutes.use(asyncRoute(async (req, res, next) => {
+ adminRoutes.use('/payouts', requirePayoutsVisible('Admin payout tools'));
+ adminRoutes.use('/stripe', requirePayoutsVisible('Admin Stripe payout tools'));
+ adminRoutes.use('/business-profiles', requireBusinessAccountsEnabled('Admin business profiles'));
++adminRoutes.use('/business-sponsored-placements', requireBusinessSponsoredContentEnabled('Admin Business sponsored placements'));
+ adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
+ adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
+ 
+@@ -2302,7 +2303,7 @@ const adminBusinessProfileInclude = {
+   reviewer: { select: { id: true, email: true, profile: true } },
+   members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
+   moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+-  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } },
++  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true } },
+ } as const;
+ 
+ function normalizeAdminBusinessProfile(profile: any) {
+@@ -2329,17 +2330,19 @@ function adminBusinessProfileWhere(input: z.infer<typeof adminBusinessProfileLis
+ }
+ 
+ async function closeBusinessPublicContentForReview(tx: any, businessProfileId: string) {
+-  const [needs, offers, trades, inventoryTemplates] = await Promise.all([
++  const [needs, offers, trades, inventoryTemplates, sponsoredPlacements] = await Promise.all([
+     tx.need.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+     tx.offer.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+     tx.trade.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+     tx.inventoryTemplate.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'archived' } }),
++    (tx as any).businessSponsoredPlacement?.updateMany({ where: { businessProfileId, status: { in: ['pending_review', 'approved', 'paused'] } }, data: { status: 'archived', archivedAt: new Date() } }) ?? Promise.resolve({ count: 0 }),
+   ]);
+   return {
+     needsClosed: needs.count,
+     offersClosed: offers.count,
+     tradesClosed: trades.count,
+     inventoryTemplatesArchived: inventoryTemplates.count,
++    sponsoredPlacementsArchived: sponsoredPlacements.count,
+   };
+ }
+ 
+@@ -2399,7 +2402,7 @@ adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(asy
+   const result = await prisma.$transaction(async (tx) => {
+     const existing = await tx.businessProfile.findUnique({
+       where: { id: businessProfileId },
+-      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } } },
++      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true } } },
+     });
+     if (!existing) return null;
+ 
+@@ -2453,6 +2456,143 @@ adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(asy
+   res.json(result);
+ }));
+ 
++const businessSponsoredPlacementIncludeForAdmin = {
++  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true, ownerId: true } },
++  createdBy: { select: { id: true, email: true, profile: true } },
++  reviewer: { select: { id: true, email: true, profile: true } },
++} as const;
++
++async function loadAdminBusinessSponsoredTarget(businessProfileId: string, targetType: string, targetId: string) {
++  if (targetType === 'need') {
++    return prisma.need.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'offer') {
++    return prisma.offer.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'inventory_template') {
++    return prisma.inventoryTemplate.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  return null;
++}
++
++async function hydrateAdminBusinessSponsoredPlacements(placements: any[]) {
++  return Promise.all(placements.map(async (placement) => ({
++    ...placement,
++    target: await loadAdminBusinessSponsoredTarget(placement.businessProfileId, placement.targetType, placement.targetId),
++  })));
++}
++
++function adminSponsoredPlacementWhere(input: z.infer<typeof adminBusinessSponsoredPlacementListQuerySchema>) {
++  const where: Record<string, unknown> = {};
++  if (input.status !== 'all') where.status = input.status;
++  if (input.surface !== 'all') where.surface = input.surface;
++  if (input.targetType !== 'all') where.targetType = input.targetType;
++  if (input.businessProfileId) where.businessProfileId = input.businessProfileId;
++  if (input.q) {
++    where.OR = [
++      { label: { contains: input.q, mode: 'insensitive' as const } },
++      { reviewNote: { contains: input.q, mode: 'insensitive' as const } },
++      { targetId: { contains: input.q, mode: 'insensitive' as const } },
++      { businessProfile: { displayName: { contains: input.q, mode: 'insensitive' as const } } },
++      { businessProfile: { handle: { contains: input.q, mode: 'insensitive' as const } } },
++    ];
++  }
++  return where;
++}
++
++async function businessSponsoredPlacementStatusSummary(where: Record<string, unknown>) {
++  const [total, draft, pendingReview, approved, rejected, paused, archived] = await Promise.all([
++    (prisma as any).businessSponsoredPlacement.count({ where: where as any }),
++    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'draft' } }),
++    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'pending_review' } }),
++    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'approved' } }),
++    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'rejected' } }),
++    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'paused' } }),
++    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'archived' } }),
++  ]);
++  return { total, draft, pendingReview, approved, rejected, paused, archived };
++}
++
++adminRoutes.get('/business-sponsored-placements', asyncRoute(async (req, res) => {
++  const input = adminBusinessSponsoredPlacementListQuerySchema.parse(req.query);
++  const where = adminSponsoredPlacementWhere(input);
++  const [placements, summary] = await Promise.all([
++    (prisma as any).businessSponsoredPlacement.findMany({
++      where: where as any,
++      include: businessSponsoredPlacementIncludeForAdmin,
++      orderBy: [{ status: 'asc' }, { surface: 'asc' }, { priority: 'desc' }, { updatedAt: 'desc' }],
++      take: input.take,
++    }),
++    businessSponsoredPlacementStatusSummary(where),
++  ]);
++  const recentAuditLogs = await (prisma as any).adminAuditLog?.findMany({
++    where: { targetType: 'business_sponsored_placement', targetId: { in: placements.map((placement: any) => placement.id) } },
++    orderBy: { createdAt: 'desc' },
++    take: 20,
++    include: { admin: { select: { id: true, email: true, profile: true } } },
++  }) ?? [];
++  res.json({ summary, recentAuditLogs, placements: await hydrateAdminBusinessSponsoredPlacements(placements) });
++}));
++
++adminRoutes.patch('/business-sponsored-placements/:placementId/action', asyncRoute(async (req, res) => {
++  const input = adminBusinessSponsoredPlacementActionRequestSchema.parse(req.body ?? {});
++  const placementId = req.params.placementId;
++  if (!placementId) return res.status(400).json({ error: 'business_sponsored_placement_id_required' });
++  const statusByAction = {
++    approve: 'approved',
++    reject: 'rejected',
++    pause: 'paused',
++    archive: 'archived',
++    restore: 'approved',
++  } as const;
++  const nextStatus = statusByAction[input.action];
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessSponsoredPlacement.findUnique({ where: { id: placementId }, include: businessSponsoredPlacementIncludeForAdmin });
++    if (!existing) return null;
++    const profile = existing.businessProfile;
++    if ((input.action === 'approve' || input.action === 'restore') && profile.status !== 'verified') return { status: 409 as const, error: 'business_profile_not_verified' };
++    const target = await loadAdminBusinessSponsoredTarget(existing.businessProfileId, existing.targetType, existing.targetId);
++    if ((input.action === 'approve' || input.action === 'restore') && !target) return { status: 409 as const, error: 'sponsored_target_not_eligible' };
++    const now = new Date();
++    const updated = await (tx as any).businessSponsoredPlacement.update({
++      where: { id: existing.id },
++      data: {
++        status: nextStatus,
++        reviewedAt: now,
++        reviewedById: req.user!.id,
++        reviewNote: input.note,
++        ...(input.action === 'archive' ? { archivedAt: now } : {}),
++        ...(input.action === 'restore' || input.action === 'approve' ? { archivedAt: null } : {}),
++      },
++      include: businessSponsoredPlacementIncludeForAdmin,
++    });
++    await recordAdminAuditLog(tx, req.user!.id, {
++      action: `business_sponsored_placement.${input.action}`,
++      targetType: 'business_sponsored_placement',
++      targetId: existing.id,
++      reason: input.note,
++      previousValue: { status: existing.status, reviewedAt: existing.reviewedAt, reviewedById: existing.reviewedById, reviewNote: existing.reviewNote, archivedAt: existing.archivedAt },
++      nextValue: { status: updated.status, reviewedAt: updated.reviewedAt, reviewedById: updated.reviewedById, reviewNote: updated.reviewNote, archivedAt: updated.archivedAt },
++      metadata: { businessProfileId: existing.businessProfileId, targetType: existing.targetType, targetId: existing.targetId, surface: existing.surface, noTracking: true, noBudget: true },
++    });
++    return { status: 200 as const, placement: updated, target };
++  });
++
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Sponsored placement not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'business_profile_not_verified' ? 'The Business profile must be verified before approving sponsored placements.' : 'Sponsored placement target must be an active, admin-approved Business Need, Offer, or library item.' });
++  res.json({ placement: { ...result.placement, target: result.target ?? await loadAdminBusinessSponsoredTarget(result.placement.businessProfileId, result.placement.targetType, result.placement.targetId) } });
++}));
++
+ 
+ adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+   const provider = buildMoneyProviderStatus();
+diff --git a/apps/api/src/modules/business/business.routes.ts b/apps/api/src/modules/business/business.routes.ts
+index cf26868..32339ad 100644
+--- a/apps/api/src/modules/business/business.routes.ts
++++ b/apps/api/src/modules/business/business.routes.ts
+@@ -9,6 +9,11 @@ import {
+   businessListOwnedInventoryQuerySchema,
+   businessOwnedInventoryArchiveRequestSchema,
+   businessOwnedInventoryReviewRequestSchema,
++  businessCreateSponsoredPlacementRequestSchema,
++  businessSponsoredPlacementListQuerySchema,
++  businessSponsoredPlacementArchiveRequestSchema,
++  businessSponsoredPlacementReviewRequestSchema,
++  businessUpdateSponsoredPlacementRequestSchema,
+   businessListInventoryTemplatesQuerySchema,
+   businessUpdateInventoryTemplateRequestSchema,
+   businessUpdateNeedRequestSchema,
+@@ -25,6 +30,7 @@ import {
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
++import { requireBusinessSponsoredContentEnabled } from '../../middleware/featureGates.js';
+ import { getActiveMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
+ import { withMedia, withOneMedia } from '../media/media.helpers.js';
+@@ -39,6 +45,8 @@ const templateEditRoles = new Set(['owner', 'admin', 'finance', 'member']);
+ const templateSubmitRoles = new Set(['owner', 'admin']);
+ const businessInventoryEditRoles = new Set(['owner', 'admin', 'finance', 'member']);
+ const businessInventorySubmitRoles = new Set(['owner', 'admin']);
++const businessSponsoredPlacementEditRoles = new Set(['owner', 'admin', 'member']);
++const businessSponsoredPlacementSubmitRoles = new Set(['owner', 'admin']);
+ const ownerAssignableRoles = new Set(['admin', 'finance', 'member']);
+ const adminAssignableRoles = new Set(['member']);
+ 
+@@ -46,7 +54,7 @@ const businessInclude = {
+   owner: { select: { id: true, email: true, profile: true, trustTier: true } },
+   members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
+   moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+-  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } },
++  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true } },
+ } as const;
+ 
+ const businessTeamInclude = {
+@@ -173,6 +181,66 @@ const businessOfferInclude = {
+   businessProfile: { select: businessOwnedContentProfileSelect },
+   _count: { select: { trades: true } },
+ } as const;
++const businessSponsoredPlacementInclude = {
++  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true } },
++  createdBy: { select: { id: true, email: true, profile: true } },
++  reviewer: { select: { id: true, email: true, profile: true } },
++} as const;
++
++function canEditBusinessSponsoredPlacements(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && businessSponsoredPlacementEditRoles.has(role));
++}
++
++function canSubmitBusinessSponsoredPlacements(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && businessSponsoredPlacementSubmitRoles.has(role));
++}
++
++function parseNullableDate(value: string | null | undefined) {
++  if (value === undefined) return undefined;
++  if (value === null) return null;
++  return new Date(value);
++}
++
++function cleanSponsoredPlacementDateWindow(startsAt?: string | null, endsAt?: string | null) {
++  const start = parseNullableDate(startsAt);
++  const end = parseNullableDate(endsAt);
++  if (start && end && end.getTime() < start.getTime()) {
++    throw Object.assign(new Error('The end date must be after the start date.'), { statusCode: 400, code: 'invalid_sponsored_placement_window', publicMessage: 'The end date must be after the start date.' });
++  }
++  return { startsAt: start, endsAt: end };
++}
++
++function normalizeSponsoredPlacement(placement: any, target?: unknown) {
++  return { ...placement, target: target ?? placement.target ?? null };
++}
++
++async function loadBusinessSponsoredPlacementTarget(businessProfileId: string, targetType: string, targetId: string) {
++  if (targetType === 'need') {
++    return prisma.need.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'offer') {
++    return prisma.offer.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'inventory_template') {
++    return prisma.inventoryTemplate.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  return null;
++}
++
++async function hydrateBusinessSponsoredPlacements(placements: any[]) {
++  return Promise.all(placements.map(async (placement) => normalizeSponsoredPlacement(placement, await loadBusinessSponsoredPlacementTarget(placement.businessProfileId, placement.targetType, placement.targetId))));
++}
+ 
+ async function syncBusinessOwnedInventoryMedia(client: unknown, ownerId: string, mediaIds: string[] | undefined, entityType: 'need' | 'offer', entityId: string) {
+   const selectedIds = Array.from(new Set(mediaIds ?? []));
+@@ -929,6 +997,193 @@ businessRoutes.post('/:businessProfileId/offers/:offerId/archive', asyncRoute(as
+   res.json({ offer: await withOneMedia('offer', result, 'admin') });
+ }));
+ 
++
++businessRoutes.use('/:businessProfileId/sponsored-placements', requireBusinessSponsoredContentEnabled('Business sponsored placements'));
++
++function businessSponsoredPlacementSearchWhere(q?: string) {
++  const text = q?.trim();
++  return text ? {
++    OR: [
++      { label: { contains: text, mode: 'insensitive' as const } },
++      { reviewNote: { contains: text, mode: 'insensitive' as const } },
++      { targetId: { contains: text, mode: 'insensitive' as const } },
++    ],
++  } : {};
++}
++
++businessRoutes.get('/:businessProfileId/sponsored-placements', asyncRoute(async (req, res) => {
++  const input = businessSponsoredPlacementListQuerySchema.parse(req.query);
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++
++  const placements = await (prisma as any).businessSponsoredPlacement.findMany({
++    where: ({
++      businessProfileId,
++      ...(input.status !== 'all' ? { status: input.status } : {}),
++      ...(input.surface !== 'all' ? { surface: input.surface } : {}),
++      ...(input.targetType !== 'all' ? { targetType: input.targetType } : {}),
++      ...businessSponsoredPlacementSearchWhere(input.q),
++    } as any),
++    include: businessSponsoredPlacementInclude,
++    orderBy: [{ status: 'asc' }, { priority: 'desc' }, { updatedAt: 'desc' }],
++    take: input.take,
++  });
++
++  res.json({
++    businessProfile: { id: businessProfile.id, displayName: businessProfile.displayName, type: businessProfile.type, status: businessProfile.status },
++    myRole: getMyBusinessRole(businessProfile, req.user!.id),
++    placements: await hydrateBusinessSponsoredPlacements(placements),
++  });
++}));
++
++businessRoutes.post('/:businessProfileId/sponsored-placements', asyncRoute(async (req, res) => {
++  const input = businessCreateSponsoredPlacementRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessSponsoredPlacements(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_sponsored_placement_editor_required', message: 'Only business team members can draft sponsored placements.' });
++  if (input.status === 'pending_review' && !canSubmitBusinessSponsoredPlacements(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_sponsored_placement_submitter_required', message: 'Only business owners and admins can submit sponsored placements for review.' });
++  if (businessProfile.status !== 'verified') return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify this Business profile before creating sponsored placements.' });
++  const target = await loadBusinessSponsoredPlacementTarget(businessProfile.id, input.targetType, input.targetId);
++  if (!target) return res.status(400).json({ error: 'sponsored_target_not_eligible', message: 'Sponsored placement target must be an active, admin-approved Business Need, Offer, or library item.' });
++  const window = cleanSponsoredPlacementDateWindow(input.startsAt, input.endsAt);
++
++  try {
++    const placement = await prisma.$transaction(async (tx) => {
++      const created = await (tx as any).businessSponsoredPlacement.create({
++        data: {
++          businessProfileId: businessProfile.id,
++          targetType: input.targetType,
++          targetId: input.targetId,
++          surface: input.surface,
++          label: input.label ?? 'Sponsored',
++          priority: input.priority ?? 0,
++          startsAt: window.startsAt ?? null,
++          endsAt: window.endsAt ?? null,
++          status: input.status,
++          createdById: req.user!.id,
++          submittedAt: input.status === 'pending_review' ? new Date() : null,
++        },
++        include: businessSponsoredPlacementInclude,
++      });
++      await writeTeamAuditLog(tx, {
++        businessProfileId: businessProfile.id,
++        actorId: req.user!.id,
++        action: input.status === 'pending_review' ? 'business_sponsored_placement_created_and_submitted' : 'business_sponsored_placement_created',
++        note: input.note ?? null,
++        nextValue: { placementId: created.id, status: created.status, targetType: created.targetType, targetId: created.targetId, surface: created.surface },
++      });
++      return created;
++    });
++    res.status(201).json({ placement: normalizeSponsoredPlacement(placement, target) });
++  } catch (error: any) {
++    if (error?.code === 'P2002') return res.status(409).json({ error: 'sponsored_placement_exists', message: 'This Business target already has a sponsored placement for that surface.' });
++    throw error;
++  }
++}));
++
++businessRoutes.patch('/:businessProfileId/sponsored-placements/:placementId', asyncRoute(async (req, res) => {
++  const input = businessUpdateSponsoredPlacementRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const placementId = req.params.placementId;
++  if (!businessProfileId || !placementId) return res.status(400).json({ error: 'business_sponsored_placement_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessSponsoredPlacements(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_sponsored_placement_editor_required', message: 'Only business team members can edit sponsored placements.' });
++  if (businessProfile.status !== 'verified') return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify this Business profile before editing sponsored placements.' });
++  const window = cleanSponsoredPlacementDateWindow(input.startsAt, input.endsAt);
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessSponsoredPlacement.findFirst({ where: { id: placementId, businessProfileId }, include: businessSponsoredPlacementInclude });
++    if (!existing) return null;
++    const role = getMyBusinessRole(businessProfile, req.user!.id);
++    if ((existing.status === 'approved' || existing.status === 'paused') && role === 'member') return { status: 403 as const, error: 'business_sponsored_placement_admin_required' };
++    if (existing.status === 'archived') return { status: 409 as const, error: 'business_sponsored_placement_archived' };
++    const nextTargetType = input.targetType ?? existing.targetType;
++    const nextTargetId = input.targetId ?? existing.targetId;
++    const target = await loadBusinessSponsoredPlacementTarget(businessProfileId, nextTargetType, nextTargetId);
++    if (!target) return { status: 409 as const, error: 'sponsored_target_not_eligible' };
++    const changedContent = Object.keys(input).some((key) => key !== 'note');
++    const resetReview = changedContent && (existing.status === 'approved' || existing.status === 'rejected' || existing.status === 'paused');
++    const updated = await (tx as any).businessSponsoredPlacement.update({
++      where: { id: existing.id },
++      data: {
++        ...(input.targetType !== undefined ? { targetType: input.targetType } : {}),
++        ...(input.targetId !== undefined ? { targetId: input.targetId } : {}),
++        ...(input.surface !== undefined ? { surface: input.surface } : {}),
++        ...(input.label !== undefined ? { label: input.label } : {}),
++        ...(input.priority !== undefined ? { priority: input.priority } : {}),
++        ...(input.startsAt !== undefined ? { startsAt: window.startsAt ?? null } : {}),
++        ...(input.endsAt !== undefined ? { endsAt: window.endsAt ?? null } : {}),
++        ...(resetReview ? { status: 'pending_review', submittedAt: new Date(), reviewedAt: null, reviewedById: null, reviewNote: null, archivedAt: null } : {}),
++      },
++      include: businessSponsoredPlacementInclude,
++    });
++    await writeTeamAuditLog(tx, {
++      businessProfileId,
++      actorId: req.user!.id,
++      action: resetReview ? 'business_sponsored_placement_updated_and_resubmitted' : 'business_sponsored_placement_updated',
++      note: input.note ?? null,
++      previousValue: { placementId: existing.id, status: existing.status, targetType: existing.targetType, targetId: existing.targetId, surface: existing.surface, label: existing.label, priority: existing.priority },
++      nextValue: { placementId: updated.id, status: updated.status, targetType: updated.targetType, targetId: updated.targetId, surface: updated.surface, label: updated.label, priority: updated.priority },
++    });
++    return { status: 200 as const, placement: updated, target };
++  });
++
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Sponsored placement not found.' });
++  if (result.status === 403) return res.status(403).json({ error: result.error, message: 'Only business owners/admins can edit approved or paused sponsored placements.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'sponsored_target_not_eligible' ? 'Sponsored placement target must be an active, admin-approved Business Need, Offer, or library item.' : 'Archived sponsored placements cannot be edited.' });
++  res.json({ placement: normalizeSponsoredPlacement(result.placement, result.target) });
++}));
++
++businessRoutes.post('/:businessProfileId/sponsored-placements/:placementId/request-review', asyncRoute(async (req, res) => {
++  const input = businessSponsoredPlacementReviewRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const placementId = req.params.placementId;
++  if (!businessProfileId || !placementId) return res.status(400).json({ error: 'business_sponsored_placement_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessSponsoredPlacements(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_sponsored_placement_submitter_required', message: 'Only business owners and admins can submit sponsored placements for review.' });
++  if (businessProfile.status !== 'verified') return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify this Business profile before submitting sponsored placements.' });
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessSponsoredPlacement.findFirst({ where: { id: placementId, businessProfileId }, include: businessSponsoredPlacementInclude });
++    if (!existing) return null;
++    if (existing.status === 'approved') return { status: 409 as const, error: 'business_sponsored_placement_already_approved' };
++    if (existing.status === 'archived') return { status: 409 as const, error: 'business_sponsored_placement_archived' };
++    const target = await loadBusinessSponsoredPlacementTarget(existing.businessProfileId, existing.targetType, existing.targetId);
++    if (!target) return { status: 409 as const, error: 'sponsored_target_not_eligible' };
++    const updated = await (tx as any).businessSponsoredPlacement.update({ where: { id: existing.id }, data: { status: 'pending_review', submittedAt: new Date(), archivedAt: null }, include: businessSponsoredPlacementInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_sponsored_placement_submitted_for_review', note: input.note, previousValue: { placementId: existing.id, status: existing.status }, nextValue: { placementId: updated.id, status: updated.status } });
++    return { status: 200 as const, placement: updated, target };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Sponsored placement not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'business_sponsored_placement_already_approved' ? 'This sponsored placement is already approved.' : result.error === 'sponsored_target_not_eligible' ? 'Sponsored placement target must be an active, admin-approved Business Need, Offer, or library item.' : 'Archived sponsored placements cannot be submitted for review.' });
++  res.json({ placement: normalizeSponsoredPlacement(result.placement, result.target) });
++}));
++
++businessRoutes.post('/:businessProfileId/sponsored-placements/:placementId/archive', asyncRoute(async (req, res) => {
++  const input = businessSponsoredPlacementArchiveRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const placementId = req.params.placementId;
++  if (!businessProfileId || !placementId) return res.status(400).json({ error: 'business_sponsored_placement_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessSponsoredPlacements(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_sponsored_placement_submitter_required', message: 'Only business owners and admins can archive sponsored placements.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessSponsoredPlacement.findFirst({ where: { id: placementId, businessProfileId }, include: businessSponsoredPlacementInclude });
++    if (!existing) return null;
++    const updated = await (tx as any).businessSponsoredPlacement.update({ where: { id: existing.id }, data: { status: 'archived', archivedAt: new Date() }, include: businessSponsoredPlacementInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_sponsored_placement_archived', note: input.note ?? null, previousValue: { placementId: existing.id, status: existing.status }, nextValue: { placementId: updated.id, status: updated.status } });
++    return updated;
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Sponsored placement not found.' });
++  res.json({ placement: normalizeSponsoredPlacement(result, await loadBusinessSponsoredPlacementTarget(result.businessProfileId, result.targetType, result.targetId)) });
++}));
++
+ businessRoutes.get('/:businessProfileId/templates', asyncRoute(async (req, res) => {
+   const input = businessListInventoryTemplatesQuerySchema.parse(req.query);
+   const businessProfileId = req.params.businessProfileId;
+diff --git a/apps/web/src/app/admin/business-sponsored/page.tsx b/apps/web/src/app/admin/business-sponsored/page.tsx
+new file mode 100644
+index 0000000..5c745e4
+--- /dev/null
++++ b/apps/web/src/app/admin/business-sponsored/page.tsx
+@@ -0,0 +1,275 @@
++'use client';
++
++import { useMemo, useState } from 'react';
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { formatWebDateTime } from '../../../lib/webFormat';
++
++type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
++type PlacementStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'paused' | 'archived';
++type PlacementSurface = 'trades_feed' | 'starter_library' | 'needs_list' | 'offers_list' | 'business_profile';
++type PlacementTargetType = 'need' | 'offer' | 'inventory_template';
++type PlacementAction = 'approve' | 'reject' | 'pause' | 'archive' | 'restore';
++
++type AdminUserPreview = {
++  id: string;
++  email: string;
++  profile?: { displayName?: string | null; handle?: string | null } | null;
++};
++
++type BusinessSponsoredPlacement = {
++  id: string;
++  businessProfileId: string;
++  targetType: PlacementTargetType;
++  targetId: string;
++  surface: PlacementSurface;
++  status: PlacementStatus;
++  label: string;
++  priority: number;
++  startsAt?: string | null;
++  endsAt?: string | null;
++  submittedAt?: string | null;
++  reviewedAt?: string | null;
++  reviewNote?: string | null;
++  archivedAt?: string | null;
++  createdAt: string;
++  updatedAt: string;
++  businessProfile?: { id: string; displayName: string; handle?: string | null; type?: string; status?: string } | null;
++  createdBy?: AdminUserPreview | null;
++  reviewer?: AdminUserPreview | null;
++  target?: { id: string; title?: string | null; description?: string | null; status?: string | null; kind?: string | null; category?: string | null } | null;
++};
++
++type SponsoredResponse = {
++  summary?: Record<string, number>;
++  placements?: BusinessSponsoredPlacement[];
++  recentAuditLogs?: Array<{ id: string; action: string; reason?: string | null; targetId?: string | null; createdAt: string; admin?: AdminUserPreview | null }>;
++};
++
++const statusFilters: Array<PlacementStatus | 'all'> = ['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived'];
++const surfaceFilters: Array<PlacementSurface | 'all'> = ['all', 'trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile'];
++const targetTypeFilters: Array<PlacementTargetType | 'all'> = ['all', 'need', 'offer', 'inventory_template'];
++const actionOptions: Array<{ value: PlacementAction; label: string; danger?: boolean }> = [
++  { value: 'approve', label: 'Approve' },
++  { value: 'restore', label: 'Restore approved' },
++  { value: 'pause', label: 'Pause', danger: true },
++  { value: 'reject', label: 'Reject', danger: true },
++  { value: 'archive', label: 'Archive', danger: true },
++];
++
++function personLabel(user?: AdminUserPreview | null) {
++  return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
++}
++
++function countValue(value: unknown) {
++  return typeof value === 'number' ? value.toLocaleString() : '0';
++}
++
++function dateValue(value: string | Date | null | undefined) {
++  return value instanceof Date ? value.toISOString() : value ?? null;
++}
++
++function statusTone(value?: string) {
++  if (value === 'approved') return 'success';
++  if (value === 'pending_review' || value === 'paused') return 'warning';
++  if (value === 'rejected' || value === 'archived') return 'danger';
++  return 'admin';
++}
++
++function displayValue(value?: string | null) {
++  return value ? value.replaceAll('_', ' ') : 'not set';
++}
++
++export default function AdminBusinessSponsoredPage() {
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
++  const [placements, setPlacements] = useState<BusinessSponsoredPlacement[]>([]);
++  const [summary, setSummary] = useState<Record<string, number> | null>(null);
++  const [recentAuditLogs, setRecentAuditLogs] = useState<SponsoredResponse['recentAuditLogs']>([]);
++  const [query, setQuery] = useState('');
++  const [status, setStatus] = useState<PlacementStatus | 'all'>('pending_review');
++  const [surface, setSurface] = useState<PlacementSurface | 'all'>('all');
++  const [targetType, setTargetType] = useState<PlacementTargetType | 'all'>('all');
++  const [actionForms, setActionForms] = useState<Record<string, { action: PlacementAction; note: string }>>({});
++  const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [savingId, setSavingId] = useState<string | null>(null);
++
++  function clearLocalSession() {
++    clearAdminBrowserSession();
++    setPlacements([]);
++    setSummary(null);
++    setRecentAuditLogs([]);
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
++  }
++
++  function defaultAction(placement: BusinessSponsoredPlacement): PlacementAction {
++    if (placement.status === 'approved') return 'pause';
++    if (placement.status === 'paused' || placement.status === 'archived' || placement.status === 'rejected') return 'restore';
++    return 'approve';
++  }
++
++  function updateActionForm(placement: BusinessSponsoredPlacement, patch: Partial<{ action: PlacementAction; note: string }>) {
++    setActionForms((current) => ({ ...current, [placement.id]: { action: defaultAction(placement), note: '', ...(current[placement.id] ?? {}), ...patch } }));
++  }
++
++  async function loadPlacements() {
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
++    setLoading(true);
++    setNotice(null);
++    try {
++      const params = new URLSearchParams();
++      if (query.trim()) params.set('q', query.trim());
++      if (status !== 'all') params.set('status', status);
++      if (surface !== 'all') params.set('surface', surface);
++      if (targetType !== 'all') params.set('targetType', targetType);
++      const response = await fetch(`${apiBase}/admin/business-sponsored-placements${params.toString() ? `?${params}` : ''}`, { headers });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string; error?: string } | null;
++        throw new Error(body?.message || body?.error || 'Could not load Business sponsored placements. Make sure Business sponsored-content flags are enabled for internal testing.');
++      }
++      const data = await response.json() as SponsoredResponse;
++      const nextPlacements = data.placements ?? [];
++      setPlacements(nextPlacements);
++      setSummary(data.summary ?? null);
++      setRecentAuditLogs(data.recentAuditLogs ?? []);
++      setActionForms((current) => {
++        const next = { ...current };
++        for (const placement of nextPlacements) if (!next[placement.id]) next[placement.id] = { action: defaultAction(placement), note: '' };
++        return next;
++      });
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Business sponsored placements.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  async function submitAction(placement: BusinessSponsoredPlacement) {
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
++    const form = actionForms[placement.id] ?? { action: defaultAction(placement), note: '' };
++    if (form.note.trim().length < 3) {
++      setNotice({ tone: 'warning', body: 'Add a review note before changing a sponsored placement.' });
++      return;
++    }
++    setSavingId(placement.id);
++    setNotice(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/business-sponsored-placements/${placement.id}/action`, {
++        method: 'PATCH',
++        headers,
++        body: JSON.stringify({ action: form.action, note: form.note.trim() }),
++      });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string; error?: string } | null;
++        throw new Error(body?.message || body?.error || 'Could not update sponsored placement.');
++      }
++      setNotice({ tone: 'success', body: 'Sponsored placement action saved.' });
++      updateActionForm(placement, { note: '' });
++      await loadPlacements();
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update sponsored placement.' });
++    } finally {
++      setSavingId(null);
++    }
++  }
++
++  return (
++    <main className="admin-console">
++      <section className="admin-console__hero app-card">
++        <div className="status-row">
++          <span className="semantic-badge admin">Business sponsored placements</span>
++          <span className="semantic-badge warning">Hidden feature</span>
++        </div>
++        <div>
++          <p className="eyebrow">First-party sponsorship review</p>
++          <h1>Sponsored placement review</h1>
++          <p>Review where approved Business-owned Needs, Offers, or library items may appear later. This is not an external ad SDK and does not track impressions, clicks, budgets, credits, or money.</p>
++        </div>
++        <div className="admin-console__login-grid">
++          <p className="notice-box info">Keep this page internal until Business accounts and sponsored content are explicitly launched. Private proposals, support, reports, account, security, and admin pages must remain ad-free.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
++        </div>
++        <div className="admin-filter-row">
++          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Business, label, target ID" /></label>
++          <label>Status<select value={status} onChange={(event) => setStatus(event.target.value as PlacementStatus | 'all')}>{statusFilters.map((item) => <option key={item} value={item}>{displayValue(item)}</option>)}</select></label>
++          <label>Surface<select value={surface} onChange={(event) => setSurface(event.target.value as PlacementSurface | 'all')}>{surfaceFilters.map((item) => <option key={item} value={item}>{displayValue(item)}</option>)}</select></label>
++          <label>Target<select value={targetType} onChange={(event) => setTargetType(event.target.value as PlacementTargetType | 'all')}>{targetTypeFilters.map((item) => <option key={item} value={item}>{displayValue(item)}</option>)}</select></label>
++          <button type="button" onClick={() => { void loadPlacements(); }} disabled={loading || !token}>{loading ? 'Loading…' : 'Load placements'}</button>
++        </div>
++        {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
++      </section>
++
++      {summary ? (
++        <section className="admin-metric-grid">
++          <article className="admin-metric-card"><p>Total</p><strong>{countValue(summary.total)}</strong><span className="meta">All matching placement records</span></article>
++          <article className="admin-metric-card"><p>Pending review</p><strong>{countValue(summary.pendingReview)}</strong><span className="meta">Need admin decision</span></article>
++          <article className="admin-metric-card"><p>Approved</p><strong>{countValue(summary.approved)}</strong><span className="meta">Eligible for future discovery surfaces</span></article>
++          <article className="admin-metric-card"><p>Paused/archived</p><strong>{countValue((summary.paused ?? 0) + (summary.archived ?? 0))}</strong><span className="meta">Not eligible to render</span></article>
++        </section>
++      ) : null}
++
++      <section className="admin-detail-grid">
++        <article className="app-card admin-action-card">
++          <div className="status-row"><span className="semantic-badge success">Safe boundary</span></div>
++          <h2>No tracking or money</h2>
++          <p>This model stores placement intent only: surface, label, priority, optional dates, target item, and admin review status. It intentionally avoids ad provider IDs, impression/click counters, campaign budgets, wallet balances, credits, tokens, or payout logic.</p>
++        </article>
++        <article className="app-card admin-action-card">
++          <div className="status-row"><span className="semantic-badge warning">Approval rule</span></div>
++          <h2>Target must already be approved</h2>
++          <p>Approving a placement requires a verified Business profile and an active Business-owned Need, Offer, or library item. If the target is closed, archived, hidden, rejected, or unverified, approval is blocked.</p>
++        </article>
++      </section>
++
++      <section className="admin-content-list">
++        {placements.map((placement) => {
++          const form = actionForms[placement.id] ?? { action: defaultAction(placement), note: '' };
++          return (
++            <article key={placement.id} className="app-card admin-action-card">
++              <div className="status-row">
++                <span className={`semantic-badge ${statusTone(placement.status)}`}>{displayValue(placement.status)}</span>
++                <span className="semantic-badge admin">{displayValue(placement.surface)}</span>
++                <span className="semantic-badge info">{displayValue(placement.targetType)}</span>
++              </div>
++              <h2>{placement.target?.title || placement.label || 'Sponsored placement'}</h2>
++              <p>{placement.target?.description || `Target ${placement.targetType}: ${placement.targetId}`}</p>
++              <div className="admin-money-strip">
++                <span><small>Business</small><strong>{placement.businessProfile?.displayName || placement.businessProfileId}</strong></span>
++                <span><small>Label</small><strong>{placement.label}</strong></span>
++                <span><small>Priority</small><strong>{countValue(placement.priority)}</strong></span>
++                <span><small>Target status</small><strong>{placement.target?.status || 'not eligible'}</strong></span>
++              </div>
++              <p className="meta">Created by {personLabel(placement.createdBy)} · {formatWebDateTime(dateValue(placement.createdAt))}</p>
++              <p className="meta">Reviewed by {personLabel(placement.reviewer)} {placement.reviewedAt ? `· ${formatWebDateTime(dateValue(placement.reviewedAt))}` : '· not reviewed'}{placement.reviewNote ? ` · Note: ${placement.reviewNote}` : ''}</p>
++              <p className="meta">Window: {placement.startsAt ? formatWebDateTime(dateValue(placement.startsAt)) : 'no start'} → {placement.endsAt ? formatWebDateTime(dateValue(placement.endsAt)) : 'no end'}</p>
++              <div className="admin-filter-row">
++                <label>Action<select value={form.action} onChange={(event) => updateActionForm(placement, { action: event.target.value as PlacementAction })}>{actionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
++                <label className="admin-wide-field">Required note<textarea value={form.note} onChange={(event) => updateActionForm(placement, { note: event.target.value })} placeholder="Explain why this sponsored placement action is safe." /></label>
++                <button type="button" onClick={() => { void submitAction(placement); }} disabled={savingId === placement.id || !token}>{savingId === placement.id ? 'Saving…' : 'Save action'}</button>
++              </div>
++            </article>
++          );
++        })}
++        {!loading && placements.length === 0 ? <article className="app-card admin-action-card"><h2>No sponsored placements loaded</h2><p>Load placements after enabling Business sponsored-content flags in an internal environment.</p></article> : null}
++      </section>
++
++      <section className="app-card admin-action-card">
++        <div className="status-row"><span className="semantic-badge admin">Recent sponsored audit</span></div>
++        <h2>Latest sponsored placement decisions</h2>
++        <div className="admin-audit-list">
++          {(recentAuditLogs ?? []).map((log) => (
++            <article key={log.id} className="admin-audit-row">
++              <span>
++                <strong>{log.action}</strong>
++                <small>{log.targetId || 'Sponsored placement'} · {personLabel(log.admin)} · {formatWebDateTime(dateValue(log.createdAt))}</small>
++                {log.reason ? <small>Note: {log.reason}</small> : null}
++              </span>
++            </article>
++          ))}
++          {recentAuditLogs?.length === 0 ? <p>No sponsored placement audit entries in the latest result.</p> : null}
++        </div>
++      </section>
++    </main>
++  );
++}
+diff --git a/apps/web/src/app/admin/business/page.tsx b/apps/web/src/app/admin/business/page.tsx
+index 7a8127f..28929a2 100644
+--- a/apps/web/src/app/admin/business/page.tsx
++++ b/apps/web/src/app/admin/business/page.tsx
+@@ -37,7 +37,7 @@ type BusinessProfile = {
+   reviewer?: AdminUserPreview | null;
+   members?: Array<{ id: string; role: string; user?: AdminUserPreview | null }>;
+   moneyProviderAccounts?: Array<{ id: string; provider: string; status: string; accountType: string; country?: string | null; defaultCurrency?: string | null }>;
+-  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number };
++  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number; sponsoredPlacements?: number };
+ };
+ 
+ type BusinessAdminResponse = {
+@@ -176,7 +176,7 @@ export default function AdminBusinessPage() {
+       }
+       const data = await response.json() as { businessProfile?: BusinessProfile; contentAction?: Record<string, number> | null };
+       const contentSummary = data.contentAction
+-        ? ` Content closed: ${countValue(data.contentAction.needsClosed)} needs, ${countValue(data.contentAction.offersClosed)} offers, ${countValue(data.contentAction.tradesClosed)} trades, ${countValue(data.contentAction.inventoryTemplatesArchived)} templates.`
++        ? ` Content closed: ${countValue(data.contentAction.needsClosed)} needs, ${countValue(data.contentAction.offersClosed)} offers, ${countValue(data.contentAction.tradesClosed)} trades, ${countValue(data.contentAction.inventoryTemplatesArchived)} templates, ${countValue(data.contentAction.sponsoredPlacementsArchived)} sponsored placements.`
+         : '';
+       setNotice({ tone: 'success', body: `Business profile action saved.${contentSummary}` });
+       updateActionForm(data.businessProfile ?? profile, { note: '', disablePublicContent: false });
+@@ -278,6 +278,7 @@ export default function AdminBusinessPage() {
+                 <span><small>Offers</small><strong>{countValue(profile.counts?.offers)}</strong></span>
+                 <span><small>Trades</small><strong>{countValue(profile.counts?.trades)}</strong></span>
+                 <span><small>Templates</small><strong>{countValue(profile.counts?.inventoryTemplates)}</strong></span>
++                <span><small>Sponsored</small><strong>{countValue(profile.counts?.sponsoredPlacements)}</strong></span>
+               </div>
+               <p className="meta">Reviewed by {personLabel(profile.reviewer)} {profile.reviewedAt ? `· ${formatWebDateTime(dateValue(profile.reviewedAt))}` : '· not reviewed'}{profile.reviewNote ? ` · Note: ${profile.reviewNote}` : ''}</p>
+               {profile.websiteUrl ? <p className="meta">Website: {profile.websiteUrl}</p> : null}
+diff --git a/apps/web/src/app/admin/layout.tsx b/apps/web/src/app/admin/layout.tsx
+index 1ab6bb7..64cdce2 100644
+--- a/apps/web/src/app/admin/layout.tsx
++++ b/apps/web/src/app/admin/layout.tsx
+@@ -18,6 +18,7 @@ const adminNavItems = [
+   { href: '/admin/users', label: 'Users' },
+   { href: '/admin/pro', label: 'Pro' },
+   { href: '/admin/business', label: 'Business' },
++  { href: '/admin/business-sponsored', label: 'Sponsored' },
+   { href: '/admin/usage', label: 'Usage' },
+   { href: '/admin/content', label: 'Content' },
+   { href: '/admin/reports', label: 'Reports' },
+diff --git a/apps/web/src/app/admin/page.tsx b/apps/web/src/app/admin/page.tsx
+index f2db6e7..09e6d9b 100644
+--- a/apps/web/src/app/admin/page.tsx
++++ b/apps/web/src/app/admin/page.tsx
+@@ -13,6 +13,7 @@ const adminSections = [
+   { href: '/admin/library', title: 'Starter library', body: 'Create, edit, hide, or restore admin-managed starter Need and Offer templates.', tone: 'info' },
+   { href: '/admin/users', title: 'Users', body: 'Search users, review launch status, suspend, restore, and force logout safely.', tone: 'warning' },
+   { href: '/admin/business', title: 'Business review', body: 'Review hidden Business, brand, agency, and Enterprise profile status with mandatory notes and audit trail.', tone: 'admin' },
++  { href: '/admin/business-sponsored', title: 'Sponsored placements', body: 'Review hidden first-party Business sponsored placement intent without external ad SDKs, tracking, budgets, or money.', tone: 'warning' },
+   { href: '/admin/content', title: 'Content', body: 'Hide, restore, close, or mark reviewed trades, needs, and offers.', tone: 'danger' },
+   { href: '/admin/reports', title: 'Report queue', body: 'Resolve, dismiss, hide targets, suspend owners, or escalate reports to support.', tone: 'danger' },
+   { href: '/admin/support', title: 'Support inbox', body: 'Review tickets, reply, add internal notes, and close resolved user requests.', tone: 'info' },
+diff --git a/docs/product/business-enterprise-account-plan.md b/docs/product/business-enterprise-account-plan.md
+index e0e616f..f2dfe60 100644
+--- a/docs/product/business-enterprise-account-plan.md
++++ b/docs/product/business-enterprise-account-plan.md
+@@ -408,6 +408,66 @@ never use private proposal data for targeting
+ never appear in private/sensitive flows
+ ```
+ 
++### Sponsored placement model
++
++A sponsored placement record should only describe **where an already-approved Business-owned item may appear later**.
++
++Recommended target types:
++
++```txt
++Business-owned Need
++Business-owned Offer
++Business-owned inventory/library template
++```
++
++Recommended placement surfaces:
++
++```txt
++trades_feed
++starter_library
++needs_list
++offers_list
++business_profile
++```
++
++A placement should store:
++
++```txt
++businessProfileId
++targetType
++targetId
++surface
++status
++label
++priority
++optional start/end window
++createdBy
++reviewer
++review note
++```
++
++It should not store:
++
++```txt
++ad provider account IDs
++impression counts
++click counts
++tracking pixels
++bid amount
++campaign budget
++wallet balance
++credits/tokens/tickets/checks
++payout data
++```
++
++Approval rule:
++
++```txt
++Business profile must be verified.
++Target item must already be active/admin-approved.
++Admin review note is required before approval, rejection, pause, archive, or restore.
++```
++
+ ### External ad providers
+ 
+ External ad providers such as AdSense or AdMob are separate from Business accounts.
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 14fe8d8..6b469d6 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -45,6 +45,11 @@ export function createApiClient(options: ApiClientOptions) {
+       updateTemplate: (businessProfileId: string, templateId: string, body: BusinessUpdateInventoryTemplateRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+       requestTemplateReview: (businessProfileId: string, templateId: string, body: BusinessInventoryTemplateReviewRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
+       archiveTemplate: (businessProfileId: string, templateId: string, body?: BusinessInventoryTemplateArchiveRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
++      sponsoredPlacements: (businessProfileId: string, query?: BusinessSponsoredPlacementListQuery) => requestJson(options, `/business/${businessProfileId}/sponsored-placements${buildQueryString(query as Record<string, unknown> | undefined)}`),
++      createSponsoredPlacement: (businessProfileId: string, body: BusinessCreateSponsoredPlacementRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements`, { method: 'POST', body: JSON.stringify(body) }),
++      updateSponsoredPlacement: (businessProfileId: string, placementId: string, body: BusinessUpdateSponsoredPlacementRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements/${placementId}`, { method: 'PATCH', body: JSON.stringify(body) }),
++      requestSponsoredPlacementReview: (businessProfileId: string, placementId: string, body: BusinessSponsoredPlacementReviewRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements/${placementId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
++      archiveSponsoredPlacement: (businessProfileId: string, placementId: string, body?: BusinessSponsoredPlacementArchiveRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements/${placementId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+       providerAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account`),
+       createBusinessProviderOnboardingLink: (businessProfileId: string, body?: BusinessProviderOnboardingLinkRequest) => requestJson(options, `/business/${businessProfileId}/provider-account/onboarding-link`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+       syncBusinessProviderAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account/sync`, { method: 'POST' }),
+@@ -60,7 +65,7 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }), publicMessages: (tradeId: string, query?: Record<string, unknown>) => requestJson(options, `/trades/${tradeId}/public-messages${buildQueryString(query)}`), sendPublicMessage: (tradeId: string, body: CreateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (tradeId: string, messageId: string, body: UpdateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (tradeId: string, messageId: string) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'DELETE' }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessSponsoredPlacements: (query?: string) => requestJson(options, `/admin/business-sponsored-placements${query ?? ''}`), updateBusinessSponsoredPlacementAction: (placementId: string, body: AdminBusinessSponsoredPlacementActionRequest) => requestJson(options, `/admin/business-sponsored-placements/${placementId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     account: { deletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request'), requestDeletion: (body?: CreateAccountDeletionRequest) => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request', { method: 'POST', body: JSON.stringify(body ?? {}) }), cancelDeletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request/cancel', { method: 'PATCH' }) },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), createGuestTicket: (body: CreateGuestSupportTicketRequest) => requestJson(options, '/support/guest/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+diff --git a/packages/contracts/src/business.d.ts b/packages/contracts/src/business.d.ts
+index 247175a..02a9c9c 100644
+--- a/packages/contracts/src/business.d.ts
++++ b/packages/contracts/src/business.d.ts
+@@ -26,6 +26,26 @@ export declare const businessProfileInvitationStatusSchema: z.ZodEnum<{
+     revoked: "revoked";
+     expired: "expired";
+ }>;
++export declare const businessSponsoredPlacementSurfaceSchema: z.ZodEnum<{
++    trades_feed: "trades_feed";
++    starter_library: "starter_library";
++    needs_list: "needs_list";
++    offers_list: "offers_list";
++    business_profile: "business_profile";
++}>;
++export declare const businessSponsoredPlacementTargetTypeSchema: z.ZodEnum<{
++    need: "need";
++    offer: "offer";
++    inventory_template: "inventory_template";
++}>;
++export declare const businessSponsoredPlacementStatusSchema: z.ZodEnum<{
++    draft: "draft";
++    pending_review: "pending_review";
++    approved: "approved";
++    rejected: "rejected";
++    paused: "paused";
++    archived: "archived";
++}>;
+ export declare const createBusinessProfileRequestSchema: z.ZodObject<any>;
+ export declare const updateBusinessProfileRequestSchema: z.ZodObject<any>;
+ export declare const requestBusinessReviewRequestSchema: z.ZodObject<any>;
+@@ -47,11 +67,21 @@ export declare const businessUpdateOfferRequestSchema: z.ZodObject<any>;
+ export declare const businessListOwnedInventoryQuerySchema: z.ZodObject<any>;
+ export declare const businessOwnedInventoryReviewRequestSchema: z.ZodObject<any>;
+ export declare const businessOwnedInventoryArchiveRequestSchema: z.ZodObject<any>;
++export declare const businessSponsoredPlacementListQuerySchema: z.ZodObject<any>;
++export declare const businessCreateSponsoredPlacementRequestSchema: z.ZodType<any>;
++export declare const businessUpdateSponsoredPlacementRequestSchema: z.ZodType<any>;
++export declare const businessSponsoredPlacementReviewRequestSchema: z.ZodObject<any>;
++export declare const businessSponsoredPlacementArchiveRequestSchema: z.ZodObject<any>;
++export declare const adminBusinessSponsoredPlacementListQuerySchema: z.ZodObject<any>;
++export declare const adminBusinessSponsoredPlacementActionRequestSchema: z.ZodObject<any>;
+ export declare const adminBusinessProfileActionRequestSchema: z.ZodObject<any>;
+ export type BusinessProfileType = z.infer<typeof businessProfileTypeSchema>;
+ export type BusinessProfileStatus = z.infer<typeof businessProfileStatusSchema>;
+ export type BusinessProfileMemberRole = z.infer<typeof businessProfileMemberRoleSchema>;
+ export type BusinessProfileInvitationStatus = z.infer<typeof businessProfileInvitationStatusSchema>;
++export type BusinessSponsoredPlacementSurface = z.infer<typeof businessSponsoredPlacementSurfaceSchema>;
++export type BusinessSponsoredPlacementTargetType = z.infer<typeof businessSponsoredPlacementTargetTypeSchema>;
++export type BusinessSponsoredPlacementStatus = z.infer<typeof businessSponsoredPlacementStatusSchema>;
+ export type CreateBusinessProfileRequest = z.infer<typeof createBusinessProfileRequestSchema>;
+ export type UpdateBusinessProfileRequest = z.infer<typeof updateBusinessProfileRequestSchema>;
+ export type RequestBusinessReviewRequest = z.infer<typeof requestBusinessReviewRequestSchema>;
+@@ -73,5 +103,12 @@ export type BusinessUpdateOfferRequest = z.infer<typeof businessUpdateOfferReque
+ export type BusinessListOwnedInventoryQuery = z.infer<typeof businessListOwnedInventoryQuerySchema>;
+ export type BusinessOwnedInventoryReviewRequest = z.infer<typeof businessOwnedInventoryReviewRequestSchema>;
+ export type BusinessOwnedInventoryArchiveRequest = z.infer<typeof businessOwnedInventoryArchiveRequestSchema>;
++export type BusinessSponsoredPlacementListQuery = z.infer<typeof businessSponsoredPlacementListQuerySchema>;
++export type BusinessCreateSponsoredPlacementRequest = z.infer<typeof businessCreateSponsoredPlacementRequestSchema>;
++export type BusinessUpdateSponsoredPlacementRequest = z.infer<typeof businessUpdateSponsoredPlacementRequestSchema>;
++export type BusinessSponsoredPlacementReviewRequest = z.infer<typeof businessSponsoredPlacementReviewRequestSchema>;
++export type BusinessSponsoredPlacementArchiveRequest = z.infer<typeof businessSponsoredPlacementArchiveRequestSchema>;
++export type AdminBusinessSponsoredPlacementListQuery = z.infer<typeof adminBusinessSponsoredPlacementListQuerySchema>;
++export type AdminBusinessSponsoredPlacementActionRequest = z.infer<typeof adminBusinessSponsoredPlacementActionRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;
+ //# sourceMappingURL=business.d.ts.map
+diff --git a/packages/contracts/src/business.js b/packages/contracts/src/business.js
+index baa51ac..4c9a9ac 100644
+--- a/packages/contracts/src/business.js
++++ b/packages/contracts/src/business.js
+@@ -4,6 +4,10 @@ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand',
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+ export const businessProfileMemberRoleSchema = z.enum(['owner', 'admin', 'finance', 'member']);
+ export const businessProfileInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired']);
++export const businessSponsoredPlacementSurfaceSchema = z.enum(['trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']);
++export const businessSponsoredPlacementTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
++export const businessSponsoredPlacementStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']);
++const optionalDateTime = z.string().trim().datetime().optional().nullable();
+ const optionalText = (max) => z.string().trim().max(max).optional().nullable();
+ export const createBusinessProfileRequestSchema = z.object({
+     type: businessProfileTypeSchema.optional().default('business'),
+@@ -107,6 +111,44 @@ export const businessOwnedInventoryArchiveRequestSchema = z.object({
+   note: z.string().trim().max(1000).optional(),
+ });
+ 
++
++export const businessSponsoredPlacementListQuerySchema = z.object({
++    status: z.enum(['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']).optional().default('all'),
++    surface: z.enum(['all', 'trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']).optional().default('all'),
++    targetType: z.enum(['all', 'need', 'offer', 'inventory_template']).optional().default('all'),
++    q: z.string().trim().min(1).max(120).optional(),
++    take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++const businessSponsoredPlacementBaseSchema = z.object({
++    targetType: businessSponsoredPlacementTargetTypeSchema,
++    targetId: z.string().trim().min(1).max(128),
++    surface: businessSponsoredPlacementSurfaceSchema,
++    label: z.string().trim().min(2).max(40).optional().default('Sponsored'),
++    priority: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
++    startsAt: optionalDateTime,
++    endsAt: optionalDateTime,
++});
++export const businessCreateSponsoredPlacementRequestSchema = businessSponsoredPlacementBaseSchema.extend({
++    status: z.enum(['draft', 'pending_review']).optional().default('draft'),
++    note: z.string().trim().max(1000).optional(),
++}).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime(), { message: 'The end date must be after the start date.', path: ['endsAt'] });
++export const businessUpdateSponsoredPlacementRequestSchema = businessSponsoredPlacementBaseSchema.partial().extend({
++    note: z.string().trim().max(1000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one sponsored placement field.' }).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime(), { message: 'The end date must be after the start date.', path: ['endsAt'] });
++export const businessSponsoredPlacementReviewRequestSchema = z.object({
++    note: z.string().trim().min(3).max(1000),
++});
++export const businessSponsoredPlacementArchiveRequestSchema = z.object({
++    note: z.string().trim().max(1000).optional(),
++});
++export const adminBusinessSponsoredPlacementListQuerySchema = businessSponsoredPlacementListQuerySchema.extend({
++    businessProfileId: z.string().trim().min(1).max(128).optional(),
++});
++export const adminBusinessSponsoredPlacementActionRequestSchema = z.object({
++    action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore']),
++    note: z.string().trim().min(3).max(1000),
++});
++
+ export const adminBusinessProfileActionRequestSchema = z.object({
+     action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
+     note: z.string().trim().min(3).max(1000),
+diff --git a/packages/contracts/src/business.ts b/packages/contracts/src/business.ts
+index ee158c9..7565538 100644
+--- a/packages/contracts/src/business.ts
++++ b/packages/contracts/src/business.ts
+@@ -5,7 +5,11 @@ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand',
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+ export const businessProfileMemberRoleSchema = z.enum(['owner', 'admin', 'finance', 'member']);
+ export const businessProfileInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired']);
++export const businessSponsoredPlacementSurfaceSchema = z.enum(['trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']);
++export const businessSponsoredPlacementTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
++export const businessSponsoredPlacementStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']);
+ 
++const optionalDateTime = z.string().trim().datetime().optional().nullable();
+ const optionalText = (max: number) => z.string().trim().max(max).optional().nullable();
+ 
+ export const createBusinessProfileRequestSchema = z.object({
+@@ -120,6 +124,50 @@ export const businessOwnedInventoryArchiveRequestSchema = z.object({
+   note: z.string().trim().max(1000).optional(),
+ });
+ 
++export const businessSponsoredPlacementListQuerySchema = z.object({
++  status: z.enum(['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']).optional().default('all'),
++  surface: z.enum(['all', 'trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']).optional().default('all'),
++  targetType: z.enum(['all', 'need', 'offer', 'inventory_template']).optional().default('all'),
++  q: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++
++const businessSponsoredPlacementBaseSchema = z.object({
++  targetType: businessSponsoredPlacementTargetTypeSchema,
++  targetId: z.string().trim().min(1).max(128),
++  surface: businessSponsoredPlacementSurfaceSchema,
++  label: z.string().trim().min(2).max(40).optional().default('Sponsored'),
++  priority: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
++  startsAt: optionalDateTime,
++  endsAt: optionalDateTime,
++});
++
++export const businessCreateSponsoredPlacementRequestSchema = businessSponsoredPlacementBaseSchema.extend({
++  status: z.enum(['draft', 'pending_review']).optional().default('draft'),
++  note: z.string().trim().max(1000).optional(),
++}).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime(), { message: 'The end date must be after the start date.', path: ['endsAt'] });
++
++export const businessUpdateSponsoredPlacementRequestSchema = businessSponsoredPlacementBaseSchema.partial().extend({
++  note: z.string().trim().max(1000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one sponsored placement field.' }).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime(), { message: 'The end date must be after the start date.', path: ['endsAt'] });
++
++export const businessSponsoredPlacementReviewRequestSchema = z.object({
++  note: z.string().trim().min(3).max(1000),
++});
++
++export const businessSponsoredPlacementArchiveRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
++export const adminBusinessSponsoredPlacementListQuerySchema = businessSponsoredPlacementListQuerySchema.extend({
++  businessProfileId: z.string().trim().min(1).max(128).optional(),
++});
++
++export const adminBusinessSponsoredPlacementActionRequestSchema = z.object({
++  action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore']),
++  note: z.string().trim().min(3).max(1000),
++});
++
+ export const adminBusinessProfileActionRequestSchema = z.object({
+   action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
+   note: z.string().trim().min(3).max(1000),
+@@ -130,6 +178,9 @@ export type BusinessProfileType = z.infer<typeof businessProfileTypeSchema>;
+ export type BusinessProfileStatus = z.infer<typeof businessProfileStatusSchema>;
+ export type BusinessProfileMemberRole = z.infer<typeof businessProfileMemberRoleSchema>;
+ export type BusinessProfileInvitationStatus = z.infer<typeof businessProfileInvitationStatusSchema>;
++export type BusinessSponsoredPlacementSurface = z.infer<typeof businessSponsoredPlacementSurfaceSchema>;
++export type BusinessSponsoredPlacementTargetType = z.infer<typeof businessSponsoredPlacementTargetTypeSchema>;
++export type BusinessSponsoredPlacementStatus = z.infer<typeof businessSponsoredPlacementStatusSchema>;
+ export type CreateBusinessProfileRequest = z.infer<typeof createBusinessProfileRequestSchema>;
+ export type UpdateBusinessProfileRequest = z.infer<typeof updateBusinessProfileRequestSchema>;
+ export type RequestBusinessReviewRequest = z.infer<typeof requestBusinessReviewRequestSchema>;
+@@ -151,4 +202,11 @@ export type BusinessUpdateOfferRequest = z.infer<typeof businessUpdateOfferReque
+ export type BusinessListOwnedInventoryQuery = z.infer<typeof businessListOwnedInventoryQuerySchema>;
+ export type BusinessOwnedInventoryReviewRequest = z.infer<typeof businessOwnedInventoryReviewRequestSchema>;
+ export type BusinessOwnedInventoryArchiveRequest = z.infer<typeof businessOwnedInventoryArchiveRequestSchema>;
++export type BusinessSponsoredPlacementListQuery = z.infer<typeof businessSponsoredPlacementListQuerySchema>;
++export type BusinessCreateSponsoredPlacementRequest = z.infer<typeof businessCreateSponsoredPlacementRequestSchema>;
++export type BusinessUpdateSponsoredPlacementRequest = z.infer<typeof businessUpdateSponsoredPlacementRequestSchema>;
++export type BusinessSponsoredPlacementReviewRequest = z.infer<typeof businessSponsoredPlacementReviewRequestSchema>;
++export type BusinessSponsoredPlacementArchiveRequest = z.infer<typeof businessSponsoredPlacementArchiveRequestSchema>;
++export type AdminBusinessSponsoredPlacementListQuery = z.infer<typeof adminBusinessSponsoredPlacementListQuerySchema>;
++export type AdminBusinessSponsoredPlacementActionRequest = z.infer<typeof adminBusinessSponsoredPlacementActionRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;

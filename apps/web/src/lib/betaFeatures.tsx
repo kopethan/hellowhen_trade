@@ -61,6 +61,7 @@ export const betaFeatures = {
   businessAccountsVisible: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
   businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
   businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
+  businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED),
   proSubscriptionFeatures,
   proTradePackageFeatures,
   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,

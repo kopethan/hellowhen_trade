@@ -1,0 +1,1476 @@
+diff --git a/apps/api/prisma/migrations/20260527201000_business_owned_inventory/migration.sql b/apps/api/prisma/migrations/20260527201000_business_owned_inventory/migration.sql
+new file mode 100644
+index 0000000..3690a66
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260527201000_business_owned_inventory/migration.sql
+@@ -0,0 +1,5 @@
++-- Business-owned Needs/Offers need admin review states before they become public.
++ALTER TYPE "NeedStatus" ADD VALUE IF NOT EXISTS 'pending_review';
++ALTER TYPE "NeedStatus" ADD VALUE IF NOT EXISTS 'rejected';
++ALTER TYPE "OfferStatus" ADD VALUE IF NOT EXISTS 'pending_review';
++ALTER TYPE "OfferStatus" ADD VALUE IF NOT EXISTS 'rejected';
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 57cbfc4..7f4fdbe 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -73,7 +73,9 @@ enum AuthIdentityProvider {
+ 
+ enum NeedStatus {
+   draft
++  pending_review
+   active
++  rejected
+   fulfilled
+   closed
+   expired
+@@ -81,7 +83,9 @@ enum NeedStatus {
+ 
+ enum OfferStatus {
+   draft
++  pending_review
+   active
++  rejected
+   accepted
+   closed
+   expired
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index b502bd7..ea47eb0 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1303,14 +1303,16 @@ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
+ 
+ const adminContentUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
+ const tradeStatusValues = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'] as const;
+-const needStatusValues = ['draft', 'active', 'fulfilled', 'closed', 'expired'] as const;
+-const offerStatusValues = ['draft', 'active', 'accepted', 'closed', 'expired'] as const;
++const needStatusValues = ['draft', 'pending_review', 'active', 'rejected', 'fulfilled', 'closed', 'expired'] as const;
++const offerStatusValues = ['draft', 'pending_review', 'active', 'rejected', 'accepted', 'closed', 'expired'] as const;
+ 
+ type AdminContentType = 'trade' | 'need' | 'offer';
+ type AdminContentItem = {
+   id: string;
+   type: AdminContentType;
+   ownerId: string;
++  businessProfileId?: string | null;
++  businessProfile?: unknown;
+   title: string;
+   description: string;
+   status: string;
+@@ -1354,6 +1356,7 @@ function inventoryVisibilityBlockers(item: any, type: 'need' | 'offer') {
+   const blockers: string[] = [];
+   if (item.status !== 'active') blockers.push(`${type} status: ${item.status}`);
+   if (item.owner?.trustTier === 'restricted') blockers.push('owner restricted');
++  if (item.businessProfileId && item.businessProfile?.status !== 'verified') blockers.push(`business status: ${item.businessProfile?.status ?? 'missing'}`);
+   if (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()) blockers.push(`${type} expired`);
+   return blockers;
+ }
+@@ -1380,6 +1383,8 @@ async function toAdminTradeItem(trade: any): Promise<AdminContentItem> {
+     id: trade.id,
+     type: 'trade',
+     ownerId: trade.ownerId,
++    businessProfileId: trade.businessProfileId ?? null,
++    businessProfile: trade.businessProfile ?? null,
+     title: trade.title,
+     description: trade.description,
+     status: trade.status,
+@@ -1405,6 +1410,8 @@ function toAdminNeedItem(need: any): AdminContentItem {
+     id: need.id,
+     type: 'need',
+     ownerId: need.ownerId,
++    businessProfileId: need.businessProfileId ?? null,
++    businessProfile: need.businessProfile ?? null,
+     title: need.title,
+     description: need.description,
+     status: need.status,
+@@ -1427,6 +1434,8 @@ function toAdminOfferItem(offer: any): AdminContentItem {
+     id: offer.id,
+     type: 'offer',
+     ownerId: offer.ownerId,
++    businessProfileId: offer.businessProfileId ?? null,
++    businessProfile: offer.businessProfile ?? null,
+     title: offer.title,
+     description: offer.description,
+     status: offer.status,
+@@ -1445,14 +1454,14 @@ function toAdminOfferItem(offer: any): AdminContentItem {
+ 
+ async function loadAdminContentItem(type: AdminContentType, id: string) {
+   if (type === 'trade') {
+-    const trade = await prisma.trade.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } } });
++    const trade = await prisma.trade.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } } });
+     return trade ? (await hydrateAdminContent([await toAdminTradeItem(trade)]))[0] : null;
+   }
+   if (type === 'need') {
+-    const need = await prisma.need.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } } });
++    const need = await prisma.need.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } } });
+     return need ? (await hydrateAdminContent([toAdminNeedItem(need)]))[0] : null;
+   }
+-  const offer = await prisma.offer.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } } });
++  const offer = await prisma.offer.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } } });
+   return offer ? (await hydrateAdminContent([toAdminOfferItem(offer)]))[0] : null;
+ }
+ 
+@@ -1518,12 +1527,13 @@ adminRoutes.get('/content', asyncRoute(async (req, res) => {
+   if (types.includes('trade')) {
+     const where = {
+       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
++      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
+       ...(isOneOf(input.status, tradeStatusValues) ? { status: input.status } : {}),
+       ...contentSearchWhere(input.q),
+     };
+     const trades = await prisma.trade.findMany({
+       where,
+-      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
++      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+       orderBy: { createdAt: 'desc' },
+       take,
+     });
+@@ -1533,12 +1543,13 @@ adminRoutes.get('/content', asyncRoute(async (req, res) => {
+   if (types.includes('need')) {
+     const where = {
+       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
++      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
+       ...(isOneOf(input.status, needStatusValues) ? { status: input.status } : {}),
+       ...contentSearchWhere(input.q),
+     };
+     const needs = await prisma.need.findMany({
+       where,
+-      include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } },
++      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } },
+       orderBy: { createdAt: 'desc' },
+       take,
+     });
+@@ -1548,12 +1559,13 @@ adminRoutes.get('/content', asyncRoute(async (req, res) => {
+   if (types.includes('offer')) {
+     const where = {
+       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
++      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
+       ...(isOneOf(input.status, offerStatusValues) ? { status: input.status } : {}),
+       ...contentSearchWhere(input.q),
+     };
+     const offers = await prisma.offer.findMany({
+       where,
+-      include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } },
++      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } },
+       orderBy: { createdAt: 'desc' },
+       take,
+     });
+@@ -1572,12 +1584,19 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
+   const note = input.note?.trim();
+   const contentId = req.params.contentId;
+   if (!contentId) return res.status(400).json({ error: 'content_id_required' });
+-  if (['hide', 'restore', 'close'].includes(input.action) && !note) {
+-    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before hiding, restoring, or closing content.' });
++  if (['approve', 'reject', 'hide', 'restore', 'close'].includes(input.action) && !note) {
++    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before approving, rejecting, hiding, restoring, or closing content.' });
+   }
+ 
+   const existing = await loadAdminContentItem(type, contentId);
+   if (!existing) return res.status(404).json({ error: 'not_found' });
++  const isBusinessOwned = Boolean(existing.businessProfileId);
++  if ((input.action === 'approve' || input.action === 'reject') && (type === 'trade' || !isBusinessOwned)) {
++    return res.status(400).json({ error: 'business_content_action_required', message: 'Approve/reject is only available for Business-owned Needs and Offers.' });
++  }
++  if ((input.action === 'approve' || input.action === 'restore') && isBusinessOwned && (existing.businessProfile as any)?.status !== 'verified') {
++    return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify the Business profile before approving or restoring its Needs/Offers.' });
++  }
+ 
+   if (type === 'trade') {
+     if (input.action === 'close' && ['funded', 'in_progress', 'submitted', 'disputed'].includes(existing.status)) {
+@@ -1593,12 +1612,20 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
+     }
+   } else if (type === 'need') {
+     if (input.action !== 'mark_reviewed') {
+-      const data = input.action === 'restore' ? { status: 'active' as const } : { status: 'closed' as const };
++      const data = input.action === 'approve' || input.action === 'restore'
++        ? { status: 'active' as const }
++        : input.action === 'reject'
++          ? { status: 'rejected' as const }
++          : { status: 'closed' as const };
+       await prisma.need.update({ where: { id: contentId }, data });
+     }
+   } else {
+     if (input.action !== 'mark_reviewed') {
+-      const data = input.action === 'restore' ? { status: 'active' as const } : { status: 'closed' as const };
++      const data = input.action === 'approve' || input.action === 'restore'
++        ? { status: 'active' as const }
++        : input.action === 'reject'
++          ? { status: 'rejected' as const }
++          : { status: 'closed' as const };
+       await prisma.offer.update({ where: { id: contentId }, data });
+     }
+   }
+@@ -1611,7 +1638,7 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
+     reason: note,
+     previousValue: { status: existing.status, isPublic: existing.isPublic, closedAt: existing.closedAt },
+     nextValue: updated ? { status: updated.status, isPublic: updated.isPublic, closedAt: updated.closedAt } : undefined,
+-    metadata: { ownerId: existing.ownerId, title: existing.title },
++    metadata: { ownerId: existing.ownerId, title: existing.title, businessOwned: isBusinessOwned, businessProfile: existing.businessProfile ?? null },
+   });
+   res.json({ item: updated });
+ }));
+@@ -1644,7 +1671,7 @@ adminRoutes.get('/moderation-smoke', asyncRoute(async (_req, res) => {
+     prisma.offer.count({ where: { status: 'active', owner: { trustTier: 'restricted' } } }),
+     prisma.trade.findMany({
+       where: { status: 'active', isPublic: true, owner: { trustTier: 'restricted' } },
+-      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
++      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+       orderBy: { createdAt: 'desc' },
+       take: 5,
+     }),
+@@ -1657,7 +1684,7 @@ adminRoutes.get('/moderation-smoke', asyncRoute(async (_req, res) => {
+           { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } },
+         ],
+       },
+-      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
++      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+       orderBy: { createdAt: 'desc' },
+       take: 5,
+     }),
+diff --git a/apps/api/src/modules/business/business.routes.ts b/apps/api/src/modules/business/business.routes.ts
+index b14e318..cf26868 100644
+--- a/apps/api/src/modules/business/business.routes.ts
++++ b/apps/api/src/modules/business/business.routes.ts
+@@ -1,11 +1,18 @@
+ import { Router, type Response } from 'express';
+ import {
+   businessAcceptInvitationRequestSchema,
++  businessCreateNeedRequestSchema,
++  businessCreateOfferRequestSchema,
+   businessCreateInventoryTemplateRequestSchema,
+   businessInventoryTemplateArchiveRequestSchema,
+   businessInventoryTemplateReviewRequestSchema,
++  businessListOwnedInventoryQuerySchema,
++  businessOwnedInventoryArchiveRequestSchema,
++  businessOwnedInventoryReviewRequestSchema,
+   businessListInventoryTemplatesQuerySchema,
+   businessUpdateInventoryTemplateRequestSchema,
++  businessUpdateNeedRequestSchema,
++  businessUpdateOfferRequestSchema,
+   businessInviteMemberRequestSchema,
+   businessInvitationActionRequestSchema,
+   businessProviderOnboardingLinkRequestSchema,
+@@ -30,6 +37,8 @@ const INVITATION_TTL_DAYS = 30;
+ const teamManageRoles = new Set(['owner', 'admin']);
+ const templateEditRoles = new Set(['owner', 'admin', 'finance', 'member']);
+ const templateSubmitRoles = new Set(['owner', 'admin']);
++const businessInventoryEditRoles = new Set(['owner', 'admin', 'finance', 'member']);
++const businessInventorySubmitRoles = new Set(['owner', 'admin']);
+ const ownerAssignableRoles = new Set(['admin', 'finance', 'member']);
+ const adminAssignableRoles = new Set(['member']);
+ 
+@@ -90,6 +99,16 @@ function canSubmitBusinessTemplates(profile: any, userId: string) {
+   return Boolean(role && templateSubmitRoles.has(role));
+ }
+ 
++function canEditBusinessInventory(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && businessInventoryEditRoles.has(role));
++}
++
++function canSubmitBusinessInventory(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && businessInventorySubmitRoles.has(role));
++}
++
+ function canMutateBusinessTemplateProfile(profile: any) {
+   return !['disabled', 'rejected', 'restricted'].includes(profile.status);
+ }
+@@ -98,12 +117,91 @@ function normalizeTemplateNullable<T extends string | null | undefined>(value: T
+   return value === undefined ? undefined : value;
+ }
+ 
++function cleanList(value: unknown) {
++  return Array.isArray(value) ? value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8) : undefined;
++}
++
++function buildBusinessNeedUpdateData(input: ReturnType<typeof businessUpdateNeedRequestSchema.parse>, existingStatus: string) {
++  const data = {
++    ...(input.title !== undefined ? { title: input.title } : {}),
++    ...(input.description !== undefined ? { description: input.description } : {}),
++    ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
++    ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
++    ...(input.category !== undefined ? { category: input.category } : {}),
++    ...(input.timing !== undefined ? { timing: input.timing } : {}),
++    ...(input.mode !== undefined ? { mode: input.mode } : {}),
++    ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
++    ...(input.tags !== undefined ? { tags: cleanList(input.tags) ?? [] } : {}),
++  } as Record<string, unknown>;
++  const changedContent = Object.keys(data).length > 0;
++  if (input.status !== undefined) data.status = input.status;
++  else if (existingStatus === 'active' && changedContent) data.status = 'pending_review';
++  return data;
++}
++
++function buildBusinessOfferUpdateData(input: ReturnType<typeof businessUpdateOfferRequestSchema.parse>, existingStatus: string) {
++  const data = {
++    ...(input.title !== undefined ? { title: input.title } : {}),
++    ...(input.description !== undefined ? { description: input.description } : {}),
++    ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
++    ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
++    ...(input.category !== undefined ? { category: input.category } : {}),
++    ...(input.availability !== undefined ? { availability: input.availability } : {}),
++    ...(input.mode !== undefined ? { mode: input.mode } : {}),
++    ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
++    ...(input.includes !== undefined ? { includes: cleanList(input.includes) ?? [] } : {}),
++    ...(input.tags !== undefined ? { tags: cleanList(input.tags) ?? [] } : {}),
++  } as Record<string, unknown>;
++  const changedContent = Object.keys(data).length > 0;
++  if (input.status !== undefined) data.status = input.status;
++  else if (existingStatus === 'active' && changedContent) data.status = 'pending_review';
++  return data;
++}
++
+ const businessTemplateBusinessProfileSelect = { id: true, displayName: true, handle: true, type: true, status: true } as const;
+ const businessTemplateInclude = {
+   businessProfile: { select: businessTemplateBusinessProfileSelect },
+   _count: { select: { createdNeeds: true, createdOffers: true } },
+ } as const;
+ 
++const businessOwnedContentProfileSelect = { id: true, displayName: true, handle: true, type: true, status: true } as const;
++const businessNeedInclude = {
++  businessProfile: { select: businessOwnedContentProfileSelect },
++  _count: { select: { trades: true } },
++} as const;
++const businessOfferInclude = {
++  businessProfile: { select: businessOwnedContentProfileSelect },
++  _count: { select: { trades: true } },
++} as const;
++
++async function syncBusinessOwnedInventoryMedia(client: unknown, ownerId: string, mediaIds: string[] | undefined, entityType: 'need' | 'offer', entityId: string) {
++  const selectedIds = Array.from(new Set(mediaIds ?? []));
++  const mediaClient = (client as { mediaAsset: typeof prisma.mediaAsset }).mediaAsset;
++
++  const [selectedMedia, existingMedia] = await Promise.all([
++    selectedIds.length ? mediaClient.findMany({ where: { id: { in: selectedIds }, ownerId, status: 'active' } }) : Promise.resolve([]),
++    mediaClient.findMany({ where: { entityType, entityId, status: { not: 'removed' } }, select: { id: true } }),
++  ]);
++
++  if (selectedMedia.length !== selectedIds.length) {
++    throw Object.assign(new Error('One or more selected images could not be attached. Upload the images again and retry.'), { statusCode: 400, code: 'invalid_media_ids', publicMessage: 'One or more selected images could not be attached. Upload the images again and retry.' });
++  }
++
++  const attachedElsewhere = selectedMedia.find((item) => item.entityType && item.entityId && (item.entityType !== entityType || item.entityId !== entityId));
++  if (attachedElsewhere) {
++    throw Object.assign(new Error('One or more selected images already belong to another item. Upload a new copy if you want to reuse it.'), { statusCode: 409, code: 'media_already_attached', publicMessage: 'One or more selected images already belong to another item. Upload a new copy if you want to reuse it.' });
++  }
++
++  if (selectedIds.length > 5) {
++    throw Object.assign(new Error('You can attach up to 5 images. Remove one image before adding another.'), { statusCode: 400, code: 'too_many_images', publicMessage: 'You can attach up to 5 images. Remove one image before adding another.' });
++  }
++
++  const selectedIdSet = new Set(selectedIds);
++  const removedIds = existingMedia.map((item) => item.id).filter((id) => !selectedIdSet.has(id));
++  if (selectedIds.length) await mediaClient.updateMany({ where: { id: { in: selectedIds }, ownerId, status: 'active' }, data: { entityType, entityId } });
++  if (removedIds.length) await mediaClient.updateMany({ where: { id: { in: removedIds }, entityType, entityId }, data: { entityType: null, entityId: null, status: 'removed' } });
++}
++
+ async function syncBusinessTemplateMedia(client: unknown, ownerId: string, mediaIds: string[] | undefined, entityId: string) {
+   const selectedIds = Array.from(new Set(mediaIds ?? []));
+   const mediaClient = (client as { mediaAsset: typeof prisma.mediaAsset }).mediaAsset;
+@@ -566,6 +664,271 @@ businessRoutes.delete('/:businessProfileId/members/:memberId', asyncRoute(async
+ }));
+ 
+ 
++
++function businessOwnedInventorySearchWhere(q?: string) {
++  const text = q?.trim();
++  return text ? {
++    OR: [
++      { title: { contains: text, mode: 'insensitive' as const } },
++      { description: { contains: text, mode: 'insensitive' as const } },
++      { category: { contains: text, mode: 'insensitive' as const } },
++      { locationLabel: { contains: text, mode: 'insensitive' as const } },
++    ],
++  } : {};
++}
++
++businessRoutes.get('/:businessProfileId/needs', asyncRoute(async (req, res) => {
++  const input = businessListOwnedInventoryQuerySchema.parse(req.query);
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++
++  const needs = await prisma.need.findMany({
++    where: ({
++      businessProfileId,
++      ...(input.status !== 'all' ? { status: input.status as any } : {}),
++      ...businessOwnedInventorySearchWhere(input.q),
++    } as any),
++    include: businessNeedInclude,
++    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
++    take: input.take,
++  });
++  res.json({ businessProfile: { id: businessProfile.id, displayName: businessProfile.displayName, type: businessProfile.type, status: businessProfile.status }, myRole: getMyBusinessRole(businessProfile, req.user!.id), needs: await withMedia('need', needs, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/needs', asyncRoute(async (req, res) => {
++  const input = businessCreateNeedRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_editor_required', message: 'Only business team members can create draft Needs.' });
++  if (input.status === 'pending_review' && !canSubmitBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_submitter_required', message: 'Only business owners and admins can submit Needs for review.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot create Needs.' });
++
++  const need = await prisma.$transaction(async (tx) => {
++    const created = await tx.need.create({
++      data: {
++        ownerId: req.user!.id,
++        businessProfileId: businessProfile.id,
++        title: input.title,
++        description: input.description,
++        itemType: input.itemType ?? 'service',
++        category: input.category ?? null,
++        timing: input.timing ?? null,
++        mode: input.mode ?? null,
++        locationLabel: input.locationLabel ?? null,
++        tags: input.tags ?? [],
++        status: input.status as any,
++        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
++      },
++      include: businessNeedInclude,
++    });
++    await syncBusinessOwnedInventoryMedia(tx, req.user!.id, input.mediaIds, 'need', created.id);
++    await writeTeamAuditLog(tx, {
++      businessProfileId: businessProfile.id,
++      actorId: req.user!.id,
++      action: 'business_need_created',
++      note: 'Business team member created a Business-owned Need.',
++      nextValue: { needId: created.id, status: created.status, title: created.title },
++    });
++    return created;
++  });
++  res.status(201).json({ need: await withOneMedia('need', need, 'admin') });
++}));
++
++businessRoutes.patch('/:businessProfileId/needs/:needId', asyncRoute(async (req, res) => {
++  const input = businessUpdateNeedRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const needId = req.params.needId;
++  if (!businessProfileId || !needId) return res.status(400).json({ error: 'business_need_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_editor_required', message: 'Only business team members can edit Business-owned Needs.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot edit Needs.' });
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.need.findFirst({ where: { id: needId, businessProfileId }, include: businessNeedInclude });
++    if (!existing) return null;
++    const role = getMyBusinessRole(businessProfile, req.user!.id);
++    if (existing.status === 'active' && role === 'member') return { status: 403 as const, error: 'business_inventory_admin_required' };
++    if (existing.status === 'pending_review' && role === 'member') return { status: 409 as const, error: 'business_inventory_under_review' };
++    const updated = await tx.need.update({ where: { id: existing.id }, data: buildBusinessNeedUpdateData(input, existing.status), include: businessNeedInclude });
++    if (input.mediaIds !== undefined) await syncBusinessOwnedInventoryMedia(tx, req.user!.id, input.mediaIds, 'need', updated.id);
++    await writeTeamAuditLog(tx, {
++      businessProfileId,
++      actorId: req.user!.id,
++      action: 'business_need_updated',
++      previousValue: { needId: existing.id, status: existing.status, title: existing.title },
++      nextValue: { needId: updated.id, status: updated.status, title: updated.title },
++    });
++    return { status: 200 as const, need: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business Need not found.' });
++  if (result.status === 403) return res.status(403).json({ error: result.error, message: 'Only business owners/admins can edit an active Business Need.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'This Business Need is already waiting for admin review.' });
++  res.json({ need: await withOneMedia('need', result.need, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/needs/:needId/request-review', asyncRoute(async (req, res) => {
++  const input = businessOwnedInventoryReviewRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const needId = req.params.needId;
++  if (!businessProfileId || !needId) return res.status(400).json({ error: 'business_need_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_submitter_required', message: 'Only business owners and admins can submit Needs for review.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot submit Needs.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.need.findFirst({ where: { id: needId, businessProfileId }, include: businessNeedInclude });
++    if (!existing) return null;
++    if (existing.status === 'active') return { status: 409 as const, error: 'business_need_already_approved' };
++    const updated = await tx.need.update({ where: { id: existing.id }, data: { status: 'pending_review' as any }, include: businessNeedInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_need_submitted_for_review', note: input.note, previousValue: { needId: existing.id, status: existing.status }, nextValue: { needId: updated.id, status: updated.status } });
++    return { status: 200 as const, need: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business Need not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'This Business Need is already approved.' });
++  res.json({ need: await withOneMedia('need', result.need, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/needs/:needId/archive', asyncRoute(async (req, res) => {
++  const input = businessOwnedInventoryArchiveRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const needId = req.params.needId;
++  if (!businessProfileId || !needId) return res.status(400).json({ error: 'business_need_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_submitter_required', message: 'Only business owners and admins can archive Needs.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.need.findFirst({ where: { id: needId, businessProfileId }, include: businessNeedInclude });
++    if (!existing) return null;
++    const updated = await tx.need.update({ where: { id: existing.id }, data: { status: 'closed' as any }, include: businessNeedInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_need_archived', note: input.note ?? null, previousValue: { needId: existing.id, status: existing.status }, nextValue: { needId: updated.id, status: updated.status } });
++    return updated;
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business Need not found.' });
++  res.json({ need: await withOneMedia('need', result, 'admin') });
++}));
++
++businessRoutes.get('/:businessProfileId/offers', asyncRoute(async (req, res) => {
++  const input = businessListOwnedInventoryQuerySchema.parse(req.query);
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  const offers = await prisma.offer.findMany({
++    where: ({ businessProfileId, ...(input.status !== 'all' ? { status: input.status as any } : {}), ...businessOwnedInventorySearchWhere(input.q) } as any),
++    include: businessOfferInclude,
++    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
++    take: input.take,
++  });
++  res.json({ businessProfile: { id: businessProfile.id, displayName: businessProfile.displayName, type: businessProfile.type, status: businessProfile.status }, myRole: getMyBusinessRole(businessProfile, req.user!.id), offers: await withMedia('offer', offers, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/offers', asyncRoute(async (req, res) => {
++  const input = businessCreateOfferRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_editor_required', message: 'Only business team members can create draft Offers.' });
++  if (input.status === 'pending_review' && !canSubmitBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_submitter_required', message: 'Only business owners and admins can submit Offers for review.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot create Offers.' });
++  const offer = await prisma.$transaction(async (tx) => {
++    const created = await tx.offer.create({
++      data: {
++        ownerId: req.user!.id,
++        businessProfileId: businessProfile.id,
++        title: input.title,
++        description: input.description,
++        itemType: input.itemType ?? 'service',
++        category: input.category ?? null,
++        availability: input.availability ?? null,
++        mode: input.mode ?? null,
++        locationLabel: input.locationLabel ?? null,
++        includes: input.includes ?? [],
++        tags: input.tags ?? [],
++        status: input.status as any,
++        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
++      },
++      include: businessOfferInclude,
++    });
++    await syncBusinessOwnedInventoryMedia(tx, req.user!.id, input.mediaIds, 'offer', created.id);
++    await writeTeamAuditLog(tx, { businessProfileId: businessProfile.id, actorId: req.user!.id, action: 'business_offer_created', note: 'Business team member created a Business-owned Offer.', nextValue: { offerId: created.id, status: created.status, title: created.title } });
++    return created;
++  });
++  res.status(201).json({ offer: await withOneMedia('offer', offer, 'admin') });
++}));
++
++businessRoutes.patch('/:businessProfileId/offers/:offerId', asyncRoute(async (req, res) => {
++  const input = businessUpdateOfferRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const offerId = req.params.offerId;
++  if (!businessProfileId || !offerId) return res.status(400).json({ error: 'business_offer_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_editor_required', message: 'Only business team members can edit Business-owned Offers.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot edit Offers.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.offer.findFirst({ where: { id: offerId, businessProfileId }, include: businessOfferInclude });
++    if (!existing) return null;
++    const role = getMyBusinessRole(businessProfile, req.user!.id);
++    if (existing.status === 'active' && role === 'member') return { status: 403 as const, error: 'business_inventory_admin_required' };
++    if (existing.status === 'pending_review' && role === 'member') return { status: 409 as const, error: 'business_inventory_under_review' };
++    const updated = await tx.offer.update({ where: { id: existing.id }, data: buildBusinessOfferUpdateData(input, existing.status), include: businessOfferInclude });
++    if (input.mediaIds !== undefined) await syncBusinessOwnedInventoryMedia(tx, req.user!.id, input.mediaIds, 'offer', updated.id);
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_offer_updated', previousValue: { offerId: existing.id, status: existing.status, title: existing.title }, nextValue: { offerId: updated.id, status: updated.status, title: updated.title } });
++    return { status: 200 as const, offer: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business Offer not found.' });
++  if (result.status === 403) return res.status(403).json({ error: result.error, message: 'Only business owners/admins can edit an active Business Offer.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'This Business Offer is already waiting for admin review.' });
++  res.json({ offer: await withOneMedia('offer', result.offer, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/offers/:offerId/request-review', asyncRoute(async (req, res) => {
++  const input = businessOwnedInventoryReviewRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const offerId = req.params.offerId;
++  if (!businessProfileId || !offerId) return res.status(400).json({ error: 'business_offer_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_submitter_required', message: 'Only business owners and admins can submit Offers for review.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot submit Offers.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.offer.findFirst({ where: { id: offerId, businessProfileId }, include: businessOfferInclude });
++    if (!existing) return null;
++    if (existing.status === 'active') return { status: 409 as const, error: 'business_offer_already_approved' };
++    const updated = await tx.offer.update({ where: { id: existing.id }, data: { status: 'pending_review' as any }, include: businessOfferInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_offer_submitted_for_review', note: input.note, previousValue: { offerId: existing.id, status: existing.status }, nextValue: { offerId: updated.id, status: updated.status } });
++    return { status: 200 as const, offer: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business Offer not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'This Business Offer is already approved.' });
++  res.json({ offer: await withOneMedia('offer', result.offer, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/offers/:offerId/archive', asyncRoute(async (req, res) => {
++  const input = businessOwnedInventoryArchiveRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const offerId = req.params.offerId;
++  if (!businessProfileId || !offerId) return res.status(400).json({ error: 'business_offer_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessInventory(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_inventory_submitter_required', message: 'Only business owners and admins can archive Offers.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.offer.findFirst({ where: { id: offerId, businessProfileId }, include: businessOfferInclude });
++    if (!existing) return null;
++    const updated = await tx.offer.update({ where: { id: existing.id }, data: { status: 'closed' as any }, include: businessOfferInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_offer_archived', note: input.note ?? null, previousValue: { offerId: existing.id, status: existing.status }, nextValue: { offerId: updated.id, status: updated.status } });
++    return updated;
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business Offer not found.' });
++  res.json({ offer: await withOneMedia('offer', result, 'admin') });
++}));
++
+ businessRoutes.get('/:businessProfileId/templates', asyncRoute(async (req, res) => {
+   const input = businessListInventoryTemplatesQuerySchema.parse(req.query);
+   const businessProfileId = req.params.businessProfileId;
+diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
+index 1d3753a..084a053 100644
+--- a/apps/api/src/modules/needs/needs.routes.ts
++++ b/apps/api/src/modules/needs/needs.routes.ts
+@@ -56,18 +56,18 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
+ }
+ 
+ needsRoutes.get('/mine', asyncRoute(async (req, res) => {
+-  const needs = await prisma.need.findMany({ where: { ownerId: req.user!.id }, orderBy: { createdAt: 'desc' } });
++  const needs = await prisma.need.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
+   res.json({ needs: await withMedia('need', needs) });
+ }));
+ 
+ needsRoutes.get('/:needId', asyncRoute(async (req, res) => {
+-  const need = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
++  const need = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!need) return res.status(404).json({ error: 'not_found' });
+   res.json({ need: await withOneMedia('need', need) });
+ }));
+ 
+ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
+-  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
++  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const [linkedTradeCount, active] = await Promise.all([
+     prisma.trade.count({ where: { needId: existing.id } }),
+@@ -84,6 +84,7 @@ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
+ 
+ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createNeedRequestSchema.parse(req.body);
++  if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
+   const need = await prisma.need.create({
+     data: {
+       ownerId: req.user!.id,
+@@ -105,7 +106,8 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+ 
+ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updateNeedRequestSchema.parse(req.body);
+-  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
++  if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
++  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const active = await loadActiveLinkedTrades(existing.id);
+   if (active.activeTradeCount > 0) {
+@@ -117,7 +119,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+ }));
+ 
+ needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
+-  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id } });
++  const existing = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const active = await loadActiveLinkedTrades(existing.id);
+   if (active.activeTradeCount > 0) {
+diff --git a/apps/api/src/modules/offers/offers.routes.ts b/apps/api/src/modules/offers/offers.routes.ts
+index 5291dad..dc43d78 100644
+--- a/apps/api/src/modules/offers/offers.routes.ts
++++ b/apps/api/src/modules/offers/offers.routes.ts
+@@ -57,18 +57,18 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
+ }
+ 
+ offersRoutes.get('/mine', asyncRoute(async (req, res) => {
+-  const offers = await prisma.offer.findMany({ where: { ownerId: req.user!.id }, orderBy: { createdAt: 'desc' } });
++  const offers = await prisma.offer.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
+   res.json({ offers: await withMedia('offer', offers) });
+ }));
+ 
+ offersRoutes.get('/:offerId', asyncRoute(async (req, res) => {
+-  const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id } });
++  const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!offer) return res.status(404).json({ error: 'not_found' });
+   res.json({ offer: await withOneMedia('offer', offer) });
+ }));
+ 
+ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
+-  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id } });
++  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const [linkedTradeCount, active] = await Promise.all([
+     prisma.trade.count({ where: { offerId: existing.id } }),
+@@ -85,6 +85,7 @@ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
+ 
+ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createOfferRequestSchema.parse(req.body);
++  if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
+   const offer = await prisma.offer.create({
+     data: {
+       ownerId: req.user!.id,
+@@ -107,7 +108,8 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+ 
+ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updateOfferRequestSchema.parse(req.body);
+-  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id } });
++  if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
++  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const active = await loadActiveLinkedTrades(existing.id);
+   if (active.activeTradeCount > 0) {
+@@ -119,7 +121,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+ }));
+ 
+ offersRoutes.delete('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
+-  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id } });
++  const existing = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   const active = await loadActiveLinkedTrades(existing.id);
+   if (active.activeTradeCount > 0) {
+diff --git a/apps/api/src/modules/proposals/proposalPackages.ts b/apps/api/src/modules/proposals/proposalPackages.ts
+index bc71beb..d91bbb3 100644
+--- a/apps/api/src/modules/proposals/proposalPackages.ts
++++ b/apps/api/src/modules/proposals/proposalPackages.ts
+@@ -81,7 +81,7 @@ function expectedPackageKindForTrade(trade: TradeForProposalPackage): TradePacka
+ 
+ async function assertApplicantOwnsActiveOffers(actorId: string, offerIds: string[]) {
+   if (!offerIds.length) return;
+-  const offers = await prisma.offer.findMany({ where: { id: { in: offerIds }, ownerId: actorId }, select: { id: true, status: true } });
++  const offers = await prisma.offer.findMany({ where: { id: { in: offerIds }, ownerId: actorId, businessProfileId: null }, select: { id: true, status: true } });
+   const activeIds = new Set(offers.filter((offer) => offer.status === 'active').map((offer) => offer.id));
+   if (offerIds.some((id) => !activeIds.has(id))) {
+     throwPackageError('INVALID_PROPOSAL_PACKAGE_OFFER', { offerIds });
+@@ -90,7 +90,7 @@ async function assertApplicantOwnsActiveOffers(actorId: string, offerIds: string
+ 
+ async function assertApplicantOwnsActiveNeeds(actorId: string, needIds: string[]) {
+   if (!needIds.length) return;
+-  const needs = await prisma.need.findMany({ where: { id: { in: needIds }, ownerId: actorId }, select: { id: true, status: true } });
++  const needs = await prisma.need.findMany({ where: { id: { in: needIds }, ownerId: actorId, businessProfileId: null }, select: { id: true, status: true } });
+   const activeIds = new Set(needs.filter((need) => need.status === 'active').map((need) => need.id));
+   if (needIds.some((id) => !activeIds.has(id))) {
+     throwPackageError('INVALID_PROPOSAL_PACKAGE_NEED', { needIds });
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index ee33a65..44b40b2 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -793,8 +793,8 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
+   }
+ 
+   const [need, offer, wallet] = await Promise.all([
+-    needsOwnNeed && !needIsMoney ? prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId } }) : Promise.resolve(null),
+-    needsOwnOffer && !offerIsMoney ? prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId } }) : Promise.resolve(null),
++    needsOwnNeed && !needIsMoney ? prisma.need.findFirst({ where: { id: input.needId, ownerId: actorId, businessProfileId: null } }) : Promise.resolve(null),
++    needsOwnOffer && !offerIsMoney ? prisma.offer.findFirst({ where: { id: input.offerId, ownerId: actorId, businessProfileId: null } }) : Promise.resolve(null),
+     offerIsMoney && input.amountCents > 0 ? prisma.wallet.findUnique({ where: { userId: actorId } }) : Promise.resolve(null)
+   ]);
+   if (needsOwnNeed && !needIsMoney && !need) return res.status(400).json({ error: 'invalid_need', message: postType === 'open_need' ? 'Choose one of your saved needs for this Open Need post.' : 'Choose one of your saved needs for this trade.' });
+@@ -947,12 +947,12 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
+     }
+ 
+     if (input.proposedOfferId) {
+-      const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
++      const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId, businessProfileId: null } });
+       if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+       proposedOfferId = offer.id;
+     }
+     if (input.proposedNeedId) {
+-      const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
++      const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId, businessProfileId: null } });
+       if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+       proposedNeedId = need.id;
+     }
+diff --git a/apps/web/src/app/admin/content/page.tsx b/apps/web/src/app/admin/content/page.tsx
+index a56457a..486e148 100644
+--- a/apps/web/src/app/admin/content/page.tsx
++++ b/apps/web/src/app/admin/content/page.tsx
+@@ -8,12 +8,12 @@ import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionT
+ import { formatWebDateTime } from '../../../lib/webFormat';
+ 
+ type ContentTypeFilter = 'all' | 'trade' | 'need' | 'offer';
+-type ContentAction = 'hide' | 'restore' | 'close' | 'mark_reviewed';
++type ContentAction = 'approve' | 'reject' | 'hide' | 'restore' | 'close' | 'mark_reviewed';
+ 
+ type Notice = { tone: 'info' | 'warning' | 'danger' | 'success'; body: string };
+ 
+ const contentTypes: ContentTypeFilter[] = ['all', 'trade', 'need', 'offer'];
+-const statusOptions = ['all', 'active', 'draft', 'closed', 'expired', 'funded', 'in_progress', 'submitted', 'disputed', 'completed', 'cancelled', 'fulfilled', 'accepted'];
++const statusOptions = ['all', 'pending_review', 'active', 'draft', 'rejected', 'closed', 'expired', 'funded', 'in_progress', 'submitted', 'disputed', 'completed', 'cancelled', 'fulfilled', 'accepted'];
+ 
+ function labelize(value?: string | null) {
+   return value ? value.replaceAll('_', ' ') : 'unknown';
+@@ -21,6 +21,8 @@ function labelize(value?: string | null) {
+ 
+ function statusTone(value?: string | null) {
+   if (value === 'active' || value === 'completed' || value === 'fulfilled' || value === 'accepted') return 'success';
++  if (value === 'pending_review') return 'warning';
++  if (value === 'rejected') return 'danger';
+   if (value === 'funded' || value === 'in_progress' || value === 'submitted') return 'warning';
+   if (value === 'disputed' || value === 'cancelled') return 'danger';
+   if (value === 'closed' || value === 'expired') return 'admin';
+@@ -50,6 +52,8 @@ function contentMeta(item: AdminContentItemDto) {
+ }
+ 
+ function actionDescription(action: ContentAction, item: AdminContentItemDto) {
++  if (action === 'approve') return 'Approve makes a Business-owned Need/Offer public after review.';
++  if (action === 'reject') return 'Reject keeps a Business-owned Need/Offer hidden and records the review decision.';
+   if (action === 'hide') return item.type === 'trade' ? 'Hide removes the trade from public discovery without deleting it.' : 'Hide closes this inventory item without deleting it.';
+   if (action === 'restore') return 'Restore makes this item active/public again when safe.';
+   if (action === 'close') return 'Close ends this item. For funded or disputed trades, use the dispute flow instead.';
+@@ -63,6 +67,7 @@ export default function AdminContentModerationPage() {
+   const [status, setStatus] = useState('active');
+   const [query, setQuery] = useState('');
+   const [ownerId, setOwnerId] = useState('');
++  const [businessProfileId, setBusinessProfileId] = useState('');
+   const [items, setItems] = useState<AdminContentItemDto[]>([]);
+   const [selectedItem, setSelectedItem] = useState<AdminContentItemDto | null>(null);
+   const [note, setNote] = useState('');
+@@ -81,6 +86,7 @@ export default function AdminContentModerationPage() {
+     if (status !== 'all') params.set('status', status);
+     if (query.trim()) params.set('q', query.trim());
+     if (ownerId.trim()) params.set('ownerId', ownerId.trim());
++    if (businessProfileId.trim()) params.set('businessProfileId', businessProfileId.trim());
+     const text = params.toString();
+     return text ? `?${text}` : '';
+   }
+@@ -104,8 +110,8 @@ export default function AdminContentModerationPage() {
+ 
+   async function applyAction(action: ContentAction) {
+     if (!token || !selectedItem) return;
+-    if ((action === 'hide' || action === 'restore' || action === 'close') && !note.trim()) {
+-      setNotice({ tone: 'warning', body: 'Add an internal note before changing content visibility or status.' });
++    if ((action === 'approve' || action === 'reject' || action === 'hide' || action === 'restore' || action === 'close') && !note.trim()) {
++      setNotice({ tone: 'warning', body: 'Add an internal note before approving, rejecting, or changing content visibility/status.' });
+       return;
+     }
+     setLoading(true);
+@@ -143,7 +149,7 @@ export default function AdminContentModerationPage() {
+         <div>
+           <p className="eyebrow">Phase 24.1</p>
+           <h1>Trades, needs, and offers</h1>
+-          <p>Hide, restore, close, or mark reviewed content without deleting user data. Every action writes to the admin audit log.</p>
++          <p>Approve Business-owned Needs/Offers after review, or hide, restore, close, and mark reviewed content without deleting user data. Every action writes to the admin audit log.</p>
+         </div>
+         <div className="admin-console__login-grid">
+           <p className="notice-box info">Internal tools use your signed-in admin app session. Standalone admin login is not exposed.</p>
+@@ -165,6 +171,7 @@ export default function AdminContentModerationPage() {
+               {statusOptions.map((item) => <option key={item} value={item}>{labelize(item)}</option>)}
+             </select>
+             <input value={ownerId} onChange={(event) => setOwnerId(event.target.value)} placeholder="Owner ID optional" />
++            <input value={businessProfileId} onChange={(event) => setBusinessProfileId(event.target.value)} placeholder="Business profile ID optional" />
+             <button type="button" onClick={() => { void loadContent(); }} disabled={loading || !token}>Load content</button>
+           </div>
+           <div className="admin-user-list">
+@@ -192,10 +199,11 @@ export default function AdminContentModerationPage() {
+                 <span className={`semantic-badge ${typeTone(selectedItem.type)}`}>{selectedItem.type}</span>
+                 <span className={`semantic-badge ${statusTone(selectedItem.status)}`}>{labelize(selectedItem.status)}</span>
+                 {selectedItem.type === 'trade' ? <span className={`semantic-badge ${selectedItem.isPublic ? 'success' : 'admin'}`}>{selectedItem.isPublic ? 'public' : 'hidden'}</span> : null}
++                {selectedItem.businessProfileId ? <span className="semantic-badge instruction">Business-owned</span> : null}
+                 {selectedItem.publicDiscoverable === false ? <span className="semantic-badge warning">not public-discoverable</span> : selectedItem.publicDiscoverable === true ? <span className="semantic-badge success">public-discoverable</span> : null}
+               </div>
+               <h2>{selectedItem.title}</h2>
+-              <p className="meta">Owner: {personLabel(selectedItem.owner)} · {selectedItem.ownerId}</p>
++              <p className="meta">Owner: {personLabel(selectedItem.owner)} · {selectedItem.ownerId}{selectedItem.businessProfileId ? ` · Business ${selectedItem.businessProfileId}` : ''}</p>
+               <p>{selectedItem.description}</p>
+               {selectedItem.visibilityBlockers?.length ? (
+                 <p className="notice-box warning">Public discovery blockers: {selectedItem.visibilityBlockers.join(' · ')}</p>
+@@ -207,6 +215,8 @@ export default function AdminContentModerationPage() {
+               </div>
+               <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Internal admin note. Required before visibility/status actions." rows={4} />
+               <div className="admin-action-grid">
++                {selectedItem.type !== 'trade' && selectedItem.businessProfileId ? <button type="button" className="success" onClick={() => { void applyAction('approve'); }} disabled={loading || !token}>Approve</button> : null}
++                {selectedItem.type !== 'trade' && selectedItem.businessProfileId ? <button type="button" className="warning" onClick={() => { void applyAction('reject'); }} disabled={loading || !token}>Reject</button> : null}
+                 <button type="button" className="warning" onClick={() => { void applyAction('hide'); }} disabled={loading || !token}>Hide</button>
+                 <button type="button" className="success" onClick={() => { void applyAction('restore'); }} disabled={loading || !token}>Restore</button>
+                 <button type="button" className="danger" onClick={() => { void applyAction('close'); }} disabled={loading || !token}>Close</button>
+diff --git a/apps/web/src/features/account/BusinessAccountsClient.tsx b/apps/web/src/features/account/BusinessAccountsClient.tsx
+index 932a8fb..8ed2ee7 100644
+--- a/apps/web/src/features/account/BusinessAccountsClient.tsx
++++ b/apps/web/src/features/account/BusinessAccountsClient.tsx
+@@ -72,6 +72,30 @@ type BusinessTemplateForm = {
+ };
+ const emptyTemplateForm: BusinessTemplateForm = { kind: 'need', title: '', description: '', itemType: 'service', languageCode: 'en', category: '', timing: '', availability: '' };
+ 
++type BusinessContentStatus = 'draft' | 'pending_review' | 'active' | 'rejected' | 'closed' | 'expired' | 'fulfilled' | 'accepted';
++type BusinessOwnedItem = {
++  id: string;
++  title: string;
++  description: string;
++  itemType?: 'service' | 'goods' | 'other';
++  status: BusinessContentStatus;
++  category?: string | null;
++  timing?: string | null;
++  availability?: string | null;
++  updatedAt?: string;
++  _count?: { trades?: number };
++};
++type BusinessContentForm = {
++  kind: BusinessTemplateKind;
++  title: string;
++  description: string;
++  itemType: 'service' | 'goods' | 'other';
++  category: string;
++  timing: string;
++  availability: string;
++};
++const emptyContentForm: BusinessContentForm = { kind: 'need', title: '', description: '', itemType: 'service', category: '', timing: '', availability: '' };
++
+ type TeamResponse = {
+   businessProfile?: Pick<BusinessProfile, 'id' | 'displayName' | 'type' | 'status'> & { ownerId?: string };
+   myRole?: BusinessRole | null;
+@@ -102,6 +126,12 @@ export function BusinessAccountsClient() {
+   const [selectedId, setSelectedId] = useState<string>('');
+   const [team, setTeam] = useState<TeamResponse | null>(null);
+   const [templates, setTemplates] = useState<BusinessTemplate[]>([]);
++  const [businessNeeds, setBusinessNeeds] = useState<BusinessOwnedItem[]>([]);
++  const [businessOffers, setBusinessOffers] = useState<BusinessOwnedItem[]>([]);
++  const [contentKindFilter, setContentKindFilter] = useState<BusinessTemplateKind>('need');
++  const [contentStatusFilter, setContentStatusFilter] = useState<'all' | BusinessContentStatus>('all');
++  const [contentForm, setContentForm] = useState<BusinessContentForm>(emptyContentForm);
++  const [contentReviewNotes, setContentReviewNotes] = useState<Record<string, string>>({});
+   const [templateStatusFilter, setTemplateStatusFilter] = useState<'all' | BusinessTemplateStatus>('all');
+   const [templateForm, setTemplateForm] = useState<BusinessTemplateForm>(emptyTemplateForm);
+   const [templateReviewNotes, setTemplateReviewNotes] = useState<Record<string, string>>({});
+@@ -160,9 +190,28 @@ export function BusinessAccountsClient() {
+     }
+   }
+ 
++  async function loadBusinessInventory(profileId = selectedProfile?.id) {
++    if (!profileId) { setBusinessNeeds([]); setBusinessOffers([]); return; }
++    try {
++      if (contentKindFilter === 'need') {
++        const result = await api.business.businessNeeds(profileId, { status: contentStatusFilter }) as { needs?: BusinessOwnedItem[] };
++        setBusinessNeeds(result.needs ?? []);
++        setBusinessOffers([]);
++      } else {
++        const result = await api.business.businessOffers(profileId, { status: contentStatusFilter }) as { offers?: BusinessOwnedItem[] };
++        setBusinessOffers(result.offers ?? []);
++        setBusinessNeeds([]);
++      }
++    } catch (caughtError) {
++      setBusinessNeeds([]);
++      setBusinessOffers([]);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    }
++  }
++
+ 
+   useEffect(() => { void loadProfiles(); }, [auth.hydrated, auth.isAuthenticated]);
+-  useEffect(() => { void loadTeam(selectedProfile?.id); void loadTemplates(selectedProfile?.id); }, [selectedProfile?.id, templateStatusFilter]);
++  useEffect(() => { void loadTeam(selectedProfile?.id); void loadTemplates(selectedProfile?.id); void loadBusinessInventory(selectedProfile?.id); }, [selectedProfile?.id, templateStatusFilter, contentKindFilter, contentStatusFilter]);
+ 
+   async function acceptInvitation(invitation: BusinessInvitation) {
+     setSaving(true);
+@@ -314,6 +363,85 @@ export function BusinessAccountsClient() {
+     }
+   }
+ 
++  async function createBusinessContent(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!selectedProfile) return;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      if (contentForm.kind === 'need') {
++        await api.business.createBusinessNeed(selectedProfile.id, {
++          title: contentForm.title,
++          description: contentForm.description,
++          itemType: contentForm.itemType,
++          category: contentForm.category.trim() || undefined,
++          timing: contentForm.timing.trim() || undefined,
++          mediaIds: [],
++          tags: [],
++          status: 'draft',
++        });
++      } else {
++        await api.business.createBusinessOffer(selectedProfile.id, {
++          title: contentForm.title,
++          description: contentForm.description,
++          itemType: contentForm.itemType,
++          category: contentForm.category.trim() || undefined,
++          availability: contentForm.availability.trim() || undefined,
++          mediaIds: [],
++          tags: [],
++          includes: [],
++          status: 'draft',
++        });
++      }
++      setContentForm(emptyContentForm);
++      setMessage('Draft Business-owned Need/Offer created. Owners/admins can submit it for admin review.');
++      await loadBusinessInventory(selectedProfile.id);
++      await loadProfiles();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function requestBusinessContentReview(item: BusinessOwnedItem) {
++    if (!selectedProfile) return;
++    const note = contentReviewNotes[item.id]?.trim() ?? '';
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      if (contentKindFilter === 'need') await api.business.requestBusinessNeedReview(selectedProfile.id, item.id, { note });
++      else await api.business.requestBusinessOfferReview(selectedProfile.id, item.id, { note });
++      setContentReviewNotes((current) => ({ ...current, [item.id]: '' }));
++      setMessage('Business-owned item submitted for admin review.');
++      await loadBusinessInventory(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function archiveBusinessContent(item: BusinessOwnedItem) {
++    if (!selectedProfile) return;
++    const note = contentReviewNotes[item.id]?.trim() || undefined;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      if (contentKindFilter === 'need') await api.business.archiveBusinessNeed(selectedProfile.id, item.id, { note });
++      else await api.business.archiveBusinessOffer(selectedProfile.id, item.id, { note });
++      setMessage('Business-owned item archived.');
++      await loadBusinessInventory(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   if (!auth.hydrated) return null;
+   if (!auth.isAuthenticated) return <section className="mobile-card"><p className="meta">Sign in to manage Business accounts.</p></section>;
+ 
+@@ -369,6 +497,71 @@ export function BusinessAccountsClient() {
+         </section>
+       ) : null}
+ 
++      {selectedProfile ? (
++        <section className="mobile-card">
++          <div className="page-intro">
++            <div>
++              <p className="eyebrow">Business-owned Needs/Offers</p>
++              <h3>Sponsored inventory drafts</h3>
++              <p className="meta">These are real Business-owned Needs/Offers. They stay hidden until submitted by an owner/admin and approved by an admin.</p>
++            </div>
++            <div className="status-row">
++              <select value={contentKindFilter} onChange={(event) => { const kind = event.target.value as BusinessTemplateKind; setContentKindFilter(kind); setContentForm((current) => ({ ...current, kind })); }}>
++                <option value="need">Needs</option>
++                <option value="offer">Offers</option>
++              </select>
++              <select value={contentStatusFilter} onChange={(event) => setContentStatusFilter(event.target.value as 'all' | BusinessContentStatus)}>
++                <option value="all">all</option>
++                <option value="draft">draft</option>
++                <option value="pending_review">pending review</option>
++                <option value="active">approved</option>
++                <option value="rejected">rejected</option>
++                <option value="closed">closed</option>
++              </select>
++            </div>
++          </div>
++          <form className="form-stack" onSubmit={(event) => { void createBusinessContent(event); }}>
++            <label className="field-label">Title
++              <input value={contentForm.title} onChange={(event) => setContentForm((current) => ({ ...current, title: event.target.value }))} maxLength={70} required />
++            </label>
++            <label className="field-label">Description
++              <textarea value={contentForm.description} onChange={(event) => setContentForm((current) => ({ ...current, description: event.target.value }))} rows={4} maxLength={500} required />
++            </label>
++            <label className="field-label">Category
++              <input value={contentForm.category} onChange={(event) => setContentForm((current) => ({ ...current, category: event.target.value }))} />
++            </label>
++            <label className="field-label">{contentForm.kind === 'need' ? 'Timing' : 'Availability'}
++              <input value={contentForm.kind === 'need' ? contentForm.timing : contentForm.availability} onChange={(event) => setContentForm((current) => contentForm.kind === 'need' ? { ...current, timing: event.target.value } : { ...current, availability: event.target.value })} />
++            </label>
++            <button type="submit" disabled={saving || contentForm.title.trim().length < 3 || contentForm.description.trim().length < 10}>{saving ? 'Saving…' : `Create draft Business ${contentForm.kind}`}</button>
++          </form>
++          <div className="mobile-list" style={{ marginTop: 16 }}>
++            {(contentKindFilter === 'need' ? businessNeeds : businessOffers).map((item) => {
++              const canSubmit = ['draft', 'rejected', 'closed'].includes(item.status);
++              return (
++                <div key={item.id} className="mobile-card mobile-card--soft">
++                  <div className="status-row">
++                    <span className="semantic-badge instruction">{contentKindFilter}</span>
++                    <span className="semantic-badge neutral">{item.status.replace('_', ' ')}</span>
++                  </div>
++                  <h4>{item.title}</h4>
++                  <p className="meta">{item.category || 'uncategorized'} · {contentKindFilter === 'need' ? item.timing || 'timing not set' : item.availability || 'availability not set'} · {item._count?.trades ?? 0} linked trade(s)</p>
++                  <p>{item.description}</p>
++                  <label className="field-label">Review/archive note
++                    <input value={contentReviewNotes[item.id] ?? ''} onChange={(event) => setContentReviewNotes((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="Required before review submit" />
++                  </label>
++                  <div className="cta-row">
++                    {canSubmit ? <button type="button" disabled={saving || (contentReviewNotes[item.id]?.trim().length ?? 0) < 3} onClick={() => { void requestBusinessContentReview(item); }}>Submit for review</button> : null}
++                    {item.status !== 'closed' ? <button type="button" className="secondary" disabled={saving} onClick={() => { void archiveBusinessContent(item); }}>Archive</button> : null}
++                  </div>
++                </div>
++              );
++            })}
++            {(contentKindFilter === 'need' ? businessNeeds : businessOffers).length === 0 ? <p className="meta">No Business-owned {contentKindFilter}s match this filter.</p> : null}
++          </div>
++        </section>
++      ) : null}
++
+       {selectedProfile ? (
+         <section className="mobile-card">
+           <div className="page-intro">
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 6e55d73..14fe8d8 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -30,6 +30,16 @@ export function createApiClient(options: ApiClientOptions) {
+       updateMember: (businessProfileId: string, memberId: string, body: BusinessUpdateMemberRequest) => requestJson(options, `/business/${businessProfileId}/members/${memberId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+       removeMember: (businessProfileId: string, memberId: string, body?: BusinessRemoveMemberRequest) => requestJson(options, `/business/${businessProfileId}/members/${memberId}`, { method: 'DELETE', body: JSON.stringify(body ?? {}) }),
+       requestReview: (businessProfileId: string, body?: RequestBusinessReviewRequest) => requestJson(options, `/business/${businessProfileId}/request-review`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
++      businessNeeds: (businessProfileId: string, query?: BusinessListOwnedInventoryQuery) => requestJson(options, `/business/${businessProfileId}/needs${buildQueryString(query as Record<string, unknown> | undefined)}`),
++      createBusinessNeed: (businessProfileId: string, body: BusinessCreateNeedRequest) => requestJson(options, `/business/${businessProfileId}/needs`, { method: 'POST', body: JSON.stringify(body) }),
++      updateBusinessNeed: (businessProfileId: string, needId: string, body: BusinessUpdateNeedRequest) => requestJson(options, `/business/${businessProfileId}/needs/${needId}`, { method: 'PATCH', body: JSON.stringify(body) }),
++      requestBusinessNeedReview: (businessProfileId: string, needId: string, body: BusinessOwnedInventoryReviewRequest) => requestJson(options, `/business/${businessProfileId}/needs/${needId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
++      archiveBusinessNeed: (businessProfileId: string, needId: string, body?: BusinessOwnedInventoryArchiveRequest) => requestJson(options, `/business/${businessProfileId}/needs/${needId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
++      businessOffers: (businessProfileId: string, query?: BusinessListOwnedInventoryQuery) => requestJson(options, `/business/${businessProfileId}/offers${buildQueryString(query as Record<string, unknown> | undefined)}`),
++      createBusinessOffer: (businessProfileId: string, body: BusinessCreateOfferRequest) => requestJson(options, `/business/${businessProfileId}/offers`, { method: 'POST', body: JSON.stringify(body) }),
++      updateBusinessOffer: (businessProfileId: string, offerId: string, body: BusinessUpdateOfferRequest) => requestJson(options, `/business/${businessProfileId}/offers/${offerId}`, { method: 'PATCH', body: JSON.stringify(body) }),
++      requestBusinessOfferReview: (businessProfileId: string, offerId: string, body: BusinessOwnedInventoryReviewRequest) => requestJson(options, `/business/${businessProfileId}/offers/${offerId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
++      archiveBusinessOffer: (businessProfileId: string, offerId: string, body?: BusinessOwnedInventoryArchiveRequest) => requestJson(options, `/business/${businessProfileId}/offers/${offerId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+       templates: (businessProfileId: string, query?: BusinessListInventoryTemplatesQuery) => requestJson(options, `/business/${businessProfileId}/templates${buildQueryString(query as Record<string, unknown> | undefined)}`),
+       createTemplate: (businessProfileId: string, body: BusinessCreateInventoryTemplateRequest) => requestJson(options, `/business/${businessProfileId}/templates`, { method: 'POST', body: JSON.stringify(body) }),
+       updateTemplate: (businessProfileId: string, templateId: string, body: BusinessUpdateInventoryTemplateRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+diff --git a/packages/contracts/src/admin.d.ts b/packages/contracts/src/admin.d.ts
+index 9666fa9..3583077 100644
+--- a/packages/contracts/src/admin.d.ts
++++ b/packages/contracts/src/admin.d.ts
+@@ -512,6 +512,8 @@ export declare const adminContentTypeSchema: z.ZodEnum<{
+ }>;
+ export declare const adminContentActionRequestSchema: z.ZodObject<{
+     action: z.ZodEnum<{
++        approve: "approve";
++        reject: "reject";
+         restore: "restore";
+         mark_reviewed: "mark_reviewed";
+         hide: "hide";
+@@ -528,6 +530,7 @@ export declare const adminListContentQuerySchema: z.ZodObject<{
+     }>>>;
+     q: z.ZodOptional<z.ZodString>;
+     ownerId: z.ZodOptional<z.ZodString>;
++    businessProfileId: z.ZodOptional<z.ZodString>;
+     status: z.ZodOptional<z.ZodString>;
+     take: z.ZodDefault<z.ZodOptional<z.ZodCoercedNumber<unknown>>>;
+ }, z.core.$strip>;
+@@ -566,6 +569,8 @@ export declare const adminContentItemSchema: z.ZodObject<{
+         trade: "trade";
+     }>;
+     ownerId: z.ZodString;
++    businessProfileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
++    businessProfile: z.ZodOptional<z.ZodNullable<z.ZodUnknown>>;
+     title: z.ZodString;
+     description: z.ZodDefault<z.ZodOptional<z.ZodString>>;
+     status: z.ZodString;
+diff --git a/packages/contracts/src/admin.js b/packages/contracts/src/admin.js
+index 450cc34..06c0f96 100644
+--- a/packages/contracts/src/admin.js
++++ b/packages/contracts/src/admin.js
+@@ -100,13 +100,14 @@ export const adminUserModerationActionRequestSchema = z.object({
+ });
+ export const adminContentTypeSchema = z.enum(['trade', 'need', 'offer']);
+ export const adminContentActionRequestSchema = z.object({
+-    action: z.enum(['hide', 'restore', 'close', 'mark_reviewed']),
++    action: z.enum(['approve', 'reject', 'hide', 'restore', 'close', 'mark_reviewed']),
+     note: z.string().trim().min(3).max(1200).optional(),
+ });
+ export const adminListContentQuerySchema = z.object({
+     type: z.enum(['all', 'trade', 'need', 'offer']).optional().default('all'),
+     q: z.string().trim().min(1).max(120).optional(),
+     ownerId: z.string().trim().min(1).optional(),
++    businessProfileId: z.string().trim().min(1).optional(),
+     status: z.string().trim().min(1).max(40).optional(),
+     take: z.coerce.number().int().min(1).max(250).optional().default(100),
+ });
+@@ -115,6 +116,8 @@ export const adminContentItemSchema = z.object({
+     id: z.string(),
+     type: adminContentTypeSchema,
+     ownerId: z.string(),
++    businessProfileId: z.string().nullable().optional(),
++    businessProfile: z.unknown().nullable().optional(),
+     title: z.string(),
+     description: z.string().optional().default(''),
+     status: z.string(),
+diff --git a/packages/contracts/src/admin.ts b/packages/contracts/src/admin.ts
+index e123b09..04c47e8 100644
+--- a/packages/contracts/src/admin.ts
++++ b/packages/contracts/src/admin.ts
+@@ -111,13 +111,14 @@ export const adminUserModerationActionRequestSchema = z.object({
+ 
+ export const adminContentTypeSchema = z.enum(['trade', 'need', 'offer']);
+ export const adminContentActionRequestSchema = z.object({
+-  action: z.enum(['hide', 'restore', 'close', 'mark_reviewed']),
++  action: z.enum(['approve', 'reject', 'hide', 'restore', 'close', 'mark_reviewed']),
+   note: z.string().trim().min(3).max(1200).optional(),
+ });
+ export const adminListContentQuerySchema = z.object({
+   type: z.enum(['all', 'trade', 'need', 'offer']).optional().default('all'),
+   q: z.string().trim().min(1).max(120).optional(),
+   ownerId: z.string().trim().min(1).optional(),
++  businessProfileId: z.string().trim().min(1).optional(),
+   status: z.string().trim().min(1).max(40).optional(),
+   take: z.coerce.number().int().min(1).max(250).optional().default(100),
+ });
+@@ -127,6 +128,8 @@ export const adminContentItemSchema = z.object({
+   id: z.string(),
+   type: adminContentTypeSchema,
+   ownerId: z.string(),
++  businessProfileId: z.string().nullable().optional(),
++  businessProfile: z.unknown().nullable().optional(),
+   title: z.string(),
+   description: z.string().optional().default(''),
+   status: z.string(),
+diff --git a/packages/contracts/src/business.d.ts b/packages/contracts/src/business.d.ts
+index ea4d0a8..247175a 100644
+--- a/packages/contracts/src/business.d.ts
++++ b/packages/contracts/src/business.d.ts
+@@ -40,6 +40,13 @@ export declare const businessUpdateInventoryTemplateRequestSchema: z.ZodType<any
+ export declare const businessListInventoryTemplatesQuerySchema: z.ZodObject<any>;
+ export declare const businessInventoryTemplateReviewRequestSchema: z.ZodObject<any>;
+ export declare const businessInventoryTemplateArchiveRequestSchema: z.ZodObject<any>;
++export declare const businessCreateNeedRequestSchema: z.ZodObject<any>;
++export declare const businessCreateOfferRequestSchema: z.ZodObject<any>;
++export declare const businessUpdateNeedRequestSchema: z.ZodObject<any>;
++export declare const businessUpdateOfferRequestSchema: z.ZodObject<any>;
++export declare const businessListOwnedInventoryQuerySchema: z.ZodObject<any>;
++export declare const businessOwnedInventoryReviewRequestSchema: z.ZodObject<any>;
++export declare const businessOwnedInventoryArchiveRequestSchema: z.ZodObject<any>;
+ export declare const adminBusinessProfileActionRequestSchema: z.ZodObject<any>;
+ export type BusinessProfileType = z.infer<typeof businessProfileTypeSchema>;
+ export type BusinessProfileStatus = z.infer<typeof businessProfileStatusSchema>;
+@@ -59,5 +66,12 @@ export type BusinessUpdateInventoryTemplateRequest = z.infer<typeof businessUpda
+ export type BusinessListInventoryTemplatesQuery = z.infer<typeof businessListInventoryTemplatesQuerySchema>;
+ export type BusinessInventoryTemplateReviewRequest = z.infer<typeof businessInventoryTemplateReviewRequestSchema>;
+ export type BusinessInventoryTemplateArchiveRequest = z.infer<typeof businessInventoryTemplateArchiveRequestSchema>;
++export type BusinessCreateNeedRequest = z.infer<typeof businessCreateNeedRequestSchema>;
++export type BusinessCreateOfferRequest = z.infer<typeof businessCreateOfferRequestSchema>;
++export type BusinessUpdateNeedRequest = z.infer<typeof businessUpdateNeedRequestSchema>;
++export type BusinessUpdateOfferRequest = z.infer<typeof businessUpdateOfferRequestSchema>;
++export type BusinessListOwnedInventoryQuery = z.infer<typeof businessListOwnedInventoryQuerySchema>;
++export type BusinessOwnedInventoryReviewRequest = z.infer<typeof businessOwnedInventoryReviewRequestSchema>;
++export type BusinessOwnedInventoryArchiveRequest = z.infer<typeof businessOwnedInventoryArchiveRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;
+ //# sourceMappingURL=business.d.ts.map
+diff --git a/packages/contracts/src/business.js b/packages/contracts/src/business.js
+index 8d9ad1d..baa51ac 100644
+--- a/packages/contracts/src/business.js
++++ b/packages/contracts/src/business.js
+@@ -1,5 +1,5 @@
+ import { z } from 'zod';
+-import { discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema } from './trade.js';
++import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+ export const businessProfileMemberRoleSchema = z.enum(['owner', 'admin', 'finance', 'member']);
+@@ -77,6 +77,36 @@ export const businessInventoryTemplateReviewRequestSchema = z.object({
+ export const businessInventoryTemplateArchiveRequestSchema = z.object({
+     note: z.string().trim().max(1000).optional(),
+ });
++
++const businessOwnedInventoryCreateStatusSchema = z.enum(['draft', 'pending_review']);
++const businessOwnedNeedManageStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'closed']);
++const businessOwnedOfferManageStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'closed']);
++const businessOwnedInventoryStatusFilterSchema = z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'closed', 'expired', 'fulfilled', 'accepted']);
++
++export const businessCreateNeedRequestSchema = createNeedRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedInventoryCreateStatusSchema.optional().default('draft'),
++});
++export const businessCreateOfferRequestSchema = createOfferRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedInventoryCreateStatusSchema.optional().default('draft'),
++});
++export const businessUpdateNeedRequestSchema = updateNeedRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedNeedManageStatusSchema.optional(),
++});
++export const businessUpdateOfferRequestSchema = updateOfferRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedOfferManageStatusSchema.optional(),
++});
++export const businessListOwnedInventoryQuerySchema = z.object({
++  status: businessOwnedInventoryStatusFilterSchema.optional().default('all'),
++  q: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++export const businessOwnedInventoryReviewRequestSchema = z.object({
++  note: z.string().trim().min(3).max(1000),
++});
++export const businessOwnedInventoryArchiveRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
+ export const adminBusinessProfileActionRequestSchema = z.object({
+     action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
+     note: z.string().trim().min(3).max(1000),
+diff --git a/packages/contracts/src/business.ts b/packages/contracts/src/business.ts
+index 4b581cb..ee158c9 100644
+--- a/packages/contracts/src/business.ts
++++ b/packages/contracts/src/business.ts
+@@ -1,5 +1,5 @@
+ import { z } from 'zod';
+-import { discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema } from './trade.js';
++import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
+ 
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+@@ -90,6 +90,36 @@ export const businessInventoryTemplateArchiveRequestSchema = z.object({
+   note: z.string().trim().max(1000).optional(),
+ });
+ 
++
++const businessOwnedInventoryCreateStatusSchema = z.enum(['draft', 'pending_review']);
++const businessOwnedNeedManageStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'closed']);
++const businessOwnedOfferManageStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'closed']);
++const businessOwnedInventoryStatusFilterSchema = z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'closed', 'expired', 'fulfilled', 'accepted']);
++
++export const businessCreateNeedRequestSchema = createNeedRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedInventoryCreateStatusSchema.optional().default('draft'),
++});
++export const businessCreateOfferRequestSchema = createOfferRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedInventoryCreateStatusSchema.optional().default('draft'),
++});
++export const businessUpdateNeedRequestSchema = updateNeedRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedNeedManageStatusSchema.optional(),
++});
++export const businessUpdateOfferRequestSchema = updateOfferRequestSchema.omit({ status: true }).extend({
++  status: businessOwnedOfferManageStatusSchema.optional(),
++});
++export const businessListOwnedInventoryQuerySchema = z.object({
++  status: businessOwnedInventoryStatusFilterSchema.optional().default('all'),
++  q: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++export const businessOwnedInventoryReviewRequestSchema = z.object({
++  note: z.string().trim().min(3).max(1000),
++});
++export const businessOwnedInventoryArchiveRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
+ export const adminBusinessProfileActionRequestSchema = z.object({
+   action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
+   note: z.string().trim().min(3).max(1000),
+@@ -114,4 +144,11 @@ export type BusinessUpdateInventoryTemplateRequest = z.infer<typeof businessUpda
+ export type BusinessListInventoryTemplatesQuery = z.infer<typeof businessListInventoryTemplatesQuerySchema>;
+ export type BusinessInventoryTemplateReviewRequest = z.infer<typeof businessInventoryTemplateReviewRequestSchema>;
+ export type BusinessInventoryTemplateArchiveRequest = z.infer<typeof businessInventoryTemplateArchiveRequestSchema>;
++export type BusinessCreateNeedRequest = z.infer<typeof businessCreateNeedRequestSchema>;
++export type BusinessCreateOfferRequest = z.infer<typeof businessCreateOfferRequestSchema>;
++export type BusinessUpdateNeedRequest = z.infer<typeof businessUpdateNeedRequestSchema>;
++export type BusinessUpdateOfferRequest = z.infer<typeof businessUpdateOfferRequestSchema>;
++export type BusinessListOwnedInventoryQuery = z.infer<typeof businessListOwnedInventoryQuerySchema>;
++export type BusinessOwnedInventoryReviewRequest = z.infer<typeof businessOwnedInventoryReviewRequestSchema>;
++export type BusinessOwnedInventoryArchiveRequest = z.infer<typeof businessOwnedInventoryArchiveRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;
+diff --git a/packages/contracts/src/trade.d.ts b/packages/contracts/src/trade.d.ts
+index 6b445e9..e291efe 100644
+--- a/packages/contracts/src/trade.d.ts
++++ b/packages/contracts/src/trade.d.ts
+@@ -2,6 +2,8 @@ import { z } from 'zod';
+ export declare const needStatusSchema: z.ZodEnum<{
+     active: "active";
+     draft: "draft";
++    pending_review: "pending_review";
++    rejected: "rejected";
+     fulfilled: "fulfilled";
+     closed: "closed";
+     expired: "expired";
+@@ -9,6 +11,8 @@ export declare const needStatusSchema: z.ZodEnum<{
+ export declare const offerStatusSchema: z.ZodEnum<{
+     active: "active";
+     draft: "draft";
++    pending_review: "pending_review";
++    rejected: "rejected";
+     closed: "closed";
+     expired: "expired";
+     accepted: "accepted";
+@@ -337,6 +341,7 @@ export declare const userPreviewSchema: z.ZodObject<{
+ export declare const needSchema: z.ZodObject<{
+     id: z.ZodString;
+     ownerId: z.ZodString;
++    businessProfileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+     sourceTemplateId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+     title: z.ZodString;
+     description: z.ZodString;
+@@ -402,6 +407,7 @@ export declare const needSchema: z.ZodObject<{
+ export declare const offerSchema: z.ZodObject<{
+     id: z.ZodString;
+     ownerId: z.ZodString;
++    businessProfileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+     sourceTemplateId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+     title: z.ZodString;
+     description: z.ZodString;
+diff --git a/packages/contracts/src/trade.js b/packages/contracts/src/trade.js
+index 90823ac..b59dcfc 100644
+--- a/packages/contracts/src/trade.js
++++ b/packages/contracts/src/trade.js
+@@ -1,8 +1,8 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from './inventoryLimits.js';
+-export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
+-export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
++export const needStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'fulfilled', 'closed', 'expired']);
++export const offerStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'accepted', 'closed', 'expired']);
+ export const tradePostTypeSchema = z.enum(['need_offer', 'open_need', 'open_offer']);
+ export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
+ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 2024b7b..694e8a8 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -7,8 +7,8 @@ import {
+   INVENTORY_TITLE_MIN_LENGTH
+ } from './inventoryLimits.js';
+ 
+-export const needStatusSchema = z.enum(['draft', 'active', 'fulfilled', 'closed', 'expired']);
+-export const offerStatusSchema = z.enum(['draft', 'active', 'accepted', 'closed', 'expired']);
++export const needStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'fulfilled', 'closed', 'expired']);
++export const offerStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'accepted', 'closed', 'expired']);
+ export const tradePostTypeSchema = z.enum(['need_offer', 'open_need', 'open_offer']);
+ export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
+ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
+@@ -233,6 +233,7 @@ export const userPreviewSchema = z.object({ id: z.string(), profile: profilePrev
+ export const needSchema = z.object({
+   id: z.string(),
+   ownerId: z.string(),
++  businessProfileId: z.string().nullable().optional(),
+   sourceTemplateId: z.string().nullable().optional(),
+   title: z.string(),
+   description: z.string(),
+@@ -252,6 +253,7 @@ export const needSchema = z.object({
+ export const offerSchema = z.object({
+   id: z.string(),
+   ownerId: z.string(),
++  businessProfileId: z.string().nullable().optional(),
+   sourceTemplateId: z.string().nullable().optional(),
+   title: z.string(),
+   description: z.string(),

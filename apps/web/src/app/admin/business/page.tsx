@@ -37,7 +37,7 @@ type BusinessProfile = {
   reviewer?: AdminUserPreview | null;
   members?: Array<{ id: string; role: string; user?: AdminUserPreview | null }>;
   moneyProviderAccounts?: Array<{ id: string; provider: string; status: string; accountType: string; country?: string | null; defaultCurrency?: string | null }>;
-  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number };
+  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number; sponsoredPlacements?: number };
 };
 
 type BusinessAdminResponse = {
@@ -176,7 +176,7 @@ export default function AdminBusinessPage() {
       }
       const data = await response.json() as { businessProfile?: BusinessProfile; contentAction?: Record<string, number> | null };
       const contentSummary = data.contentAction
-        ? ` Content closed: ${countValue(data.contentAction.needsClosed)} needs, ${countValue(data.contentAction.offersClosed)} offers, ${countValue(data.contentAction.tradesClosed)} trades, ${countValue(data.contentAction.inventoryTemplatesArchived)} templates.`
+        ? ` Content closed: ${countValue(data.contentAction.needsClosed)} needs, ${countValue(data.contentAction.offersClosed)} offers, ${countValue(data.contentAction.tradesClosed)} trades, ${countValue(data.contentAction.inventoryTemplatesArchived)} templates, ${countValue(data.contentAction.sponsoredPlacementsArchived)} sponsored placements.`
         : '';
       setNotice({ tone: 'success', body: `Business profile action saved.${contentSummary}` });
       updateActionForm(data.businessProfile ?? profile, { note: '', disablePublicContent: false });
@@ -278,6 +278,7 @@ export default function AdminBusinessPage() {
                 <span><small>Offers</small><strong>{countValue(profile.counts?.offers)}</strong></span>
                 <span><small>Trades</small><strong>{countValue(profile.counts?.trades)}</strong></span>
                 <span><small>Templates</small><strong>{countValue(profile.counts?.inventoryTemplates)}</strong></span>
+                <span><small>Sponsored</small><strong>{countValue(profile.counts?.sponsoredPlacements)}</strong></span>
               </div>
               <p className="meta">Reviewed by {personLabel(profile.reviewer)} {profile.reviewedAt ? `· ${formatWebDateTime(dateValue(profile.reviewedAt))}` : '· not reviewed'}{profile.reviewNote ? ` · Note: ${profile.reviewNote}` : ''}</p>
               {profile.websiteUrl ? <p className="meta">Website: {profile.websiteUrl}</p> : null}

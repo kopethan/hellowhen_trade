@@ -444,6 +444,8 @@ const styles = StyleSheet.create({
   proPackageLimitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   proPackageItem: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   proPackageItemCopy: { flex: 1, gap: 4 },
+  inventoryChoiceTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  inventoryChoiceMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 },
   inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   inventoryPickerHeading: { flex: 1, gap: 7 },

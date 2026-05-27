@@ -2,6 +2,8 @@ import { z } from 'zod';
 export declare const needStatusSchema: z.ZodEnum<{
     active: "active";
     draft: "draft";
+    pending_review: "pending_review";
+    rejected: "rejected";
     fulfilled: "fulfilled";
     closed: "closed";
     expired: "expired";
@@ -9,6 +11,8 @@ export declare const needStatusSchema: z.ZodEnum<{
 export declare const offerStatusSchema: z.ZodEnum<{
     active: "active";
     draft: "draft";
+    pending_review: "pending_review";
+    rejected: "rejected";
     closed: "closed";
     expired: "expired";
     accepted: "accepted";
@@ -76,6 +80,8 @@ export declare const inventoryTemplateSourceTypeSchema: z.ZodEnum<{
 export declare const inventoryTemplateStatusSchema: z.ZodEnum<{
     active: "active";
     draft: "draft";
+    pending_review: "pending_review";
+    rejected: "rejected";
     archived: "archived";
 }>;
 export declare const cloneInventoryTemplateStatusSchema: z.ZodEnum<{
@@ -335,6 +341,7 @@ export declare const userPreviewSchema: z.ZodObject<{
 export declare const needSchema: z.ZodObject<{
     id: z.ZodString;
     ownerId: z.ZodString;
+    businessProfileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     sourceTemplateId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     title: z.ZodString;
     description: z.ZodString;
@@ -400,6 +407,7 @@ export declare const needSchema: z.ZodObject<{
 export declare const offerSchema: z.ZodObject<{
     id: z.ZodString;
     ownerId: z.ZodString;
+    businessProfileId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     sourceTemplateId: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     title: z.ZodString;
     description: z.ZodString;

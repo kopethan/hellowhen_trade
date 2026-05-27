@@ -1,0 +1,1957 @@
+diff --git a/apps/api/prisma/migrations/20260527225000_business_campaigns/migration.sql b/apps/api/prisma/migrations/20260527225000_business_campaigns/migration.sql
+new file mode 100644
+index 0000000..cd5a32f
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260527225000_business_campaigns/migration.sql
+@@ -0,0 +1,132 @@
++-- Hidden Business campaign/opportunity skeleton.
++-- This groups approved Business-owned content for future opportunities.
++-- It intentionally does not add campaign budgets, credits, tokens, tickets,
++-- checks, wallet balances, payouts, provider money flow, or public campaign feed logic.
++CREATE TYPE "BusinessCampaignOpportunityType" AS ENUM (
++  'collaboration',
++  'creator_request',
++  'service_request',
++  'community',
++  'research',
++  'other'
++);
++
++CREATE TYPE "BusinessCampaignStatus" AS ENUM (
++  'draft',
++  'pending_review',
++  'approved',
++  'rejected',
++  'paused',
++  'archived',
++  'completed'
++);
++
++CREATE TYPE "BusinessCampaignItemTargetType" AS ENUM (
++  'need',
++  'offer',
++  'inventory_template'
++);
++
++CREATE TYPE "BusinessCampaignApplicationStatus" AS ENUM (
++  'pending',
++  'reviewed',
++  'accepted',
++  'declined',
++  'withdrawn',
++  'archived'
++);
++
++CREATE TABLE "BusinessCampaign" (
++  "id" TEXT NOT NULL,
++  "businessProfileId" TEXT NOT NULL,
++  "opportunityType" "BusinessCampaignOpportunityType" NOT NULL DEFAULT 'collaboration',
++  "status" "BusinessCampaignStatus" NOT NULL DEFAULT 'draft',
++  "title" TEXT NOT NULL,
++  "summary" TEXT,
++  "description" TEXT NOT NULL,
++  "eligibility" TEXT,
++  "deliverables" TEXT,
++  "startsAt" TIMESTAMP(3),
++  "endsAt" TIMESTAMP(3),
++  "createdById" TEXT NOT NULL,
++  "submittedAt" TIMESTAMP(3),
++  "reviewedById" TEXT,
++  "reviewedAt" TIMESTAMP(3),
++  "reviewNote" TEXT,
++  "archivedAt" TIMESTAMP(3),
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++
++  CONSTRAINT "BusinessCampaign_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "BusinessCampaignItem" (
++  "id" TEXT NOT NULL,
++  "campaignId" TEXT NOT NULL,
++  "targetType" "BusinessCampaignItemTargetType" NOT NULL,
++  "targetId" TEXT NOT NULL,
++  "note" TEXT,
++  "sortOrder" INTEGER NOT NULL DEFAULT 0,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++
++  CONSTRAINT "BusinessCampaignItem_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "BusinessCampaignApplication" (
++  "id" TEXT NOT NULL,
++  "campaignId" TEXT NOT NULL,
++  "applicantId" TEXT NOT NULL,
++  "status" "BusinessCampaignApplicationStatus" NOT NULL DEFAULT 'pending',
++  "message" TEXT NOT NULL,
++  "reviewedById" TEXT,
++  "reviewedAt" TIMESTAMP(3),
++  "reviewNote" TEXT,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++
++  CONSTRAINT "BusinessCampaignApplication_pkey" PRIMARY KEY ("id")
++);
++
++CREATE INDEX "BusinessCampaign_businessProfileId_status_idx" ON "BusinessCampaign"("businessProfileId", "status");
++CREATE INDEX "BusinessCampaign_opportunityType_status_idx" ON "BusinessCampaign"("opportunityType", "status");
++CREATE INDEX "BusinessCampaign_createdById_createdAt_idx" ON "BusinessCampaign"("createdById", "createdAt");
++CREATE INDEX "BusinessCampaign_reviewedById_reviewedAt_idx" ON "BusinessCampaign"("reviewedById", "reviewedAt");
++CREATE INDEX "BusinessCampaign_startsAt_endsAt_idx" ON "BusinessCampaign"("startsAt", "endsAt");
++
++CREATE UNIQUE INDEX "BusinessCampaignItem_campaignId_targetType_targetId_key" ON "BusinessCampaignItem"("campaignId", "targetType", "targetId");
++CREATE INDEX "BusinessCampaignItem_campaignId_sortOrder_idx" ON "BusinessCampaignItem"("campaignId", "sortOrder");
++CREATE INDEX "BusinessCampaignItem_targetType_targetId_idx" ON "BusinessCampaignItem"("targetType", "targetId");
++
++CREATE UNIQUE INDEX "BusinessCampaignApplication_campaignId_applicantId_key" ON "BusinessCampaignApplication"("campaignId", "applicantId");
++CREATE INDEX "BusinessCampaignApplication_campaignId_status_idx" ON "BusinessCampaignApplication"("campaignId", "status");
++CREATE INDEX "BusinessCampaignApplication_applicantId_status_idx" ON "BusinessCampaignApplication"("applicantId", "status");
++CREATE INDEX "BusinessCampaignApplication_reviewedById_reviewedAt_idx" ON "BusinessCampaignApplication"("reviewedById", "reviewedAt");
++
++ALTER TABLE "BusinessCampaign"
++  ADD CONSTRAINT "BusinessCampaign_businessProfileId_fkey"
++  FOREIGN KEY ("businessProfileId") REFERENCES "BusinessProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessCampaign"
++  ADD CONSTRAINT "BusinessCampaign_createdById_fkey"
++  FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessCampaign"
++  ADD CONSTRAINT "BusinessCampaign_reviewedById_fkey"
++  FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessCampaignItem"
++  ADD CONSTRAINT "BusinessCampaignItem_campaignId_fkey"
++  FOREIGN KEY ("campaignId") REFERENCES "BusinessCampaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessCampaignApplication"
++  ADD CONSTRAINT "BusinessCampaignApplication_campaignId_fkey"
++  FOREIGN KEY ("campaignId") REFERENCES "BusinessCampaign"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessCampaignApplication"
++  ADD CONSTRAINT "BusinessCampaignApplication_applicantId_fkey"
++  FOREIGN KEY ("applicantId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "BusinessCampaignApplication"
++  ADD CONSTRAINT "BusinessCampaignApplication_reviewedById_fkey"
++  FOREIGN KEY ("reviewedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 32874e1..015ef06 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -362,6 +362,41 @@ enum BusinessSponsoredPlacementStatus {
+   archived
+ }
+ 
++
++enum BusinessCampaignOpportunityType {
++  collaboration
++  creator_request
++  service_request
++  community
++  research
++  other
++}
++
++enum BusinessCampaignStatus {
++  draft
++  pending_review
++  approved
++  rejected
++  paused
++  archived
++  completed
++}
++
++enum BusinessCampaignItemTargetType {
++  need
++  offer
++  inventory_template
++}
++
++enum BusinessCampaignApplicationStatus {
++  pending
++  reviewed
++  accepted
++  declined
++  withdrawn
++  archived
++}
++
+ enum MoneyProviderTransactionType {
+   payin
+   internal_transfer
+@@ -530,6 +565,10 @@ model User {
+   reviewedBusinessProfiles BusinessProfile[] @relation("ReviewedBusinessProfiles")
+   createdBusinessSponsoredPlacements BusinessSponsoredPlacement[] @relation("CreatedBusinessSponsoredPlacements")
+   reviewedBusinessSponsoredPlacements BusinessSponsoredPlacement[] @relation("ReviewedBusinessSponsoredPlacements")
++  createdBusinessCampaigns BusinessCampaign[] @relation("CreatedBusinessCampaigns")
++  reviewedBusinessCampaigns BusinessCampaign[] @relation("ReviewedBusinessCampaigns")
++  businessCampaignApplications BusinessCampaignApplication[] @relation("BusinessCampaignApplications")
++  reviewedBusinessCampaignApplications BusinessCampaignApplication[] @relation("ReviewedBusinessCampaignApplications")
+   moneyProviderTransactions MoneyProviderTransaction[]
+   moneyPolicyAcknowledgements MoneyPolicyAcknowledgement[]
+   adminAuditLogs AdminAuditLog[] @relation("AdminAuditLogs")
+@@ -1291,6 +1330,7 @@ model BusinessProfile {
+   trades                Trade[]
+   inventoryTemplates    InventoryTemplate[]
+   sponsoredPlacements   BusinessSponsoredPlacement[]
++  campaigns             BusinessCampaign[]
+ 
+   @@index([ownerId, status])
+   @@index([type, status])
+@@ -1396,6 +1436,80 @@ model BusinessSponsoredPlacement {
+   @@index([reviewedById, reviewedAt])
+ }
+ 
++
++model BusinessCampaign {
++  id                String                          @id @default(cuid())
++  businessProfileId String
++  opportunityType   BusinessCampaignOpportunityType @default(collaboration)
++  status            BusinessCampaignStatus          @default(draft)
++  title             String
++  summary           String?
++  description       String
++  eligibility       String?
++  deliverables      String?
++  startsAt          DateTime?
++  endsAt            DateTime?
++  createdById       String
++  submittedAt       DateTime?
++  reviewedById      String?
++  reviewedAt        DateTime?
++  reviewNote        String?
++  archivedAt        DateTime?
++  createdAt         DateTime                        @default(now())
++  updatedAt         DateTime                        @updatedAt
++
++  businessProfile   BusinessProfile                 @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
++  createdBy         User                            @relation("CreatedBusinessCampaigns", fields: [createdById], references: [id], onDelete: Cascade)
++  reviewer          User?                           @relation("ReviewedBusinessCampaigns", fields: [reviewedById], references: [id], onDelete: SetNull)
++  items             BusinessCampaignItem[]
++  applications      BusinessCampaignApplication[]
++
++  @@index([businessProfileId, status])
++  @@index([opportunityType, status])
++  @@index([createdById, createdAt])
++  @@index([reviewedById, reviewedAt])
++  @@index([startsAt, endsAt])
++}
++
++model BusinessCampaignItem {
++  id          String                         @id @default(cuid())
++  campaignId  String
++  targetType  BusinessCampaignItemTargetType
++  targetId    String
++  note        String?
++  sortOrder   Int                            @default(0)
++  createdAt   DateTime                       @default(now())
++  updatedAt   DateTime                       @updatedAt
++
++  campaign    BusinessCampaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
++
++  @@unique([campaignId, targetType, targetId])
++  @@index([campaignId, sortOrder])
++  @@index([targetType, targetId])
++}
++
++model BusinessCampaignApplication {
++  id           String                            @id @default(cuid())
++  campaignId   String
++  applicantId  String
++  status       BusinessCampaignApplicationStatus @default(pending)
++  message      String
++  reviewedById String?
++  reviewedAt   DateTime?
++  reviewNote   String?
++  createdAt    DateTime                          @default(now())
++  updatedAt    DateTime                          @updatedAt
++
++  campaign      BusinessCampaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
++  applicant     User                              @relation("BusinessCampaignApplications", fields: [applicantId], references: [id], onDelete: Cascade)
++  reviewer      User?                             @relation("ReviewedBusinessCampaignApplications", fields: [reviewedById], references: [id], onDelete: SetNull)
++
++  @@unique([campaignId, applicantId])
++  @@index([campaignId, status])
++  @@index([applicantId, status])
++  @@index([reviewedById, reviewedAt])
++}
++
+ model MoneyPolicyAcknowledgement {
+   id                   String   @id @default(cuid())
+   userId               String
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 2845c28..77aac99 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -1,13 +1,13 @@
+ import { randomUUID } from 'node:crypto';
+ import { Router } from 'express';
+ import { z } from 'zod';
+-import { adminBusinessProfileActionRequestSchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
++import { adminBusinessProfileActionRequestSchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+ import { hasProAccess } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth } from '../../middleware/auth.js';
+-import { requireBusinessAccountsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
++import { requireBusinessAccountsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { buildLaunchLimits } from '../limits/launchLimits.js';
+ import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
+@@ -128,6 +128,7 @@ adminRoutes.use('/payouts', requirePayoutsVisible('Admin payout tools'));
+ adminRoutes.use('/stripe', requirePayoutsVisible('Admin Stripe payout tools'));
+ adminRoutes.use('/business-profiles', requireBusinessAccountsEnabled('Admin business profiles'));
+ adminRoutes.use('/business-sponsored-placements', requireBusinessSponsoredContentEnabled('Admin Business sponsored placements'));
++adminRoutes.use('/business-campaigns', requireBusinessCampaignsEnabled('Admin Business campaigns'));
+ adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
+ adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
+ 
+@@ -2303,7 +2304,7 @@ const adminBusinessProfileInclude = {
+   reviewer: { select: { id: true, email: true, profile: true } },
+   members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
+   moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+-  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true } },
++  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true, campaigns: true } },
+ } as const;
+ 
+ function normalizeAdminBusinessProfile(profile: any) {
+@@ -2330,12 +2331,13 @@ function adminBusinessProfileWhere(input: z.infer<typeof adminBusinessProfileLis
+ }
+ 
+ async function closeBusinessPublicContentForReview(tx: any, businessProfileId: string) {
+-  const [needs, offers, trades, inventoryTemplates, sponsoredPlacements] = await Promise.all([
++  const [needs, offers, trades, inventoryTemplates, sponsoredPlacements, campaigns] = await Promise.all([
+     tx.need.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+     tx.offer.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+     tx.trade.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+     tx.inventoryTemplate.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'archived' } }),
+     (tx as any).businessSponsoredPlacement?.updateMany({ where: { businessProfileId, status: { in: ['pending_review', 'approved', 'paused'] } }, data: { status: 'archived', archivedAt: new Date() } }) ?? Promise.resolve({ count: 0 }),
++    (tx as any).businessCampaign?.updateMany({ where: { businessProfileId, status: { in: ['pending_review', 'approved', 'paused'] } }, data: { status: 'archived', archivedAt: new Date() } }) ?? Promise.resolve({ count: 0 }),
+   ]);
+   return {
+     needsClosed: needs.count,
+@@ -2343,6 +2345,7 @@ async function closeBusinessPublicContentForReview(tx: any, businessProfileId: s
+     tradesClosed: trades.count,
+     inventoryTemplatesArchived: inventoryTemplates.count,
+     sponsoredPlacementsArchived: sponsoredPlacements.count,
++    campaignsArchived: campaigns.count,
+   };
+ }
+ 
+@@ -2402,7 +2405,7 @@ adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(asy
+   const result = await prisma.$transaction(async (tx) => {
+     const existing = await tx.businessProfile.findUnique({
+       where: { id: businessProfileId },
+-      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true } } },
++      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true, campaigns: true } } },
+     });
+     if (!existing) return null;
+ 
+@@ -2594,6 +2597,164 @@ adminRoutes.patch('/business-sponsored-placements/:placementId/action', asyncRou
+ }));
+ 
+ 
++
++
++const businessCampaignIncludeForAdmin = {
++  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true, ownerId: true } },
++  createdBy: { select: { id: true, email: true, profile: true } },
++  reviewer: { select: { id: true, email: true, profile: true } },
++  items: { orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }] },
++  _count: { select: { items: true, applications: true } },
++} as const;
++
++async function loadAdminBusinessCampaignTarget(businessProfileId: string, targetType: string, targetId: string) {
++  if (targetType === 'need') {
++    return prisma.need.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'offer') {
++    return prisma.offer.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'inventory_template') {
++    return prisma.inventoryTemplate.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  return null;
++}
++
++async function hydrateAdminBusinessCampaign(campaign: any) {
++  return {
++    ...campaign,
++    items: await Promise.all((campaign.items ?? []).map(async (item: any) => ({ ...item, target: await loadAdminBusinessCampaignTarget(campaign.businessProfileId, item.targetType, item.targetId) }))),
++  };
++}
++
++async function hydrateAdminBusinessCampaigns(campaigns: any[]) {
++  return Promise.all(campaigns.map((campaign) => hydrateAdminBusinessCampaign(campaign)));
++}
++
++function adminBusinessCampaignWhere(input: z.infer<typeof adminBusinessCampaignListQuerySchema>) {
++  const where: Record<string, unknown> = {};
++  if (input.status !== 'all') where.status = input.status;
++  if (input.opportunityType !== 'all') where.opportunityType = input.opportunityType;
++  if (input.businessProfileId) where.businessProfileId = input.businessProfileId;
++  if (input.q) {
++    where.OR = [
++      { title: { contains: input.q, mode: 'insensitive' as const } },
++      { summary: { contains: input.q, mode: 'insensitive' as const } },
++      { description: { contains: input.q, mode: 'insensitive' as const } },
++      { eligibility: { contains: input.q, mode: 'insensitive' as const } },
++      { deliverables: { contains: input.q, mode: 'insensitive' as const } },
++      { businessProfile: { displayName: { contains: input.q, mode: 'insensitive' as const } } },
++      { businessProfile: { handle: { contains: input.q, mode: 'insensitive' as const } } },
++    ];
++  }
++  return where;
++}
++
++async function businessCampaignStatusSummary(where: Record<string, unknown>) {
++  const [total, draft, pendingReview, approved, rejected, paused, archived, completed] = await Promise.all([
++    (prisma as any).businessCampaign.count({ where: where as any }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'draft' } }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'pending_review' } }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'approved' } }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'rejected' } }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'paused' } }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'archived' } }),
++    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'completed' } }),
++  ]);
++  return { total, draft, pendingReview, approved, rejected, paused, archived, completed };
++}
++
++async function adminCampaignHasEligibleItems(campaign: any) {
++  const items = campaign.items ?? [];
++  if (!items.length) return false;
++  for (const item of items) {
++    const target = await loadAdminBusinessCampaignTarget(campaign.businessProfileId, item.targetType, item.targetId);
++    if (!target) return false;
++  }
++  return true;
++}
++
++adminRoutes.get('/business-campaigns', asyncRoute(async (req, res) => {
++  const input = adminBusinessCampaignListQuerySchema.parse(req.query);
++  const where = adminBusinessCampaignWhere(input);
++  const [campaigns, summary] = await Promise.all([
++    (prisma as any).businessCampaign.findMany({
++      where: where as any,
++      include: businessCampaignIncludeForAdmin,
++      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
++      take: input.take,
++    }),
++    businessCampaignStatusSummary(where),
++  ]);
++  const recentAuditLogs = await (prisma as any).adminAuditLog?.findMany({
++    where: { targetType: 'business_campaign', targetId: { in: campaigns.map((campaign: any) => campaign.id) } },
++    orderBy: { createdAt: 'desc' },
++    take: 20,
++    include: { admin: { select: { id: true, email: true, profile: true } } },
++  }) ?? [];
++  res.json({ summary, recentAuditLogs, campaigns: await hydrateAdminBusinessCampaigns(campaigns) });
++}));
++
++adminRoutes.patch('/business-campaigns/:campaignId/action', asyncRoute(async (req, res) => {
++  const input = adminBusinessCampaignActionRequestSchema.parse(req.body ?? {});
++  const campaignId = req.params.campaignId;
++  if (!campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
++  const statusByAction = {
++    approve: 'approved',
++    reject: 'rejected',
++    pause: 'paused',
++    archive: 'archived',
++    restore: 'approved',
++    complete: 'completed',
++  } as const;
++  const nextStatus = statusByAction[input.action];
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessCampaign.findUnique({ where: { id: campaignId }, include: businessCampaignIncludeForAdmin });
++    if (!existing) return null;
++    const profile = existing.businessProfile;
++    if ((input.action === 'approve' || input.action === 'restore') && profile.status !== 'verified') return { status: 409 as const, error: 'business_profile_not_verified' };
++    const hasEligibleItems = await adminCampaignHasEligibleItems(existing);
++    if ((input.action === 'approve' || input.action === 'restore') && !hasEligibleItems) return { status: 409 as const, error: 'business_campaign_items_required' };
++    const now = new Date();
++    const updated = await (tx as any).businessCampaign.update({
++      where: { id: existing.id },
++      data: {
++        status: nextStatus,
++        reviewedAt: now,
++        reviewedById: req.user!.id,
++        reviewNote: input.note,
++        ...(input.action === 'archive' ? { archivedAt: now } : {}),
++        ...(input.action === 'restore' || input.action === 'approve' ? { archivedAt: null } : {}),
++      },
++      include: businessCampaignIncludeForAdmin,
++    });
++    await recordAdminAuditLog(tx, req.user!.id, {
++      action: `business_campaign.${input.action}`,
++      targetType: 'business_campaign',
++      targetId: existing.id,
++      reason: input.note,
++      previousValue: { status: existing.status, reviewedAt: existing.reviewedAt, reviewedById: existing.reviewedById, reviewNote: existing.reviewNote, archivedAt: existing.archivedAt },
++      nextValue: { status: updated.status, reviewedAt: updated.reviewedAt, reviewedById: updated.reviewedById, reviewNote: updated.reviewNote, archivedAt: updated.archivedAt },
++      metadata: { businessProfileId: existing.businessProfileId, opportunityType: existing.opportunityType, itemCount: existing.items?.length ?? 0, noBudget: true, noMoney: true, applicationSkeletonOnly: true },
++    });
++    return { status: 200 as const, campaign: updated };
++  });
++
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'business_profile_not_verified' ? 'The Business profile must be verified before approving campaigns.' : 'Attach at least one active, admin-approved Business item before approving this campaign.' });
++  res.json({ campaign: await hydrateAdminBusinessCampaign(result.campaign) });
++}));
++
+ adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
+   const provider = buildMoneyProviderStatus();
+   const [providerAccounts, legacyStripeAccounts] = await Promise.all([
+diff --git a/apps/api/src/modules/business/business.routes.ts b/apps/api/src/modules/business/business.routes.ts
+index 32339ad..6c628ed 100644
+--- a/apps/api/src/modules/business/business.routes.ts
++++ b/apps/api/src/modules/business/business.routes.ts
+@@ -10,10 +10,18 @@ import {
+   businessOwnedInventoryArchiveRequestSchema,
+   businessOwnedInventoryReviewRequestSchema,
+   businessCreateSponsoredPlacementRequestSchema,
++  businessCampaignArchiveRequestSchema,
++  businessCampaignItemActionRequestSchema,
++  businessCampaignListQuerySchema,
++  businessCampaignReviewRequestSchema,
++  businessCreateCampaignItemRequestSchema,
++  businessCreateCampaignRequestSchema,
+   businessSponsoredPlacementListQuerySchema,
+   businessSponsoredPlacementArchiveRequestSchema,
+   businessSponsoredPlacementReviewRequestSchema,
+   businessUpdateSponsoredPlacementRequestSchema,
++  businessUpdateCampaignItemRequestSchema,
++  businessUpdateCampaignRequestSchema,
+   businessListInventoryTemplatesQuerySchema,
+   businessUpdateInventoryTemplateRequestSchema,
+   businessUpdateNeedRequestSchema,
+@@ -30,7 +38,7 @@ import {
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
+-import { requireBusinessSponsoredContentEnabled } from '../../middleware/featureGates.js';
++import { requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled } from '../../middleware/featureGates.js';
+ import { getActiveMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
+ import { withMedia, withOneMedia } from '../media/media.helpers.js';
+@@ -47,6 +55,8 @@ const businessInventoryEditRoles = new Set(['owner', 'admin', 'finance', 'member
+ const businessInventorySubmitRoles = new Set(['owner', 'admin']);
+ const businessSponsoredPlacementEditRoles = new Set(['owner', 'admin', 'member']);
+ const businessSponsoredPlacementSubmitRoles = new Set(['owner', 'admin']);
++const businessCampaignEditRoles = new Set(['owner', 'admin', 'member']);
++const businessCampaignSubmitRoles = new Set(['owner', 'admin']);
+ const ownerAssignableRoles = new Set(['admin', 'finance', 'member']);
+ const adminAssignableRoles = new Set(['member']);
+ 
+@@ -54,7 +64,7 @@ const businessInclude = {
+   owner: { select: { id: true, email: true, profile: true, trustTier: true } },
+   members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
+   moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+-  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true } },
++  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true, campaigns: true } },
+ } as const;
+ 
+ const businessTeamInclude = {
+@@ -242,6 +252,101 @@ async function hydrateBusinessSponsoredPlacements(placements: any[]) {
+   return Promise.all(placements.map(async (placement) => normalizeSponsoredPlacement(placement, await loadBusinessSponsoredPlacementTarget(placement.businessProfileId, placement.targetType, placement.targetId))));
+ }
+ 
++
++const businessCampaignInclude = {
++  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true } },
++  createdBy: { select: { id: true, email: true, profile: true } },
++  reviewer: { select: { id: true, email: true, profile: true } },
++  items: { orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }] },
++  _count: { select: { items: true, applications: true } },
++} as const;
++
++const businessCampaignApplicationInclude = {
++  applicant: { select: { id: true, email: true, profile: true, trustTier: true } },
++  reviewer: { select: { id: true, email: true, profile: true } },
++} as const;
++
++function canEditBusinessCampaigns(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && businessCampaignEditRoles.has(role));
++}
++
++function canSubmitBusinessCampaigns(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && businessCampaignSubmitRoles.has(role));
++}
++
++function cleanCampaignDateWindow(startsAt?: string | null, endsAt?: string | null) {
++  const start = parseNullableDate(startsAt);
++  const end = parseNullableDate(endsAt);
++  if (start && end && end.getTime() < start.getTime()) {
++    throw Object.assign(new Error('The end date must be after the start date.'), { statusCode: 400, code: 'invalid_business_campaign_window', publicMessage: 'The end date must be after the start date.' });
++  }
++  return { startsAt: start, endsAt: end };
++}
++
++async function loadBusinessCampaignTarget(businessProfileId: string, targetType: string, targetId: string) {
++  if (targetType === 'need') {
++    return prisma.need.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'offer') {
++    return prisma.offer.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  if (targetType === 'inventory_template') {
++    return prisma.inventoryTemplate.findFirst({
++      where: { id: targetId, businessProfileId, status: 'active' },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++    });
++  }
++  return null;
++}
++
++async function hydrateBusinessCampaignItems(items: any[], businessProfileId: string) {
++  return Promise.all(items.map(async (item) => ({ ...item, target: await loadBusinessCampaignTarget(businessProfileId, item.targetType, item.targetId) })));
++}
++
++async function hydrateBusinessCampaign(campaign: any) {
++  if (!campaign) return campaign;
++  return { ...campaign, items: await hydrateBusinessCampaignItems(campaign.items ?? [], campaign.businessProfileId) };
++}
++
++async function hydrateBusinessCampaigns(campaigns: any[]) {
++  return Promise.all(campaigns.map((campaign) => hydrateBusinessCampaign(campaign)));
++}
++
++function businessCampaignSearchWhere(q?: string) {
++  const text = q?.trim();
++  return text ? {
++    OR: [
++      { title: { contains: text, mode: 'insensitive' as const } },
++      { summary: { contains: text, mode: 'insensitive' as const } },
++      { description: { contains: text, mode: 'insensitive' as const } },
++      { eligibility: { contains: text, mode: 'insensitive' as const } },
++      { deliverables: { contains: text, mode: 'insensitive' as const } },
++    ],
++  } : {};
++}
++
++function campaignContentChanged(input: Record<string, unknown>) {
++  return Object.keys(input).some((key) => key !== 'note');
++}
++
++async function ensureCampaignHasEligibleItem(client: any, businessProfileId: string, campaignId: string) {
++  const items = await client.businessCampaignItem.findMany({ where: { campaignId } });
++  if (!items.length) return false;
++  for (const item of items) {
++    const target = await loadBusinessCampaignTarget(businessProfileId, item.targetType, item.targetId);
++    if (!target) return false;
++  }
++  return true;
++}
++
+ async function syncBusinessOwnedInventoryMedia(client: unknown, ownerId: string, mediaIds: string[] | undefined, entityType: 'need' | 'offer', entityId: string) {
+   const selectedIds = Array.from(new Set(mediaIds ?? []));
+   const mediaClient = (client as { mediaAsset: typeof prisma.mediaAsset }).mediaAsset;
+@@ -1184,6 +1289,263 @@ businessRoutes.post('/:businessProfileId/sponsored-placements/:placementId/archi
+   res.json({ placement: normalizeSponsoredPlacement(result, await loadBusinessSponsoredPlacementTarget(result.businessProfileId, result.targetType, result.targetId)) });
+ }));
+ 
++
++
++businessRoutes.use('/:businessProfileId/campaigns', requireBusinessCampaignsEnabled('Business campaigns'));
++
++businessRoutes.get('/:businessProfileId/campaigns', asyncRoute(async (req, res) => {
++  const input = businessCampaignListQuerySchema.parse(req.query);
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  const campaigns = await (prisma as any).businessCampaign.findMany({
++    where: ({
++      businessProfileId,
++      ...(input.status !== 'all' ? { status: input.status } : {}),
++      ...(input.opportunityType !== 'all' ? { opportunityType: input.opportunityType } : {}),
++      ...businessCampaignSearchWhere(input.q),
++    } as any),
++    include: businessCampaignInclude,
++    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
++    take: input.take,
++  });
++  res.json({
++    businessProfile: { id: businessProfile.id, displayName: businessProfile.displayName, type: businessProfile.type, status: businessProfile.status },
++    myRole: getMyBusinessRole(businessProfile, req.user!.id),
++    campaigns: await hydrateBusinessCampaigns(campaigns),
++  });
++}));
++
++businessRoutes.post('/:businessProfileId/campaigns', asyncRoute(async (req, res) => {
++  const input = businessCreateCampaignRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_editor_required', message: 'Only business team members can draft campaigns.' });
++  if (input.status === 'pending_review' && !canSubmitBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_submitter_required', message: 'Only business owners and admins can submit campaigns for review.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot create campaigns.' });
++  if (input.status === 'pending_review' && businessProfile.status !== 'verified') return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify this Business profile before submitting campaigns.' });
++  if (input.status === 'pending_review') return res.status(409).json({ error: 'business_campaign_items_required', message: 'Create the campaign as a draft, attach at least one approved Business item, then submit it for admin review.' });
++  const window = cleanCampaignDateWindow(input.startsAt, input.endsAt);
++  const campaign = await prisma.$transaction(async (tx) => {
++    const created = await (tx as any).businessCampaign.create({
++      data: {
++        businessProfileId: businessProfile.id,
++        opportunityType: input.opportunityType,
++        status: input.status,
++        title: input.title,
++        summary: input.summary ?? null,
++        description: input.description,
++        eligibility: input.eligibility ?? null,
++        deliverables: input.deliverables ?? null,
++        startsAt: window.startsAt ?? null,
++        endsAt: window.endsAt ?? null,
++        createdById: req.user!.id,
++        submittedAt: input.status === 'pending_review' ? new Date() : null,
++      },
++      include: businessCampaignInclude,
++    });
++    await writeTeamAuditLog(tx, {
++      businessProfileId: businessProfile.id,
++      actorId: req.user!.id,
++      action: input.status === 'pending_review' ? 'business_campaign_created_and_submitted' : 'business_campaign_created',
++      note: input.note ?? null,
++      nextValue: { campaignId: created.id, status: created.status, opportunityType: created.opportunityType, noMoney: true },
++    });
++    return created;
++  });
++  res.status(201).json({ campaign: await hydrateBusinessCampaign(campaign) });
++}));
++
++businessRoutes.patch('/:businessProfileId/campaigns/:campaignId', asyncRoute(async (req, res) => {
++  const input = businessUpdateCampaignRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  if (!businessProfileId || !campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_editor_required', message: 'Only business team members can edit campaigns.' });
++  const window = cleanCampaignDateWindow(input.startsAt, input.endsAt);
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, include: businessCampaignInclude });
++    if (!existing) return null;
++    const role = getMyBusinessRole(businessProfile, req.user!.id);
++    if ((existing.status === 'approved' || existing.status === 'paused' || existing.status === 'completed') && role === 'member') return { status: 403 as const, error: 'business_campaign_admin_required' };
++    if (existing.status === 'archived') return { status: 409 as const, error: 'business_campaign_archived' };
++    const resetReview = campaignContentChanged(input as Record<string, unknown>) && ['approved', 'rejected', 'paused', 'completed'].includes(existing.status);
++    const updated = await (tx as any).businessCampaign.update({
++      where: { id: existing.id },
++      data: {
++        ...(input.opportunityType !== undefined ? { opportunityType: input.opportunityType } : {}),
++        ...(input.title !== undefined ? { title: input.title } : {}),
++        ...(input.summary !== undefined ? { summary: input.summary ?? null } : {}),
++        ...(input.description !== undefined ? { description: input.description } : {}),
++        ...(input.eligibility !== undefined ? { eligibility: input.eligibility ?? null } : {}),
++        ...(input.deliverables !== undefined ? { deliverables: input.deliverables ?? null } : {}),
++        ...(input.startsAt !== undefined ? { startsAt: window.startsAt ?? null } : {}),
++        ...(input.endsAt !== undefined ? { endsAt: window.endsAt ?? null } : {}),
++        ...(resetReview ? { status: 'pending_review', submittedAt: new Date(), reviewedAt: null, reviewedById: null, reviewNote: null, archivedAt: null } : {}),
++      },
++      include: businessCampaignInclude,
++    });
++    await writeTeamAuditLog(tx, {
++      businessProfileId,
++      actorId: req.user!.id,
++      action: resetReview ? 'business_campaign_updated_and_resubmitted' : 'business_campaign_updated',
++      note: input.note ?? null,
++      previousValue: { campaignId: existing.id, status: existing.status, title: existing.title, opportunityType: existing.opportunityType },
++      nextValue: { campaignId: updated.id, status: updated.status, title: updated.title, opportunityType: updated.opportunityType },
++    });
++    return { status: 200 as const, campaign: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  if (result.status === 403) return res.status(403).json({ error: result.error, message: 'Only business owners/admins can edit approved, paused, or completed campaigns.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'Archived campaigns cannot be edited.' });
++  res.json({ campaign: await hydrateBusinessCampaign(result.campaign) });
++}));
++
++businessRoutes.post('/:businessProfileId/campaigns/:campaignId/request-review', asyncRoute(async (req, res) => {
++  const input = businessCampaignReviewRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  if (!businessProfileId || !campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_submitter_required', message: 'Only business owners and admins can submit campaigns for review.' });
++  if (businessProfile.status !== 'verified') return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify this Business profile before submitting campaigns.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, include: businessCampaignInclude });
++    if (!existing) return null;
++    if (existing.status === 'approved') return { status: 409 as const, error: 'business_campaign_already_approved' };
++    if (existing.status === 'archived') return { status: 409 as const, error: 'business_campaign_archived' };
++    const hasEligibleItem = await ensureCampaignHasEligibleItem(tx as any, businessProfileId, existing.id);
++    if (!hasEligibleItem) return { status: 409 as const, error: 'business_campaign_items_required' };
++    const updated = await (tx as any).businessCampaign.update({ where: { id: existing.id }, data: { status: 'pending_review', submittedAt: new Date(), archivedAt: null }, include: businessCampaignInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_campaign_submitted_for_review', note: input.note, previousValue: { campaignId: existing.id, status: existing.status }, nextValue: { campaignId: updated.id, status: updated.status } });
++    return { status: 200 as const, campaign: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'business_campaign_items_required' ? 'Attach at least one active, admin-approved Business item before submitting this campaign.' : result.error === 'business_campaign_already_approved' ? 'This campaign is already approved.' : 'Archived campaigns cannot be submitted for review.' });
++  res.json({ campaign: await hydrateBusinessCampaign(result.campaign) });
++}));
++
++businessRoutes.post('/:businessProfileId/campaigns/:campaignId/archive', asyncRoute(async (req, res) => {
++  const input = businessCampaignArchiveRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  if (!businessProfileId || !campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_submitter_required', message: 'Only business owners and admins can archive campaigns.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await (tx as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, include: businessCampaignInclude });
++    if (!existing) return null;
++    const updated = await (tx as any).businessCampaign.update({ where: { id: existing.id }, data: { status: 'archived', archivedAt: new Date() }, include: businessCampaignInclude });
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: 'business_campaign_archived', note: input.note ?? null, previousValue: { campaignId: existing.id, status: existing.status }, nextValue: { campaignId: updated.id, status: updated.status } });
++    return updated;
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  res.json({ campaign: await hydrateBusinessCampaign(result) });
++}));
++
++businessRoutes.post('/:businessProfileId/campaigns/:campaignId/items', asyncRoute(async (req, res) => {
++  const input = businessCreateCampaignItemRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  if (!businessProfileId || !campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_editor_required', message: 'Only business team members can edit campaign items.' });
++  const target = await loadBusinessCampaignTarget(businessProfileId, input.targetType, input.targetId);
++  if (!target) return res.status(400).json({ error: 'campaign_target_not_eligible', message: 'Campaign items must point to an active, admin-approved Business Need, Offer, or library item.' });
++  try {
++    const result = await prisma.$transaction(async (tx) => {
++      const existing = await (tx as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, include: businessCampaignInclude });
++      if (!existing) return null;
++      if (existing.status === 'archived' || existing.status === 'completed') return { status: 409 as const, error: 'business_campaign_locked' };
++      const item = await (tx as any).businessCampaignItem.create({ data: { campaignId: existing.id, targetType: input.targetType, targetId: input.targetId, note: input.note ?? null, sortOrder: input.sortOrder ?? 0 } });
++      const resetReview = ['approved', 'rejected', 'paused'].includes(existing.status);
++      const updated = resetReview ? await (tx as any).businessCampaign.update({ where: { id: existing.id }, data: { status: 'pending_review', submittedAt: new Date(), reviewedAt: null, reviewedById: null, reviewNote: null }, include: businessCampaignInclude }) : existing;
++      await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: resetReview ? 'business_campaign_item_added_and_resubmitted' : 'business_campaign_item_added', note: input.note ?? null, previousValue: { campaignId: existing.id, status: existing.status }, nextValue: { campaignId: existing.id, status: updated.status, itemId: item.id, targetType: item.targetType, targetId: item.targetId } });
++      return { status: 200 as const, campaign: updated };
++    });
++    if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++    if (result.status === 409) return res.status(409).json({ error: result.error, message: 'Archived or completed campaigns cannot receive new items.' });
++    res.status(201).json({ campaign: await hydrateBusinessCampaign(result.campaign) });
++  } catch (error: any) {
++    if (error?.code === 'P2002') return res.status(409).json({ error: 'campaign_item_exists', message: 'This item is already attached to the campaign.' });
++    throw error;
++  }
++}));
++
++businessRoutes.patch('/:businessProfileId/campaigns/:campaignId/items/:itemId', asyncRoute(async (req, res) => {
++  const input = businessUpdateCampaignItemRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  const itemId = req.params.itemId;
++  if (!businessProfileId || !campaignId || !itemId) return res.status(400).json({ error: 'business_campaign_item_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_editor_required', message: 'Only business team members can edit campaign items.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existingCampaign = await (tx as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, include: businessCampaignInclude });
++    if (!existingCampaign) return null;
++    if (existingCampaign.status === 'archived' || existingCampaign.status === 'completed') return { status: 409 as const, error: 'business_campaign_locked' };
++    const existingItem = await (tx as any).businessCampaignItem.findFirst({ where: { id: itemId, campaignId } });
++    if (!existingItem) return { status: 404 as const, error: 'business_campaign_item_not_found' };
++    const item = await (tx as any).businessCampaignItem.update({ where: { id: existingItem.id }, data: { ...(input.note !== undefined ? { note: input.note ?? null } : {}), ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}) } });
++    const resetReview = ['approved', 'rejected', 'paused'].includes(existingCampaign.status);
++    const updated = resetReview ? await (tx as any).businessCampaign.update({ where: { id: existingCampaign.id }, data: { status: 'pending_review', submittedAt: new Date(), reviewedAt: null, reviewedById: null, reviewNote: null }, include: businessCampaignInclude }) : existingCampaign;
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: resetReview ? 'business_campaign_item_updated_and_resubmitted' : 'business_campaign_item_updated', note: input.note ?? null, previousValue: { itemId: existingItem.id, note: existingItem.note, sortOrder: existingItem.sortOrder, campaignStatus: existingCampaign.status }, nextValue: { itemId: item.id, note: item.note, sortOrder: item.sortOrder, campaignStatus: updated.status } });
++    return { status: 200 as const, campaign: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  if (result.status === 404) return res.status(404).json({ error: result.error, message: 'Campaign item not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'Archived or completed campaigns cannot be edited.' });
++  res.json({ campaign: await hydrateBusinessCampaign(result.campaign) });
++}));
++
++businessRoutes.delete('/:businessProfileId/campaigns/:campaignId/items/:itemId', asyncRoute(async (req, res) => {
++  const input = businessCampaignItemActionRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  const itemId = req.params.itemId;
++  if (!businessProfileId || !campaignId || !itemId) return res.status(400).json({ error: 'business_campaign_item_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessCampaigns(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_campaign_editor_required', message: 'Only business team members can edit campaign items.' });
++  const result = await prisma.$transaction(async (tx) => {
++    const existingCampaign = await (tx as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, include: businessCampaignInclude });
++    if (!existingCampaign) return null;
++    if (existingCampaign.status === 'archived' || existingCampaign.status === 'completed') return { status: 409 as const, error: 'business_campaign_locked' };
++    const existingItem = await (tx as any).businessCampaignItem.findFirst({ where: { id: itemId, campaignId } });
++    if (!existingItem) return { status: 404 as const, error: 'business_campaign_item_not_found' };
++    await (tx as any).businessCampaignItem.delete({ where: { id: existingItem.id } });
++    const resetReview = ['approved', 'rejected', 'paused'].includes(existingCampaign.status);
++    const updated = resetReview ? await (tx as any).businessCampaign.update({ where: { id: existingCampaign.id }, data: { status: 'pending_review', submittedAt: new Date(), reviewedAt: null, reviewedById: null, reviewNote: null }, include: businessCampaignInclude }) : existingCampaign;
++    await writeTeamAuditLog(tx, { businessProfileId, actorId: req.user!.id, action: resetReview ? 'business_campaign_item_removed_and_resubmitted' : 'business_campaign_item_removed', note: input.note ?? null, previousValue: { itemId: existingItem.id, campaignStatus: existingCampaign.status }, nextValue: { campaignId: existingCampaign.id, campaignStatus: updated.status } });
++    return { status: 200 as const, campaign: updated };
++  });
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  if (result.status === 404) return res.status(404).json({ error: result.error, message: 'Campaign item not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'Archived or completed campaigns cannot be edited.' });
++  res.json({ campaign: await hydrateBusinessCampaign(result.campaign) });
++}));
++
++businessRoutes.get('/:businessProfileId/campaigns/:campaignId/applications', asyncRoute(async (req, res) => {
++  const businessProfileId = req.params.businessProfileId;
++  const campaignId = req.params.campaignId;
++  if (!businessProfileId || !campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  const campaign = await (prisma as any).businessCampaign.findFirst({ where: { id: campaignId, businessProfileId }, select: { id: true, title: true, status: true } });
++  if (!campaign) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
++  const applications = await (prisma as any).businessCampaignApplication.findMany({ where: { campaignId }, include: businessCampaignApplicationInclude, orderBy: { createdAt: 'desc' }, take: 100 });
++  res.json({ campaign, applications });
++}));
++
+ businessRoutes.get('/:businessProfileId/templates', asyncRoute(async (req, res) => {
+   const input = businessListInventoryTemplatesQuerySchema.parse(req.query);
+   const businessProfileId = req.params.businessProfileId;
+diff --git a/apps/web/src/app/admin/business-campaigns/page.tsx b/apps/web/src/app/admin/business-campaigns/page.tsx
+new file mode 100644
+index 0000000..4bb79ec
+--- /dev/null
++++ b/apps/web/src/app/admin/business-campaigns/page.tsx
+@@ -0,0 +1,290 @@
++'use client';
++
++import { useMemo, useState } from 'react';
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { formatWebDateTime } from '../../../lib/webFormat';
++
++type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
++type CampaignStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'paused' | 'archived' | 'completed';
++type OpportunityType = 'collaboration' | 'creator_request' | 'service_request' | 'community' | 'research' | 'other';
++type CampaignAction = 'approve' | 'reject' | 'pause' | 'archive' | 'restore' | 'complete';
++
++type AdminUserPreview = {
++  id: string;
++  email: string;
++  profile?: { displayName?: string | null; handle?: string | null } | null;
++};
++
++type BusinessCampaignItem = {
++  id: string;
++  targetType: 'need' | 'offer' | 'inventory_template';
++  targetId: string;
++  note?: string | null;
++  sortOrder?: number;
++  target?: { id: string; title?: string | null; description?: string | null; status?: string | null; kind?: string | null; category?: string | null } | null;
++};
++
++type BusinessCampaign = {
++  id: string;
++  businessProfileId: string;
++  opportunityType: OpportunityType;
++  status: CampaignStatus;
++  title: string;
++  summary?: string | null;
++  description: string;
++  eligibility?: string | null;
++  deliverables?: string | null;
++  submittedAt?: string | null;
++  reviewedAt?: string | null;
++  reviewNote?: string | null;
++  archivedAt?: string | null;
++  createdAt: string;
++  updatedAt: string;
++  businessProfile?: { id: string; displayName: string; handle?: string | null; type?: string; status?: string } | null;
++  createdBy?: AdminUserPreview | null;
++  reviewer?: AdminUserPreview | null;
++  items?: BusinessCampaignItem[];
++  _count?: { items?: number; applications?: number };
++};
++
++type CampaignResponse = {
++  summary?: Record<string, number>;
++  campaigns?: BusinessCampaign[];
++  recentAuditLogs?: Array<{ id: string; action: string; reason?: string | null; targetId?: string | null; createdAt: string; admin?: AdminUserPreview | null }>;
++};
++
++const statusFilters: Array<CampaignStatus | 'all'> = ['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed'];
++const opportunityFilters: Array<OpportunityType | 'all'> = ['all', 'collaboration', 'creator_request', 'service_request', 'community', 'research', 'other'];
++const actionOptions: Array<{ value: CampaignAction; label: string; danger?: boolean }> = [
++  { value: 'approve', label: 'Approve' },
++  { value: 'restore', label: 'Restore approved' },
++  { value: 'pause', label: 'Pause', danger: true },
++  { value: 'complete', label: 'Mark completed' },
++  { value: 'reject', label: 'Reject', danger: true },
++  { value: 'archive', label: 'Archive', danger: true },
++];
++
++function personLabel(user?: AdminUserPreview | null) {
++  return user?.profile?.displayName || user?.profile?.handle || user?.email || 'Unknown user';
++}
++
++function countValue(value: unknown) {
++  return typeof value === 'number' ? value.toLocaleString() : '0';
++}
++
++function dateValue(value: string | Date | null | undefined) {
++  return value instanceof Date ? value.toISOString() : value ?? null;
++}
++
++function statusTone(value?: string) {
++  if (value === 'approved' || value === 'completed') return 'success';
++  if (value === 'pending_review' || value === 'paused') return 'warning';
++  if (value === 'rejected' || value === 'archived') return 'danger';
++  return 'admin';
++}
++
++function displayValue(value?: string | null) {
++  return value ? value.replaceAll('_', ' ') : 'not set';
++}
++
++export default function AdminBusinessCampaignsPage() {
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
++  const [campaigns, setCampaigns] = useState<BusinessCampaign[]>([]);
++  const [summary, setSummary] = useState<Record<string, number> | null>(null);
++  const [recentAuditLogs, setRecentAuditLogs] = useState<CampaignResponse['recentAuditLogs']>([]);
++  const [query, setQuery] = useState('');
++  const [status, setStatus] = useState<CampaignStatus | 'all'>('pending_review');
++  const [opportunityType, setOpportunityType] = useState<OpportunityType | 'all'>('all');
++  const [actionForms, setActionForms] = useState<Record<string, { action: CampaignAction; note: string }>>({});
++  const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [savingId, setSavingId] = useState<string | null>(null);
++
++  function clearLocalSession() {
++    clearAdminBrowserSession();
++    setCampaigns([]);
++    setSummary(null);
++    setRecentAuditLogs([]);
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
++  }
++
++  function defaultAction(campaign: BusinessCampaign): CampaignAction {
++    if (campaign.status === 'approved') return 'pause';
++    if (campaign.status === 'paused' || campaign.status === 'archived' || campaign.status === 'rejected') return 'restore';
++    if (campaign.status === 'completed') return 'archive';
++    return 'approve';
++  }
++
++  function updateActionForm(campaign: BusinessCampaign, patch: Partial<{ action: CampaignAction; note: string }>) {
++    setActionForms((current) => ({ ...current, [campaign.id]: { action: defaultAction(campaign), note: '', ...(current[campaign.id] ?? {}), ...patch } }));
++  }
++
++  async function loadCampaigns() {
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
++    setLoading(true);
++    setNotice(null);
++    try {
++      const params = new URLSearchParams();
++      if (query.trim()) params.set('q', query.trim());
++      if (status !== 'all') params.set('status', status);
++      if (opportunityType !== 'all') params.set('opportunityType', opportunityType);
++      const response = await fetch(`${apiBase}/admin/business-campaigns${params.toString() ? `?${params}` : ''}`, { headers });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string; error?: string } | null;
++        throw new Error(body?.message || body?.error || 'Could not load Business campaigns. Make sure Business campaign flags are enabled for internal testing.');
++      }
++      const data = await response.json() as CampaignResponse;
++      const nextCampaigns = data.campaigns ?? [];
++      setCampaigns(nextCampaigns);
++      setSummary(data.summary ?? null);
++      setRecentAuditLogs(data.recentAuditLogs ?? []);
++      setActionForms((current) => {
++        const next = { ...current };
++        for (const campaign of nextCampaigns) if (!next[campaign.id]) next[campaign.id] = { action: defaultAction(campaign), note: '' };
++        return next;
++      });
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Business campaigns.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  async function submitAction(campaign: BusinessCampaign) {
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
++    const form = actionForms[campaign.id] ?? { action: defaultAction(campaign), note: '' };
++    if (form.note.trim().length < 3) {
++      setNotice({ tone: 'warning', body: 'Add a review note before changing a Business campaign.' });
++      return;
++    }
++    setSavingId(campaign.id);
++    setNotice(null);
++    try {
++      const response = await fetch(`${apiBase}/admin/business-campaigns/${campaign.id}/action`, {
++        method: 'PATCH',
++        headers,
++        body: JSON.stringify({ action: form.action, note: form.note.trim() }),
++      });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string; error?: string } | null;
++        throw new Error(body?.message || body?.error || 'Could not update Business campaign.');
++      }
++      setNotice({ tone: 'success', body: 'Business campaign action saved.' });
++      updateActionForm(campaign, { note: '' });
++      await loadCampaigns();
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update Business campaign.' });
++    } finally {
++      setSavingId(null);
++    }
++  }
++
++  return (
++    <main className="admin-console">
++      <section className="admin-console__hero app-card">
++        <div className="status-row">
++          <span className="semantic-badge admin">Business campaigns</span>
++          <span className="semantic-badge warning">Hidden feature</span>
++        </div>
++        <div>
++          <p className="eyebrow">Opportunity review skeleton</p>
++          <h1>Campaign / opportunity review</h1>
++          <p>Review future Business opportunities that group already-approved Business Needs, Offers, or library items. This is intentionally money-free: no budgets, credits, tokens, tickets, checks, wallet balances, payouts, or provider settlement logic.</p>
++        </div>
++        <div className="admin-console__login-grid">
++          <p className="notice-box info">Keep this internal until Business campaigns are deliberately launched. Do not use “paid job” language or public discovery surfaces while money is disabled.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
++        </div>
++        <div className="admin-filter-row">
++          <label>Search<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Business, title, brief" /></label>
++          <label>Status<select value={status} onChange={(event) => setStatus(event.target.value as CampaignStatus | 'all')}>{statusFilters.map((item) => <option key={item} value={item}>{displayValue(item)}</option>)}</select></label>
++          <label>Type<select value={opportunityType} onChange={(event) => setOpportunityType(event.target.value as OpportunityType | 'all')}>{opportunityFilters.map((item) => <option key={item} value={item}>{displayValue(item)}</option>)}</select></label>
++          <button type="button" onClick={() => { void loadCampaigns(); }} disabled={loading || !token}>{loading ? 'Loading…' : 'Load campaigns'}</button>
++        </div>
++        {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
++      </section>
++
++      {summary ? (
++        <section className="admin-metric-grid">
++          <article className="admin-metric-card"><p>Total</p><strong>{countValue(summary.total)}</strong><span className="meta">All matching campaign records</span></article>
++          <article className="admin-metric-card"><p>Pending review</p><strong>{countValue(summary.pendingReview)}</strong><span className="meta">Need admin decision</span></article>
++          <article className="admin-metric-card"><p>Approved</p><strong>{countValue(summary.approved)}</strong><span className="meta">Eligible for future Business discovery</span></article>
++          <article className="admin-metric-card"><p>Paused/archived</p><strong>{countValue((summary.paused ?? 0) + (summary.archived ?? 0))}</strong><span className="meta">Not eligible to render</span></article>
++        </section>
++      ) : null}
++
++      <section className="admin-detail-grid">
++        <article className="app-card admin-action-card">
++          <div className="status-row"><span className="semantic-badge success">Safe boundary</span></div>
++          <h2>No budgets or payouts</h2>
++          <p>Campaigns only group reviewed Business-owned items. They do not store balances, ad spend, credits, payout promises, contracts, invoices, or provider IDs.</p>
++        </article>
++        <article className="app-card admin-action-card">
++          <div className="status-row"><span className="semantic-badge warning">Approval rule</span></div>
++          <h2>Needs verified Business + approved items</h2>
++          <p>Approving a campaign requires a verified Business profile and at least one active, admin-approved Business Need, Offer, or library item.</p>
++        </article>
++      </section>
++
++      <section className="admin-content-list">
++        {campaigns.map((campaign) => {
++          const form = actionForms[campaign.id] ?? { action: defaultAction(campaign), note: '' };
++          return (
++            <article key={campaign.id} className="app-card admin-action-card">
++              <div className="status-row">
++                <span className={`semantic-badge ${statusTone(campaign.status)}`}>{displayValue(campaign.status)}</span>
++                <span className="semantic-badge admin">{displayValue(campaign.opportunityType)}</span>
++                <span className="semantic-badge info">{campaign._count?.items ?? campaign.items?.length ?? 0} item(s)</span>
++                <span className="semantic-badge neutral">{campaign._count?.applications ?? 0} application(s)</span>
++              </div>
++              <h2>{campaign.title}</h2>
++              {campaign.summary ? <p className="meta">{campaign.summary}</p> : null}
++              <p>{campaign.description}</p>
++              <div className="admin-money-strip">
++                <span><small>Business</small><strong>{campaign.businessProfile?.displayName || campaign.businessProfileId}</strong></span>
++                <span><small>Profile status</small><strong>{campaign.businessProfile?.status || 'unknown'}</strong></span>
++                <span><small>Created by</small><strong>{personLabel(campaign.createdBy)}</strong></span>
++                <span><small>Updated</small><strong>{formatWebDateTime(dateValue(campaign.updatedAt))}</strong></span>
++              </div>
++              {campaign.eligibility ? <p className="meta">Eligibility: {campaign.eligibility}</p> : null}
++              {campaign.deliverables ? <p className="meta">Deliverables: {campaign.deliverables}</p> : null}
++              {(campaign.items ?? []).length ? (
++                <div className="admin-audit-list">
++                  {(campaign.items ?? []).map((item) => (
++                    <div key={item.id} className="notice-box info">
++                      <strong>{displayValue(item.targetType)} · {item.target?.title || item.targetId}</strong>
++                      <p className="meta">Target status: {item.target?.status || 'not eligible'}{item.note ? ` · ${item.note}` : ''}</p>
++                    </div>
++                  ))}
++                </div>
++              ) : <p className="notice-box warning">This campaign has no eligible item attached yet.</p>}
++              <p className="meta">Reviewed by {personLabel(campaign.reviewer)} {campaign.reviewedAt ? `· ${formatWebDateTime(dateValue(campaign.reviewedAt))}` : '· not reviewed'}{campaign.reviewNote ? ` · Note: ${campaign.reviewNote}` : ''}</p>
++              <div className="admin-filter-row">
++                <label>Action<select value={form.action} onChange={(event) => updateActionForm(campaign, { action: event.target.value as CampaignAction })}>{actionOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
++                <label className="admin-wide-field">Required note<textarea value={form.note} onChange={(event) => updateActionForm(campaign, { note: event.target.value })} placeholder="Explain why this campaign action is safe." /></label>
++                <button type="button" onClick={() => { void submitAction(campaign); }} disabled={savingId === campaign.id || !token}>{savingId === campaign.id ? 'Saving…' : 'Save action'}</button>
++              </div>
++            </article>
++          );
++        })}
++        {!loading && campaigns.length === 0 ? <article className="app-card admin-action-card"><h2>No Business campaigns loaded</h2><p>Load campaigns after enabling Business campaign flags in an internal environment.</p></article> : null}
++      </section>
++
++      <section className="app-card admin-action-card">
++        <div className="status-row"><span className="semantic-badge admin">Recent campaign audit</span></div>
++        <h2>Latest campaign decisions</h2>
++        <div className="admin-audit-list">
++          {(recentAuditLogs ?? []).map((log) => (
++            <div key={log.id} className="notice-box info">
++              <strong>{displayValue(log.action)}</strong>
++              <p className="meta">{personLabel(log.admin)} · {formatWebDateTime(dateValue(log.createdAt))}{log.reason ? ` · ${log.reason}` : ''}</p>
++            </div>
++          ))}
++          {!recentAuditLogs?.length ? <p className="meta">No campaign audit records loaded.</p> : null}
++        </div>
++      </section>
++    </main>
++  );
++}
+diff --git a/apps/web/src/app/admin/layout.tsx b/apps/web/src/app/admin/layout.tsx
+index 64cdce2..4b56f4b 100644
+--- a/apps/web/src/app/admin/layout.tsx
++++ b/apps/web/src/app/admin/layout.tsx
+@@ -19,6 +19,7 @@ const adminNavItems = [
+   { href: '/admin/pro', label: 'Pro' },
+   { href: '/admin/business', label: 'Business' },
+   { href: '/admin/business-sponsored', label: 'Sponsored' },
++  { href: '/admin/business-campaigns', label: 'Campaigns' },
+   { href: '/admin/usage', label: 'Usage' },
+   { href: '/admin/content', label: 'Content' },
+   { href: '/admin/reports', label: 'Reports' },
+diff --git a/apps/web/src/features/account/BusinessAccountsClient.tsx b/apps/web/src/features/account/BusinessAccountsClient.tsx
+index 8ed2ee7..143c8eb 100644
+--- a/apps/web/src/features/account/BusinessAccountsClient.tsx
++++ b/apps/web/src/features/account/BusinessAccountsClient.tsx
+@@ -14,7 +14,7 @@ type BusinessProfile = {
+   status: string;
+   preferredCurrency?: string;
+   countryCode?: string | null;
+-  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number };
++  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number; campaigns?: number };
+ };
+ type BusinessMember = {
+   id: string;
+@@ -96,6 +96,43 @@ type BusinessContentForm = {
+ };
+ const emptyContentForm: BusinessContentForm = { kind: 'need', title: '', description: '', itemType: 'service', category: '', timing: '', availability: '' };
+ 
++type BusinessCampaignStatus = 'draft' | 'pending_review' | 'approved' | 'rejected' | 'paused' | 'archived' | 'completed';
++type BusinessCampaignOpportunityType = 'collaboration' | 'creator_request' | 'service_request' | 'community' | 'research' | 'other';
++type BusinessCampaignItemTargetType = 'need' | 'offer' | 'inventory_template';
++type BusinessCampaignItem = {
++  id: string;
++  targetType: BusinessCampaignItemTargetType;
++  targetId: string;
++  note?: string | null;
++  sortOrder?: number;
++  target?: { id: string; title?: string | null; status?: string | null; kind?: string | null } | null;
++};
++type BusinessCampaign = {
++  id: string;
++  opportunityType: BusinessCampaignOpportunityType;
++  status: BusinessCampaignStatus;
++  title: string;
++  summary?: string | null;
++  description: string;
++  eligibility?: string | null;
++  deliverables?: string | null;
++  updatedAt?: string;
++  items?: BusinessCampaignItem[];
++  _count?: { items?: number; applications?: number };
++};
++type BusinessCampaignForm = {
++  opportunityType: BusinessCampaignOpportunityType;
++  title: string;
++  summary: string;
++  description: string;
++  eligibility: string;
++  deliverables: string;
++};
++type BusinessCampaignItemForm = { targetType: BusinessCampaignItemTargetType; targetId: string; note: string; sortOrder: string };
++const emptyCampaignForm: BusinessCampaignForm = { opportunityType: 'collaboration', title: '', summary: '', description: '', eligibility: '', deliverables: '' };
++const emptyCampaignItemForm: BusinessCampaignItemForm = { targetType: 'need', targetId: '', note: '', sortOrder: '0' };
++
++
+ type TeamResponse = {
+   businessProfile?: Pick<BusinessProfile, 'id' | 'displayName' | 'type' | 'status'> & { ownerId?: string };
+   myRole?: BusinessRole | null;
+@@ -128,6 +165,11 @@ export function BusinessAccountsClient() {
+   const [templates, setTemplates] = useState<BusinessTemplate[]>([]);
+   const [businessNeeds, setBusinessNeeds] = useState<BusinessOwnedItem[]>([]);
+   const [businessOffers, setBusinessOffers] = useState<BusinessOwnedItem[]>([]);
++  const [businessCampaigns, setBusinessCampaigns] = useState<BusinessCampaign[]>([]);
++  const [campaignStatusFilter, setCampaignStatusFilter] = useState<'all' | BusinessCampaignStatus>('all');
++  const [campaignForm, setCampaignForm] = useState<BusinessCampaignForm>(emptyCampaignForm);
++  const [campaignReviewNotes, setCampaignReviewNotes] = useState<Record<string, string>>({});
++  const [campaignItemForms, setCampaignItemForms] = useState<Record<string, BusinessCampaignItemForm>>({});
+   const [contentKindFilter, setContentKindFilter] = useState<BusinessTemplateKind>('need');
+   const [contentStatusFilter, setContentStatusFilter] = useState<'all' | BusinessContentStatus>('all');
+   const [contentForm, setContentForm] = useState<BusinessContentForm>(emptyContentForm);
+@@ -209,9 +251,26 @@ export function BusinessAccountsClient() {
+     }
+   }
+ 
++  async function loadBusinessCampaigns(profileId = selectedProfile?.id) {
++    if (!profileId) { setBusinessCampaigns([]); return; }
++    try {
++      const result = await api.business.campaigns(profileId, { status: campaignStatusFilter }) as { campaigns?: BusinessCampaign[] };
++      const nextCampaigns = result.campaigns ?? [];
++      setBusinessCampaigns(nextCampaigns);
++      setCampaignItemForms((current) => {
++        const next = { ...current };
++        for (const campaign of nextCampaigns) if (!next[campaign.id]) next[campaign.id] = emptyCampaignItemForm;
++        return next;
++      });
++    } catch (caughtError) {
++      setBusinessCampaigns([]);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    }
++  }
++
+ 
+   useEffect(() => { void loadProfiles(); }, [auth.hydrated, auth.isAuthenticated]);
+-  useEffect(() => { void loadTeam(selectedProfile?.id); void loadTemplates(selectedProfile?.id); void loadBusinessInventory(selectedProfile?.id); }, [selectedProfile?.id, templateStatusFilter, contentKindFilter, contentStatusFilter]);
++  useEffect(() => { void loadTeam(selectedProfile?.id); void loadTemplates(selectedProfile?.id); void loadBusinessInventory(selectedProfile?.id); void loadBusinessCampaigns(selectedProfile?.id); }, [selectedProfile?.id, templateStatusFilter, contentKindFilter, contentStatusFilter, campaignStatusFilter]);
+ 
+   async function acceptInvitation(invitation: BusinessInvitation) {
+     setSaving(true);
+@@ -442,6 +501,108 @@ export function BusinessAccountsClient() {
+     }
+   }
+ 
++
++  async function createCampaign(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!selectedProfile) return;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.createCampaign(selectedProfile.id, {
++        opportunityType: campaignForm.opportunityType,
++        title: campaignForm.title,
++        summary: campaignForm.summary.trim() || undefined,
++        description: campaignForm.description,
++        eligibility: campaignForm.eligibility.trim() || undefined,
++        deliverables: campaignForm.deliverables.trim() || undefined,
++        status: 'draft',
++      });
++      setCampaignForm(emptyCampaignForm);
++      setMessage('Draft Business campaign created. Attach approved Business items before submitting it for admin review.');
++      await loadBusinessCampaigns(selectedProfile.id);
++      await loadProfiles();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function requestCampaignReview(campaign: BusinessCampaign) {
++    if (!selectedProfile) return;
++    const note = campaignReviewNotes[campaign.id]?.trim() ?? '';
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.requestCampaignReview(selectedProfile.id, campaign.id, { note });
++      setCampaignReviewNotes((current) => ({ ...current, [campaign.id]: '' }));
++      setMessage('Business campaign submitted for admin review.');
++      await loadBusinessCampaigns(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function archiveCampaign(campaign: BusinessCampaign) {
++    if (!selectedProfile) return;
++    const note = campaignReviewNotes[campaign.id]?.trim() || undefined;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.archiveCampaign(selectedProfile.id, campaign.id, { note });
++      setMessage('Business campaign archived.');
++      await loadBusinessCampaigns(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function addCampaignItem(campaign: BusinessCampaign) {
++    if (!selectedProfile) return;
++    const form = campaignItemForms[campaign.id] ?? emptyCampaignItemForm;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.addCampaignItem(selectedProfile.id, campaign.id, {
++        targetType: form.targetType,
++        targetId: form.targetId.trim(),
++        note: form.note.trim() || undefined,
++        sortOrder: Number.parseInt(form.sortOrder, 10) || 0,
++      });
++      setCampaignItemForms((current) => ({ ...current, [campaign.id]: emptyCampaignItemForm }));
++      setMessage('Campaign item attached.');
++      await loadBusinessCampaigns(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function removeCampaignItem(campaign: BusinessCampaign, item: BusinessCampaignItem) {
++    if (!selectedProfile) return;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.removeCampaignItem(selectedProfile.id, campaign.id, item.id, {});
++      setMessage('Campaign item removed.');
++      await loadBusinessCampaigns(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   if (!auth.hydrated) return null;
+   if (!auth.isAuthenticated) return <section className="mobile-card"><p className="meta">Sign in to manage Business accounts.</p></section>;
+ 
+@@ -491,12 +652,119 @@ export function BusinessAccountsClient() {
+             <div className="status-row" style={{ marginTop: 12 }}>
+               <span className="semantic-badge instruction">{businessTypeLabel(selectedProfile.type)}</span>
+               <span className="semantic-badge neutral">{businessStatusLabel(selectedProfile.status)}</span>
+-              <span className="meta">Needs {selectedProfile.counts?.needs ?? 0} · Offers {selectedProfile.counts?.offers ?? 0} · Trades {selectedProfile.counts?.trades ?? 0} · Templates {selectedProfile.counts?.inventoryTemplates ?? 0}</span>
++              <span className="meta">Needs {selectedProfile.counts?.needs ?? 0} · Offers {selectedProfile.counts?.offers ?? 0} · Trades {selectedProfile.counts?.trades ?? 0} · Templates {selectedProfile.counts?.inventoryTemplates ?? 0} · Campaigns {selectedProfile.counts?.campaigns ?? 0}</span>
+             </div>
+           ) : null}
+         </section>
+       ) : null}
+ 
++      {selectedProfile ? (
++        <section className="mobile-card">
++          <div className="page-intro">
++            <div>
++              <p className="eyebrow">Campaigns / opportunities</p>
++              <h3>Hidden campaign skeleton</h3>
++              <p className="meta">Group approved Business-owned Needs, Offers, or library items into future collaboration opportunities. No budgets, credits, tokens, payouts, or paid-job flow exists here.</p>
++            </div>
++            <select value={campaignStatusFilter} onChange={(event) => setCampaignStatusFilter(event.target.value as 'all' | BusinessCampaignStatus)}>
++              <option value="all">all</option>
++              <option value="draft">draft</option>
++              <option value="pending_review">pending review</option>
++              <option value="approved">approved</option>
++              <option value="rejected">rejected</option>
++              <option value="paused">paused</option>
++              <option value="archived">archived</option>
++              <option value="completed">completed</option>
++            </select>
++          </div>
++          <form className="form-stack" onSubmit={(event) => { void createCampaign(event); }}>
++            <label className="field-label">Opportunity type
++              <select value={campaignForm.opportunityType} onChange={(event) => setCampaignForm((current) => ({ ...current, opportunityType: event.target.value as BusinessCampaignOpportunityType }))}>
++                <option value="collaboration">Collaboration</option>
++                <option value="creator_request">Creator request</option>
++                <option value="service_request">Service request</option>
++                <option value="community">Community</option>
++                <option value="research">Research</option>
++                <option value="other">Other</option>
++              </select>
++            </label>
++            <label className="field-label">Title
++              <input value={campaignForm.title} onChange={(event) => setCampaignForm((current) => ({ ...current, title: event.target.value }))} maxLength={100} required />
++            </label>
++            <label className="field-label">Short summary
++              <input value={campaignForm.summary} onChange={(event) => setCampaignForm((current) => ({ ...current, summary: event.target.value }))} maxLength={240} />
++            </label>
++            <label className="field-label">Description
++              <textarea value={campaignForm.description} onChange={(event) => setCampaignForm((current) => ({ ...current, description: event.target.value }))} rows={4} maxLength={2000} required />
++            </label>
++            <div className="status-row">
++              <label className="field-label">Eligibility
++                <input value={campaignForm.eligibility} onChange={(event) => setCampaignForm((current) => ({ ...current, eligibility: event.target.value }))} />
++              </label>
++              <label className="field-label">Deliverables
++                <input value={campaignForm.deliverables} onChange={(event) => setCampaignForm((current) => ({ ...current, deliverables: event.target.value }))} />
++              </label>
++            </div>
++            <button type="submit" disabled={saving || campaignForm.title.trim().length < 3 || campaignForm.description.trim().length < 20}>{saving ? 'Saving…' : 'Create draft campaign'}</button>
++          </form>
++          <div className="mobile-list" style={{ marginTop: 16 }}>
++            {businessCampaigns.map((campaign) => {
++              const form = campaignItemForms[campaign.id] ?? emptyCampaignItemForm;
++              const canSubmit = ['draft', 'rejected', 'paused'].includes(campaign.status);
++              return (
++                <div key={campaign.id} className="mobile-card mobile-card--soft">
++                  <div className="status-row">
++                    <span className="semantic-badge instruction">{campaign.opportunityType.replace('_', ' ')}</span>
++                    <span className="semantic-badge neutral">{campaign.status.replace('_', ' ')}</span>
++                    <span className="meta">{campaign._count?.items ?? campaign.items?.length ?? 0} item(s) · {campaign._count?.applications ?? 0} application(s)</span>
++                  </div>
++                  <h4>{campaign.title}</h4>
++                  {campaign.summary ? <p className="meta">{campaign.summary}</p> : null}
++                  <p>{campaign.description}</p>
++                  {(campaign.items ?? []).length ? (
++                    <div className="mobile-list">
++                      {(campaign.items ?? []).map((item) => (
++                        <div key={item.id} className="status-row">
++                          <span className="semantic-badge info">{item.targetType.replace('_', ' ')}</span>
++                          <span>{item.target?.title ?? item.targetId}</span>
++                          <button type="button" className="secondary" disabled={saving} onClick={() => { void removeCampaignItem(campaign, item); }}>Remove</button>
++                        </div>
++                      ))}
++                    </div>
++                  ) : <p className="meta">Attach at least one approved Business Need, Offer, or library item before review.</p>}
++                  <div className="form-stack">
++                    <div className="status-row">
++                      <label className="field-label">Attach target
++                        <select value={form.targetType} onChange={(event) => setCampaignItemForms((current) => ({ ...current, [campaign.id]: { ...(current[campaign.id] ?? emptyCampaignItemForm), targetType: event.target.value as BusinessCampaignItemTargetType } }))}>
++                          <option value="need">Need</option>
++                          <option value="offer">Offer</option>
++                          <option value="inventory_template">Library item</option>
++                        </select>
++                      </label>
++                      <label className="field-label">Target ID
++                        <input value={form.targetId} onChange={(event) => setCampaignItemForms((current) => ({ ...current, [campaign.id]: { ...(current[campaign.id] ?? emptyCampaignItemForm), targetId: event.target.value } }))} placeholder="Approved Business item ID" />
++                      </label>
++                    </div>
++                    <label className="field-label">Item note
++                      <input value={form.note} onChange={(event) => setCampaignItemForms((current) => ({ ...current, [campaign.id]: { ...(current[campaign.id] ?? emptyCampaignItemForm), note: event.target.value } }))} />
++                    </label>
++                    <button type="button" className="secondary" disabled={saving || !form.targetId.trim()} onClick={() => { void addCampaignItem(campaign); }}>Attach item</button>
++                  </div>
++                  <label className="field-label">Review/archive note
++                    <input value={campaignReviewNotes[campaign.id] ?? ''} onChange={(event) => setCampaignReviewNotes((current) => ({ ...current, [campaign.id]: event.target.value }))} placeholder="Required before review submit" />
++                  </label>
++                  <div className="cta-row">
++                    {canSubmit ? <button type="button" disabled={saving || (campaignReviewNotes[campaign.id]?.trim().length ?? 0) < 3 || !(campaign.items ?? []).length} onClick={() => { void requestCampaignReview(campaign); }}>Submit for review</button> : null}
++                    {campaign.status !== 'archived' ? <button type="button" className="secondary" disabled={saving} onClick={() => { void archiveCampaign(campaign); }}>Archive</button> : null}
++                  </div>
++                </div>
++              );
++            })}
++            {businessCampaigns.length === 0 ? <p className="meta">No Business campaigns match this filter.</p> : null}
++          </div>
++        </section>
++      ) : null}
++
+       {selectedProfile ? (
+         <section className="mobile-card">
+           <div className="page-intro">
+diff --git a/docs/product/business-enterprise-account-plan.md b/docs/product/business-enterprise-account-plan.md
+index f2dfe60..5744fc8 100644
+--- a/docs/product/business-enterprise-account-plan.md
++++ b/docs/product/business-enterprise-account-plan.md
+@@ -728,20 +728,56 @@ No external ad SDKs.
+ 
+ ### Patch B8 — Campaign/opportunity skeleton
+ 
+-Add hidden campaign models and APIs.
++Add hidden campaign/opportunity models and internal APIs.
+ 
+-No money.
++This patch should only group approved Business-owned content into a reviewed opportunity container. It must not create public campaign discovery, public applications, paid jobs, budgets, credits, tokens, tickets, checks, wallet balances, payouts, Airwallex, Stripe, invoices, or settlement logic.
+ 
+-Use:
++Use safe wording:
+ 
+ ```txt
+ campaign
+ opportunity
+ collaboration
+ brief
++creator request
++service request
++community opportunity
++research opportunity
++```
++
++Avoid paid-job wording until KYB, money provider, contracts, payout rules, tax/accounting review, and legal terms are complete.
++
++Recommended hidden skeleton:
++
++```txt
++BusinessCampaign
++  businessProfileId
++  title / summary / description
++  eligibility / deliverables
++  opportunityType
++  status: draft / pending_review / approved / rejected / paused / archived / completed
++  admin review fields
++
++BusinessCampaignItem
++  campaignId
++  targetType: need / offer / inventory_template
++  targetId
++  sortOrder / note
++
++BusinessCampaignApplication
++  campaignId
++  applicantId
++  message
++  status skeleton only
+ ```
+ 
+-Avoid paid job language.
++Approval rule:
++
++```txt
++Verified Business profile required.
++At least one active/admin-approved Business-owned Need, Offer, or library item required.
++Admin review note required for every campaign decision.
++```
+ 
+ ### Patch B9 — Provider-backed Business budget sandbox
+ 
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 6b469d6..eebc7a0 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, AdminBusinessCampaignActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -50,6 +50,15 @@ export function createApiClient(options: ApiClientOptions) {
+       updateSponsoredPlacement: (businessProfileId: string, placementId: string, body: BusinessUpdateSponsoredPlacementRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements/${placementId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+       requestSponsoredPlacementReview: (businessProfileId: string, placementId: string, body: BusinessSponsoredPlacementReviewRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements/${placementId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
+       archiveSponsoredPlacement: (businessProfileId: string, placementId: string, body?: BusinessSponsoredPlacementArchiveRequest) => requestJson(options, `/business/${businessProfileId}/sponsored-placements/${placementId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
++      campaigns: (businessProfileId: string, query?: BusinessCampaignListQuery) => requestJson(options, `/business/${businessProfileId}/campaigns${buildQueryString(query as Record<string, unknown> | undefined)}`),
++      createCampaign: (businessProfileId: string, body: BusinessCreateCampaignRequest) => requestJson(options, `/business/${businessProfileId}/campaigns`, { method: 'POST', body: JSON.stringify(body) }),
++      updateCampaign: (businessProfileId: string, campaignId: string, body: BusinessUpdateCampaignRequest) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}`, { method: 'PATCH', body: JSON.stringify(body) }),
++      requestCampaignReview: (businessProfileId: string, campaignId: string, body: BusinessCampaignReviewRequest) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
++      archiveCampaign: (businessProfileId: string, campaignId: string, body?: BusinessCampaignArchiveRequest) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
++      addCampaignItem: (businessProfileId: string, campaignId: string, body: BusinessCreateCampaignItemRequest) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}/items`, { method: 'POST', body: JSON.stringify(body) }),
++      updateCampaignItem: (businessProfileId: string, campaignId: string, itemId: string, body: BusinessUpdateCampaignItemRequest) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify(body) }),
++      removeCampaignItem: (businessProfileId: string, campaignId: string, itemId: string, body?: BusinessCampaignItemActionRequest) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}/items/${itemId}`, { method: 'DELETE', body: JSON.stringify(body ?? {}) }),
++      campaignApplications: (businessProfileId: string, campaignId: string) => requestJson(options, `/business/${businessProfileId}/campaigns/${campaignId}/applications`),
+       providerAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account`),
+       createBusinessProviderOnboardingLink: (businessProfileId: string, body?: BusinessProviderOnboardingLinkRequest) => requestJson(options, `/business/${businessProfileId}/provider-account/onboarding-link`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+       syncBusinessProviderAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account/sync`, { method: 'POST' }),
+@@ -65,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }), publicMessages: (tradeId: string, query?: Record<string, unknown>) => requestJson(options, `/trades/${tradeId}/public-messages${buildQueryString(query)}`), sendPublicMessage: (tradeId: string, body: CreateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (tradeId: string, messageId: string, body: UpdateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (tradeId: string, messageId: string) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'DELETE' }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessSponsoredPlacements: (query?: string) => requestJson(options, `/admin/business-sponsored-placements${query ?? ''}`), updateBusinessSponsoredPlacementAction: (placementId: string, body: AdminBusinessSponsoredPlacementActionRequest) => requestJson(options, `/admin/business-sponsored-placements/${placementId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessSponsoredPlacements: (query?: string) => requestJson(options, `/admin/business-sponsored-placements${query ?? ''}`), updateBusinessSponsoredPlacementAction: (placementId: string, body: AdminBusinessSponsoredPlacementActionRequest) => requestJson(options, `/admin/business-sponsored-placements/${placementId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessCampaigns: (query?: string) => requestJson(options, `/admin/business-campaigns${query ?? ''}`), updateBusinessCampaignAction: (campaignId: string, body: AdminBusinessCampaignActionRequest) => requestJson(options, `/admin/business-campaigns/${campaignId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     account: { deletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request'), requestDeletion: (body?: CreateAccountDeletionRequest) => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request', { method: 'POST', body: JSON.stringify(body ?? {}) }), cancelDeletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request/cancel', { method: 'PATCH' }) },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), createGuestTicket: (body: CreateGuestSupportTicketRequest) => requestJson(options, '/support/guest/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+diff --git a/packages/contracts/src/business.d.ts b/packages/contracts/src/business.d.ts
+index 02a9c9c..a548a19 100644
+--- a/packages/contracts/src/business.d.ts
++++ b/packages/contracts/src/business.d.ts
+@@ -46,6 +46,36 @@ export declare const businessSponsoredPlacementStatusSchema: z.ZodEnum<{
+     paused: "paused";
+     archived: "archived";
+ }>;
++export declare const businessCampaignOpportunityTypeSchema: z.ZodEnum<{
++    collaboration: "collaboration";
++    creator_request: "creator_request";
++    service_request: "service_request";
++    community: "community";
++    research: "research";
++    other: "other";
++}>;
++export declare const businessCampaignStatusSchema: z.ZodEnum<{
++    draft: "draft";
++    pending_review: "pending_review";
++    approved: "approved";
++    rejected: "rejected";
++    paused: "paused";
++    archived: "archived";
++    completed: "completed";
++}>;
++export declare const businessCampaignItemTargetTypeSchema: z.ZodEnum<{
++    need: "need";
++    offer: "offer";
++    inventory_template: "inventory_template";
++}>;
++export declare const businessCampaignApplicationStatusSchema: z.ZodEnum<{
++    pending: "pending";
++    reviewed: "reviewed";
++    accepted: "accepted";
++    declined: "declined";
++    withdrawn: "withdrawn";
++    archived: "archived";
++}>;
+ export declare const createBusinessProfileRequestSchema: z.ZodObject<any>;
+ export declare const updateBusinessProfileRequestSchema: z.ZodObject<any>;
+ export declare const requestBusinessReviewRequestSchema: z.ZodObject<any>;
+@@ -72,6 +102,16 @@ export declare const businessCreateSponsoredPlacementRequestSchema: z.ZodType<an
+ export declare const businessUpdateSponsoredPlacementRequestSchema: z.ZodType<any>;
+ export declare const businessSponsoredPlacementReviewRequestSchema: z.ZodObject<any>;
+ export declare const businessSponsoredPlacementArchiveRequestSchema: z.ZodObject<any>;
++export declare const businessCampaignListQuerySchema: z.ZodObject<any>;
++export declare const businessCreateCampaignRequestSchema: z.ZodType<any>;
++export declare const businessUpdateCampaignRequestSchema: z.ZodType<any>;
++export declare const businessCampaignReviewRequestSchema: z.ZodObject<any>;
++export declare const businessCampaignArchiveRequestSchema: z.ZodObject<any>;
++export declare const businessCreateCampaignItemRequestSchema: z.ZodObject<any>;
++export declare const businessUpdateCampaignItemRequestSchema: z.ZodType<any>;
++export declare const businessCampaignItemActionRequestSchema: z.ZodObject<any>;
++export declare const adminBusinessCampaignListQuerySchema: z.ZodObject<any>;
++export declare const adminBusinessCampaignActionRequestSchema: z.ZodObject<any>;
+ export declare const adminBusinessSponsoredPlacementListQuerySchema: z.ZodObject<any>;
+ export declare const adminBusinessSponsoredPlacementActionRequestSchema: z.ZodObject<any>;
+ export declare const adminBusinessProfileActionRequestSchema: z.ZodObject<any>;
+@@ -82,6 +122,10 @@ export type BusinessProfileInvitationStatus = z.infer<typeof businessProfileInvi
+ export type BusinessSponsoredPlacementSurface = z.infer<typeof businessSponsoredPlacementSurfaceSchema>;
+ export type BusinessSponsoredPlacementTargetType = z.infer<typeof businessSponsoredPlacementTargetTypeSchema>;
+ export type BusinessSponsoredPlacementStatus = z.infer<typeof businessSponsoredPlacementStatusSchema>;
++export type BusinessCampaignOpportunityType = z.infer<typeof businessCampaignOpportunityTypeSchema>;
++export type BusinessCampaignStatus = z.infer<typeof businessCampaignStatusSchema>;
++export type BusinessCampaignItemTargetType = z.infer<typeof businessCampaignItemTargetTypeSchema>;
++export type BusinessCampaignApplicationStatus = z.infer<typeof businessCampaignApplicationStatusSchema>;
+ export type CreateBusinessProfileRequest = z.infer<typeof createBusinessProfileRequestSchema>;
+ export type UpdateBusinessProfileRequest = z.infer<typeof updateBusinessProfileRequestSchema>;
+ export type RequestBusinessReviewRequest = z.infer<typeof requestBusinessReviewRequestSchema>;
+@@ -108,6 +152,16 @@ export type BusinessCreateSponsoredPlacementRequest = z.infer<typeof businessCre
+ export type BusinessUpdateSponsoredPlacementRequest = z.infer<typeof businessUpdateSponsoredPlacementRequestSchema>;
+ export type BusinessSponsoredPlacementReviewRequest = z.infer<typeof businessSponsoredPlacementReviewRequestSchema>;
+ export type BusinessSponsoredPlacementArchiveRequest = z.infer<typeof businessSponsoredPlacementArchiveRequestSchema>;
++export type BusinessCampaignListQuery = z.infer<typeof businessCampaignListQuerySchema>;
++export type BusinessCreateCampaignRequest = z.infer<typeof businessCreateCampaignRequestSchema>;
++export type BusinessUpdateCampaignRequest = z.infer<typeof businessUpdateCampaignRequestSchema>;
++export type BusinessCampaignReviewRequest = z.infer<typeof businessCampaignReviewRequestSchema>;
++export type BusinessCampaignArchiveRequest = z.infer<typeof businessCampaignArchiveRequestSchema>;
++export type BusinessCreateCampaignItemRequest = z.infer<typeof businessCreateCampaignItemRequestSchema>;
++export type BusinessUpdateCampaignItemRequest = z.infer<typeof businessUpdateCampaignItemRequestSchema>;
++export type BusinessCampaignItemActionRequest = z.infer<typeof businessCampaignItemActionRequestSchema>;
++export type AdminBusinessCampaignListQuery = z.infer<typeof adminBusinessCampaignListQuerySchema>;
++export type AdminBusinessCampaignActionRequest = z.infer<typeof adminBusinessCampaignActionRequestSchema>;
+ export type AdminBusinessSponsoredPlacementListQuery = z.infer<typeof adminBusinessSponsoredPlacementListQuerySchema>;
+ export type AdminBusinessSponsoredPlacementActionRequest = z.infer<typeof adminBusinessSponsoredPlacementActionRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;
+diff --git a/packages/contracts/src/business.js b/packages/contracts/src/business.js
+index 4c9a9ac..b1f449e 100644
+--- a/packages/contracts/src/business.js
++++ b/packages/contracts/src/business.js
+@@ -7,6 +7,10 @@ export const businessProfileInvitationStatusSchema = z.enum(['pending', 'accepte
+ export const businessSponsoredPlacementSurfaceSchema = z.enum(['trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']);
+ export const businessSponsoredPlacementTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
+ export const businessSponsoredPlacementStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']);
++export const businessCampaignOpportunityTypeSchema = z.enum(['collaboration', 'creator_request', 'service_request', 'community', 'research', 'other']);
++export const businessCampaignStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed']);
++export const businessCampaignItemTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
++export const businessCampaignApplicationStatusSchema = z.enum(['pending', 'reviewed', 'accepted', 'declined', 'withdrawn', 'archived']);
+ const optionalDateTime = z.string().trim().datetime().optional().nullable();
+ const optionalText = (max) => z.string().trim().max(max).optional().nullable();
+ export const createBusinessProfileRequestSchema = z.object({
+@@ -141,6 +145,71 @@ export const businessSponsoredPlacementReviewRequestSchema = z.object({
+ export const businessSponsoredPlacementArchiveRequestSchema = z.object({
+     note: z.string().trim().max(1000).optional(),
+ });
++
++const businessCampaignBaseSchema = z.object({
++  opportunityType: businessCampaignOpportunityTypeSchema.optional().default('collaboration'),
++  title: z.string().trim().min(3).max(100),
++  summary: z.string().trim().max(240).optional().nullable(),
++  description: z.string().trim().min(20).max(2000),
++  eligibility: z.string().trim().max(1000).optional().nullable(),
++  deliverables: z.string().trim().max(1000).optional().nullable(),
++  startsAt: optionalDateTime,
++  endsAt: optionalDateTime,
++});
++
++function validDateWindow(value) {
++  return !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
++}
++
++export const businessCampaignListQuerySchema = z.object({
++  status: z.enum(['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed']).optional().default('all'),
++  opportunityType: z.enum(['all', 'collaboration', 'creator_request', 'service_request', 'community', 'research', 'other']).optional().default('all'),
++  q: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++
++export const businessCreateCampaignRequestSchema = businessCampaignBaseSchema.extend({
++  status: z.enum(['draft', 'pending_review']).optional().default('draft'),
++  note: z.string().trim().max(1000).optional(),
++}).refine(validDateWindow, { message: 'The end date must be after the start date.', path: ['endsAt'] });
++
++export const businessUpdateCampaignRequestSchema = businessCampaignBaseSchema.partial().extend({
++  note: z.string().trim().max(1000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one campaign field.' }).refine(validDateWindow, { message: 'The end date must be after the start date.', path: ['endsAt'] });
++
++export const businessCampaignReviewRequestSchema = z.object({
++  note: z.string().trim().min(3).max(1000),
++});
++
++export const businessCampaignArchiveRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
++export const businessCreateCampaignItemRequestSchema = z.object({
++  targetType: businessCampaignItemTargetTypeSchema,
++  targetId: z.string().trim().min(1).max(128),
++  note: z.string().trim().max(1000).optional().nullable(),
++  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
++});
++
++export const businessUpdateCampaignItemRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional().nullable(),
++  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one campaign item field.' });
++
++export const businessCampaignItemActionRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
++export const adminBusinessCampaignListQuerySchema = businessCampaignListQuerySchema.extend({
++  businessProfileId: z.string().trim().min(1).max(128).optional(),
++});
++
++export const adminBusinessCampaignActionRequestSchema = z.object({
++  action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore', 'complete']),
++  note: z.string().trim().min(3).max(1000),
++});
++
+ export const adminBusinessSponsoredPlacementListQuerySchema = businessSponsoredPlacementListQuerySchema.extend({
+     businessProfileId: z.string().trim().min(1).max(128).optional(),
+ });
+diff --git a/packages/contracts/src/business.ts b/packages/contracts/src/business.ts
+index 7565538..636b360 100644
+--- a/packages/contracts/src/business.ts
++++ b/packages/contracts/src/business.ts
+@@ -8,6 +8,10 @@ export const businessProfileInvitationStatusSchema = z.enum(['pending', 'accepte
+ export const businessSponsoredPlacementSurfaceSchema = z.enum(['trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']);
+ export const businessSponsoredPlacementTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
+ export const businessSponsoredPlacementStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']);
++export const businessCampaignOpportunityTypeSchema = z.enum(['collaboration', 'creator_request', 'service_request', 'community', 'research', 'other']);
++export const businessCampaignStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed']);
++export const businessCampaignItemTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
++export const businessCampaignApplicationStatusSchema = z.enum(['pending', 'reviewed', 'accepted', 'declined', 'withdrawn', 'archived']);
+ 
+ const optionalDateTime = z.string().trim().datetime().optional().nullable();
+ const optionalText = (max: number) => z.string().trim().max(max).optional().nullable();
+@@ -159,6 +163,71 @@ export const businessSponsoredPlacementArchiveRequestSchema = z.object({
+   note: z.string().trim().max(1000).optional(),
+ });
+ 
++
++const businessCampaignBaseSchema = z.object({
++  opportunityType: businessCampaignOpportunityTypeSchema.optional().default('collaboration'),
++  title: z.string().trim().min(3).max(100),
++  summary: z.string().trim().max(240).optional().nullable(),
++  description: z.string().trim().min(20).max(2000),
++  eligibility: z.string().trim().max(1000).optional().nullable(),
++  deliverables: z.string().trim().max(1000).optional().nullable(),
++  startsAt: optionalDateTime,
++  endsAt: optionalDateTime,
++});
++
++function validDateWindow(value: { startsAt?: string | null; endsAt?: string | null }) {
++  return !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
++}
++
++export const businessCampaignListQuerySchema = z.object({
++  status: z.enum(['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed']).optional().default('all'),
++  opportunityType: z.enum(['all', 'collaboration', 'creator_request', 'service_request', 'community', 'research', 'other']).optional().default('all'),
++  q: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++
++export const businessCreateCampaignRequestSchema = businessCampaignBaseSchema.extend({
++  status: z.enum(['draft', 'pending_review']).optional().default('draft'),
++  note: z.string().trim().max(1000).optional(),
++}).refine(validDateWindow, { message: 'The end date must be after the start date.', path: ['endsAt'] });
++
++export const businessUpdateCampaignRequestSchema = businessCampaignBaseSchema.partial().extend({
++  note: z.string().trim().max(1000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one campaign field.' }).refine(validDateWindow, { message: 'The end date must be after the start date.', path: ['endsAt'] });
++
++export const businessCampaignReviewRequestSchema = z.object({
++  note: z.string().trim().min(3).max(1000),
++});
++
++export const businessCampaignArchiveRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
++export const businessCreateCampaignItemRequestSchema = z.object({
++  targetType: businessCampaignItemTargetTypeSchema,
++  targetId: z.string().trim().min(1).max(128),
++  note: z.string().trim().max(1000).optional().nullable(),
++  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
++});
++
++export const businessUpdateCampaignItemRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional().nullable(),
++  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one campaign item field.' });
++
++export const businessCampaignItemActionRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
++export const adminBusinessCampaignListQuerySchema = businessCampaignListQuerySchema.extend({
++  businessProfileId: z.string().trim().min(1).max(128).optional(),
++});
++
++export const adminBusinessCampaignActionRequestSchema = z.object({
++  action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore', 'complete']),
++  note: z.string().trim().min(3).max(1000),
++});
++
+ export const adminBusinessSponsoredPlacementListQuerySchema = businessSponsoredPlacementListQuerySchema.extend({
+   businessProfileId: z.string().trim().min(1).max(128).optional(),
+ });
+@@ -181,6 +250,10 @@ export type BusinessProfileInvitationStatus = z.infer<typeof businessProfileInvi
+ export type BusinessSponsoredPlacementSurface = z.infer<typeof businessSponsoredPlacementSurfaceSchema>;
+ export type BusinessSponsoredPlacementTargetType = z.infer<typeof businessSponsoredPlacementTargetTypeSchema>;
+ export type BusinessSponsoredPlacementStatus = z.infer<typeof businessSponsoredPlacementStatusSchema>;
++export type BusinessCampaignOpportunityType = z.infer<typeof businessCampaignOpportunityTypeSchema>;
++export type BusinessCampaignStatus = z.infer<typeof businessCampaignStatusSchema>;
++export type BusinessCampaignItemTargetType = z.infer<typeof businessCampaignItemTargetTypeSchema>;
++export type BusinessCampaignApplicationStatus = z.infer<typeof businessCampaignApplicationStatusSchema>;
+ export type CreateBusinessProfileRequest = z.infer<typeof createBusinessProfileRequestSchema>;
+ export type UpdateBusinessProfileRequest = z.infer<typeof updateBusinessProfileRequestSchema>;
+ export type RequestBusinessReviewRequest = z.infer<typeof requestBusinessReviewRequestSchema>;
+@@ -207,6 +280,16 @@ export type BusinessCreateSponsoredPlacementRequest = z.infer<typeof businessCre
+ export type BusinessUpdateSponsoredPlacementRequest = z.infer<typeof businessUpdateSponsoredPlacementRequestSchema>;
+ export type BusinessSponsoredPlacementReviewRequest = z.infer<typeof businessSponsoredPlacementReviewRequestSchema>;
+ export type BusinessSponsoredPlacementArchiveRequest = z.infer<typeof businessSponsoredPlacementArchiveRequestSchema>;
++export type BusinessCampaignListQuery = z.infer<typeof businessCampaignListQuerySchema>;
++export type BusinessCreateCampaignRequest = z.infer<typeof businessCreateCampaignRequestSchema>;
++export type BusinessUpdateCampaignRequest = z.infer<typeof businessUpdateCampaignRequestSchema>;
++export type BusinessCampaignReviewRequest = z.infer<typeof businessCampaignReviewRequestSchema>;
++export type BusinessCampaignArchiveRequest = z.infer<typeof businessCampaignArchiveRequestSchema>;
++export type BusinessCreateCampaignItemRequest = z.infer<typeof businessCreateCampaignItemRequestSchema>;
++export type BusinessUpdateCampaignItemRequest = z.infer<typeof businessUpdateCampaignItemRequestSchema>;
++export type BusinessCampaignItemActionRequest = z.infer<typeof businessCampaignItemActionRequestSchema>;
++export type AdminBusinessCampaignListQuery = z.infer<typeof adminBusinessCampaignListQuerySchema>;
++export type AdminBusinessCampaignActionRequest = z.infer<typeof adminBusinessCampaignActionRequestSchema>;
+ export type AdminBusinessSponsoredPlacementListQuery = z.infer<typeof adminBusinessSponsoredPlacementListQuerySchema>;
+ export type AdminBusinessSponsoredPlacementActionRequest = z.infer<typeof adminBusinessSponsoredPlacementActionRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;

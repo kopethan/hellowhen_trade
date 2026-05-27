@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
+import { requireBusinessAccountsEnabled, requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
@@ -127,6 +127,9 @@ adminRoutes.use(asyncRoute(async (req, res, next) => {
 adminRoutes.use('/payouts', requirePayoutsVisible('Admin payout tools'));
 adminRoutes.use('/stripe', requirePayoutsVisible('Admin Stripe payout tools'));
 adminRoutes.use('/business-profiles', requireBusinessAccountsEnabled('Admin business profiles'));
+adminRoutes.use('/business-sponsored-placements', requireBusinessSponsoredContentEnabled('Admin Business sponsored placements'));
+adminRoutes.use('/business-campaigns', requireBusinessCampaignsEnabled('Admin Business campaigns'));
+adminRoutes.use('/business-budgets', requireBusinessBudgetsEnabled('Admin Business budget sandbox'));
 adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
 adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
 
@@ -461,7 +464,7 @@ adminRoutes.get('/usage', asyncRoute(async (_req, res) => {
 }));
 
 
-const adminLibraryStatusFilterSchema = z.enum(['all', 'draft', 'active', 'archived']).optional().default('active');
+const adminLibraryStatusFilterSchema = z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('active');
 const adminLibraryKindFilterSchema = z.enum(['all', 'need', 'offer']).optional().default('all');
 const adminLibraryTemplateBaseSchema = z.object({
   title: z.string().trim().min(3).max(70),
@@ -482,7 +485,7 @@ const adminLibraryTemplateBaseSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
   includes: z.array(z.string().trim().min(1).max(80)).max(8).optional().default([]),
   mediaIds: z.array(z.string().trim().min(1).max(128)).max(5).optional().default([]),
-  status: z.enum(['draft', 'active', 'archived']).optional().default('active'),
+  status: z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('active'),
   sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
 });
 const adminCreateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.extend({
@@ -490,13 +493,15 @@ const adminCreateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.extend({
   sourceType: z.enum(['hellowhen', 'business', 'brand', 'partner']).optional().default('hellowhen'),
 });
 const adminUpdateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.partial();
-const adminLibraryActionSchema = z.object({ action: z.enum(['hide', 'restore']) });
+const adminLibraryActionSchema = z.object({ action: z.enum(['approve', 'reject', 'hide', 'restore']), note: z.string().trim().max(1000).optional() });
 const adminListLibraryQuerySchema = z.object({
   kind: adminLibraryKindFilterSchema,
   status: adminLibraryStatusFilterSchema,
   q: z.string().trim().min(1).max(120).optional(),
   languageCode: z.enum(['en', 'fr']).optional(),
   countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()).optional(),
+  sourceType: z.enum(['all', 'hellowhen', 'business', 'brand', 'partner']).optional().default('all'),
+  businessProfileId: z.string().trim().min(1).optional(),
   take: z.coerce.number().int().min(1).max(250).optional().default(100),
 });
 
@@ -572,11 +577,13 @@ adminRoutes.get('/library', asyncRoute(async (req, res) => {
   const input = adminListLibraryQuerySchema.parse(req.query);
   const q = input.q?.trim();
   const templates = await prisma.inventoryTemplate.findMany({
-    where: {
+    where: ({
       ...(input.kind !== 'all' ? { kind: input.kind } : {}),
       ...(input.status !== 'all' ? { status: input.status } : {}),
       ...(input.languageCode ? { languageCode: input.languageCode } : {}),
       ...(input.countryCode ? { countryCode: input.countryCode } : {}),
+      ...(input.sourceType !== 'all' ? { sourceType: input.sourceType } : {}),
+      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
       ...(q ? {
         OR: [
           { key: { contains: q, mode: 'insensitive' } },
@@ -586,7 +593,7 @@ adminRoutes.get('/library', asyncRoute(async (req, res) => {
           { locationLabel: { contains: q, mode: 'insensitive' } },
         ],
       } : {}),
-    },
+    } as any),
     include: adminLibraryTemplateInclude,
     orderBy: [{ kind: 'asc' }, { languageCode: 'asc' }, { countryCode: 'asc' }, { sortOrder: 'asc' }, { title: 'asc' }],
     take: input.take,
@@ -614,7 +621,7 @@ adminRoutes.post('/library', asyncRoute(async (req, res) => {
         locationLabel: input.locationLabel ?? null,
         tags: input.tags,
         includes: input.kind === 'offer' ? input.includes : [],
-        status: input.status,
+        status: input.status as any,
         sortOrder: input.sortOrder,
       },
       include: adminLibraryTemplateInclude,
@@ -653,7 +660,7 @@ adminRoutes.patch('/library/:templateId', asyncRoute(async (req, res) => {
         locationLabel: normalizeTemplateNullable(input.locationLabel),
         tags: input.tags,
         includes: existing.kind === 'offer' ? input.includes : [],
-        status: input.status,
+        status: input.status as any,
         sortOrder: input.sortOrder,
       },
       include: adminLibraryTemplateInclude,
@@ -676,20 +683,37 @@ adminRoutes.patch('/library/:templateId/action', asyncRoute(async (req, res) => 
   const input = adminLibraryActionSchema.parse(req.body ?? {});
   const existing = await prisma.inventoryTemplate.findUnique({ where: { id: req.params.templateId }, include: adminLibraryTemplateInclude });
   if (!existing) return res.status(404).json({ error: 'not_found', message: 'Starter template not found.' });
-  const nextStatus = input.action === 'hide' ? 'archived' : 'active';
+  const isBusinessOwned = Boolean(existing.businessProfileId) || existing.sourceType === 'business' || existing.sourceType === 'brand' || existing.sourceType === 'partner';
+  const note = input.note?.trim() ?? '';
+  if ((input.action === 'approve' || input.action === 'reject' || isBusinessOwned) && note.length < 3) {
+    return res.status(400).json({ error: 'review_note_required', message: 'Add a short admin review note before changing a Business library item.' });
+  }
+
+  const nextStatusByAction = {
+    approve: 'active',
+    reject: 'rejected',
+    hide: 'archived',
+    restore: 'active',
+  } as const;
+  const nextStatus = nextStatusByAction[input.action];
+  if ((input.action === 'approve' || input.action === 'restore') && existing.businessProfileId && existing.businessProfile?.status !== 'verified') {
+    return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify the Business profile before approving its library item.' });
+  }
+
   const template = await prisma.$transaction(async (tx) => {
     const updated = await tx.inventoryTemplate.update({
       where: { id: existing.id },
-      data: { status: nextStatus },
+      data: { status: nextStatus as any },
       include: adminLibraryTemplateInclude,
     });
     await recordAdminAuditLog(tx, req.user!.id, {
       action: `inventory_template.${input.action}`,
       targetType: 'inventory_template',
       targetId: updated.id,
-      reason: input.action === 'hide' ? 'Admin hid starter template from public starter library.' : 'Admin restored starter template to public starter library.',
-      previousValue: { status: existing.status },
-      nextValue: { status: updated.status },
+      reason: note || (input.action === 'hide' ? 'Admin hid template from public starter library.' : input.action === 'restore' ? 'Admin restored template to public starter library.' : input.action === 'approve' ? 'Admin approved Business library item.' : input.action === 'reject' ? 'Admin rejected Business library item.' : 'Admin reviewed Business library item.'),
+      previousValue: { status: existing.status, sourceType: existing.sourceType, businessProfileId: existing.businessProfileId },
+      nextValue: { status: updated.status, sourceType: updated.sourceType, businessProfileId: updated.businessProfileId },
+      metadata: { businessOwned: isBusinessOwned, businessProfile: existing.businessProfile ?? null },
     });
     return updated;
   });
@@ -1282,14 +1306,16 @@ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
 
 const adminContentUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
 const tradeStatusValues = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'] as const;
-const needStatusValues = ['draft', 'active', 'fulfilled', 'closed', 'expired'] as const;
-const offerStatusValues = ['draft', 'active', 'accepted', 'closed', 'expired'] as const;
+const needStatusValues = ['draft', 'pending_review', 'active', 'rejected', 'fulfilled', 'closed', 'expired'] as const;
+const offerStatusValues = ['draft', 'pending_review', 'active', 'rejected', 'accepted', 'closed', 'expired'] as const;
 
 type AdminContentType = 'trade' | 'need' | 'offer';
 type AdminContentItem = {
   id: string;
   type: AdminContentType;
   ownerId: string;
+  businessProfileId?: string | null;
+  businessProfile?: unknown;
   title: string;
   description: string;
   status: string;
@@ -1333,6 +1359,7 @@ function inventoryVisibilityBlockers(item: any, type: 'need' | 'offer') {
   const blockers: string[] = [];
   if (item.status !== 'active') blockers.push(`${type} status: ${item.status}`);
   if (item.owner?.trustTier === 'restricted') blockers.push('owner restricted');
+  if (item.businessProfileId && item.businessProfile?.status !== 'verified') blockers.push(`business status: ${item.businessProfile?.status ?? 'missing'}`);
   if (item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now()) blockers.push(`${type} expired`);
   return blockers;
 }
@@ -1359,6 +1386,8 @@ async function toAdminTradeItem(trade: any): Promise<AdminContentItem> {
     id: trade.id,
     type: 'trade',
     ownerId: trade.ownerId,
+    businessProfileId: trade.businessProfileId ?? null,
+    businessProfile: trade.businessProfile ?? null,
     title: trade.title,
     description: trade.description,
     status: trade.status,
@@ -1384,6 +1413,8 @@ function toAdminNeedItem(need: any): AdminContentItem {
     id: need.id,
     type: 'need',
     ownerId: need.ownerId,
+    businessProfileId: need.businessProfileId ?? null,
+    businessProfile: need.businessProfile ?? null,
     title: need.title,
     description: need.description,
     status: need.status,
@@ -1406,6 +1437,8 @@ function toAdminOfferItem(offer: any): AdminContentItem {
     id: offer.id,
     type: 'offer',
     ownerId: offer.ownerId,
+    businessProfileId: offer.businessProfileId ?? null,
+    businessProfile: offer.businessProfile ?? null,
     title: offer.title,
     description: offer.description,
     status: offer.status,
@@ -1424,14 +1457,14 @@ function toAdminOfferItem(offer: any): AdminContentItem {
 
 async function loadAdminContentItem(type: AdminContentType, id: string) {
   if (type === 'trade') {
-    const trade = await prisma.trade.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } } });
+    const trade = await prisma.trade.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } } });
     return trade ? (await hydrateAdminContent([await toAdminTradeItem(trade)]))[0] : null;
   }
   if (type === 'need') {
-    const need = await prisma.need.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } } });
+    const need = await prisma.need.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } } });
     return need ? (await hydrateAdminContent([toAdminNeedItem(need)]))[0] : null;
   }
-  const offer = await prisma.offer.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } } });
+  const offer = await prisma.offer.findUnique({ where: { id }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } } });
   return offer ? (await hydrateAdminContent([toAdminOfferItem(offer)]))[0] : null;
 }
 
@@ -1497,12 +1530,13 @@ adminRoutes.get('/content', asyncRoute(async (req, res) => {
   if (types.includes('trade')) {
     const where = {
       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
       ...(isOneOf(input.status, tradeStatusValues) ? { status: input.status } : {}),
       ...contentSearchWhere(input.q),
     };
     const trades = await prisma.trade.findMany({
       where,
-      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
       orderBy: { createdAt: 'desc' },
       take,
     });
@@ -1512,12 +1546,13 @@ adminRoutes.get('/content', asyncRoute(async (req, res) => {
   if (types.includes('need')) {
     const where = {
       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
       ...(isOneOf(input.status, needStatusValues) ? { status: input.status } : {}),
       ...contentSearchWhere(input.q),
     };
     const needs = await prisma.need.findMany({
       where,
-      include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } },
+      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } },
       orderBy: { createdAt: 'desc' },
       take,
     });
@@ -1527,12 +1562,13 @@ adminRoutes.get('/content', asyncRoute(async (req, res) => {
   if (types.includes('offer')) {
     const where = {
       ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
       ...(isOneOf(input.status, offerStatusValues) ? { status: input.status } : {}),
       ...contentSearchWhere(input.q),
     };
     const offers = await prisma.offer.findMany({
       where,
-      include: { owner: { select: adminContentUserSelect }, _count: { select: { trades: true } } },
+      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, _count: { select: { trades: true } } },
       orderBy: { createdAt: 'desc' },
       take,
     });
@@ -1551,12 +1587,19 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
   const note = input.note?.trim();
   const contentId = req.params.contentId;
   if (!contentId) return res.status(400).json({ error: 'content_id_required' });
-  if (['hide', 'restore', 'close'].includes(input.action) && !note) {
-    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before hiding, restoring, or closing content.' });
+  if (['approve', 'reject', 'hide', 'restore', 'close'].includes(input.action) && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before approving, rejecting, hiding, restoring, or closing content.' });
   }
 
   const existing = await loadAdminContentItem(type, contentId);
   if (!existing) return res.status(404).json({ error: 'not_found' });
+  const isBusinessOwned = Boolean(existing.businessProfileId);
+  if ((input.action === 'approve' || input.action === 'reject') && (type === 'trade' || !isBusinessOwned)) {
+    return res.status(400).json({ error: 'business_content_action_required', message: 'Approve/reject is only available for Business-owned Needs and Offers.' });
+  }
+  if ((input.action === 'approve' || input.action === 'restore') && isBusinessOwned && (existing.businessProfile as any)?.status !== 'verified') {
+    return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify the Business profile before approving or restoring its Needs/Offers.' });
+  }
 
   if (type === 'trade') {
     if (input.action === 'close' && ['funded', 'in_progress', 'submitted', 'disputed'].includes(existing.status)) {
@@ -1572,12 +1615,20 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
     }
   } else if (type === 'need') {
     if (input.action !== 'mark_reviewed') {
-      const data = input.action === 'restore' ? { status: 'active' as const } : { status: 'closed' as const };
+      const data = input.action === 'approve' || input.action === 'restore'
+        ? { status: 'active' as const }
+        : input.action === 'reject'
+          ? { status: 'rejected' as const }
+          : { status: 'closed' as const };
       await prisma.need.update({ where: { id: contentId }, data });
     }
   } else {
     if (input.action !== 'mark_reviewed') {
-      const data = input.action === 'restore' ? { status: 'active' as const } : { status: 'closed' as const };
+      const data = input.action === 'approve' || input.action === 'restore'
+        ? { status: 'active' as const }
+        : input.action === 'reject'
+          ? { status: 'rejected' as const }
+          : { status: 'closed' as const };
       await prisma.offer.update({ where: { id: contentId }, data });
     }
   }
@@ -1590,7 +1641,7 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
     reason: note,
     previousValue: { status: existing.status, isPublic: existing.isPublic, closedAt: existing.closedAt },
     nextValue: updated ? { status: updated.status, isPublic: updated.isPublic, closedAt: updated.closedAt } : undefined,
-    metadata: { ownerId: existing.ownerId, title: existing.title },
+    metadata: { ownerId: existing.ownerId, title: existing.title, businessOwned: isBusinessOwned, businessProfile: existing.businessProfile ?? null },
   });
   res.json({ item: updated });
 }));
@@ -1623,7 +1674,7 @@ adminRoutes.get('/moderation-smoke', asyncRoute(async (_req, res) => {
     prisma.offer.count({ where: { status: 'active', owner: { trustTier: 'restricted' } } }),
     prisma.trade.findMany({
       where: { status: 'active', isPublic: true, owner: { trustTier: 'restricted' } },
-      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
       orderBy: { createdAt: 'desc' },
       take: 5,
     }),
@@ -1636,7 +1687,7 @@ adminRoutes.get('/moderation-smoke', asyncRoute(async (_req, res) => {
           { offerId: { not: null }, offer: { is: { status: { not: 'active' } } } },
         ],
       },
-      include: { owner: { select: adminContentUserSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
+      include: { owner: { select: adminContentUserSelect }, businessProfile: { select: adminLibraryBusinessProfileSelect }, need: true, offer: true, _count: { select: { proposals: true } } },
       orderBy: { createdAt: 'desc' },
       take: 5,
     }),
@@ -2254,7 +2305,7 @@ const adminBusinessProfileInclude = {
   reviewer: { select: { id: true, email: true, profile: true } },
   members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
   moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
-  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } },
+  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true, campaigns: true, budgets: true } },
 } as const;
 
 function normalizeAdminBusinessProfile(profile: any) {
@@ -2281,17 +2332,23 @@ function adminBusinessProfileWhere(input: z.infer<typeof adminBusinessProfileLis
 }
 
 async function closeBusinessPublicContentForReview(tx: any, businessProfileId: string) {
-  const [needs, offers, trades, inventoryTemplates] = await Promise.all([
+  const [needs, offers, trades, inventoryTemplates, sponsoredPlacements, campaigns, budgets] = await Promise.all([
     tx.need.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
     tx.offer.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
     tx.trade.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
     tx.inventoryTemplate.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'archived' } }),
+    (tx as any).businessSponsoredPlacement?.updateMany({ where: { businessProfileId, status: { in: ['pending_review', 'approved', 'paused'] } }, data: { status: 'archived', archivedAt: new Date() } }) ?? Promise.resolve({ count: 0 }),
+    (tx as any).businessCampaign?.updateMany({ where: { businessProfileId, status: { in: ['pending_review', 'approved', 'paused'] } }, data: { status: 'archived', archivedAt: new Date() } }) ?? Promise.resolve({ count: 0 }),
+    (tx as any).businessBudget?.updateMany({ where: { businessProfileId, status: { in: ['pending_provider_review', 'pending_admin_review', 'sandbox_ready', 'paused'] } }, data: { status: 'archived', archivedAt: new Date() } }) ?? Promise.resolve({ count: 0 }),
   ]);
   return {
     needsClosed: needs.count,
     offersClosed: offers.count,
     tradesClosed: trades.count,
     inventoryTemplatesArchived: inventoryTemplates.count,
+    sponsoredPlacementsArchived: sponsoredPlacements.count,
+    campaignsArchived: campaigns.count,
+    budgetsArchived: budgets.count,
   };
 }
 
@@ -2351,7 +2408,7 @@ adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(asy
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.businessProfile.findUnique({
       where: { id: businessProfileId },
-      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } } },
+      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, sponsoredPlacements: true, campaigns: true, budgets: true } } },
     });
     if (!existing) return null;
 
@@ -2405,6 +2462,449 @@ adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(asy
   res.json(result);
 }));
 
+const businessSponsoredPlacementIncludeForAdmin = {
+  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true, ownerId: true } },
+  createdBy: { select: { id: true, email: true, profile: true } },
+  reviewer: { select: { id: true, email: true, profile: true } },
+} as const;
+
+async function loadAdminBusinessSponsoredTarget(businessProfileId: string, targetType: string, targetId: string) {
+  if (targetType === 'need') {
+    return prisma.need.findFirst({
+      where: { id: targetId, businessProfileId, status: 'active' },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+    });
+  }
+  if (targetType === 'offer') {
+    return prisma.offer.findFirst({
+      where: { id: targetId, businessProfileId, status: 'active' },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+    });
+  }
+  if (targetType === 'inventory_template') {
+    return prisma.inventoryTemplate.findFirst({
+      where: { id: targetId, businessProfileId, status: 'active' },
+      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+    });
+  }
+  return null;
+}
+
+async function hydrateAdminBusinessSponsoredPlacements(placements: any[]) {
+  return Promise.all(placements.map(async (placement) => ({
+    ...placement,
+    target: await loadAdminBusinessSponsoredTarget(placement.businessProfileId, placement.targetType, placement.targetId),
+  })));
+}
+
+function adminSponsoredPlacementWhere(input: z.infer<typeof adminBusinessSponsoredPlacementListQuerySchema>) {
+  const where: Record<string, unknown> = {};
+  if (input.status !== 'all') where.status = input.status;
+  if (input.surface !== 'all') where.surface = input.surface;
+  if (input.targetType !== 'all') where.targetType = input.targetType;
+  if (input.businessProfileId) where.businessProfileId = input.businessProfileId;
+  if (input.q) {
+    where.OR = [
+      { label: { contains: input.q, mode: 'insensitive' as const } },
+      { reviewNote: { contains: input.q, mode: 'insensitive' as const } },
+      { targetId: { contains: input.q, mode: 'insensitive' as const } },
+      { businessProfile: { displayName: { contains: input.q, mode: 'insensitive' as const } } },
+      { businessProfile: { handle: { contains: input.q, mode: 'insensitive' as const } } },
+    ];
+  }
+  return where;
+}
+
+async function businessSponsoredPlacementStatusSummary(where: Record<string, unknown>) {
+  const [total, draft, pendingReview, approved, rejected, paused, archived] = await Promise.all([
+    (prisma as any).businessSponsoredPlacement.count({ where: where as any }),
+    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'draft' } }),
+    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'pending_review' } }),
+    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'approved' } }),
+    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'rejected' } }),
+    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'paused' } }),
+    (prisma as any).businessSponsoredPlacement.count({ where: { ...(where as any), status: 'archived' } }),
+  ]);
+  return { total, draft, pendingReview, approved, rejected, paused, archived };
+}
+
+adminRoutes.get('/business-sponsored-placements', asyncRoute(async (req, res) => {
+  const input = adminBusinessSponsoredPlacementListQuerySchema.parse(req.query);
+  const where = adminSponsoredPlacementWhere(input);
+  const [placements, summary] = await Promise.all([
+    (prisma as any).businessSponsoredPlacement.findMany({
+      where: where as any,
+      include: businessSponsoredPlacementIncludeForAdmin,
+      orderBy: [{ status: 'asc' }, { surface: 'asc' }, { priority: 'desc' }, { updatedAt: 'desc' }],
+      take: input.take,
+    }),
+    businessSponsoredPlacementStatusSummary(where),
+  ]);
+  const recentAuditLogs = await (prisma as any).adminAuditLog?.findMany({
+    where: { targetType: 'business_sponsored_placement', targetId: { in: placements.map((placement: any) => placement.id) } },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: { admin: { select: { id: true, email: true, profile: true } } },
+  }) ?? [];
+  res.json({ summary, recentAuditLogs, placements: await hydrateAdminBusinessSponsoredPlacements(placements) });
+}));
+
+adminRoutes.patch('/business-sponsored-placements/:placementId/action', asyncRoute(async (req, res) => {
+  const input = adminBusinessSponsoredPlacementActionRequestSchema.parse(req.body ?? {});
+  const placementId = req.params.placementId;
+  if (!placementId) return res.status(400).json({ error: 'business_sponsored_placement_id_required' });
+  const statusByAction = {
+    approve: 'approved',
+    reject: 'rejected',
+    pause: 'paused',
+    archive: 'archived',
+    restore: 'approved',
+  } as const;
+  const nextStatus = statusByAction[input.action];
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await (tx as any).businessSponsoredPlacement.findUnique({ where: { id: placementId }, include: businessSponsoredPlacementIncludeForAdmin });
+    if (!existing) return null;
+    const profile = existing.businessProfile;
+    if ((input.action === 'approve' || input.action === 'restore') && profile.status !== 'verified') return { status: 409 as const, error: 'business_profile_not_verified' };
+    const target = await loadAdminBusinessSponsoredTarget(existing.businessProfileId, existing.targetType, existing.targetId);
+    if ((input.action === 'approve' || input.action === 'restore') && !target) return { status: 409 as const, error: 'sponsored_target_not_eligible' };
+    const now = new Date();
+    const updated = await (tx as any).businessSponsoredPlacement.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        reviewedAt: now,
+        reviewedById: req.user!.id,
+        reviewNote: input.note,
+        ...(input.action === 'archive' ? { archivedAt: now } : {}),
+        ...(input.action === 'restore' || input.action === 'approve' ? { archivedAt: null } : {}),
+      },
+      include: businessSponsoredPlacementIncludeForAdmin,
+    });
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `business_sponsored_placement.${input.action}`,
+      targetType: 'business_sponsored_placement',
+      targetId: existing.id,
+      reason: input.note,
+      previousValue: { status: existing.status, reviewedAt: existing.reviewedAt, reviewedById: existing.reviewedById, reviewNote: existing.reviewNote, archivedAt: existing.archivedAt },
+      nextValue: { status: updated.status, reviewedAt: updated.reviewedAt, reviewedById: updated.reviewedById, reviewNote: updated.reviewNote, archivedAt: updated.archivedAt },
+      metadata: { businessProfileId: existing.businessProfileId, targetType: existing.targetType, targetId: existing.targetId, surface: existing.surface, noTracking: true, noBudget: true },
+    });
+    return { status: 200 as const, placement: updated, target };
+  });
+
+  if (!result) return res.status(404).json({ error: 'not_found', message: 'Sponsored placement not found.' });
+  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'business_profile_not_verified' ? 'The Business profile must be verified before approving sponsored placements.' : 'Sponsored placement target must be an active, admin-approved Business Need, Offer, or library item.' });
+  res.json({ placement: { ...result.placement, target: result.target ?? await loadAdminBusinessSponsoredTarget(result.placement.businessProfileId, result.placement.targetType, result.placement.targetId) } });
+}));
+
+
+
+
+const businessCampaignIncludeForAdmin = {
+  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true, ownerId: true } },
+  createdBy: { select: { id: true, email: true, profile: true } },
+  reviewer: { select: { id: true, email: true, profile: true } },
+  items: { orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }] },
+  _count: { select: { items: true, applications: true } },
+} as const;
+
+async function loadAdminBusinessCampaignTarget(businessProfileId: string, targetType: string, targetId: string) {
+  if (targetType === 'need') {
+    return prisma.need.findFirst({
+      where: { id: targetId, businessProfileId, status: 'active' },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+    });
+  }
+  if (targetType === 'offer') {
+    return prisma.offer.findFirst({
+      where: { id: targetId, businessProfileId, status: 'active' },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+    });
+  }
+  if (targetType === 'inventory_template') {
+    return prisma.inventoryTemplate.findFirst({
+      where: { id: targetId, businessProfileId, status: 'active' },
+      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+    });
+  }
+  return null;
+}
+
+async function hydrateAdminBusinessCampaign(campaign: any) {
+  return {
+    ...campaign,
+    items: await Promise.all((campaign.items ?? []).map(async (item: any) => ({ ...item, target: await loadAdminBusinessCampaignTarget(campaign.businessProfileId, item.targetType, item.targetId) }))),
+  };
+}
+
+async function hydrateAdminBusinessCampaigns(campaigns: any[]) {
+  return Promise.all(campaigns.map((campaign) => hydrateAdminBusinessCampaign(campaign)));
+}
+
+function adminBusinessCampaignWhere(input: z.infer<typeof adminBusinessCampaignListQuerySchema>) {
+  const where: Record<string, unknown> = {};
+  if (input.status !== 'all') where.status = input.status;
+  if (input.opportunityType !== 'all') where.opportunityType = input.opportunityType;
+  if (input.businessProfileId) where.businessProfileId = input.businessProfileId;
+  if (input.q) {
+    where.OR = [
+      { title: { contains: input.q, mode: 'insensitive' as const } },
+      { summary: { contains: input.q, mode: 'insensitive' as const } },
+      { description: { contains: input.q, mode: 'insensitive' as const } },
+      { eligibility: { contains: input.q, mode: 'insensitive' as const } },
+      { deliverables: { contains: input.q, mode: 'insensitive' as const } },
+      { businessProfile: { displayName: { contains: input.q, mode: 'insensitive' as const } } },
+      { businessProfile: { handle: { contains: input.q, mode: 'insensitive' as const } } },
+    ];
+  }
+  return where;
+}
+
+async function businessCampaignStatusSummary(where: Record<string, unknown>) {
+  const [total, draft, pendingReview, approved, rejected, paused, archived, completed] = await Promise.all([
+    (prisma as any).businessCampaign.count({ where: where as any }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'draft' } }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'pending_review' } }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'approved' } }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'rejected' } }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'paused' } }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'archived' } }),
+    (prisma as any).businessCampaign.count({ where: { ...(where as any), status: 'completed' } }),
+  ]);
+  return { total, draft, pendingReview, approved, rejected, paused, archived, completed };
+}
+
+async function adminCampaignHasEligibleItems(campaign: any) {
+  const items = campaign.items ?? [];
+  if (!items.length) return false;
+  for (const item of items) {
+    const target = await loadAdminBusinessCampaignTarget(campaign.businessProfileId, item.targetType, item.targetId);
+    if (!target) return false;
+  }
+  return true;
+}
+
+const businessBudgetIncludeForAdmin = {
+  businessProfile: { select: { id: true, displayName: true, handle: true, type: true, status: true, ownerId: true } },
+  campaign: { select: { id: true, title: true, status: true, opportunityType: true } },
+  providerAccount: { select: { id: true, provider: true, providerAccountId: true, accountType: true, status: true, country: true, defaultCurrency: true, lastSyncedAt: true } },
+  createdBy: { select: { id: true, email: true, profile: true } },
+  reviewer: { select: { id: true, email: true, profile: true } },
+  ledgerEntries: { orderBy: { createdAt: 'desc' as const }, take: 25 },
+} as const;
+
+function adminBusinessBudgetWhere(input: any) {
+  const q = input.q?.trim();
+  return {
+    ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
+    ...(input.status !== 'all' ? { status: input.status } : {}),
+    ...(input.provider !== 'all' ? { provider: input.provider } : {}),
+    ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+    ...(q ? {
+      OR: [
+        { purpose: { contains: q, mode: 'insensitive' as const } },
+        { riskNote: { contains: q, mode: 'insensitive' as const } },
+        { providerExternalId: { contains: q, mode: 'insensitive' as const } },
+        { businessProfile: { displayName: { contains: q, mode: 'insensitive' as const } } },
+        { campaign: { title: { contains: q, mode: 'insensitive' as const } } },
+      ],
+    } : {}),
+  };
+}
+
+async function businessBudgetStatusSummary(where: Record<string, unknown>) {
+  const [total, draft, pendingProviderReview, pendingAdminReview, sandboxReady, rejected, paused, archived] = await Promise.all([
+    (prisma as any).businessBudget.count({ where: where as any }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'draft' } }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'pending_provider_review' } }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'pending_admin_review' } }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'sandbox_ready' } }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'rejected' } }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'paused' } }),
+    (prisma as any).businessBudget.count({ where: { ...(where as any), status: 'archived' } }),
+  ]);
+  return { total, draft, pendingProviderReview, pendingAdminReview, sandboxReady, rejected, paused, archived };
+}
+
+async function findActiveBusinessBudgetProviderAccount(client: any, budget: any) {
+  if (!budget.provider || budget.provider === 'none') return null;
+  if (budget.providerAccountId) {
+    return client.moneyProviderAccount.findFirst({ where: { id: budget.providerAccountId, businessProfileId: budget.businessProfileId, provider: budget.provider, status: 'active' } });
+  }
+  return client.moneyProviderAccount.findFirst({ where: { businessProfileId: budget.businessProfileId, provider: budget.provider, accountType: { in: ['business', 'brand'] }, status: 'active' }, orderBy: { updatedAt: 'desc' } });
+}
+
+adminRoutes.get('/business-budgets', asyncRoute(async (req, res) => {
+  const input = adminBusinessBudgetListQuerySchema.parse(req.query);
+  const where = adminBusinessBudgetWhere(input);
+  const [budgets, summary] = await Promise.all([
+    (prisma as any).businessBudget.findMany({
+      where: where as any,
+      include: businessBudgetIncludeForAdmin,
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      take: input.take,
+    }),
+    businessBudgetStatusSummary(where),
+  ]);
+  const recentAuditLogs = await (prisma as any).adminAuditLog?.findMany({
+    where: { targetType: 'business_budget', targetId: { in: budgets.map((budget: any) => budget.id) } },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: { admin: { select: { id: true, email: true, profile: true } } },
+  }) ?? [];
+  res.json({ summary, recentAuditLogs, budgets, moneyProvider: buildMoneyProviderStatus(), sandboxOnly: env.moneyProviderSandboxOnly, noMoneyMoved: true });
+}));
+
+adminRoutes.patch('/business-budgets/:budgetId/action', asyncRoute(async (req, res) => {
+  const input = adminBusinessBudgetActionRequestSchema.parse(req.body ?? {});
+  const budgetId = req.params.budgetId;
+  if (!budgetId) return res.status(400).json({ error: 'business_budget_id_required' });
+
+  const statusByAction = {
+    approve: 'sandbox_ready',
+    reject: 'rejected',
+    pause: 'paused',
+    archive: 'archived',
+    restore: 'pending_admin_review',
+  } as const;
+  const nextStatus = statusByAction[input.action];
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await (tx as any).businessBudget.findUnique({ where: { id: budgetId }, include: businessBudgetIncludeForAdmin });
+    if (!existing) return null;
+    const providerAccount = await findActiveBusinessBudgetProviderAccount(tx as any, existing);
+    if (input.action === 'approve' || input.action === 'restore') {
+      if (existing.businessProfile.status !== 'verified') return { status: 409 as const, error: 'business_profile_not_verified' };
+      if (!existing.requestedAmountCents || existing.requestedAmountCents <= 0) return { status: 409 as const, error: 'business_budget_amount_required' };
+      if (existing.provider === 'none') return { status: 409 as const, error: 'business_budget_provider_required' };
+      if (env.moneyProvider !== existing.provider || !env.moneyProviderSandboxOnly || !env.moneyProviderAccountCreationEnabled) return { status: 409 as const, error: 'business_budget_provider_not_ready' };
+      if (!providerAccount) return { status: 409 as const, error: 'business_budget_provider_account_required' };
+    }
+    const now = new Date();
+    const updated = await (tx as any).businessBudget.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        reviewedAt: now,
+        reviewedById: req.user!.id,
+        reviewNote: input.note,
+        ...(providerAccount ? { providerAccountId: providerAccount.id } : {}),
+        ...(input.action === 'archive' ? { archivedAt: now } : {}),
+        ...(input.action === 'restore' || input.action === 'approve' ? { archivedAt: null } : {}),
+      },
+      include: businessBudgetIncludeForAdmin,
+    });
+    if (input.action === 'approve') {
+      await (tx as any).businessBudgetLedgerEntry.create({
+        data: {
+          budgetId: existing.id,
+          type: 'reserved_preview',
+          amountCents: existing.requestedAmountCents,
+          currency: existing.currency,
+          note: 'Admin marked the provider-backed Business budget as sandbox-ready. No money moved.',
+          createdById: req.user!.id,
+        },
+      });
+    }
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `business_budget.${input.action}`,
+      targetType: 'business_budget',
+      targetId: existing.id,
+      reason: input.note,
+      previousValue: { status: existing.status, provider: existing.provider, providerAccountId: existing.providerAccountId, requestedAmountCents: existing.requestedAmountCents, reviewedAt: existing.reviewedAt, reviewedById: existing.reviewedById, reviewNote: existing.reviewNote, archivedAt: existing.archivedAt },
+      nextValue: { status: updated.status, provider: updated.provider, providerAccountId: updated.providerAccountId, requestedAmountCents: updated.requestedAmountCents, reviewedAt: updated.reviewedAt, reviewedById: updated.reviewedById, reviewNote: updated.reviewNote, archivedAt: updated.archivedAt, noMoneyMoved: true },
+      metadata: { businessProfileId: existing.businessProfileId, campaignId: existing.campaignId, sandboxOnly: true, providerExecutionDisabled: true },
+    });
+    return { status: 200 as const, budget: updated };
+  });
+
+  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business budget not found.' });
+  if (result.status === 409) {
+    const messages: Record<string, string> = {
+      business_profile_not_verified: 'The Business profile must be verified before approving sandbox budgets.',
+      business_budget_amount_required: 'Add a requested budget amount before approving this sandbox budget.',
+      business_budget_provider_required: 'A real sandbox money provider is required before approving this Business budget.',
+      business_budget_provider_not_ready: 'The configured money provider is not ready for Business budget sandbox review.',
+      business_budget_provider_account_required: 'The Business profile needs an active provider-backed Business account before this sandbox budget can be approved.',
+    };
+    return res.status(409).json({ error: result.error, message: messages[result.error] ?? 'This Business budget cannot be approved.' });
+  }
+  res.json({ budget: result.budget, noMoneyMoved: true });
+}));
+
+adminRoutes.get('/business-campaigns', asyncRoute(async (req, res) => {
+  const input = adminBusinessCampaignListQuerySchema.parse(req.query);
+  const where = adminBusinessCampaignWhere(input);
+  const [campaigns, summary] = await Promise.all([
+    (prisma as any).businessCampaign.findMany({
+      where: where as any,
+      include: businessCampaignIncludeForAdmin,
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      take: input.take,
+    }),
+    businessCampaignStatusSummary(where),
+  ]);
+  const recentAuditLogs = await (prisma as any).adminAuditLog?.findMany({
+    where: { targetType: 'business_campaign', targetId: { in: campaigns.map((campaign: any) => campaign.id) } },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: { admin: { select: { id: true, email: true, profile: true } } },
+  }) ?? [];
+  res.json({ summary, recentAuditLogs, campaigns: await hydrateAdminBusinessCampaigns(campaigns) });
+}));
+
+adminRoutes.patch('/business-campaigns/:campaignId/action', asyncRoute(async (req, res) => {
+  const input = adminBusinessCampaignActionRequestSchema.parse(req.body ?? {});
+  const campaignId = req.params.campaignId;
+  if (!campaignId) return res.status(400).json({ error: 'business_campaign_id_required' });
+  const statusByAction = {
+    approve: 'approved',
+    reject: 'rejected',
+    pause: 'paused',
+    archive: 'archived',
+    restore: 'approved',
+    complete: 'completed',
+  } as const;
+  const nextStatus = statusByAction[input.action];
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await (tx as any).businessCampaign.findUnique({ where: { id: campaignId }, include: businessCampaignIncludeForAdmin });
+    if (!existing) return null;
+    const profile = existing.businessProfile;
+    if ((input.action === 'approve' || input.action === 'restore') && profile.status !== 'verified') return { status: 409 as const, error: 'business_profile_not_verified' };
+    const hasEligibleItems = await adminCampaignHasEligibleItems(existing);
+    if ((input.action === 'approve' || input.action === 'restore') && !hasEligibleItems) return { status: 409 as const, error: 'business_campaign_items_required' };
+    const now = new Date();
+    const updated = await (tx as any).businessCampaign.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        reviewedAt: now,
+        reviewedById: req.user!.id,
+        reviewNote: input.note,
+        ...(input.action === 'archive' ? { archivedAt: now } : {}),
+        ...(input.action === 'restore' || input.action === 'approve' ? { archivedAt: null } : {}),
+      },
+      include: businessCampaignIncludeForAdmin,
+    });
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `business_campaign.${input.action}`,
+      targetType: 'business_campaign',
+      targetId: existing.id,
+      reason: input.note,
+      previousValue: { status: existing.status, reviewedAt: existing.reviewedAt, reviewedById: existing.reviewedById, reviewNote: existing.reviewNote, archivedAt: existing.archivedAt },
+      nextValue: { status: updated.status, reviewedAt: updated.reviewedAt, reviewedById: updated.reviewedById, reviewNote: updated.reviewNote, archivedAt: updated.archivedAt },
+      metadata: { businessProfileId: existing.businessProfileId, opportunityType: existing.opportunityType, itemCount: existing.items?.length ?? 0, noBudget: true, noMoney: true, applicationSkeletonOnly: true },
+    });
+    return { status: 200 as const, campaign: updated };
+  });
+
+  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business campaign not found.' });
+  if (result.status === 409) return res.status(409).json({ error: result.error, message: result.error === 'business_profile_not_verified' ? 'The Business profile must be verified before approving campaigns.' : 'Attach at least one active, admin-approved Business item before approving this campaign.' });
+  res.json({ campaign: await hydrateAdminBusinessCampaign(result.campaign) });
+}));
 
 adminRoutes.get('/money/provider-accounts', asyncRoute(async (_req, res) => {
   const provider = buildMoneyProviderStatus();

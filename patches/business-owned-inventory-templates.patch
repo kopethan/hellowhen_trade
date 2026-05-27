@@ -1,0 +1,1082 @@
+diff --git a/apps/api/prisma/migrations/20260527184000_business_inventory_templates/migration.sql b/apps/api/prisma/migrations/20260527184000_business_inventory_templates/migration.sql
+new file mode 100644
+index 0000000..ae2258a
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260527184000_business_inventory_templates/migration.sql
+@@ -0,0 +1,3 @@
++-- Business-owned inventory templates need explicit review states.
++ALTER TYPE "InventoryTemplateStatus" ADD VALUE IF NOT EXISTS 'pending_review';
++ALTER TYPE "InventoryTemplateStatus" ADD VALUE IF NOT EXISTS 'rejected';
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 00f3263..57cbfc4 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -113,7 +113,9 @@ enum InventoryTemplateSourceType {
+ 
+ enum InventoryTemplateStatus {
+   draft
++  pending_review
+   active
++  rejected
+   archived
+ }
+ 
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index a5913cf..b502bd7 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -461,7 +461,7 @@ adminRoutes.get('/usage', asyncRoute(async (_req, res) => {
+ }));
+ 
+ 
+-const adminLibraryStatusFilterSchema = z.enum(['all', 'draft', 'active', 'archived']).optional().default('active');
++const adminLibraryStatusFilterSchema = z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('active');
+ const adminLibraryKindFilterSchema = z.enum(['all', 'need', 'offer']).optional().default('all');
+ const adminLibraryTemplateBaseSchema = z.object({
+   title: z.string().trim().min(3).max(70),
+@@ -482,7 +482,7 @@ const adminLibraryTemplateBaseSchema = z.object({
+   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
+   includes: z.array(z.string().trim().min(1).max(80)).max(8).optional().default([]),
+   mediaIds: z.array(z.string().trim().min(1).max(128)).max(5).optional().default([]),
+-  status: z.enum(['draft', 'active', 'archived']).optional().default('active'),
++  status: z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('active'),
+   sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
+ });
+ const adminCreateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.extend({
+@@ -490,13 +490,15 @@ const adminCreateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.extend({
+   sourceType: z.enum(['hellowhen', 'business', 'brand', 'partner']).optional().default('hellowhen'),
+ });
+ const adminUpdateLibraryTemplateSchema = adminLibraryTemplateBaseSchema.partial();
+-const adminLibraryActionSchema = z.object({ action: z.enum(['hide', 'restore']) });
++const adminLibraryActionSchema = z.object({ action: z.enum(['approve', 'reject', 'hide', 'restore']), note: z.string().trim().max(1000).optional() });
+ const adminListLibraryQuerySchema = z.object({
+   kind: adminLibraryKindFilterSchema,
+   status: adminLibraryStatusFilterSchema,
+   q: z.string().trim().min(1).max(120).optional(),
+   languageCode: z.enum(['en', 'fr']).optional(),
+   countryCode: z.string().trim().length(2).transform((value) => value.toUpperCase()).optional(),
++  sourceType: z.enum(['all', 'hellowhen', 'business', 'brand', 'partner']).optional().default('all'),
++  businessProfileId: z.string().trim().min(1).optional(),
+   take: z.coerce.number().int().min(1).max(250).optional().default(100),
+ });
+ 
+@@ -572,11 +574,13 @@ adminRoutes.get('/library', asyncRoute(async (req, res) => {
+   const input = adminListLibraryQuerySchema.parse(req.query);
+   const q = input.q?.trim();
+   const templates = await prisma.inventoryTemplate.findMany({
+-    where: {
++    where: ({
+       ...(input.kind !== 'all' ? { kind: input.kind } : {}),
+       ...(input.status !== 'all' ? { status: input.status } : {}),
+       ...(input.languageCode ? { languageCode: input.languageCode } : {}),
+       ...(input.countryCode ? { countryCode: input.countryCode } : {}),
++      ...(input.sourceType !== 'all' ? { sourceType: input.sourceType } : {}),
++      ...(input.businessProfileId ? { businessProfileId: input.businessProfileId } : {}),
+       ...(q ? {
+         OR: [
+           { key: { contains: q, mode: 'insensitive' } },
+@@ -586,7 +590,7 @@ adminRoutes.get('/library', asyncRoute(async (req, res) => {
+           { locationLabel: { contains: q, mode: 'insensitive' } },
+         ],
+       } : {}),
+-    },
++    } as any),
+     include: adminLibraryTemplateInclude,
+     orderBy: [{ kind: 'asc' }, { languageCode: 'asc' }, { countryCode: 'asc' }, { sortOrder: 'asc' }, { title: 'asc' }],
+     take: input.take,
+@@ -614,7 +618,7 @@ adminRoutes.post('/library', asyncRoute(async (req, res) => {
+         locationLabel: input.locationLabel ?? null,
+         tags: input.tags,
+         includes: input.kind === 'offer' ? input.includes : [],
+-        status: input.status,
++        status: input.status as any,
+         sortOrder: input.sortOrder,
+       },
+       include: adminLibraryTemplateInclude,
+@@ -653,7 +657,7 @@ adminRoutes.patch('/library/:templateId', asyncRoute(async (req, res) => {
+         locationLabel: normalizeTemplateNullable(input.locationLabel),
+         tags: input.tags,
+         includes: existing.kind === 'offer' ? input.includes : [],
+-        status: input.status,
++        status: input.status as any,
+         sortOrder: input.sortOrder,
+       },
+       include: adminLibraryTemplateInclude,
+@@ -676,20 +680,37 @@ adminRoutes.patch('/library/:templateId/action', asyncRoute(async (req, res) =>
+   const input = adminLibraryActionSchema.parse(req.body ?? {});
+   const existing = await prisma.inventoryTemplate.findUnique({ where: { id: req.params.templateId }, include: adminLibraryTemplateInclude });
+   if (!existing) return res.status(404).json({ error: 'not_found', message: 'Starter template not found.' });
+-  const nextStatus = input.action === 'hide' ? 'archived' : 'active';
++  const isBusinessOwned = Boolean(existing.businessProfileId) || existing.sourceType === 'business' || existing.sourceType === 'brand' || existing.sourceType === 'partner';
++  const note = input.note?.trim() ?? '';
++  if ((input.action === 'approve' || input.action === 'reject' || isBusinessOwned) && note.length < 3) {
++    return res.status(400).json({ error: 'review_note_required', message: 'Add a short admin review note before changing a Business library item.' });
++  }
++
++  const nextStatusByAction = {
++    approve: 'active',
++    reject: 'rejected',
++    hide: 'archived',
++    restore: 'active',
++  } as const;
++  const nextStatus = nextStatusByAction[input.action];
++  if ((input.action === 'approve' || input.action === 'restore') && existing.businessProfileId && existing.businessProfile?.status !== 'verified') {
++    return res.status(409).json({ error: 'business_profile_not_verified', message: 'Verify the Business profile before approving its library item.' });
++  }
++
+   const template = await prisma.$transaction(async (tx) => {
+     const updated = await tx.inventoryTemplate.update({
+       where: { id: existing.id },
+-      data: { status: nextStatus },
++      data: { status: nextStatus as any },
+       include: adminLibraryTemplateInclude,
+     });
+     await recordAdminAuditLog(tx, req.user!.id, {
+       action: `inventory_template.${input.action}`,
+       targetType: 'inventory_template',
+       targetId: updated.id,
+-      reason: input.action === 'hide' ? 'Admin hid starter template from public starter library.' : 'Admin restored starter template to public starter library.',
+-      previousValue: { status: existing.status },
+-      nextValue: { status: updated.status },
++      reason: note || (input.action === 'hide' ? 'Admin hid template from public starter library.' : input.action === 'restore' ? 'Admin restored template to public starter library.' : input.action === 'approve' ? 'Admin approved Business library item.' : input.action === 'reject' ? 'Admin rejected Business library item.' : 'Admin reviewed Business library item.'),
++      previousValue: { status: existing.status, sourceType: existing.sourceType, businessProfileId: existing.businessProfileId },
++      nextValue: { status: updated.status, sourceType: updated.sourceType, businessProfileId: updated.businessProfileId },
++      metadata: { businessOwned: isBusinessOwned, businessProfile: existing.businessProfile ?? null },
+     });
+     return updated;
+   });
+diff --git a/apps/api/src/modules/business/business.routes.ts b/apps/api/src/modules/business/business.routes.ts
+index 1e21291..b14e318 100644
+--- a/apps/api/src/modules/business/business.routes.ts
++++ b/apps/api/src/modules/business/business.routes.ts
+@@ -1,6 +1,11 @@
+ import { Router, type Response } from 'express';
+ import {
+   businessAcceptInvitationRequestSchema,
++  businessCreateInventoryTemplateRequestSchema,
++  businessInventoryTemplateArchiveRequestSchema,
++  businessInventoryTemplateReviewRequestSchema,
++  businessListInventoryTemplatesQuerySchema,
++  businessUpdateInventoryTemplateRequestSchema,
+   businessInviteMemberRequestSchema,
+   businessInvitationActionRequestSchema,
+   businessProviderOnboardingLinkRequestSchema,
+@@ -15,6 +20,7 @@ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
+ import { getActiveMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
+ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
++import { withMedia, withOneMedia } from '../media/media.helpers.js';
+ 
+ export const businessRoutes = Router();
+ 
+@@ -22,6 +28,8 @@ businessRoutes.use(requireAuth);
+ 
+ const INVITATION_TTL_DAYS = 30;
+ const teamManageRoles = new Set(['owner', 'admin']);
++const templateEditRoles = new Set(['owner', 'admin', 'finance', 'member']);
++const templateSubmitRoles = new Set(['owner', 'admin']);
+ const ownerAssignableRoles = new Set(['admin', 'finance', 'member']);
+ const adminAssignableRoles = new Set(['member']);
+ 
+@@ -29,7 +37,7 @@ const businessInclude = {
+   owner: { select: { id: true, email: true, profile: true, trustTier: true } },
+   members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
+   moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+-  _count: { select: { needs: true, offers: true, trades: true } },
++  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } },
+ } as const;
+ 
+ const businessTeamInclude = {
+@@ -53,6 +61,73 @@ function addDays(value: Date, days: number) {
+   return next;
+ }
+ 
++function slugifyTemplateTitle(value: string) {
++  return value
++    .trim()
++    .toLowerCase()
++    .normalize('NFKD')
++    .replace(/[\u0300-\u036f]/g, '')
++    .replace(/[^a-z0-9]+/g, '-')
++    .replace(/^-+|-+$/g, '')
++    .slice(0, 54) || 'business-template';
++}
++
++function makeBusinessTemplateKey(businessProfileId: string, kind: 'need' | 'offer', title: string) {
++  return `business-${businessProfileId.slice(0, 8)}-${kind}-${slugifyTemplateTitle(title)}-${Date.now().toString(36)}`;
++}
++
++function businessTemplateSourceType(profile: { type?: string | null }) {
++  return profile.type === 'brand' || profile.type === 'enterprise' ? 'brand' : 'business';
++}
++
++function canEditBusinessTemplates(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && templateEditRoles.has(role));
++}
++
++function canSubmitBusinessTemplates(profile: any, userId: string) {
++  const role = getMyBusinessRole(profile, userId);
++  return Boolean(role && templateSubmitRoles.has(role));
++}
++
++function canMutateBusinessTemplateProfile(profile: any) {
++  return !['disabled', 'rejected', 'restricted'].includes(profile.status);
++}
++
++function normalizeTemplateNullable<T extends string | null | undefined>(value: T) {
++  return value === undefined ? undefined : value;
++}
++
++const businessTemplateBusinessProfileSelect = { id: true, displayName: true, handle: true, type: true, status: true } as const;
++const businessTemplateInclude = {
++  businessProfile: { select: businessTemplateBusinessProfileSelect },
++  _count: { select: { createdNeeds: true, createdOffers: true } },
++} as const;
++
++async function syncBusinessTemplateMedia(client: unknown, ownerId: string, mediaIds: string[] | undefined, entityId: string) {
++  const selectedIds = Array.from(new Set(mediaIds ?? []));
++  const mediaClient = (client as { mediaAsset: typeof prisma.mediaAsset }).mediaAsset;
++
++  const [selectedMedia, existingMedia] = await Promise.all([
++    selectedIds.length ? mediaClient.findMany({ where: { id: { in: selectedIds }, ownerId, status: 'active' } }) : Promise.resolve([]),
++    mediaClient.findMany({ where: { entityType: 'inventory_template', entityId, status: { not: 'removed' } }, select: { id: true } }),
++  ]);
++
++  if (selectedMedia.length !== selectedIds.length) {
++    throw Object.assign(new Error('One or more selected images could not be attached. Upload the images again and retry.'), { statusCode: 400, code: 'invalid_media_ids', publicMessage: 'One or more selected images could not be attached. Upload the images again and retry.' });
++  }
++
++  const attachedElsewhere = selectedMedia.find((item) => item.entityType && item.entityId && (item.entityType !== 'inventory_template' || item.entityId !== entityId));
++  if (attachedElsewhere) {
++    throw Object.assign(new Error('One or more selected images already belong to another item. Upload a new copy if you want to reuse it.'), { statusCode: 409, code: 'media_already_attached', publicMessage: 'One or more selected images already belong to another item. Upload a new copy if you want to reuse it.' });
++  }
++
++  const selectedIdSet = new Set(selectedIds);
++  const removedIds = existingMedia.map((item) => item.id).filter((id) => !selectedIdSet.has(id));
++  if (selectedIds.length) await mediaClient.updateMany({ where: { id: { in: selectedIds }, ownerId, status: 'active' }, data: { entityType: 'inventory_template', entityId } });
++  if (removedIds.length) await mediaClient.updateMany({ where: { id: { in: removedIds }, entityType: 'inventory_template', entityId }, data: { entityType: null, entityId: null, status: 'removed' } });
++}
++
+ function normalizeProfile<T extends { _count?: unknown }>(profile: T) {
+   return { ...profile, counts: profile._count };
+ }
+@@ -490,6 +565,200 @@ businessRoutes.delete('/:businessProfileId/members/:memberId', asyncRoute(async
+   res.json({ removed: true, member: result.member });
+ }));
+ 
++
++businessRoutes.get('/:businessProfileId/templates', asyncRoute(async (req, res) => {
++  const input = businessListInventoryTemplatesQuerySchema.parse(req.query);
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++
++  const q = input.q?.trim();
++  const templates = await prisma.inventoryTemplate.findMany({
++    where: ({
++      businessProfileId,
++      ...(input.kind !== 'all' ? { kind: input.kind } : {}),
++      ...(input.status !== 'all' ? { status: input.status } : {}),
++      ...(q ? {
++        OR: [
++          { key: { contains: q, mode: 'insensitive' as const } },
++          { title: { contains: q, mode: 'insensitive' as const } },
++          { description: { contains: q, mode: 'insensitive' as const } },
++          { category: { contains: q, mode: 'insensitive' as const } },
++          { locationLabel: { contains: q, mode: 'insensitive' as const } },
++        ],
++      } : {}),
++    } as any),
++    include: businessTemplateInclude,
++    orderBy: [{ status: 'asc' }, { kind: 'asc' }, { sortOrder: 'asc' }, { updatedAt: 'desc' }],
++    take: input.take,
++  });
++
++  res.json({ businessProfile: { id: businessProfile.id, displayName: businessProfile.displayName, type: businessProfile.type, status: businessProfile.status }, myRole: getMyBusinessRole(businessProfile, req.user!.id), templates: await withMedia('inventory_template', templates, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/templates', asyncRoute(async (req, res) => {
++  const input = businessCreateInventoryTemplateRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessTemplates(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_template_editor_required', message: 'Only business team members can create draft library items.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot create library items.' });
++
++  const template = await prisma.$transaction(async (tx) => {
++    const created = await tx.inventoryTemplate.create({
++      data: {
++        key: makeBusinessTemplateKey(businessProfile.id, input.kind, input.title),
++        kind: input.kind,
++        sourceType: businessTemplateSourceType(businessProfile),
++        businessProfileId: businessProfile.id,
++        languageCode: input.languageCode,
++        countryCode: input.countryCode?.toUpperCase() ?? null,
++        title: input.title,
++        description: input.description,
++        itemType: input.itemType,
++        category: input.category ?? null,
++        timing: input.kind === 'need' ? input.timing ?? null : null,
++        availability: input.kind === 'offer' ? input.availability ?? null : null,
++        mode: input.mode ?? null,
++        locationLabel: input.locationLabel ?? null,
++        tags: input.tags,
++        includes: input.kind === 'offer' ? input.includes : [],
++        status: 'draft' as any,
++        sortOrder: input.sortOrder,
++      },
++      include: businessTemplateInclude,
++    });
++    await syncBusinessTemplateMedia(tx, req.user!.id, input.mediaIds, created.id);
++    await writeTeamAuditLog(tx, {
++      businessProfileId: businessProfile.id,
++      actorId: req.user!.id,
++      action: 'business_inventory_template_created',
++      note: 'Business team member created a draft library item.',
++      nextValue: { templateId: created.id, kind: created.kind, status: created.status, title: created.title },
++    });
++    return created;
++  });
++
++  res.status(201).json({ template: await withOneMedia('inventory_template', template, 'admin') });
++}));
++
++businessRoutes.patch('/:businessProfileId/templates/:templateId', asyncRoute(async (req, res) => {
++  const input = businessUpdateInventoryTemplateRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const templateId = req.params.templateId;
++  if (!businessProfileId || !templateId) return res.status(400).json({ error: 'business_template_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canEditBusinessTemplates(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_template_editor_required', message: 'Only business team members can edit draft library items.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot edit library items.' });
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.inventoryTemplate.findFirst({ where: { id: templateId, businessProfileId }, include: businessTemplateInclude });
++    if (!existing) return null;
++    if (existing.status === 'active' && getMyBusinessRole(businessProfile, req.user!.id) === 'member') {
++      return { status: 403 as const, error: 'business_template_admin_required' };
++    }
++    if (existing.status === 'pending_review' && getMyBusinessRole(businessProfile, req.user!.id) === 'member') {
++      return { status: 409 as const, error: 'business_template_under_review' };
++    }
++    const updated = await tx.inventoryTemplate.update({
++      where: { id: existing.id },
++      data: {
++        ...(input.title !== undefined ? { title: input.title } : {}),
++        ...(input.description !== undefined ? { description: input.description } : {}),
++        ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
++        ...(input.languageCode !== undefined ? { languageCode: input.languageCode } : {}),
++        ...(input.countryCode !== undefined ? { countryCode: input.countryCode?.toUpperCase() ?? null } : {}),
++        ...(input.category !== undefined ? { category: input.category ?? null } : {}),
++        ...(input.mode !== undefined ? { mode: input.mode ?? null } : {}),
++        ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel ?? null } : {}),
++        ...(input.tags !== undefined ? { tags: input.tags } : {}),
++        ...(input.includes !== undefined ? { includes: existing.kind === 'offer' ? input.includes : [] } : {}),
++        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
++        timing: existing.kind === 'need' ? normalizeTemplateNullable(input.timing) : null,
++        availability: existing.kind === 'offer' ? normalizeTemplateNullable(input.availability) : null,
++        status: (existing.status === 'active' ? 'pending_review' : existing.status) as any,
++      },
++      include: businessTemplateInclude,
++    });
++    if (input.mediaIds !== undefined) await syncBusinessTemplateMedia(tx, req.user!.id, input.mediaIds, updated.id);
++    await writeTeamAuditLog(tx, {
++      businessProfileId,
++      actorId: req.user!.id,
++      action: 'business_inventory_template_updated',
++      previousValue: { templateId: existing.id, status: existing.status, title: existing.title },
++      nextValue: { templateId: updated.id, status: updated.status, title: updated.title },
++    });
++    return { status: 200 as const, template: updated };
++  });
++
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business library item not found.' });
++  if (result.status === 403) return res.status(403).json({ error: result.error, message: 'Only business owners/admins can edit an active Business library item.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'This Business library item is already waiting for admin review.' });
++  res.json({ template: await withOneMedia('inventory_template', result.template, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/templates/:templateId/request-review', asyncRoute(async (req, res) => {
++  const input = businessInventoryTemplateReviewRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const templateId = req.params.templateId;
++  if (!businessProfileId || !templateId) return res.status(400).json({ error: 'business_template_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessTemplates(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_template_submitter_required', message: 'Only business owners and admins can submit library items for review.' });
++  if (!canMutateBusinessTemplateProfile(businessProfile)) return res.status(403).json({ error: 'business_profile_not_allowed', message: 'This Business profile cannot submit library items.' });
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.inventoryTemplate.findFirst({ where: { id: templateId, businessProfileId }, include: businessTemplateInclude });
++    if (!existing) return null;
++    if (existing.status === 'active') return { status: 409 as const, error: 'business_template_already_approved' };
++    const updated = await tx.inventoryTemplate.update({ where: { id: existing.id }, data: { status: 'pending_review' as any }, include: businessTemplateInclude });
++    await writeTeamAuditLog(tx, {
++      businessProfileId,
++      actorId: req.user!.id,
++      action: 'business_inventory_template_submitted_for_review',
++      note: input.note,
++      previousValue: { templateId: existing.id, status: existing.status },
++      nextValue: { templateId: updated.id, status: updated.status },
++    });
++    return { status: 200 as const, template: updated };
++  });
++
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business library item not found.' });
++  if (result.status === 409) return res.status(409).json({ error: result.error, message: 'This Business library item is already approved.' });
++  res.json({ template: await withOneMedia('inventory_template', result.template, 'admin') });
++}));
++
++businessRoutes.post('/:businessProfileId/templates/:templateId/archive', asyncRoute(async (req, res) => {
++  const input = businessInventoryTemplateArchiveRequestSchema.parse(req.body ?? {});
++  const businessProfileId = req.params.businessProfileId;
++  const templateId = req.params.templateId;
++  if (!businessProfileId || !templateId) return res.status(400).json({ error: 'business_template_id_required' });
++  const businessProfile = await findAccessibleTeamBusinessProfile(businessProfileId, req.user!.id);
++  if (!businessProfile) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
++  if (!canSubmitBusinessTemplates(businessProfile, req.user!.id)) return res.status(403).json({ error: 'business_template_submitter_required', message: 'Only business owners and admins can archive library items.' });
++
++  const result = await prisma.$transaction(async (tx) => {
++    const existing = await tx.inventoryTemplate.findFirst({ where: { id: templateId, businessProfileId }, include: businessTemplateInclude });
++    if (!existing) return null;
++    const updated = await tx.inventoryTemplate.update({ where: { id: existing.id }, data: { status: 'archived' as any }, include: businessTemplateInclude });
++    await writeTeamAuditLog(tx, {
++      businessProfileId,
++      actorId: req.user!.id,
++      action: 'business_inventory_template_archived',
++      note: input.note ?? null,
++      previousValue: { templateId: existing.id, status: existing.status },
++      nextValue: { templateId: updated.id, status: updated.status },
++    });
++    return updated;
++  });
++
++  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business library item not found.' });
++  res.json({ template: await withOneMedia('inventory_template', result, 'admin') });
++}));
++
+ businessRoutes.post('/:businessProfileId/request-review', asyncRoute(async (req, res) => {
+   const input = requestBusinessReviewRequestSchema.parse(req.body ?? {});
+   const businessProfileId = req.params.businessProfileId;
+diff --git a/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts b/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
+index e6bcbd0..99d3755 100644
+--- a/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
++++ b/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
+@@ -56,7 +56,7 @@ function resolveTemplateLocalePreferences(
+ }
+ 
+ function baseTemplateWhere(input: TemplateListInput): Prisma.InventoryTemplateWhereInput {
+-  const and: Prisma.InventoryTemplateWhereInput[] = [{ status: 'active' }];
++  const and: Prisma.InventoryTemplateWhereInput[] = [{ status: 'active' }, { OR: [{ businessProfileId: null }, { businessProfile: { status: 'verified' } }] }];
+ 
+   if (input.kind) and.push({ kind: input.kind });
+   if (input.itemType) and.push({ itemType: input.itemType });
+@@ -156,7 +156,7 @@ inventoryTemplatesRoutes.get('/', optionalAuth, asyncRoute(async (req, res) => {
+ 
+ inventoryTemplatesRoutes.get('/:templateId', asyncRoute(async (req, res) => {
+   const template = await prisma.inventoryTemplate.findFirst({
+-    where: { id: req.params.templateId, status: 'active' },
++    where: { id: req.params.templateId, status: 'active', OR: [{ businessProfileId: null }, { businessProfile: { status: 'verified' } }] },
+     include: { businessProfile: { select: businessProfileSelect } },
+   });
+   if (!template) return res.status(404).json({ error: 'not_found', message: 'Starter item not found.' });
+@@ -167,7 +167,7 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
+   const input = cloneInventoryTemplateRequestSchema.parse(req.body ?? {});
+   const actorId = req.user!.id;
+   const template = await prisma.inventoryTemplate.findFirst({
+-    where: { id: req.params.templateId, status: 'active' },
++    where: { id: req.params.templateId, status: 'active', OR: [{ businessProfileId: null }, { businessProfile: { status: 'verified' } }] },
+     include: { businessProfile: { select: businessProfileSelect } },
+   });
+   if (!template) return res.status(404).json({ error: 'not_found', message: 'Starter item not found.' });
+diff --git a/apps/web/src/app/admin/library/page.tsx b/apps/web/src/app/admin/library/page.tsx
+index 0c38e34..801f0ac 100644
+--- a/apps/web/src/app/admin/library/page.tsx
++++ b/apps/web/src/app/admin/library/page.tsx
+@@ -7,7 +7,7 @@ import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionT
+ 
+ type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
+ type TemplateKind = 'need' | 'offer';
+-type TemplateStatus = 'draft' | 'active' | 'archived';
++type TemplateStatus = 'draft' | 'pending_review' | 'active' | 'rejected' | 'archived';
+ type ItemType = 'service' | 'goods' | 'other';
+ type ExchangeMode = 'remote' | 'local' | 'hybrid';
+ 
+@@ -33,6 +33,8 @@ type AdminLibraryTemplateDto = {
+   createdAt: string;
+   updatedAt: string;
+   media?: MediaAssetDto[];
++  businessProfileId?: string | null;
++  businessProfile?: { id: string; displayName: string; handle?: string | null; type?: string; status?: string } | null;
+   _count?: { createdNeeds?: number; createdOffers?: number };
+ };
+ 
+@@ -121,6 +123,8 @@ export default function AdminLibraryPage() {
+   const [kindFilter, setKindFilter] = useState<'all' | TemplateKind>('all');
+   const [statusFilter, setStatusFilter] = useState<'all' | TemplateStatus>('active');
+   const [query, setQuery] = useState('');
++  const [sourceTypeFilter, setSourceTypeFilter] = useState<'all' | 'hellowhen' | 'business' | 'brand' | 'partner'>('all');
++  const [reviewNote, setReviewNote] = useState('');
+   const [form, setForm] = useState<LibraryFormState>(emptyForm);
+   const [templateMedia, setTemplateMedia] = useState<MediaAssetDto[]>([]);
+   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
+@@ -180,6 +184,7 @@ export default function AdminLibraryPage() {
+       if (kindFilter !== 'all') params.set('kind', kindFilter);
+       if (statusFilter !== 'all') params.set('status', statusFilter);
+       if (query.trim()) params.set('q', query.trim());
++      if (sourceTypeFilter !== 'all') params.set('sourceType', sourceTypeFilter);
+       const suffix = params.toString() ? `?${params}` : '';
+       const response = await fetch(`${apiBase}/admin/library${suffix}`, { headers });
+       if (!response.ok) throw new Error('Could not load starter library templates.');
+@@ -229,7 +234,7 @@ export default function AdminLibraryPage() {
+     }
+   }
+ 
+-  async function changeTemplateVisibility(template: AdminLibraryTemplateDto, action: 'hide' | 'restore') {
++  async function changeTemplateVisibility(template: AdminLibraryTemplateDto, action: 'approve' | 'reject' | 'hide' | 'restore') {
+     if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
+     setLoading(true);
+     setNotice(null);
+@@ -237,7 +242,7 @@ export default function AdminLibraryPage() {
+       const response = await fetch(`${apiBase}/admin/library/${template.id}/action`, {
+         method: 'PATCH',
+         headers,
+-        body: JSON.stringify({ action }),
++        body: JSON.stringify({ action, note: reviewNote.trim() || undefined }),
+       });
+       if (!response.ok) {
+         const errorBody = await response.json().catch(() => null) as { message?: string } | null;
+@@ -250,7 +255,8 @@ export default function AdminLibraryPage() {
+         setTemplateMedia(data.template.media ?? []);
+         setForm(fillForm(data.template));
+       }
+-      setNotice({ tone: 'success', body: action === 'hide' ? 'Starter template hidden from public starter lists.' : 'Starter template restored to public starter lists.' });
++      setReviewNote('');
++      setNotice({ tone: 'success', body: action === 'approve' ? 'Template approved for public starter lists.' : action === 'reject' ? 'Template rejected.' : action === 'hide' ? 'Starter template hidden from public starter lists.' : 'Starter template restored to public starter lists.' });
+     } catch (error) {
+       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not update starter template.' });
+     } finally {
+@@ -292,6 +298,7 @@ export default function AdminLibraryPage() {
+   }
+ 
+   const activeCount = templates.filter((template) => template.status === 'active').length;
++  const reviewCount = templates.filter((template) => template.status === 'pending_review').length;
+   const hiddenCount = templates.filter((template) => template.status === 'archived').length;
+ 
+   return (
+@@ -307,6 +314,7 @@ export default function AdminLibraryPage() {
+         <div className="admin-money-strip">
+           <span><small>Loaded</small><strong>{countLabel(templates.length)}</strong></span>
+           <span><small>Active</small><strong>{countLabel(activeCount)}</strong></span>
++          <span><small>Review</small><strong>{countLabel(reviewCount)}</strong></span>
+           <span><small>Hidden</small><strong>{countLabel(hiddenCount)}</strong></span>
+         </div>
+         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+@@ -325,10 +333,19 @@ export default function AdminLibraryPage() {
+             </select>
+             <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as 'all' | TemplateStatus)}>
+               <option value="active">active</option>
++              <option value="pending_review">pending review</option>
+               <option value="draft">draft</option>
++              <option value="rejected">rejected</option>
+               <option value="archived">hidden</option>
+               <option value="all">all statuses</option>
+             </select>
++            <select value={sourceTypeFilter} onChange={(event) => setSourceTypeFilter(event.target.value as 'all' | 'hellowhen' | 'business' | 'brand' | 'partner')}>
++              <option value="all">all sources</option>
++              <option value="hellowhen">hellowhen</option>
++              <option value="business">business</option>
++              <option value="brand">brand</option>
++              <option value="partner">partner</option>
++            </select>
+             <button type="button" onClick={() => { void loadTemplates(); }} disabled={loading || !token}>Load library</button>
+           </div>
+           <div className="admin-user-list">
+@@ -336,10 +353,10 @@ export default function AdminLibraryPage() {
+               <button key={template.id} type="button" className={selectedTemplate?.id === template.id ? 'admin-user-row is-active' : 'admin-user-row'} onClick={() => selectTemplate(template)}>
+                 <span>
+                   <strong>{template.title}</strong>
+-                  <small>{template.kind} · {template.itemType} · {template.languageCode.toUpperCase()}{template.countryCode ? `-${template.countryCode}` : ''} · {template.key}</small>
+-                  <small>{templateUsageLabel(template)} · {(template.media ?? []).length} image(s) · sort {template.sortOrder ?? 0}</small>
++                  <small>{template.kind} · {template.itemType} · {template.sourceType} · {template.languageCode.toUpperCase()}{template.countryCode ? `-${template.countryCode}` : ''} · {template.key}</small>
++                  <small>{template.businessProfile ? `${template.businessProfile.displayName} · ${template.businessProfile.status ?? 'business'}` : 'Hellowhen-owned'} · {templateUsageLabel(template)} · {(template.media ?? []).length} image(s) · sort {template.sortOrder ?? 0}</small>
+                 </span>
+-                <em className={`semantic-badge ${template.status === 'active' ? 'success' : template.status === 'archived' ? 'warning' : 'admin'}`}>{template.status === 'archived' ? 'hidden' : template.status}</em>
++                <em className={`semantic-badge ${template.status === 'active' ? 'success' : template.status === 'pending_review' ? 'warning' : template.status === 'archived' ? 'warning' : template.status === 'rejected' ? 'danger' : 'admin'}`}>{template.status === 'archived' ? 'hidden' : template.status.replace('_', ' ')}</em>
+               </button>
+             ))}
+             {templates.length === 0 ? <p>No starter templates loaded yet.</p> : null}
+@@ -355,7 +372,7 @@ export default function AdminLibraryPage() {
+             <label><span>Description</span><textarea value={form.description} onChange={(event) => updateForm('description', event.target.value)} rows={5} maxLength={500} /></label>
+             <div className="admin-template-form__grid">
+               <label><span>Item type</span><select value={form.itemType} onChange={(event) => updateForm('itemType', event.target.value as ItemType)}><option value="service">service</option><option value="goods">goods</option><option value="other">other</option></select></label>
+-              <label><span>Status</span><select value={form.status} onChange={(event) => updateForm('status', event.target.value as TemplateStatus)}><option value="active">active</option><option value="draft">draft</option><option value="archived">hidden</option></select></label>
++              <label><span>Status</span><select value={form.status} onChange={(event) => updateForm('status', event.target.value as TemplateStatus)}><option value="active">active</option><option value="pending_review">pending review</option><option value="draft">draft</option><option value="rejected">rejected</option><option value="archived">hidden</option></select></label>
+               <label><span>Language</span><select value={form.languageCode} onChange={(event) => updateForm('languageCode', event.target.value as 'en' | 'fr')}><option value="en">English</option><option value="fr">French</option></select></label>
+               <label><span>Country code</span><input value={form.countryCode} onChange={(event) => updateForm('countryCode', event.target.value.toUpperCase().slice(0, 2))} placeholder="Optional" /></label>
+               <label><span>Category</span><input value={form.category} onChange={(event) => updateForm('category', event.target.value)} /></label>
+@@ -392,6 +409,9 @@ export default function AdminLibraryPage() {
+             <div className="cta-row">
+               <button type="button" onClick={() => { void saveTemplate(); }} disabled={loading || !token}>{selectedTemplate ? 'Save changes' : 'Create template'}</button>
+               <button type="button" className="secondary" onClick={() => resetForm()}>New template</button>
++              {selectedTemplate ? <input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="Admin review note for Business items" /> : null}
++              {selectedTemplate?.status === 'pending_review' ? <button type="button" className="success" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'approve'); }} disabled={loading || !token}>Approve</button> : null}
++              {selectedTemplate?.status === 'pending_review' ? <button type="button" className="danger" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'reject'); }} disabled={loading || !token}>Reject</button> : null}
+               {selectedTemplate?.status === 'archived' ? <button type="button" className="success" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'restore'); }} disabled={loading || !token}>Restore</button> : null}
+               {selectedTemplate && selectedTemplate.status !== 'archived' ? <button type="button" className="danger" onClick={() => { void changeTemplateVisibility(selectedTemplate, 'hide'); }} disabled={loading || !token}>Hide</button> : null}
+             </div>
+diff --git a/apps/web/src/features/account/BusinessAccountsClient.tsx b/apps/web/src/features/account/BusinessAccountsClient.tsx
+index b8a7252..932a8fb 100644
+--- a/apps/web/src/features/account/BusinessAccountsClient.tsx
++++ b/apps/web/src/features/account/BusinessAccountsClient.tsx
+@@ -14,7 +14,7 @@ type BusinessProfile = {
+   status: string;
+   preferredCurrency?: string;
+   countryCode?: string | null;
+-  counts?: { needs?: number; offers?: number; trades?: number };
++  counts?: { needs?: number; offers?: number; trades?: number; inventoryTemplates?: number };
+ };
+ type BusinessMember = {
+   id: string;
+@@ -41,6 +41,37 @@ type BusinessAuditLog = {
+   createdAt?: string;
+   actor?: { email?: string; profile?: { displayName?: string | null } | null };
+ };
++type BusinessTemplateStatus = 'draft' | 'pending_review' | 'active' | 'rejected' | 'archived';
++type BusinessTemplateKind = 'need' | 'offer';
++type BusinessTemplate = {
++  id: string;
++  key: string;
++  kind: BusinessTemplateKind;
++  title: string;
++  description: string;
++  itemType?: 'service' | 'goods' | 'other';
++  languageCode?: 'en' | 'fr';
++  status: BusinessTemplateStatus;
++  sourceType?: string;
++  category?: string | null;
++  timing?: string | null;
++  availability?: string | null;
++  sortOrder?: number;
++  updatedAt?: string;
++  _count?: { createdNeeds?: number; createdOffers?: number };
++};
++type BusinessTemplateForm = {
++  kind: BusinessTemplateKind;
++  title: string;
++  description: string;
++  itemType: 'service' | 'goods' | 'other';
++  languageCode: 'en' | 'fr';
++  category: string;
++  timing: string;
++  availability: string;
++};
++const emptyTemplateForm: BusinessTemplateForm = { kind: 'need', title: '', description: '', itemType: 'service', languageCode: 'en', category: '', timing: '', availability: '' };
++
+ type TeamResponse = {
+   businessProfile?: Pick<BusinessProfile, 'id' | 'displayName' | 'type' | 'status'> & { ownerId?: string };
+   myRole?: BusinessRole | null;
+@@ -70,6 +101,10 @@ export function BusinessAccountsClient() {
+   const [invitationsMine, setInvitationsMine] = useState<BusinessInvitation[]>([]);
+   const [selectedId, setSelectedId] = useState<string>('');
+   const [team, setTeam] = useState<TeamResponse | null>(null);
++  const [templates, setTemplates] = useState<BusinessTemplate[]>([]);
++  const [templateStatusFilter, setTemplateStatusFilter] = useState<'all' | BusinessTemplateStatus>('all');
++  const [templateForm, setTemplateForm] = useState<BusinessTemplateForm>(emptyTemplateForm);
++  const [templateReviewNotes, setTemplateReviewNotes] = useState<Record<string, string>>({});
+   const [inviteEmail, setInviteEmail] = useState('');
+   const [inviteRole, setInviteRole] = useState<BusinessRole>('member');
+   const [inviteNote, setInviteNote] = useState('');
+@@ -114,8 +149,20 @@ export function BusinessAccountsClient() {
+     }
+   }
+ 
++  async function loadTemplates(profileId = selectedProfile?.id) {
++    if (!profileId) { setTemplates([]); return; }
++    try {
++      const result = await api.business.templates(profileId, { status: templateStatusFilter }) as { templates?: BusinessTemplate[] };
++      setTemplates(result.templates ?? []);
++    } catch (caughtError) {
++      setTemplates([]);
++      setError(getFriendlyApiErrorMessage(caughtError));
++    }
++  }
++
++
+   useEffect(() => { void loadProfiles(); }, [auth.hydrated, auth.isAuthenticated]);
+-  useEffect(() => { void loadTeam(selectedProfile?.id); }, [selectedProfile?.id]);
++  useEffect(() => { void loadTeam(selectedProfile?.id); void loadTemplates(selectedProfile?.id); }, [selectedProfile?.id, templateStatusFilter]);
+ 
+   async function acceptInvitation(invitation: BusinessInvitation) {
+     setSaving(true);
+@@ -200,6 +247,73 @@ export function BusinessAccountsClient() {
+     }
+   }
+ 
++
++  async function createTemplate(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!selectedProfile) return;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.createTemplate(selectedProfile.id, {
++        kind: templateForm.kind,
++        title: templateForm.title,
++        description: templateForm.description,
++        itemType: templateForm.itemType,
++        languageCode: templateForm.languageCode,
++        category: templateForm.category.trim() || undefined,
++        timing: templateForm.kind === 'need' ? templateForm.timing.trim() || undefined : undefined,
++        availability: templateForm.kind === 'offer' ? templateForm.availability.trim() || undefined : undefined,
++        tags: [],
++        includes: [],
++        mediaIds: [],
++      });
++      setTemplateForm(emptyTemplateForm);
++      setMessage('Draft Business library item created. Owners/admins can submit it for admin review.');
++      await loadTemplates(selectedProfile.id);
++      await loadProfiles();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function requestTemplateReview(template: BusinessTemplate) {
++    if (!selectedProfile) return;
++    const note = templateReviewNotes[template.id]?.trim() ?? '';
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.requestTemplateReview(selectedProfile.id, template.id, { note });
++      setTemplateReviewNotes((current) => ({ ...current, [template.id]: '' }));
++      setMessage('Business library item submitted for admin review.');
++      await loadTemplates(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function archiveTemplate(template: BusinessTemplate) {
++    if (!selectedProfile) return;
++    const note = templateReviewNotes[template.id]?.trim() || undefined;
++    setSaving(true);
++    setError(null);
++    setMessage(null);
++    try {
++      await api.business.archiveTemplate(selectedProfile.id, template.id, { note });
++      setMessage('Business library item archived.');
++      await loadTemplates(selectedProfile.id);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError));
++    } finally {
++      setSaving(false);
++    }
++  }
++
+   if (!auth.hydrated) return null;
+   if (!auth.isAuthenticated) return <section className="mobile-card"><p className="meta">Sign in to manage Business accounts.</p></section>;
+ 
+@@ -249,12 +363,85 @@ export function BusinessAccountsClient() {
+             <div className="status-row" style={{ marginTop: 12 }}>
+               <span className="semantic-badge instruction">{businessTypeLabel(selectedProfile.type)}</span>
+               <span className="semantic-badge neutral">{businessStatusLabel(selectedProfile.status)}</span>
+-              <span className="meta">Needs {selectedProfile.counts?.needs ?? 0} · Offers {selectedProfile.counts?.offers ?? 0} · Trades {selectedProfile.counts?.trades ?? 0}</span>
++              <span className="meta">Needs {selectedProfile.counts?.needs ?? 0} · Offers {selectedProfile.counts?.offers ?? 0} · Trades {selectedProfile.counts?.trades ?? 0} · Templates {selectedProfile.counts?.inventoryTemplates ?? 0}</span>
+             </div>
+           ) : null}
+         </section>
+       ) : null}
+ 
++      {selectedProfile ? (
++        <section className="mobile-card">
++          <div className="page-intro">
++            <div>
++              <p className="eyebrow">Business library</p>
++              <h3>Draft sponsored Needs/Offers</h3>
++              <p className="meta">These items stay hidden until a Business owner/admin submits them and an admin approves them.</p>
++            </div>
++            <select value={templateStatusFilter} onChange={(event) => setTemplateStatusFilter(event.target.value as 'all' | BusinessTemplateStatus)}>
++              <option value="all">all</option>
++              <option value="draft">draft</option>
++              <option value="pending_review">pending review</option>
++              <option value="active">approved</option>
++              <option value="rejected">rejected</option>
++              <option value="archived">archived</option>
++            </select>
++          </div>
++          <form className="form-stack" onSubmit={(event) => { void createTemplate(event); }}>
++            <div className="status-row">
++              <label className="field-label">Kind
++                <select value={templateForm.kind} onChange={(event) => setTemplateForm((current) => ({ ...current, kind: event.target.value as BusinessTemplateKind }))}>
++                  <option value="need">Need</option>
++                  <option value="offer">Offer</option>
++                </select>
++              </label>
++              <label className="field-label">Language
++                <select value={templateForm.languageCode} onChange={(event) => setTemplateForm((current) => ({ ...current, languageCode: event.target.value as 'en' | 'fr' }))}>
++                  <option value="en">English</option>
++                  <option value="fr">French</option>
++                </select>
++              </label>
++            </div>
++            <label className="field-label">Title
++              <input value={templateForm.title} onChange={(event) => setTemplateForm((current) => ({ ...current, title: event.target.value }))} maxLength={70} required />
++            </label>
++            <label className="field-label">Description
++              <textarea value={templateForm.description} onChange={(event) => setTemplateForm((current) => ({ ...current, description: event.target.value }))} rows={4} maxLength={500} required />
++            </label>
++            <label className="field-label">Category
++              <input value={templateForm.category} onChange={(event) => setTemplateForm((current) => ({ ...current, category: event.target.value }))} />
++            </label>
++            <label className="field-label">{templateForm.kind === 'need' ? 'Timing' : 'Availability'}
++              <input value={templateForm.kind === 'need' ? templateForm.timing : templateForm.availability} onChange={(event) => setTemplateForm((current) => templateForm.kind === 'need' ? { ...current, timing: event.target.value } : { ...current, availability: event.target.value })} />
++            </label>
++            <button type="submit" disabled={saving || templateForm.title.trim().length < 3 || templateForm.description.trim().length < 10}>{saving ? 'Saving…' : 'Create draft library item'}</button>
++          </form>
++          <div className="mobile-list" style={{ marginTop: 16 }}>
++            {templates.map((template) => {
++              const canSubmit = ['draft', 'rejected', 'archived'].includes(template.status);
++              return (
++                <div key={template.id} className="mobile-card mobile-card--soft">
++                  <div className="status-row">
++                    <span className="semantic-badge instruction">{template.kind}</span>
++                    <span className="semantic-badge neutral">{template.status === 'active' ? 'approved' : template.status.replace('_', ' ')}</span>
++                  </div>
++                  <h4>{template.title}</h4>
++                  <p className="meta">{template.sourceType ?? 'business'} · {(template.languageCode ?? 'en').toUpperCase()}{template.category ? ` · ${template.category}` : ''}</p>
++                  <p>{template.description}</p>
++                  <label className="field-label">Review/archive note
++                    <input value={templateReviewNotes[template.id] ?? ''} onChange={(event) => setTemplateReviewNotes((current) => ({ ...current, [template.id]: event.target.value }))} placeholder="Required before review submit" />
++                  </label>
++                  <div className="cta-row">
++                    {canSubmit ? <button type="button" disabled={saving || (templateReviewNotes[template.id]?.trim().length ?? 0) < 3} onClick={() => { void requestTemplateReview(template); }}>Submit for review</button> : null}
++                    {template.status !== 'archived' ? <button type="button" className="secondary" disabled={saving} onClick={() => { void archiveTemplate(template); }}>Archive</button> : null}
++                  </div>
++                </div>
++              );
++            })}
++            {templates.length === 0 ? <p className="meta">No Business library items match this filter.</p> : null}
++          </div>
++        </section>
++      ) : null}
++
+       {selectedProfile && team ? (
+         <>
+           <section className="mobile-card">
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index d937a20..6e55d73 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -30,6 +30,11 @@ export function createApiClient(options: ApiClientOptions) {
+       updateMember: (businessProfileId: string, memberId: string, body: BusinessUpdateMemberRequest) => requestJson(options, `/business/${businessProfileId}/members/${memberId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+       removeMember: (businessProfileId: string, memberId: string, body?: BusinessRemoveMemberRequest) => requestJson(options, `/business/${businessProfileId}/members/${memberId}`, { method: 'DELETE', body: JSON.stringify(body ?? {}) }),
+       requestReview: (businessProfileId: string, body?: RequestBusinessReviewRequest) => requestJson(options, `/business/${businessProfileId}/request-review`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
++      templates: (businessProfileId: string, query?: BusinessListInventoryTemplatesQuery) => requestJson(options, `/business/${businessProfileId}/templates${buildQueryString(query as Record<string, unknown> | undefined)}`),
++      createTemplate: (businessProfileId: string, body: BusinessCreateInventoryTemplateRequest) => requestJson(options, `/business/${businessProfileId}/templates`, { method: 'POST', body: JSON.stringify(body) }),
++      updateTemplate: (businessProfileId: string, templateId: string, body: BusinessUpdateInventoryTemplateRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}`, { method: 'PATCH', body: JSON.stringify(body) }),
++      requestTemplateReview: (businessProfileId: string, templateId: string, body: BusinessInventoryTemplateReviewRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}/request-review`, { method: 'POST', body: JSON.stringify(body) }),
++      archiveTemplate: (businessProfileId: string, templateId: string, body?: BusinessInventoryTemplateArchiveRequest) => requestJson(options, `/business/${businessProfileId}/templates/${templateId}/archive`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+       providerAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account`),
+       createBusinessProviderOnboardingLink: (businessProfileId: string, body?: BusinessProviderOnboardingLinkRequest) => requestJson(options, `/business/${businessProfileId}/provider-account/onboarding-link`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+       syncBusinessProviderAccount: (businessProfileId: string) => requestJson(options, `/business/${businessProfileId}/provider-account/sync`, { method: 'POST' }),
+@@ -45,7 +50,7 @@ export function createApiClient(options: ApiClientOptions) {
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: () => requestJson(options, '/trades/mine'), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }), publicMessages: (tradeId: string, query?: Record<string, unknown>) => requestJson(options, `/trades/${tradeId}/public-messages${buildQueryString(query)}`), sendPublicMessage: (tradeId: string, body: CreateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (tradeId: string, messageId: string, body: UpdateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (tradeId: string, messageId: string) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'DELETE' }) },
+     proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+-    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+     credits: { packages: () => requestJson(options, '/credits/packages'), createCheckoutSession: (body: CreateCheckoutSessionRequest) => requestJson(options, '/credits/checkout-session', { method: 'POST', body: JSON.stringify(body) }), purchasesMine: () => requestJson(options, '/credits/purchases/mine') },
+     account: { deletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request'), requestDeletion: (body?: CreateAccountDeletionRequest) => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request', { method: 'POST', body: JSON.stringify(body ?? {}) }), cancelDeletionRequest: () => requestJson<AccountDeletionRequestResponse>(options, '/account/deletion-request/cancel', { method: 'PATCH' }) },
+     support: { ticketsMine: () => requestJson(options, '/support/tickets/mine'), createTicket: (body: CreateSupportTicketRequest) => requestJson(options, '/support/tickets', { method: 'POST', body: JSON.stringify(body) }), createGuestTicket: (body: CreateGuestSupportTicketRequest) => requestJson(options, '/support/guest/tickets', { method: 'POST', body: JSON.stringify(body) }), ticket: (ticketId: string) => requestJson(options, `/support/tickets/${ticketId}`), sendMessage: (ticketId: string, body: CreateSupportMessageRequest) => requestJson(options, `/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updateStatus: (ticketId: string, body: UpdateSupportTicketStatusRequest) => requestJson(options, `/support/tickets/${ticketId}/status`, { method: 'PATCH', body: JSON.stringify(body) }) },
+diff --git a/packages/contracts/src/business.d.ts b/packages/contracts/src/business.d.ts
+index 0788380..ea4d0a8 100644
+--- a/packages/contracts/src/business.d.ts
++++ b/packages/contracts/src/business.d.ts
+@@ -35,6 +35,11 @@ export declare const businessUpdateMemberRequestSchema: z.ZodObject<any>;
+ export declare const businessRemoveMemberRequestSchema: z.ZodObject<any>;
+ export declare const businessInvitationActionRequestSchema: z.ZodObject<any>;
+ export declare const businessAcceptInvitationRequestSchema: z.ZodObject<any>;
++export declare const businessCreateInventoryTemplateRequestSchema: z.ZodObject<any>;
++export declare const businessUpdateInventoryTemplateRequestSchema: z.ZodType<any>;
++export declare const businessListInventoryTemplatesQuerySchema: z.ZodObject<any>;
++export declare const businessInventoryTemplateReviewRequestSchema: z.ZodObject<any>;
++export declare const businessInventoryTemplateArchiveRequestSchema: z.ZodObject<any>;
+ export declare const adminBusinessProfileActionRequestSchema: z.ZodObject<any>;
+ export type BusinessProfileType = z.infer<typeof businessProfileTypeSchema>;
+ export type BusinessProfileStatus = z.infer<typeof businessProfileStatusSchema>;
+@@ -49,5 +54,10 @@ export type BusinessUpdateMemberRequest = z.infer<typeof businessUpdateMemberReq
+ export type BusinessRemoveMemberRequest = z.infer<typeof businessRemoveMemberRequestSchema>;
+ export type BusinessInvitationActionRequest = z.infer<typeof businessInvitationActionRequestSchema>;
+ export type BusinessAcceptInvitationRequest = z.infer<typeof businessAcceptInvitationRequestSchema>;
++export type BusinessCreateInventoryTemplateRequest = z.infer<typeof businessCreateInventoryTemplateRequestSchema>;
++export type BusinessUpdateInventoryTemplateRequest = z.infer<typeof businessUpdateInventoryTemplateRequestSchema>;
++export type BusinessListInventoryTemplatesQuery = z.infer<typeof businessListInventoryTemplatesQuerySchema>;
++export type BusinessInventoryTemplateReviewRequest = z.infer<typeof businessInventoryTemplateReviewRequestSchema>;
++export type BusinessInventoryTemplateArchiveRequest = z.infer<typeof businessInventoryTemplateArchiveRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;
+ //# sourceMappingURL=business.d.ts.map
+diff --git a/packages/contracts/src/business.js b/packages/contracts/src/business.js
+index 29ad21b..8d9ad1d 100644
+--- a/packages/contracts/src/business.js
++++ b/packages/contracts/src/business.js
+@@ -1,4 +1,5 @@
+ import { z } from 'zod';
++import { discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema } from './trade.js';
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+ export const businessProfileMemberRoleSchema = z.enum(['owner', 'admin', 'finance', 'member']);
+@@ -44,6 +45,38 @@ export const businessInvitationActionRequestSchema = z.object({
+ export const businessAcceptInvitationRequestSchema = z.object({
+     note: z.string().trim().max(1000).optional(),
+ });
++
++const businessInventoryTemplateBaseSchema = z.object({
++    kind: inventoryTemplateKindSchema,
++    title: z.string().trim().min(3).max(70),
++    description: z.string().trim().min(10).max(500),
++    itemType: inventoryItemTypeSchema.optional().default('service'),
++    languageCode: discoveryLanguageSchema.optional().default('en'),
++    countryCode: z.string().trim().length(2).optional().nullable(),
++    category: z.string().trim().min(1).max(80).optional().nullable(),
++    timing: z.string().trim().min(1).max(80).optional().nullable(),
++    availability: z.string().trim().min(1).max(80).optional().nullable(),
++    mode: tradeExchangeModeSchema.optional().nullable(),
++    locationLabel: z.string().trim().min(1).max(120).optional().nullable(),
++    tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
++    includes: z.array(z.string().trim().min(1).max(80)).max(8).optional().default([]),
++    mediaIds: z.array(z.string().trim().min(1).max(128)).max(5).optional().default([]),
++    sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
++});
++export const businessCreateInventoryTemplateRequestSchema = businessInventoryTemplateBaseSchema;
++export const businessUpdateInventoryTemplateRequestSchema = businessInventoryTemplateBaseSchema.partial().refine((value) => Object.keys(value).length > 0, { message: 'Update at least one template field.' });
++export const businessListInventoryTemplatesQuerySchema = z.object({
++    kind: z.enum(['all', 'need', 'offer']).optional().default('all'),
++    status: z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('all'),
++    q: z.string().trim().min(1).max(120).optional(),
++    take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++export const businessInventoryTemplateReviewRequestSchema = z.object({
++    note: z.string().trim().min(3).max(1000),
++});
++export const businessInventoryTemplateArchiveRequestSchema = z.object({
++    note: z.string().trim().max(1000).optional(),
++});
+ export const adminBusinessProfileActionRequestSchema = z.object({
+     action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
+     note: z.string().trim().min(3).max(1000),
+diff --git a/packages/contracts/src/business.ts b/packages/contracts/src/business.ts
+index 6c708ef..4b581cb 100644
+--- a/packages/contracts/src/business.ts
++++ b/packages/contracts/src/business.ts
+@@ -1,4 +1,5 @@
+ import { z } from 'zod';
++import { discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema } from './trade.js';
+ 
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+@@ -56,6 +57,39 @@ export const businessAcceptInvitationRequestSchema = z.object({
+   note: z.string().trim().max(1000).optional(),
+ });
+ 
++const businessInventoryTemplateBaseSchema = z.object({
++  kind: inventoryTemplateKindSchema,
++  title: z.string().trim().min(3).max(70),
++  description: z.string().trim().min(10).max(500),
++  itemType: inventoryItemTypeSchema.optional().default('service'),
++  languageCode: discoveryLanguageSchema.optional().default('en'),
++  countryCode: z.string().trim().length(2).optional().nullable(),
++  category: z.string().trim().min(1).max(80).optional().nullable(),
++  timing: z.string().trim().min(1).max(80).optional().nullable(),
++  availability: z.string().trim().min(1).max(80).optional().nullable(),
++  mode: tradeExchangeModeSchema.optional().nullable(),
++  locationLabel: z.string().trim().min(1).max(120).optional().nullable(),
++  tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
++  includes: z.array(z.string().trim().min(1).max(80)).max(8).optional().default([]),
++  mediaIds: z.array(z.string().trim().min(1).max(128)).max(5).optional().default([]),
++  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
++});
++
++export const businessCreateInventoryTemplateRequestSchema = businessInventoryTemplateBaseSchema;
++export const businessUpdateInventoryTemplateRequestSchema = businessInventoryTemplateBaseSchema.partial().refine((value) => Object.keys(value).length > 0, { message: 'Update at least one template field.' });
++export const businessListInventoryTemplatesQuerySchema = z.object({
++  kind: z.enum(['all', 'need', 'offer']).optional().default('all'),
++  status: z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('all'),
++  q: z.string().trim().min(1).max(120).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++});
++export const businessInventoryTemplateReviewRequestSchema = z.object({
++  note: z.string().trim().min(3).max(1000),
++});
++export const businessInventoryTemplateArchiveRequestSchema = z.object({
++  note: z.string().trim().max(1000).optional(),
++});
++
+ export const adminBusinessProfileActionRequestSchema = z.object({
+   action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
+   note: z.string().trim().min(3).max(1000),
+@@ -75,4 +109,9 @@ export type BusinessUpdateMemberRequest = z.infer<typeof businessUpdateMemberReq
+ export type BusinessRemoveMemberRequest = z.infer<typeof businessRemoveMemberRequestSchema>;
+ export type BusinessInvitationActionRequest = z.infer<typeof businessInvitationActionRequestSchema>;
+ export type BusinessAcceptInvitationRequest = z.infer<typeof businessAcceptInvitationRequestSchema>;
++export type BusinessCreateInventoryTemplateRequest = z.infer<typeof businessCreateInventoryTemplateRequestSchema>;
++export type BusinessUpdateInventoryTemplateRequest = z.infer<typeof businessUpdateInventoryTemplateRequestSchema>;
++export type BusinessListInventoryTemplatesQuery = z.infer<typeof businessListInventoryTemplatesQuerySchema>;
++export type BusinessInventoryTemplateReviewRequest = z.infer<typeof businessInventoryTemplateReviewRequestSchema>;
++export type BusinessInventoryTemplateArchiveRequest = z.infer<typeof businessInventoryTemplateArchiveRequestSchema>;
+ export type AdminBusinessProfileActionRequest = z.infer<typeof adminBusinessProfileActionRequestSchema>;
+diff --git a/packages/contracts/src/trade.d.ts b/packages/contracts/src/trade.d.ts
+index 24c82e2..6b445e9 100644
+--- a/packages/contracts/src/trade.d.ts
++++ b/packages/contracts/src/trade.d.ts
+@@ -76,6 +76,8 @@ export declare const inventoryTemplateSourceTypeSchema: z.ZodEnum<{
+ export declare const inventoryTemplateStatusSchema: z.ZodEnum<{
+     active: "active";
+     draft: "draft";
++    pending_review: "pending_review";
++    rejected: "rejected";
+     archived: "archived";
+ }>;
+ export declare const cloneInventoryTemplateStatusSchema: z.ZodEnum<{
+diff --git a/packages/contracts/src/trade.js b/packages/contracts/src/trade.js
+index dedcf84..90823ac 100644
+--- a/packages/contracts/src/trade.js
++++ b/packages/contracts/src/trade.js
+@@ -13,7 +13,7 @@ export const discoveryLanguageSchema = z.enum(['en', 'fr']);
+ export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
+ export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
+ export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
+-export const inventoryTemplateStatusSchema = z.enum(['draft', 'active', 'archived']);
++export const inventoryTemplateStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']);
+ export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
+ export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
+ export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 1d38d1d..2024b7b 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -22,7 +22,7 @@ export const discoveryLanguageSchema = z.enum(['en', 'fr']);
+ export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
+ export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
+ export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
+-export const inventoryTemplateStatusSchema = z.enum(['draft', 'active', 'archived']);
++export const inventoryTemplateStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']);
+ export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
+ export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
+ export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);

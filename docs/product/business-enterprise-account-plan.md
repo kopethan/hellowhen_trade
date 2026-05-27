@@ -408,6 +408,66 @@ never use private proposal data for targeting
 never appear in private/sensitive flows
 ```
 
+### Sponsored placement model
+
+A sponsored placement record should only describe **where an already-approved Business-owned item may appear later**.
+
+Recommended target types:
+
+```txt
+Business-owned Need
+Business-owned Offer
+Business-owned inventory/library template
+```
+
+Recommended placement surfaces:
+
+```txt
+trades_feed
+starter_library
+needs_list
+offers_list
+business_profile
+```
+
+A placement should store:
+
+```txt
+businessProfileId
+targetType
+targetId
+surface
+status
+label
+priority
+optional start/end window
+createdBy
+reviewer
+review note
+```
+
+It should not store:
+
+```txt
+ad provider account IDs
+impression counts
+click counts
+tracking pixels
+bid amount
+campaign budget
+wallet balance
+credits/tokens/tickets/checks
+payout data
+```
+
+Approval rule:
+
+```txt
+Business profile must be verified.
+Target item must already be active/admin-approved.
+Admin review note is required before approval, rejection, pause, archive, or restore.
+```
+
 ### External ad providers
 
 External ad providers such as AdSense or AdMob are separate from Business accounts.
@@ -668,36 +728,119 @@ No external ad SDKs.
 
 ### Patch B8 — Campaign/opportunity skeleton
 
-Add hidden campaign models and APIs.
+Add hidden campaign/opportunity models and internal APIs.
 
-No money.
+This patch should only group approved Business-owned content into a reviewed opportunity container. It must not create public campaign discovery, public applications, paid jobs, budgets, credits, tokens, tickets, checks, wallet balances, payouts, Airwallex, Stripe, invoices, or settlement logic.
 
-Use:
+Use safe wording:
 
 ```txt
 campaign
 opportunity
 collaboration
 brief
+creator request
+service request
+community opportunity
+research opportunity
 ```
 
-Avoid paid job language.
+Avoid paid-job wording until KYB, money provider, contracts, payout rules, tax/accounting review, and legal terms are complete.
+
+Recommended hidden skeleton:
+
+```txt
+BusinessCampaign
+  businessProfileId
+  title / summary / description
+  eligibility / deliverables
+  opportunityType
+  status: draft / pending_review / approved / rejected / paused / archived / completed
+  admin review fields
+
+BusinessCampaignItem
+  campaignId
+  targetType: need / offer / inventory_template
+  targetId
+  sortOrder / note
+
+BusinessCampaignApplication
+  campaignId
+  applicantId
+  message
+  status skeleton only
+```
+
+Approval rule:
+
+```txt
+Verified Business profile required.
+At least one active/admin-approved Business-owned Need, Offer, or library item required.
+Admin review note required for every campaign decision.
+```
 
 ### Patch B9 — Provider-backed Business budget sandbox
 
-Only after legal/payment/provider review.
+This is hidden infrastructure for a future money-provider launch only. It must stay disabled for first launch.
 
-Requires:
+Add separate fail-closed flags:
+
+```txt
+BUSINESS_BUDGETS_ENABLED=false
+NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED=false
+EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED=false
+```
+
+Recommended skeleton:
+
+```txt
+BusinessBudget
+  Business profile
+  Optional campaign
+  Provider: none / stripe / airwallex
+  Optional provider account
+  Status: draft / pending_provider_review / pending_admin_review / sandbox_ready / rejected / paused / archived
+  Currency
+  Requested / reserved / spent / refunded cents
+  Platform fee preview rate
+  Purpose / risk note
+  Admin review fields
+
+BusinessBudgetLedgerEntry
+  requested
+  reserved_preview
+  spend_preview
+  refund_preview
+  platform_fee_preview
+  adjustment
+```
+
+Approval must be blocked unless all are true:
+
+```txt
+Business profile is verified
+A real sandbox money provider is configured
+Provider account creation is enabled
+Provider stays sandbox-only
+Business has an active provider-backed account
+Requested amount is positive
+Admin review note is present
+```
+
+The B9 sandbox must not move funds. It may record requested amounts and preview ledger entries only. Real pay-ins, wallet balances, spend, refunds, settlement, provider webhooks, and reconciliation remain a later money-provider launch.
+
+Requires before real use:
 
 ```txt
 Airwallex or Stripe KYB
 Business provider account
-ledger entries
+real ledger reconciliation
 budget limits
 refund rules
 admin review
 webhooks
 reconciliation
+legal/payment terms
 ```
 
 ## Implementation principle
@@ -711,7 +854,8 @@ team
 reviewed content
 sponsored placement
 campaigns
-provider-backed budgets
+provider-backed budget sandbox
+real provider-backed budgets
 ```
 
 Do not begin with money.

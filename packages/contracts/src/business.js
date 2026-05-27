@@ -1,7 +1,20 @@
 import { z } from 'zod';
+import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
 export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
 export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
 export const businessProfileMemberRoleSchema = z.enum(['owner', 'admin', 'finance', 'member']);
+export const businessProfileInvitationStatusSchema = z.enum(['pending', 'accepted', 'revoked', 'expired']);
+export const businessSponsoredPlacementSurfaceSchema = z.enum(['trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']);
+export const businessSponsoredPlacementTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
+export const businessSponsoredPlacementStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']);
+export const businessCampaignOpportunityTypeSchema = z.enum(['collaboration', 'creator_request', 'service_request', 'community', 'research', 'other']);
+export const businessCampaignStatusSchema = z.enum(['draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed']);
+export const businessCampaignItemTargetTypeSchema = z.enum(['need', 'offer', 'inventory_template']);
+export const businessCampaignApplicationStatusSchema = z.enum(['pending', 'reviewed', 'accepted', 'declined', 'withdrawn', 'archived']);
+export const businessBudgetStatusSchema = z.enum(['draft', 'pending_provider_review', 'pending_admin_review', 'sandbox_ready', 'rejected', 'paused', 'archived']);
+export const businessBudgetLedgerEntryTypeSchema = z.enum(['requested', 'reserved_preview', 'spend_preview', 'refund_preview', 'platform_fee_preview', 'adjustment']);
+export const businessBudgetProviderSchema = z.enum(['none', 'stripe', 'airwallex']);
+const optionalDateTime = z.string().trim().datetime().optional().nullable();
 const optionalText = (max) => z.string().trim().max(max).optional().nullable();
 export const createBusinessProfileRequestSchema = z.object({
     type: businessProfileTypeSchema.optional().default('business'),
@@ -24,6 +37,235 @@ export const businessProviderOnboardingLinkRequestSchema = z.object({
     refreshUrl: z.string().url().optional(),
     returnUrl: z.string().url().optional(),
 });
+export const businessInviteMemberRequestSchema = z.object({
+    email: z.string().trim().toLowerCase().email(),
+    role: z.enum(['admin', 'finance', 'member']).optional().default('member'),
+    note: z.string().trim().max(1000).optional(),
+});
+export const businessUpdateMemberRequestSchema = z.object({
+    role: z.enum(['admin', 'finance', 'member']),
+    note: z.string().trim().max(1000).optional(),
+});
+export const businessRemoveMemberRequestSchema = z.object({
+    note: z.string().trim().max(1000).optional(),
+});
+export const businessInvitationActionRequestSchema = z.object({
+    action: z.enum(['revoke']),
+    note: z.string().trim().max(1000).optional(),
+});
+export const businessAcceptInvitationRequestSchema = z.object({
+    note: z.string().trim().max(1000).optional(),
+});
+
+const businessInventoryTemplateBaseSchema = z.object({
+    kind: inventoryTemplateKindSchema,
+    title: z.string().trim().min(3).max(70),
+    description: z.string().trim().min(10).max(500),
+    itemType: inventoryItemTypeSchema.optional().default('service'),
+    languageCode: discoveryLanguageSchema.optional().default('en'),
+    countryCode: z.string().trim().length(2).optional().nullable(),
+    category: z.string().trim().min(1).max(80).optional().nullable(),
+    timing: z.string().trim().min(1).max(80).optional().nullable(),
+    availability: z.string().trim().min(1).max(80).optional().nullable(),
+    mode: tradeExchangeModeSchema.optional().nullable(),
+    locationLabel: z.string().trim().min(1).max(120).optional().nullable(),
+    tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
+    includes: z.array(z.string().trim().min(1).max(80)).max(8).optional().default([]),
+    mediaIds: z.array(z.string().trim().min(1).max(128)).max(5).optional().default([]),
+    sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
+});
+export const businessCreateInventoryTemplateRequestSchema = businessInventoryTemplateBaseSchema;
+export const businessUpdateInventoryTemplateRequestSchema = businessInventoryTemplateBaseSchema.partial().refine((value) => Object.keys(value).length > 0, { message: 'Update at least one template field.' });
+export const businessListInventoryTemplatesQuerySchema = z.object({
+    kind: z.enum(['all', 'need', 'offer']).optional().default('all'),
+    status: z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'archived']).optional().default('all'),
+    q: z.string().trim().min(1).max(120).optional(),
+    take: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+export const businessInventoryTemplateReviewRequestSchema = z.object({
+    note: z.string().trim().min(3).max(1000),
+});
+export const businessInventoryTemplateArchiveRequestSchema = z.object({
+    note: z.string().trim().max(1000).optional(),
+});
+
+const businessOwnedInventoryCreateStatusSchema = z.enum(['draft', 'pending_review']);
+const businessOwnedNeedManageStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'closed']);
+const businessOwnedOfferManageStatusSchema = z.enum(['draft', 'pending_review', 'rejected', 'closed']);
+const businessOwnedInventoryStatusFilterSchema = z.enum(['all', 'draft', 'pending_review', 'active', 'rejected', 'closed', 'expired', 'fulfilled', 'accepted']);
+
+export const businessCreateNeedRequestSchema = createNeedRequestSchema.omit({ status: true }).extend({
+  status: businessOwnedInventoryCreateStatusSchema.optional().default('draft'),
+});
+export const businessCreateOfferRequestSchema = createOfferRequestSchema.omit({ status: true }).extend({
+  status: businessOwnedInventoryCreateStatusSchema.optional().default('draft'),
+});
+export const businessUpdateNeedRequestSchema = updateNeedRequestSchema.omit({ status: true }).extend({
+  status: businessOwnedNeedManageStatusSchema.optional(),
+});
+export const businessUpdateOfferRequestSchema = updateOfferRequestSchema.omit({ status: true }).extend({
+  status: businessOwnedOfferManageStatusSchema.optional(),
+});
+export const businessListOwnedInventoryQuerySchema = z.object({
+  status: businessOwnedInventoryStatusFilterSchema.optional().default('all'),
+  q: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+export const businessOwnedInventoryReviewRequestSchema = z.object({
+  note: z.string().trim().min(3).max(1000),
+});
+export const businessOwnedInventoryArchiveRequestSchema = z.object({
+  note: z.string().trim().max(1000).optional(),
+});
+
+
+export const businessSponsoredPlacementListQuerySchema = z.object({
+    status: z.enum(['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived']).optional().default('all'),
+    surface: z.enum(['all', 'trades_feed', 'starter_library', 'needs_list', 'offers_list', 'business_profile']).optional().default('all'),
+    targetType: z.enum(['all', 'need', 'offer', 'inventory_template']).optional().default('all'),
+    q: z.string().trim().min(1).max(120).optional(),
+    take: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+const businessSponsoredPlacementBaseSchema = z.object({
+    targetType: businessSponsoredPlacementTargetTypeSchema,
+    targetId: z.string().trim().min(1).max(128),
+    surface: businessSponsoredPlacementSurfaceSchema,
+    label: z.string().trim().min(2).max(40).optional().default('Sponsored'),
+    priority: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
+    startsAt: optionalDateTime,
+    endsAt: optionalDateTime,
+});
+export const businessCreateSponsoredPlacementRequestSchema = businessSponsoredPlacementBaseSchema.extend({
+    status: z.enum(['draft', 'pending_review']).optional().default('draft'),
+    note: z.string().trim().max(1000).optional(),
+}).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime(), { message: 'The end date must be after the start date.', path: ['endsAt'] });
+export const businessUpdateSponsoredPlacementRequestSchema = businessSponsoredPlacementBaseSchema.partial().extend({
+    note: z.string().trim().max(1000).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one sponsored placement field.' }).refine((value) => !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime(), { message: 'The end date must be after the start date.', path: ['endsAt'] });
+export const businessSponsoredPlacementReviewRequestSchema = z.object({
+    note: z.string().trim().min(3).max(1000),
+});
+export const businessSponsoredPlacementArchiveRequestSchema = z.object({
+    note: z.string().trim().max(1000).optional(),
+});
+
+const businessCampaignBaseSchema = z.object({
+  opportunityType: businessCampaignOpportunityTypeSchema.optional().default('collaboration'),
+  title: z.string().trim().min(3).max(100),
+  summary: z.string().trim().max(240).optional().nullable(),
+  description: z.string().trim().min(20).max(2000),
+  eligibility: z.string().trim().max(1000).optional().nullable(),
+  deliverables: z.string().trim().max(1000).optional().nullable(),
+  startsAt: optionalDateTime,
+  endsAt: optionalDateTime,
+});
+
+function validDateWindow(value) {
+  return !value.startsAt || !value.endsAt || new Date(value.endsAt).getTime() >= new Date(value.startsAt).getTime();
+}
+
+export const businessCampaignListQuerySchema = z.object({
+  status: z.enum(['all', 'draft', 'pending_review', 'approved', 'rejected', 'paused', 'archived', 'completed']).optional().default('all'),
+  opportunityType: z.enum(['all', 'collaboration', 'creator_request', 'service_request', 'community', 'research', 'other']).optional().default('all'),
+  q: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
+export const businessCreateCampaignRequestSchema = businessCampaignBaseSchema.extend({
+  status: z.enum(['draft', 'pending_review']).optional().default('draft'),
+  note: z.string().trim().max(1000).optional(),
+}).refine(validDateWindow, { message: 'The end date must be after the start date.', path: ['endsAt'] });
+
+export const businessUpdateCampaignRequestSchema = businessCampaignBaseSchema.partial().extend({
+  note: z.string().trim().max(1000).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one campaign field.' }).refine(validDateWindow, { message: 'The end date must be after the start date.', path: ['endsAt'] });
+
+export const businessCampaignReviewRequestSchema = z.object({
+  note: z.string().trim().min(3).max(1000),
+});
+
+export const businessCampaignArchiveRequestSchema = z.object({
+  note: z.string().trim().max(1000).optional(),
+});
+
+export const businessCreateCampaignItemRequestSchema = z.object({
+  targetType: businessCampaignItemTargetTypeSchema,
+  targetId: z.string().trim().min(1).max(128),
+  note: z.string().trim().max(1000).optional().nullable(),
+  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional().default(0),
+});
+
+export const businessUpdateCampaignItemRequestSchema = z.object({
+  note: z.string().trim().max(1000).optional().nullable(),
+  sortOrder: z.coerce.number().int().min(-1000).max(1000).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one campaign item field.' });
+
+export const businessCampaignItemActionRequestSchema = z.object({
+  note: z.string().trim().max(1000).optional(),
+});
+
+export const businessBudgetListQuerySchema = z.object({
+  status: z.enum(['all', 'draft', 'pending_provider_review', 'pending_admin_review', 'sandbox_ready', 'rejected', 'paused', 'archived']).optional().default('all'),
+  provider: z.enum(['all', 'none', 'stripe', 'airwallex']).optional().default('all'),
+  campaignId: z.string().trim().min(1).max(128).optional(),
+  q: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
+const businessBudgetBaseSchema = z.object({
+  campaignId: z.string().trim().min(1).max(128).optional().nullable(),
+  provider: businessBudgetProviderSchema.optional().default('none'),
+  providerAccountId: z.string().trim().min(1).max(128).optional().nullable(),
+  currency: z.string().trim().length(3).optional().default('eur'),
+  requestedAmountCents: z.coerce.number().int().min(0).max(100000000).optional().default(0),
+  platformFeeRateBps: z.coerce.number().int().min(0).max(10000).optional().default(1000),
+  purpose: z.string().trim().min(3).max(1000).optional().nullable(),
+  riskNote: z.string().trim().max(1000).optional().nullable(),
+});
+
+export const businessCreateBudgetRequestSchema = businessBudgetBaseSchema.extend({
+  status: z.enum(['draft', 'pending_provider_review', 'pending_admin_review']).optional().default('draft'),
+  note: z.string().trim().max(1000).optional(),
+});
+
+export const businessUpdateBudgetRequestSchema = businessBudgetBaseSchema.partial().extend({
+  note: z.string().trim().max(1000).optional(),
+}).refine((value) => Object.keys(value).length > 0, { message: 'Update at least one Business budget field.' });
+
+export const businessBudgetReviewRequestSchema = z.object({
+  note: z.string().trim().min(3).max(1000),
+});
+
+export const businessBudgetArchiveRequestSchema = z.object({
+  note: z.string().trim().max(1000).optional(),
+});
+
+export const adminBusinessCampaignListQuerySchema = businessCampaignListQuerySchema.extend({
+  businessProfileId: z.string().trim().min(1).max(128).optional(),
+});
+
+export const adminBusinessBudgetListQuerySchema = businessBudgetListQuerySchema.extend({
+  businessProfileId: z.string().trim().min(1).max(128).optional(),
+});
+
+export const adminBusinessBudgetActionRequestSchema = z.object({
+  action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore']),
+  note: z.string().trim().min(3).max(1000),
+});
+
+export const adminBusinessCampaignActionRequestSchema = z.object({
+  action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore', 'complete']),
+  note: z.string().trim().min(3).max(1000),
+});
+
+export const adminBusinessSponsoredPlacementListQuerySchema = businessSponsoredPlacementListQuerySchema.extend({
+    businessProfileId: z.string().trim().min(1).max(128).optional(),
+});
+export const adminBusinessSponsoredPlacementActionRequestSchema = z.object({
+    action: z.enum(['approve', 'reject', 'pause', 'archive', 'restore']),
+    note: z.string().trim().min(3).max(1000),
+});
+
 export const adminBusinessProfileActionRequestSchema = z.object({
     action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
     note: z.string().trim().min(3).max(1000),

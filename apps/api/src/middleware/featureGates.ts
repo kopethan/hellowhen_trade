@@ -56,6 +56,13 @@ export function requireBusinessCampaignsEnabled(surface = 'Business campaigns'):
   return (_req, _res, next) => next();
 }
 
+export function requireBusinessBudgetsEnabled(surface = 'Business budgets'): RequestHandler {
+  if (!env.businessAccountsEnabled || !env.businessBudgetsEnabled || env.moneyProvider === 'none' || !env.moneyProviderSandboxOnly) {
+    return disabledSurface('business_budgets_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
 export function requirePlansEnabled(surface = 'Plans'): RequestHandler {
   if (!env.plansEnabled) {
     return disabledSurface('plans_disabled', `${surface} are disabled for this launch.`);

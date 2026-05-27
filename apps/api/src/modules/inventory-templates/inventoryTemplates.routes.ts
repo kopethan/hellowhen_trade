@@ -56,7 +56,7 @@ function resolveTemplateLocalePreferences(
 }
 
 function baseTemplateWhere(input: TemplateListInput): Prisma.InventoryTemplateWhereInput {
-  const and: Prisma.InventoryTemplateWhereInput[] = [{ status: 'active' }];
+  const and: Prisma.InventoryTemplateWhereInput[] = [{ status: 'active' }, { OR: [{ businessProfileId: null }, { businessProfile: { status: 'verified' } }] }];
 
   if (input.kind) and.push({ kind: input.kind });
   if (input.itemType) and.push({ itemType: input.itemType });
@@ -156,7 +156,7 @@ inventoryTemplatesRoutes.get('/', optionalAuth, asyncRoute(async (req, res) => {
 
 inventoryTemplatesRoutes.get('/:templateId', asyncRoute(async (req, res) => {
   const template = await prisma.inventoryTemplate.findFirst({
-    where: { id: req.params.templateId, status: 'active' },
+    where: { id: req.params.templateId, status: 'active', OR: [{ businessProfileId: null }, { businessProfile: { status: 'verified' } }] },
     include: { businessProfile: { select: businessProfileSelect } },
   });
   if (!template) return res.status(404).json({ error: 'not_found', message: 'Starter item not found.' });
@@ -167,7 +167,7 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
   const input = cloneInventoryTemplateRequestSchema.parse(req.body ?? {});
   const actorId = req.user!.id;
   const template = await prisma.inventoryTemplate.findFirst({
-    where: { id: req.params.templateId, status: 'active' },
+    where: { id: req.params.templateId, status: 'active', OR: [{ businessProfileId: null }, { businessProfile: { status: 'verified' } }] },
     include: { businessProfile: { select: businessProfileSelect } },
   });
   if (!template) return res.status(404).json({ error: 'not_found', message: 'Starter item not found.' });

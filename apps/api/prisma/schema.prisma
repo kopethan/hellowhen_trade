@@ -73,7 +73,9 @@ enum AuthIdentityProvider {
 
 enum NeedStatus {
   draft
+  pending_review
   active
+  rejected
   fulfilled
   closed
   expired
@@ -81,7 +83,9 @@ enum NeedStatus {
 
 enum OfferStatus {
   draft
+  pending_review
   active
+  rejected
   accepted
   closed
   expired
@@ -113,7 +117,9 @@ enum InventoryTemplateSourceType {
 
 enum InventoryTemplateStatus {
   draft
+  pending_review
   active
+  rejected
   archived
 }
 
@@ -325,6 +331,91 @@ enum BusinessProfileMemberRole {
   member
 }
 
+enum BusinessProfileInvitationStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+
+enum BusinessSponsoredPlacementSurface {
+  trades_feed
+  starter_library
+  needs_list
+  offers_list
+  business_profile
+}
+
+enum BusinessSponsoredPlacementTargetType {
+  need
+  offer
+  inventory_template
+}
+
+enum BusinessSponsoredPlacementStatus {
+  draft
+  pending_review
+  approved
+  rejected
+  paused
+  archived
+}
+
+
+enum BusinessCampaignOpportunityType {
+  collaboration
+  creator_request
+  service_request
+  community
+  research
+  other
+}
+
+enum BusinessCampaignStatus {
+  draft
+  pending_review
+  approved
+  rejected
+  paused
+  archived
+  completed
+}
+
+enum BusinessCampaignItemTargetType {
+  need
+  offer
+  inventory_template
+}
+
+enum BusinessCampaignApplicationStatus {
+  pending
+  reviewed
+  accepted
+  declined
+  withdrawn
+  archived
+}
+
+enum BusinessBudgetStatus {
+  draft
+  pending_provider_review
+  pending_admin_review
+  sandbox_ready
+  rejected
+  paused
+  archived
+}
+
+enum BusinessBudgetLedgerEntryType {
+  requested
+  reserved_preview
+  spend_preview
+  refund_preview
+  platform_fee_preview
+  adjustment
+}
+
 enum MoneyProviderTransactionType {
   payin
   internal_transfer
@@ -486,7 +577,20 @@ model User {
   moneyProviderAccounts MoneyProviderAccount[]
   ownedBusinessProfiles BusinessProfile[] @relation("OwnedBusinessProfiles")
   businessProfileMemberships BusinessProfileMember[] @relation("BusinessProfileMemberships")
+  businessProfileInvitationsSent BusinessProfileInvitation[] @relation("BusinessProfileInvitationsSent")
+  businessProfileInvitationsAccepted BusinessProfileInvitation[] @relation("BusinessProfileInvitationsAccepted")
+  businessProfileTeamAuditLogs BusinessProfileTeamAuditLog[] @relation("BusinessProfileTeamAuditLogs")
+  businessProfileTeamAuditTargets BusinessProfileTeamAuditLog[] @relation("BusinessProfileTeamAuditTargets")
   reviewedBusinessProfiles BusinessProfile[] @relation("ReviewedBusinessProfiles")
+  createdBusinessSponsoredPlacements BusinessSponsoredPlacement[] @relation("CreatedBusinessSponsoredPlacements")
+  reviewedBusinessSponsoredPlacements BusinessSponsoredPlacement[] @relation("ReviewedBusinessSponsoredPlacements")
+  createdBusinessCampaigns BusinessCampaign[] @relation("CreatedBusinessCampaigns")
+  reviewedBusinessCampaigns BusinessCampaign[] @relation("ReviewedBusinessCampaigns")
+  createdBusinessBudgets BusinessBudget[] @relation("CreatedBusinessBudgets")
+  reviewedBusinessBudgets BusinessBudget[] @relation("ReviewedBusinessBudgets")
+  createdBusinessBudgetLedgerEntries BusinessBudgetLedgerEntry[] @relation("CreatedBusinessBudgetLedgerEntries")
+  businessCampaignApplications BusinessCampaignApplication[] @relation("BusinessCampaignApplications")
+  reviewedBusinessCampaignApplications BusinessCampaignApplication[] @relation("ReviewedBusinessCampaignApplications")
   moneyProviderTransactions MoneyProviderTransaction[]
   moneyPolicyAcknowledgements MoneyPolicyAcknowledgement[]
   adminAuditLogs AdminAuditLog[] @relation("AdminAuditLogs")
@@ -1240,11 +1344,16 @@ model BusinessProfile {
   owner                 User                  @relation("OwnedBusinessProfiles", fields: [ownerId], references: [id], onDelete: Cascade)
   reviewer              User?                 @relation("ReviewedBusinessProfiles", fields: [reviewerId], references: [id], onDelete: SetNull)
   members               BusinessProfileMember[]
+  invitations           BusinessProfileInvitation[]
+  teamAuditLogs         BusinessProfileTeamAuditLog[]
   moneyProviderAccounts MoneyProviderAccount[]
   needs                 Need[]
   offers                Offer[]
   trades                Trade[]
   inventoryTemplates    InventoryTemplate[]
+  sponsoredPlacements   BusinessSponsoredPlacement[]
+  campaigns             BusinessCampaign[]
+  budgets               BusinessBudget[]
 
   @@index([ownerId, status])
   @@index([type, status])
@@ -1266,6 +1375,224 @@ model BusinessProfileMember {
   @@unique([businessProfileId, userId])
   @@index([userId, role])
   @@index([businessProfileId, role])
+}
+
+
+model BusinessProfileInvitation {
+  id                String                          @id @default(cuid())
+  businessProfileId String
+  email             String
+  role              BusinessProfileMemberRole       @default(member)
+  status            BusinessProfileInvitationStatus @default(pending)
+  note              String?
+  invitedById       String
+  acceptedById      String?
+  expiresAt         DateTime?
+  acceptedAt        DateTime?
+  revokedAt         DateTime?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  businessProfile   BusinessProfile                 @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  invitedBy         User                            @relation("BusinessProfileInvitationsSent", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy        User?                           @relation("BusinessProfileInvitationsAccepted", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([businessProfileId, status])
+  @@index([email, status])
+  @@index([invitedById, createdAt])
+  @@index([acceptedById, acceptedAt])
+}
+
+model BusinessProfileTeamAuditLog {
+  id                String   @id @default(cuid())
+  businessProfileId String
+  actorId           String
+  action            String
+  targetUserId      String?
+  targetEmail       String?
+  note              String?
+  previousValue     Json?
+  nextValue         Json?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+
+  businessProfile   BusinessProfile @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  actor             User            @relation("BusinessProfileTeamAuditLogs", fields: [actorId], references: [id], onDelete: Cascade)
+  targetUser        User?           @relation("BusinessProfileTeamAuditTargets", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([businessProfileId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([action, createdAt])
+}
+
+
+model BusinessSponsoredPlacement {
+  id                String                           @id @default(cuid())
+  businessProfileId String
+  targetType        BusinessSponsoredPlacementTargetType
+  targetId          String
+  surface           BusinessSponsoredPlacementSurface
+  status            BusinessSponsoredPlacementStatus @default(draft)
+  label             String                           @default("Sponsored")
+  priority          Int                              @default(0)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  createdById       String
+  submittedAt       DateTime?
+  reviewedById      String?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  archivedAt        DateTime?
+  createdAt         DateTime                         @default(now())
+  updatedAt         DateTime                         @updatedAt
+
+  businessProfile   BusinessProfile                  @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  createdBy         User                             @relation("CreatedBusinessSponsoredPlacements", fields: [createdById], references: [id], onDelete: Cascade)
+  reviewer          User?                            @relation("ReviewedBusinessSponsoredPlacements", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([businessProfileId, targetType, targetId, surface])
+  @@index([businessProfileId, status])
+  @@index([targetType, targetId])
+  @@index([surface, status, priority])
+  @@index([createdById, createdAt])
+  @@index([reviewedById, reviewedAt])
+}
+
+
+model BusinessCampaign {
+  id                String                          @id @default(cuid())
+  businessProfileId String
+  opportunityType   BusinessCampaignOpportunityType @default(collaboration)
+  status            BusinessCampaignStatus          @default(draft)
+  title             String
+  summary           String?
+  description       String
+  eligibility       String?
+  deliverables      String?
+  startsAt          DateTime?
+  endsAt            DateTime?
+  createdById       String
+  submittedAt       DateTime?
+  reviewedById      String?
+  reviewedAt        DateTime?
+  reviewNote        String?
+  archivedAt        DateTime?
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  businessProfile   BusinessProfile                 @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  createdBy         User                            @relation("CreatedBusinessCampaigns", fields: [createdById], references: [id], onDelete: Cascade)
+  reviewer          User?                           @relation("ReviewedBusinessCampaigns", fields: [reviewedById], references: [id], onDelete: SetNull)
+  items             BusinessCampaignItem[]
+  applications      BusinessCampaignApplication[]
+  budgets           BusinessBudget[]
+
+  @@index([businessProfileId, status])
+  @@index([opportunityType, status])
+  @@index([createdById, createdAt])
+  @@index([reviewedById, reviewedAt])
+  @@index([startsAt, endsAt])
+}
+
+model BusinessCampaignItem {
+  id          String                         @id @default(cuid())
+  campaignId  String
+  targetType  BusinessCampaignItemTargetType
+  targetId    String
+  note        String?
+  sortOrder   Int                            @default(0)
+  createdAt   DateTime                       @default(now())
+  updatedAt   DateTime                       @updatedAt
+
+  campaign    BusinessCampaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, targetType, targetId])
+  @@index([campaignId, sortOrder])
+  @@index([targetType, targetId])
+}
+
+model BusinessCampaignApplication {
+  id           String                            @id @default(cuid())
+  campaignId   String
+  applicantId  String
+  status       BusinessCampaignApplicationStatus @default(pending)
+  message      String
+  reviewedById String?
+  reviewedAt   DateTime?
+  reviewNote   String?
+  createdAt    DateTime                          @default(now())
+  updatedAt    DateTime                          @updatedAt
+
+  campaign      BusinessCampaign                  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  applicant     User                              @relation("BusinessCampaignApplications", fields: [applicantId], references: [id], onDelete: Cascade)
+  reviewer      User?                             @relation("ReviewedBusinessCampaignApplications", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([campaignId, applicantId])
+  @@index([campaignId, status])
+  @@index([applicantId, status])
+  @@index([reviewedById, reviewedAt])
+}
+
+model BusinessBudget {
+  id                  String               @id @default(cuid())
+  businessProfileId   String
+  campaignId          String?
+  provider            MoneyProviderName    @default(none)
+  providerAccountId   String?
+  status              BusinessBudgetStatus @default(draft)
+  currency            String               @default("eur")
+  requestedAmountCents Int                 @default(0)
+  reservedAmountCents Int                  @default(0)
+  spentAmountCents    Int                  @default(0)
+  refundedAmountCents Int                  @default(0)
+  platformFeeRateBps  Int                  @default(1000)
+  purpose             String?
+  riskNote            String?
+  providerExternalId  String?
+  providerReviewNote  String?
+  createdById         String
+  submittedAt         DateTime?
+  reviewedById        String?
+  reviewedAt          DateTime?
+  reviewNote          String?
+  archivedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  businessProfile     BusinessProfile      @relation(fields: [businessProfileId], references: [id], onDelete: Cascade)
+  campaign            BusinessCampaign?    @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  providerAccount     MoneyProviderAccount? @relation(fields: [providerAccountId], references: [id], onDelete: SetNull)
+  createdBy           User                 @relation("CreatedBusinessBudgets", fields: [createdById], references: [id], onDelete: Cascade)
+  reviewer            User?                @relation("ReviewedBusinessBudgets", fields: [reviewedById], references: [id], onDelete: SetNull)
+  ledgerEntries       BusinessBudgetLedgerEntry[]
+
+  @@index([businessProfileId, status])
+  @@index([campaignId, status])
+  @@index([provider, status])
+  @@index([providerAccountId, status])
+  @@index([createdById, createdAt])
+  @@index([reviewedById, reviewedAt])
+}
+
+model BusinessBudgetLedgerEntry {
+  id                    String                        @id @default(cuid())
+  budgetId              String
+  type                  BusinessBudgetLedgerEntryType
+  amountCents           Int
+  currency              String                        @default("eur")
+  note                  String?
+  providerTransactionId String?
+  createdById           String?
+  createdAt             DateTime                      @default(now())
+
+  budget                BusinessBudget                @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  createdBy             User?                         @relation("CreatedBusinessBudgetLedgerEntries", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([budgetId, createdAt])
+  @@index([type, createdAt])
+  @@index([providerTransactionId])
+  @@index([createdById, createdAt])
 }
 
 model MoneyPolicyAcknowledgement {
@@ -1359,6 +1686,7 @@ model MoneyProviderAccount {
   transactions          MoneyProviderTransaction[] @relation("ProviderAccountTransactions")
   counterpartyTransactions MoneyProviderTransaction[] @relation("ProviderCounterpartyTransactions")
   payoutRequests        PayoutRequest[]
+  businessBudgets       BusinessBudget[]
 
   @@unique([provider, providerAccountId])
   @@index([userId, provider])

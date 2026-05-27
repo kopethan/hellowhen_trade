@@ -146,6 +146,7 @@ export const env = {
   businessAccountsVisible: enabled(process.env.BUSINESS_ACCOUNTS_VISIBLE),
   businessSponsoredContentEnabled: enabled(process.env.BUSINESS_SPONSORED_CONTENT_ENABLED),
   businessCampaignsEnabled: enabled(process.env.BUSINESS_CAMPAIGNS_ENABLED),
+  businessBudgetsEnabled: enabled(process.env.BUSINESS_BUDGETS_ENABLED),
   subscriptionsEnabled: enabled(process.env.SUBSCRIPTIONS_ENABLED),
   proAccountsEnabled: enabled(process.env.PRO_ACCOUNTS_ENABLED),
   proAccountsVisible: enabled(process.env.PRO_ACCOUNTS_VISIBLE),
@@ -311,16 +312,19 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || env.businessAccountsVisible
     || env.businessSponsoredContentEnabled
     || env.businessCampaignsEnabled
+    || env.businessBudgetsEnabled
     || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')
-    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED');
+    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED');
   if (businessRuntimeEnabled) {
-    errors.push('Business/brand account, sponsored-content, and campaign flags must stay disabled/hidden for first launch.');
+    errors.push('Business/brand account, sponsored-content, campaign, and budget flags must stay disabled/hidden for first launch.');
   }
 
   const subscriptionFlagsEnabled = env.subscriptionsEnabled
@@ -405,11 +409,12 @@ export function validateProductionEnv() {
   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
   if (env.businessAccountsVisible && !env.businessAccountsEnabled) errors.push('BUSINESS_ACCOUNTS_VISIBLE=true requires BUSINESS_ACCOUNTS_ENABLED=true in production.');
-  if ((env.businessSponsoredContentEnabled || env.businessCampaignsEnabled) && !env.businessAccountsEnabled) errors.push('Business sponsored-content and campaign flags require BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if ((env.businessSponsoredContentEnabled || env.businessCampaignsEnabled || env.businessBudgetsEnabled) && !env.businessAccountsEnabled) errors.push('Business sponsored-content, campaign, and budget flags require BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if (env.businessBudgetsEnabled && (env.moneyProvider === 'none' || !env.moneyProviderAccountCreationEnabled || !env.moneyProviderSandboxOnly)) errors.push('BUSINESS_BUDGETS_ENABLED requires a sandbox-only money provider with provider account creation enabled in production.');
   if (publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
-  if ((publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')) && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED and NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED require NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if ((publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED')) && !publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED, NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED, and NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED require NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if (publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
-  if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED and EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
+  if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED, EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED, and EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
   const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiDebugPlaceholders;
   if (aiConfigured && env.aiProvider === 'none') {
