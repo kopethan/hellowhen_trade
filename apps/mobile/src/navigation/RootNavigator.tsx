@@ -9,6 +9,7 @@ import { AccountScreen } from '../features/account/AccountScreen';
 import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
@@ -47,6 +48,7 @@ import type { LegalPolicyKey } from '@hellowhen/i18n';
 export type RootStackParamList = {
   TradeTabs: undefined;
   AccountProfile: undefined;
+  ProPlans: undefined;
   Wallet: undefined;
   Payouts: undefined;
   Settings: undefined;
@@ -118,6 +120,7 @@ const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'Login to manage needs', 
 const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers', 'The public feed is open. Sign in to create, edit, and manage your own offers.');
 const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access profile, settings, wallet, support, and beta account tools.');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
+const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
 const ProtectedWalletScreen = withAuth(WalletScreen);
 const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
 const ProtectedSettingsScreen = withAuth(SettingsScreen);
@@ -192,6 +195,7 @@ export function RootNavigator() {
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+      {betaFeatures.proSubscriptionFeatures.proAccountsVisible ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}
       <Stack.Screen name="Settings" component={ProtectedSettingsScreen} />

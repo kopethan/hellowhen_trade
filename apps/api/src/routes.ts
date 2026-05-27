@@ -15,11 +15,12 @@ import { proposalsRoutes } from './modules/proposals/proposals.routes.js';
 import { plansRoutes } from './modules/plans/plans.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
+import { subscriptionsRoutes } from './modules/subscriptions/subscriptions.routes.js';
 import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
 import { usageRoutes } from './modules/usage/usage.routes.js';
 import { walletRoutes } from './modules/wallet/wallet.routes.js';
-import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
+import { requireBusinessAccountsVisible, requireMoneyFeaturesVisible, requireSubscriptionsEnabled, requireWalletVisible, requirePlansEnabled } from './middleware/featureGates.js';
 
 export const routes = Router();
 
@@ -33,6 +34,7 @@ routes.use('/profile', profileRoutes);
 routes.use('/reports', reportsRoutes);
 routes.use('/settings', settingsRoutes);
 routes.use('/support', supportRoutes);
+routes.use('/subscriptions', requireSubscriptionsEnabled(), subscriptionsRoutes);
 routes.use('/needs', needsRoutes);
 routes.use('/offers', offersRoutes);
 routes.use('/trades', tradesRoutes);

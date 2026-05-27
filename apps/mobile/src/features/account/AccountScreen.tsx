@@ -20,7 +20,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
 
 type AccountAction = {
   titleKey: string;
@@ -33,6 +33,7 @@ type AccountAction = {
 
 const accountActions: AccountAction[] = [
   { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile' },
+  ...(betaFeatures.proSubscriptionFeatures.proAccountsVisible ? [{ titleKey: 'account.items.plans.title', descriptionKey: 'account.items.plans.bodyNative', badgeKey: 'account.items.plans.badge', tone: 'success' as SemanticColorName, route: 'ProPlans' as AccountRoute, icon: 'profile' as MobileIconName }] : []),
   ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName }] : []),
   ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
   ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
@@ -109,6 +110,7 @@ export function AccountScreen() {
 
   function navigate(route: AccountRoute) {
     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+    else if (route === 'ProPlans') navigation.navigate('ProPlans');
     else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
     else if (route === 'Wallet') navigation.navigate('Wallet');
     else if (route === 'Payouts') navigation.navigate('Payouts');

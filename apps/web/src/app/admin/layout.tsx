@@ -16,6 +16,7 @@ const adminNavItems = [
   { href: '/admin', label: 'Overview' },
   { href: '/admin/library', label: 'Starter library' },
   { href: '/admin/users', label: 'Users' },
+  { href: '/admin/pro', label: 'Pro' },
   { href: '/admin/usage', label: 'Usage' },
   { href: '/admin/content', label: 'Content' },
   { href: '/admin/reports', label: 'Reports' },
@@ -33,7 +34,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           <div className="admin-nav__links">
             {adminNavItems.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
           </div>
-          <p className="admin-nav__note">First beta mode: money, wallet, payouts, and Plans stay out of launch admin navigation.</p>
+          <p className="admin-nav__note">First beta mode: Pro is admin-only; money, wallet, payouts, and Plans stay out of launch admin navigation.</p>
         </nav>
         {children}
       </div>

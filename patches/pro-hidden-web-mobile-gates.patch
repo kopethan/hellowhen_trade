@@ -1,0 +1,277 @@
+diff --git a/apps/mobile/src/components/NativeProGate.tsx b/apps/mobile/src/components/NativeProGate.tsx
+new file mode 100644
+index 0000000..de942ea
+--- /dev/null
++++ b/apps/mobile/src/components/NativeProGate.tsx
+@@ -0,0 +1,19 @@
++import type { ReactNode } from 'react';
++import React from 'react';
++import type { ProAccessState, ProSubscriptionSnapshot } from '@hellowhen/shared';
++import { getMobileProGate } from '../lib/proGate';
++
++type NativeProGateProps = {
++  state?: Partial<ProAccessState> | ProSubscriptionSnapshot | null;
++  children: ReactNode;
++  fallback?: ReactNode;
++  requireVisibleSurface?: boolean;
++};
++
++export function NativeProGate({ state, children, fallback = null, requireVisibleSurface = true }: NativeProGateProps) {
++  const gate = getMobileProGate(state);
++  const surfaceAllowed = !requireVisibleSurface || gate.canSeeProSurfaces;
++  if (surfaceAllowed && gate.hasProAccess) return <>{children}</>;
++  if (surfaceAllowed) return <>{fallback}</>;
++  return null;
++}
+diff --git a/apps/mobile/src/lib/proGate.ts b/apps/mobile/src/lib/proGate.ts
+new file mode 100644
+index 0000000..27c7229
+--- /dev/null
++++ b/apps/mobile/src/lib/proGate.ts
+@@ -0,0 +1,41 @@
++import {
++  evaluateProGate,
++  normalizeProAccessState,
++  type ProAccessState,
++  type ProGateState,
++  type ProSubscriptionSnapshot,
++} from '@hellowhen/shared';
++import { betaFeatures } from './betaFeatures';
++
++export type MobileProGateInput = Partial<ProAccessState> | ProSubscriptionSnapshot | null | undefined;
++
++function isSubscriptionSnapshot(value: MobileProGateInput): value is ProSubscriptionSnapshot {
++  return Boolean(value && typeof value === 'object' && 'state' in value && 'access' in value);
++}
++
++export function resolveMobileProAccessState(input?: MobileProGateInput): ProAccessState {
++  if (isSubscriptionSnapshot(input)) return normalizeProAccessState(input.state);
++  return normalizeProAccessState(input);
++}
++
++export function getMobileProGate(input?: MobileProGateInput): ProGateState {
++  return evaluateProGate(betaFeatures.proSubscriptionFeatures, resolveMobileProAccessState(input));
++}
++
++export function hasMobileProAccess(input?: MobileProGateInput): boolean {
++  return getMobileProGate(input).hasProAccess;
++}
++
++export function shouldShowMobileProSurface(input?: MobileProGateInput): boolean {
++  const gate = getMobileProGate(input);
++  return gate.canSeeProSurfaces;
++}
++
++export function formatMobileProMonthlyPrice(gate = getMobileProGate()) {
++  const locale = gate.price.currency.toLowerCase() === 'eur' ? 'fr-FR' : 'en-US';
++  try {
++    return new Intl.NumberFormat(locale, { style: 'currency', currency: gate.price.currency.toUpperCase() }).format(gate.price.monthlyCents / 100);
++  } catch {
++    return `${(gate.price.monthlyCents / 100).toFixed(2)} ${gate.price.currency.toUpperCase()}`;
++  }
++}
+diff --git a/apps/web/src/components/WebProGate.tsx b/apps/web/src/components/WebProGate.tsx
+new file mode 100644
+index 0000000..599100a
+--- /dev/null
++++ b/apps/web/src/components/WebProGate.tsx
+@@ -0,0 +1,20 @@
++'use client';
++
++import type { ReactNode } from 'react';
++import type { ProAccessState, ProSubscriptionSnapshot } from '@hellowhen/shared';
++import { getWebProGate } from '../lib/proGate';
++
++type WebProGateProps = {
++  state?: Partial<ProAccessState> | ProSubscriptionSnapshot | null;
++  children: ReactNode;
++  fallback?: ReactNode;
++  requireVisibleSurface?: boolean;
++};
++
++export function WebProGate({ state, children, fallback = null, requireVisibleSurface = true }: WebProGateProps) {
++  const gate = getWebProGate(state);
++  const surfaceAllowed = !requireVisibleSurface || gate.canSeeProSurfaces;
++  if (surfaceAllowed && gate.hasProAccess) return <>{children}</>;
++  if (surfaceAllowed) return <>{fallback}</>;
++  return null;
++}
+diff --git a/apps/web/src/lib/proGate.ts b/apps/web/src/lib/proGate.ts
+new file mode 100644
+index 0000000..093ebfd
+--- /dev/null
++++ b/apps/web/src/lib/proGate.ts
+@@ -0,0 +1,41 @@
++import {
++  evaluateProGate,
++  normalizeProAccessState,
++  type ProAccessState,
++  type ProGateState,
++  type ProSubscriptionSnapshot,
++} from '@hellowhen/shared';
++import { betaFeatures } from './betaFeatures';
++
++export type WebProGateInput = Partial<ProAccessState> | ProSubscriptionSnapshot | null | undefined;
++
++function isSubscriptionSnapshot(value: WebProGateInput): value is ProSubscriptionSnapshot {
++  return Boolean(value && typeof value === 'object' && 'state' in value && 'access' in value);
++}
++
++export function resolveWebProAccessState(input?: WebProGateInput): ProAccessState {
++  if (isSubscriptionSnapshot(input)) return normalizeProAccessState(input.state);
++  return normalizeProAccessState(input);
++}
++
++export function getWebProGate(input?: WebProGateInput): ProGateState {
++  return evaluateProGate(betaFeatures.proSubscriptionFeatures, resolveWebProAccessState(input));
++}
++
++export function hasWebProAccess(input?: WebProGateInput): boolean {
++  return getWebProGate(input).hasProAccess;
++}
++
++export function shouldShowWebProSurface(input?: WebProGateInput): boolean {
++  const gate = getWebProGate(input);
++  return gate.canSeeProSurfaces;
++}
++
++export function formatWebProMonthlyPrice(gate = getWebProGate()) {
++  const locale = gate.price.currency.toLowerCase() === 'eur' ? 'fr-FR' : 'en-US';
++  try {
++    return new Intl.NumberFormat(locale, { style: 'currency', currency: gate.price.currency.toUpperCase() }).format(gate.price.monthlyCents / 100);
++  } catch {
++    return `${(gate.price.monthlyCents / 100).toFixed(2)} ${gate.price.currency.toUpperCase()}`;
++  }
++}
+diff --git a/docs/product/future-subscription-roadmap.md b/docs/product/future-subscription-roadmap.md
+index d4e2106..5cb5ff9 100644
+--- a/docs/product/future-subscription-roadmap.md
++++ b/docs/product/future-subscription-roadmap.md
+@@ -487,7 +487,18 @@ subscriptionStatus = trialing or active
+ => Pro access true
+ ```
+ 
+-## Phase 5 — provider decisions
++## Phase 5 — hidden web/mobile Pro gate helpers
++
++Add reusable helpers for future UI surfaces without showing Pro publicly:
++
++- shared Pro blocker helpers
++- web/mobile Pro gate resolvers
++- web/mobile gate components that render nothing by default when Pro is hidden
++- price formatting helpers for later pricing cards
++
++This phase must not add public upgrade buttons, checkout, identity-provider calls, billing-provider calls, or visible Pro prompts.
++
++## Phase 6 — provider decisions
+ 
+ Before real Pro launch, decide:
+ 
+diff --git a/packages/shared/src/subscriptions.ts b/packages/shared/src/subscriptions.ts
+index b12f931..bca3007 100644
+--- a/packages/shared/src/subscriptions.ts
++++ b/packages/shared/src/subscriptions.ts
+@@ -48,6 +48,41 @@ export type ProAccessState = {
+   subscriptionStatus: SubscriptionStatus;
+ };
+ 
++export type ProAccessBlocker = 'identity_not_verified' | 'not_on_pro_tier' | 'subscription_not_active';
++
++export type ProGateBlocker =
++  | 'subscriptions_disabled'
++  | 'pro_accounts_disabled'
++  | 'pro_accounts_hidden'
++  | ProAccessBlocker;
++
++export type ProGateState = ProAccessState & {
++  canSeeProSurfaces: boolean;
++  hasProAccess: boolean;
++  blockers: ProGateBlocker[];
++  price: {
++    monthlyCents: number;
++    currency: string;
++  };
++  trialDays: number;
++};
++
++export type ProSubscriptionSnapshot = {
++  config: ProSubscriptionFeatureFlags;
++  state: ProAccessState & {
++    accountKind?: AccountKind;
++    professionalStatusUpdatedAt?: string | Date | null;
++    subscriptionStatusUpdatedAt?: string | Date | null;
++  };
++  professionalProfile?: Record<string, unknown> | null;
++  subscriptionState?: Record<string, unknown> | null;
++  identityVerificationState?: Record<string, unknown> | null;
++  access: {
++    hasProAccess: boolean;
++    blockers: ProAccessBlocker[];
++  };
++};
++
+ export function normalizeAccountKind(value: string | undefined | null): AccountKind {
+   const normalized = String(value ?? 'individual').trim().toLowerCase();
+   return (ACCOUNT_KINDS as readonly string[]).includes(normalized) ? normalized as AccountKind : 'individual';
+@@ -68,7 +103,6 @@ export function normalizeProfessionalStatus(value: string | undefined | null): P
+   return (PROFESSIONAL_STATUSES as readonly string[]).includes(normalized) ? normalized as ProfessionalStatus : 'none';
+ }
+ 
+-
+ export function normalizeIdentityVerificationProvider(value: string | undefined | null): IdentityVerificationProvider {
+   const normalized = String(value ?? 'none').trim().toLowerCase();
+   return (IDENTITY_VERIFICATION_PROVIDERS as readonly string[]).includes(normalized) ? normalized as IdentityVerificationProvider : 'none';
+@@ -79,8 +113,49 @@ export function normalizeIdentityVerificationStatus(value: string | undefined |
+   return (IDENTITY_VERIFICATION_STATUSES as readonly string[]).includes(normalized) ? normalized as IdentityVerificationStatus : 'none';
+ }
+ 
+-export function hasProAccess(state: ProAccessState): boolean {
+-  return state.professionalStatus === 'verified'
+-    && state.subscriptionTier === 'pro'
+-    && (state.subscriptionStatus === 'trialing' || state.subscriptionStatus === 'active');
++export function normalizeProAccessState(state?: Partial<ProAccessState> | null): ProAccessState {
++  return {
++    professionalStatus: normalizeProfessionalStatus(state?.professionalStatus),
++    subscriptionTier: normalizeSubscriptionTier(state?.subscriptionTier),
++    subscriptionStatus: normalizeSubscriptionStatus(state?.subscriptionStatus),
++  };
++}
++
++export function hasProAccess(state?: Partial<ProAccessState> | null): boolean {
++  const normalized = normalizeProAccessState(state);
++  return normalized.professionalStatus === 'verified'
++    && normalized.subscriptionTier === 'pro'
++    && (normalized.subscriptionStatus === 'trialing' || normalized.subscriptionStatus === 'active');
++}
++
++export function getProAccessBlockers(state?: Partial<ProAccessState> | null): ProAccessBlocker[] {
++  const normalized = normalizeProAccessState(state);
++  const blockers: ProAccessBlocker[] = [];
++  if (normalized.professionalStatus !== 'verified') blockers.push('identity_not_verified');
++  if (normalized.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
++  if (normalized.subscriptionStatus !== 'trialing' && normalized.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
++  return blockers;
++}
++
++export function evaluateProGate(features: ProSubscriptionFeatureFlags, state?: Partial<ProAccessState> | null): ProGateState {
++  const normalized = normalizeProAccessState(state);
++  const accessBlockers = getProAccessBlockers(normalized);
++  const blockers: ProGateBlocker[] = [];
++
++  if (!features.subscriptionsEnabled) blockers.push('subscriptions_disabled');
++  if (!features.proAccountsEnabled) blockers.push('pro_accounts_disabled');
++  if (!features.proAccountsVisible) blockers.push('pro_accounts_hidden');
++  blockers.push(...accessBlockers);
++
++  return {
++    ...normalized,
++    canSeeProSurfaces: features.subscriptionsEnabled && features.proAccountsEnabled && features.proAccountsVisible,
++    hasProAccess: features.subscriptionsEnabled && features.proAccountsEnabled && hasProAccess(normalized),
++    blockers,
++    price: {
++      monthlyCents: Number.isFinite(features.monthlyPriceCents) ? features.monthlyPriceCents : PRO_SUBSCRIPTION_DEFAULTS.monthlyPriceCents,
++      currency: features.monthlyPriceCurrency || PRO_SUBSCRIPTION_DEFAULTS.monthlyPriceCurrency,
++    },
++    trialDays: Number.isFinite(features.trialDays) ? features.trialDays : PRO_SUBSCRIPTION_DEFAULTS.trialDays,
++  };
+ }

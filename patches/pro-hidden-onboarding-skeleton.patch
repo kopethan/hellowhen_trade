@@ -1,0 +1,391 @@
+diff --git a/apps/web/src/app/account/pro/setup/page.tsx b/apps/web/src/app/account/pro/setup/page.tsx
+new file mode 100644
+index 0000000..d654b9f
+--- /dev/null
++++ b/apps/web/src/app/account/pro/setup/page.tsx
+@@ -0,0 +1,14 @@
++import { notFound } from 'next/navigation';
++import { MobilePage } from '../../../../components/MobilePage';
++import { ProOnboardingClient } from '../../../../features/account/ProOnboardingClient';
++import { betaFeatures } from '../../../../lib/betaFeatures';
++
++export default function AccountProSetupPage() {
++  if (!betaFeatures.proSubscriptionFeatures.proAccountsVisible) notFound();
++
++  return (
++    <MobilePage>
++      <ProOnboardingClient />
++    </MobilePage>
++  );
++}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 4769165..43488f9 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2529,3 +2529,65 @@ html.dark .pro-package-prototype__item.selected {
+   .plan-selection-card__header { grid-template-columns: 1fr; }
+   .plan-selection-card__header strong { justify-self: start; }
+ }
++
++/* Hidden Pro onboarding skeleton. Route is not reachable unless Pro visibility flags are enabled. */
++.pro-onboarding-page { display: grid; gap: 16px; }
++.pro-onboarding-summary {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: start;
++  gap: 14px;
++}
++.pro-onboarding-summary h3,
++.pro-onboarding-auth h3,
++.pro-onboarding-actions h3 { margin: 8px 0 6px; }
++.pro-onboarding-summary p,
++.pro-onboarding-auth p,
++.pro-onboarding-actions p { margin: 0; color: var(--app-text-muted); font-weight: 800; line-height: 1.45; }
++.pro-onboarding-summary__price {
++  min-width: 132px;
++  border: 1px solid var(--app-border);
++  border-radius: 22px;
++  background: var(--app-surface);
++  padding: 12px;
++  text-align: right;
++}
++.pro-onboarding-summary__price span,
++.pro-onboarding-summary__price small { display: block; color: var(--app-text-muted); font-size: 12px; font-weight: 850; }
++.pro-onboarding-summary__price strong { display: block; margin: 3px 0; color: var(--app-text); font-size: 19px; font-weight: 950; letter-spacing: -0.03em; }
++.pro-onboarding-auth { display: grid; gap: 10px; }
++.pro-onboarding-steps { display: grid; gap: 12px; }
++.pro-onboarding-step {
++  display: grid;
++  grid-template-columns: auto minmax(0, 1fr);
++  gap: 12px;
++  border: 1px solid var(--app-border);
++  border-radius: 26px;
++  background: var(--app-surface);
++  padding: 14px;
++  box-shadow: var(--app-card-shadow);
++}
++.pro-onboarding-step__number {
++  display: grid;
++  place-items: center;
++  width: 34px;
++  height: 34px;
++  border-radius: 999px;
++  background: var(--app-surface-soft);
++  border: 1px solid var(--app-border);
++  color: var(--app-text);
++  font-weight: 950;
++}
++.pro-onboarding-step__body { min-width: 0; }
++.pro-onboarding-step__header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
++.pro-onboarding-step h3 { margin: 7px 0 5px; font-size: 18px; letter-spacing: -0.02em; }
++.pro-onboarding-step p { margin: 0; color: var(--app-text-muted); font-weight: 800; line-height: 1.45; }
++.pro-onboarding-actions { display: grid; gap: 10px; }
++.pro-onboarding-actions__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
++.pro-onboarding-actions button:disabled { cursor: not-allowed; opacity: 0.68; }
++
++@media (max-width: 420px) {
++  .pro-onboarding-summary { grid-template-columns: 1fr; }
++  .pro-onboarding-summary__price { text-align: left; }
++  .pro-onboarding-actions__row { grid-template-columns: 1fr; }
++}
+diff --git a/apps/web/src/features/account/PlanSelectionClient.tsx b/apps/web/src/features/account/PlanSelectionClient.tsx
+index 531bd85..d6b7410 100644
+--- a/apps/web/src/features/account/PlanSelectionClient.tsx
++++ b/apps/web/src/features/account/PlanSelectionClient.tsx
+@@ -60,9 +60,9 @@ export function PlanSelectionClient() {
+     ? { label: 'Current plan', kind: 'current' }
+     : { label: 'Get started', kind: 'link', href: `/auth?next=${encodeURIComponent('/account/plans')}` };
+ 
+-  const proActionLabel = betaFeatures.proSubscriptionFeatures.identityVerificationEnabled
+-    ? 'Start Pro setup'
+-    : 'Coming later';
++  const proAction: PlanCard['action'] = betaFeatures.proSubscriptionFeatures.identityVerificationEnabled
++    ? { label: 'Start Pro setup', kind: 'link', href: '/account/pro/setup' }
++    : { label: 'Coming later', kind: 'disabled' };
+ 
+   const cards: PlanCard[] = [
+     {
+@@ -99,7 +99,7 @@ export function PlanSelectionClient() {
+         'Priority visibility experiments later',
+       ],
+       boundary: `Requires identity verification and an active or trialing Pro subscription. ${trialCopy}.`,
+-      action: { label: proActionLabel, kind: 'disabled' },
++      action: proAction,
+       featured: true,
+     },
+     {
+diff --git a/apps/web/src/features/account/ProOnboardingClient.tsx b/apps/web/src/features/account/ProOnboardingClient.tsx
+new file mode 100644
+index 0000000..1670d51
+--- /dev/null
++++ b/apps/web/src/features/account/ProOnboardingClient.tsx
+@@ -0,0 +1,127 @@
++'use client';
++
++import Link from 'next/link';
++import { betaFeatures } from '../../lib/betaFeatures';
++import { formatWebProMonthlyPrice, getWebProGate } from '../../lib/proGate';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++
++type ProOnboardingStep = {
++  id: string;
++  label: string;
++  title: string;
++  body: string;
++  status: 'available' | 'blocked' | 'placeholder';
++};
++
++function StepStatusBadge({ status }: { status: ProOnboardingStep['status'] }) {
++  if (status === 'available') return <span className="semantic-badge success">Ready later</span>;
++  if (status === 'blocked') return <span className="semantic-badge warning">Required</span>;
++  return <span className="semantic-badge instruction">Placeholder</span>;
++}
++
++function ProOnboardingStepCard({ step, index }: { step: ProOnboardingStep; index: number }) {
++  return (
++    <article className="pro-onboarding-step">
++      <div className="pro-onboarding-step__number" aria-hidden="true">{index + 1}</div>
++      <div className="pro-onboarding-step__body">
++        <div className="pro-onboarding-step__header">
++          <span className="eyebrow">{step.label}</span>
++          <StepStatusBadge status={step.status} />
++        </div>
++        <h3>{step.title}</h3>
++        <p>{step.body}</p>
++      </div>
++    </article>
++  );
++}
++
++export function ProOnboardingClient() {
++  const auth = useWebAuth();
++  const gate = getWebProGate();
++  const proPrice = formatWebProMonthlyPrice(gate);
++  const identityConnected = betaFeatures.proSubscriptionFeatures.identityVerificationEnabled;
++  const trialsEnabled = betaFeatures.proSubscriptionFeatures.proTrialsEnabled;
++
++  const steps: ProOnboardingStep[] = [
++    {
++      id: 'review',
++      label: 'Review',
++      title: 'Review the Pro upgrade',
++      body: `Pro is planned at ${proPrice}/month with a ${gate.trialDays}-day trial model. It is for verified professionals who need stronger profile, proposal, and package tools.`,
++      status: 'available',
++    },
++    {
++      id: 'identity',
++      label: 'Identity',
++      title: 'Verify identity',
++      body: identityConnected
++        ? 'Identity verification will be required before Pro access. This skeleton does not connect to a verification provider yet.'
++        : 'Identity verification is required for Pro, but the provider is not connected in this hidden prototype.',
++      status: 'blocked',
++    },
++    {
++      id: 'subscription',
++      label: 'Billing',
++      title: 'Start the Pro subscription',
++      body: trialsEnabled
++        ? 'A trialing or active subscription will be required after identity verification. Checkout is intentionally not connected yet.'
++        : 'Subscription billing is not connected yet. This step stays as a placeholder until the billing provider is selected and implemented.',
++      status: 'placeholder',
++    },
++    {
++      id: 'access',
++      label: 'Access',
++      title: 'Unlock Pro features later',
++      body: 'After verified identity and an active or trialing subscription, Pro can unlock features like Pro Trade Packages, professional profile sections, and future portfolio tools.',
++      status: 'placeholder',
++    },
++  ];
++
++  return (
++    <div className="pro-onboarding-page">
++      <div className="page-intro">
++        <div>
++          <p className="eyebrow">Pro setup</p>
++          <h2>Professional upgrade preview</h2>
++          <p>This hidden flow explains the future Pro onboarding path without starting verification, checkout, or native purchases.</p>
++        </div>
++      </div>
++
++      <section className="mobile-card mobile-card--soft pro-onboarding-summary">
++        <div>
++          <span className="semantic-badge instruction">Hidden prototype</span>
++          <h3>Pro requires verification + subscription</h3>
++          <p>Pro access will only be available when identity is verified and the subscription status is active or trialing.</p>
++        </div>
++        <div className="pro-onboarding-summary__price">
++          <span>Planned price</span>
++          <strong>{proPrice}/month</strong>
++          <small>{gate.trialDays}-day trial planned</small>
++        </div>
++      </section>
++
++      {!auth.hydrated ? null : !auth.isAuthenticated ? (
++        <section className="mobile-card mobile-card--soft pro-onboarding-auth">
++          <span className="semantic-badge warning">Sign in required</span>
++          <h3>Create or sign in to continue later</h3>
++          <p>This skeleton does not create a Pro account yet, but the real flow will require an authenticated account first.</p>
++          <Link className="button primary" href={`/auth?next=${encodeURIComponent('/account/pro/setup')}`}>Login or register</Link>
++        </section>
++      ) : null}
++
++      <div className="pro-onboarding-steps">
++        {steps.map((step, index) => <ProOnboardingStepCard key={step.id} step={step} index={index} />)}
++      </div>
++
++      <section className="mobile-card mobile-card--soft pro-onboarding-actions">
++        <h3>Provider steps are intentionally disabled</h3>
++        <p>No payment provider, identity provider, checkout session, native purchase, or Pro entitlement activation is connected in this prototype.</p>
++        <div className="pro-onboarding-actions__row">
++          <button className="button primary" type="button" disabled>Start verification later</button>
++          <button className="secondary" type="button" disabled>Start subscription later</button>
++        </div>
++        <Link className="secondary full" href="/account/plans">Back to plans</Link>
++      </section>
++    </div>
++  );
++}
+diff --git a/docs/product/future-subscription-roadmap.md b/docs/product/future-subscription-roadmap.md
+index 799a172..383c3d2 100644
+--- a/docs/product/future-subscription-roadmap.md
++++ b/docs/product/future-subscription-roadmap.md
+@@ -700,3 +700,35 @@ Default behavior remains unchanged because `PRO_TRADE_PACKAGES_ENABLED=false` an
+ The first hidden UI prototype is limited to proposal creation surfaces. It gives future Pro testers a way to select multiple supporting Needs or Offers while the public first-launch UI remains unchanged.
+ 
+ Default behavior remains hidden because all Pro, subscription, and package flags default to false.
++
++## Phase 13 — Hidden Pro onboarding skeleton
++
++Add a hidden web-only Pro setup skeleton route:
++
++```txt
++/account/pro/setup
++```
++
++The route must remain unavailable unless Pro visibility flags are explicitly enabled for internal testing. It must not add a normal Account nav entry and must not appear during first launch.
++
++The skeleton may show the future onboarding sequence:
++
++```txt
++review Pro benefits
++identity verification required
++subscription required
++Pro features unlock later
++```
++
++All provider actions remain disabled placeholders:
++
++```txt
++no checkout
++no Stripe Billing session
++no Stripe Identity session
++no native purchase button
++no provider API call
++no Pro entitlement activation
++```
++
++The hidden `/account/plans` Pro card can link to this skeleton only when Pro visibility and identity-verification flags are enabled for internal testing.
+diff --git a/docs/product/pro-feature-catalog-and-plan-copy.md b/docs/product/pro-feature-catalog-and-plan-copy.md
+index ba6ec23..9cf14eb 100644
+--- a/docs/product/pro-feature-catalog-and-plan-copy.md
++++ b/docs/product/pro-feature-catalog-and-plan-copy.md
+@@ -592,3 +592,97 @@ Account nav link while Pro is hidden
+ public upgrade prompts
+ Business onboarding
+ ```
++
++## Hidden Pro onboarding skeleton copy
++
++Future route candidate:
++
++```txt
++/account/pro/setup
++```
++
++The route should stay unavailable unless Pro surfaces are explicitly enabled for internal testing. It must not be linked from Account during first launch.
++
++The skeleton flow should explain four steps without starting provider actions:
++
++```txt
++1. Review the Pro upgrade
++2. Verify identity
++3. Start the Pro subscription
++4. Unlock Pro features later
++```
++
++### Page intro
++
++```txt
++Professional upgrade preview
++This hidden flow explains the future Pro onboarding path without starting verification, checkout, or native purchases.
++```
++
++### Requirement summary
++
++```txt
++Pro requires verification + subscription
++Pro access will only be available when identity is verified and the subscription status is active or trialing.
++```
++
++### Step copy
++
++#### Review
++
++```txt
++Review the Pro upgrade
++Pro is planned at EUR 14.99/month with a 14-day trial model. It is for verified professionals who need stronger profile, proposal, and package tools.
++```
++
++#### Identity
++
++```txt
++Verify identity
++Identity verification is required for Pro, but the provider is not connected in this hidden prototype.
++```
++
++#### Billing
++
++```txt
++Start the Pro subscription
++Subscription billing is not connected yet. This step stays as a placeholder until the billing provider is selected and implemented.
++```
++
++#### Access
++
++```txt
++Unlock Pro features later
++After verified identity and an active or trialing subscription, Pro can unlock features like Pro Trade Packages, professional profile sections, and future portfolio tools.
++```
++
++### Disabled provider action copy
++
++```txt
++Provider steps are intentionally disabled
++No payment provider, identity provider, checkout session, native purchase, or Pro entitlement activation is connected in this prototype.
++```
++
++Allowed in this hidden skeleton:
++
++```txt
++show Pro setup steps
++show planned price and trial duration
++show identity + subscription requirement
++show disabled provider buttons
++show sign-in reminder
++link back to /account/plans
++```
++
++Forbidden in this hidden skeleton:
++
++```txt
++real checkout
++Stripe Billing session creation
++Stripe Identity session creation
++native in-app purchase buttons
++Pro entitlement activation
++admin status mutation
++public account navigation entry
++Business onboarding
++```

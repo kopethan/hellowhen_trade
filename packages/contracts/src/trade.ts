@@ -13,6 +13,9 @@ export const tradePostTypeSchema = z.enum(['need_offer', 'open_need', 'open_offe
 export const tradeStatusSchema = z.enum(['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled']);
 export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitted', 'completed', 'disputed', 'cancelled']);
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
+export const tradeProposalPackageKindSchema = z.enum(['standard', 'main_need_multi_offer', 'main_offer_multi_need']);
+export const tradeProposalPackageItemKindSchema = z.enum(['need', 'offer']);
+export const tradeProposalPackageItemRoleSchema = z.enum(['main', 'supporting']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
 export const discoveryLanguageSchema = z.enum(['en', 'fr']);
@@ -182,18 +185,38 @@ export const listTradesFeedQuerySchema = z.object({
 });
 export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema, cancelReason: z.string().trim().min(3).max(800).optional() });
 export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
+const tradeProposalPackageRequestFieldsSchema = z.object({
+  packageKind: tradeProposalPackageKindSchema.optional().default('standard'),
+  mainNeedId: z.string().min(1).optional(),
+  mainOfferId: z.string().min(1).optional(),
+  supportingNeedIds: z.array(z.string().min(1)).max(3).optional(),
+  supportingOfferIds: z.array(z.string().min(1)).max(3).optional(),
+});
+
 export const createTradeProposalRequestSchema = z.object({
   message: z.string().min(3).max(1200),
   proposedNeedId: z.string().min(1).optional(),
   proposedOfferId: z.string().min(1).optional()
-});
+}).merge(tradeProposalPackageRequestFieldsSchema);
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
 export const updateProposalMessageRequestSchema = z.object({
   message: z.string().trim().min(3).max(1200).optional(),
   proposedNeedId: z.string().min(1).nullable().optional(),
-  proposedOfferId: z.string().min(1).nullable().optional()
-}).refine((value) => value.message !== undefined || value.proposedNeedId !== undefined || value.proposedOfferId !== undefined, {
-  message: 'Update the proposal note or proposed item before saving.'
+  proposedOfferId: z.string().min(1).nullable().optional(),
+  packageKind: tradeProposalPackageKindSchema.optional(),
+  mainNeedId: z.string().min(1).nullable().optional(),
+  mainOfferId: z.string().min(1).nullable().optional(),
+  supportingNeedIds: z.array(z.string().min(1)).max(3).nullable().optional(),
+  supportingOfferIds: z.array(z.string().min(1)).max(3).nullable().optional(),
+}).refine((value) => value.message !== undefined
+  || value.proposedNeedId !== undefined
+  || value.proposedOfferId !== undefined
+  || value.packageKind !== undefined
+  || value.mainNeedId !== undefined
+  || value.mainOfferId !== undefined
+  || value.supportingNeedIds !== undefined
+  || value.supportingOfferIds !== undefined, {
+  message: 'Update the proposal note, proposed item, or package before saving.'
 });
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
 export const updateProposalPrivateMessageRequestSchema = z.object({ body: z.string().trim().min(1).max(2000) });
@@ -244,6 +267,20 @@ export const offerSchema = z.object({
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
   media: z.array(mediaAssetSchema).optional()
+});
+
+export const tradeProposalPackageItemSchema = z.object({
+  id: z.string(),
+  proposalId: z.string(),
+  kind: tradeProposalPackageItemKindSchema,
+  role: tradeProposalPackageItemRoleSchema,
+  needId: z.string().nullable().optional(),
+  offerId: z.string().nullable().optional(),
+  sortOrder: z.number().int().optional().default(0),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  need: needSchema.nullable().optional(),
+  offer: offerSchema.nullable().optional(),
 });
 
 export const inventoryTemplateBusinessProfileSchema = z.object({
@@ -369,6 +406,7 @@ export const tradeProposalSchema = z.object({
   applicantId: z.string(),
   proposedNeedId: z.string().nullable().optional(),
   proposedOfferId: z.string().nullable().optional(),
+  packageKind: tradeProposalPackageKindSchema.optional().default('standard'),
   message: z.string(),
   messageEditedAt: z.string().nullable().optional(),
   messageEditCount: z.number().int().optional().default(0),
@@ -381,6 +419,7 @@ export const tradeProposalSchema = z.object({
   trade: tradeSchema.optional(),
   proposedNeed: needSchema.nullable().optional(),
   proposedOffer: offerSchema.nullable().optional(),
+  packageItems: z.array(tradeProposalPackageItemSchema).optional(),
   messages: z.array(proposalMessageSchema).optional()
 });
 
@@ -393,6 +432,9 @@ export type TradePostType = z.infer<typeof tradePostTypeSchema>;
 export type TradeStatus = z.infer<typeof tradeStatusSchema>;
 export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
 export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
+export type TradeProposalPackageKind = z.infer<typeof tradeProposalPackageKindSchema>;
+export type TradeProposalPackageItemKind = z.infer<typeof tradeProposalPackageItemKindSchema>;
+export type TradeProposalPackageItemRole = z.infer<typeof tradeProposalPackageItemRoleSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
 export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;
@@ -404,6 +446,7 @@ export type TradeNeedSideKind = z.infer<typeof tradeNeedSideKindSchema>;
 export type TradeOfferSideKind = z.infer<typeof tradeOfferSideKindSchema>;
 export type TradeProposalDto = z.infer<typeof tradeProposalSchema>;
 export type ProposalMessageDto = z.infer<typeof proposalMessageSchema>;
+export type TradeProposalPackageItemDto = z.infer<typeof tradeProposalPackageItemSchema>;
 export type TradePublicMessageStatus = z.infer<typeof tradePublicMessageStatusSchema>;
 export type TradePublicMessageDto = z.infer<typeof tradePublicMessageSchema>;
 export type TradePublicMessagesResponse = z.infer<typeof tradePublicMessagesResponseSchema>;
@@ -418,7 +461,7 @@ export type CloneInventoryTemplateRequest = z.infer<typeof cloneInventoryTemplat
 export type ListTradesFeedQuery = z.infer<typeof listTradesFeedQuerySchema>;
 export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSchema>;
 export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;
-export type CreateTradeProposalRequest = z.infer<typeof createTradeProposalRequestSchema>;
+export type CreateTradeProposalRequest = z.input<typeof createTradeProposalRequestSchema>;
 export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;
 export type UpdateProposalMessageRequest = z.infer<typeof updateProposalMessageRequestSchema>;
 export type CreateProposalMessageRequest = z.infer<typeof createProposalMessageRequestSchema>;

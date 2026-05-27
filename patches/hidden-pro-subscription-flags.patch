@@ -1,0 +1,316 @@
+diff --git a/.env.example b/.env.example
+index 24a2236..7e08c83 100644
+--- a/.env.example
++++ b/.env.example
+@@ -199,6 +199,34 @@ EXPO_PUBLIC_MOBILE_ADS_ENABLED=false
+ EXPO_PUBLIC_ADS_PROVIDER=none
+ EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS=false
+ 
++
++# Hidden Pro/subscription foundation. Keep disabled for the first public launch.
++# Pro is a future paid professional upgrade: verified identity + active/trialing Pro subscription.
++SUBSCRIPTIONS_ENABLED=false
++PRO_ACCOUNTS_ENABLED=false
++PRO_ACCOUNTS_VISIBLE=false
++PRO_TRIALS_ENABLED=false
++IDENTITY_VERIFICATION_ENABLED=false
++PRO_MONTHLY_PRICE_CENTS=1499
++PRO_MONTHLY_PRICE_CURRENCY=eur
++PRO_TRIAL_DAYS=14
++NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED=false
++NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED=false
++NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_PRO_TRIALS_ENABLED=false
++NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED=false
++NEXT_PUBLIC_PRO_MONTHLY_PRICE_CENTS=1499
++NEXT_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY=eur
++NEXT_PUBLIC_PRO_TRIAL_DAYS=14
++EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED=false
++EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED=false
++EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_PRO_TRIALS_ENABLED=false
++EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED=false
++EXPO_PUBLIC_PRO_MONTHLY_PRICE_CENTS=1499
++EXPO_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY=eur
++EXPO_PUBLIC_PRO_TRIAL_DAYS=14
++
+ # Business/brand account scaffolding. Keep hidden for the first public beta unless explicitly testing Phase 21.6.
+ BUSINESS_ACCOUNTS_VISIBLE=false
+ NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 5f18a56..f6be389 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -143,6 +143,14 @@ export const env = {
+   moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+   businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true',
++  subscriptionsEnabled: enabled(process.env.SUBSCRIPTIONS_ENABLED),
++  proAccountsEnabled: enabled(process.env.PRO_ACCOUNTS_ENABLED),
++  proAccountsVisible: enabled(process.env.PRO_ACCOUNTS_VISIBLE),
++  proTrialsEnabled: enabled(process.env.PRO_TRIALS_ENABLED),
++  identityVerificationEnabled: enabled(process.env.IDENTITY_VERIFICATION_ENABLED),
++  proMonthlyPriceCents: Number(process.env.PRO_MONTHLY_PRICE_CENTS ?? 1499),
++  proMonthlyPriceCurrency: (process.env.PRO_MONTHLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
++  proTrialDays: Number(process.env.PRO_TRIAL_DAYS ?? 14),
+   adsEnabled: (process.env.ADS_ENABLED ?? 'false').toLowerCase() === 'true',
+   webAdsEnabled: (process.env.WEB_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
+   mobileAdsEnabled: (process.env.MOBILE_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
+@@ -297,6 +305,25 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     errors.push('Business/brand accounts must stay hidden for first launch.');
+   }
+ 
++  const subscriptionFlagsEnabled = env.subscriptionsEnabled
++    || env.proAccountsEnabled
++    || env.proAccountsVisible
++    || env.proTrialsEnabled
++    || env.identityVerificationEnabled
++    || publicFlagEnabled('NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
++    || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE')
++    || publicFlagEnabled('EXPO_PUBLIC_PRO_TRIALS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED');
++  if (subscriptionFlagsEnabled) {
++    errors.push('Professional/subscription flags must stay disabled and hidden for first launch.');
++  }
++
+   const webAdsProviderFlag = publicFlagValue('NEXT_PUBLIC_ADS_PROVIDER');
+   const mobileAdsProviderFlag = publicFlagValue('EXPO_PUBLIC_ADS_PROVIDER');
+   const adsUiEnabled = env.adsEnabled
+diff --git a/apps/mobile/.env.example b/apps/mobile/.env.example
+index bdd44af..a985f5c 100644
+--- a/apps/mobile/.env.example
++++ b/apps/mobile/.env.example
+@@ -27,6 +27,18 @@ EXPO_PUBLIC_MOBILE_ADS_ENABLED=false
+ EXPO_PUBLIC_ADS_PROVIDER=none
+ EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS=false
+ 
++
++# Hidden Pro/subscription foundation. Keep disabled for the first public launch.
++# Pro is a future paid professional upgrade: verified identity + active/trialing Pro subscription.
++EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED=false
++EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED=false
++EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_PRO_TRIALS_ENABLED=false
++EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED=false
++EXPO_PUBLIC_PRO_MONTHLY_PRICE_CENTS=1499
++EXPO_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY=eur
++EXPO_PUBLIC_PRO_TRIAL_DAYS=14
++
+ # Hidden Plans foundation. Keep disabled/hidden for the first public launch.
+ EXPO_PUBLIC_PLANS_ENABLED=false
+ EXPO_PUBLIC_PLANS_VISIBLE=false
+diff --git a/apps/mobile/src/env.d.ts b/apps/mobile/src/env.d.ts
+index 5f5fb19..af8d297 100644
+--- a/apps/mobile/src/env.d.ts
++++ b/apps/mobile/src/env.d.ts
+@@ -23,6 +23,14 @@ declare const process: {
+     EXPO_PUBLIC_AI_ADMIN_ASSIST_ENABLED?: string;
+     EXPO_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED?: string;
+     EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS?: string;
++    EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED?: string;
++    EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED?: string;
++    EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE?: string;
++    EXPO_PUBLIC_PRO_TRIALS_ENABLED?: string;
++    EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED?: string;
++    EXPO_PUBLIC_PRO_MONTHLY_PRICE_CENTS?: string;
++    EXPO_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY?: string;
++    EXPO_PUBLIC_PRO_TRIAL_DAYS?: string;
+   };
+ };
+ 
+diff --git a/apps/mobile/src/lib/betaFeatures.ts b/apps/mobile/src/lib/betaFeatures.ts
+index 9139d08..e00bef8 100644
+--- a/apps/mobile/src/lib/betaFeatures.ts
++++ b/apps/mobile/src/lib/betaFeatures.ts
+@@ -1,4 +1,4 @@
+-import { AI_FEATURE_DEFAULTS, normalizeAiProvider } from '@hellowhen/shared';
++import { AI_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, normalizeAiProvider } from '@hellowhen/shared';
+ const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
+ const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
+ const firstLaunchGuardsEnabled = !disabled(process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
+@@ -23,6 +23,19 @@ const aiFeatures = {
+   privateContentEnabled: false,
+   debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS),
+ } as const;
++const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED);
++const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED);
++const proSubscriptionFeatures = {
++  ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
++  subscriptionsEnabled,
++  proAccountsEnabled,
++  proAccountsVisible: proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE),
++  proTrialsEnabled: proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_TRIALS_ENABLED),
++  identityVerificationEnabled: proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED),
++  monthlyPriceCents: Number(process.env.EXPO_PUBLIC_PRO_MONTHLY_PRICE_CENTS ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCents),
++  monthlyPriceCurrency: (process.env.EXPO_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCurrency).toLowerCase(),
++  trialDays: Number(process.env.EXPO_PUBLIC_PRO_TRIAL_DAYS ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.trialDays),
++} as const;
+ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE);
+ const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED);
+ 
+@@ -34,6 +47,7 @@ export const betaFeatures = {
+   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_MONEY_TRADES_ENABLED),
+   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_CASH_TRADES_ENABLED),
+   businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
++  proSubscriptionFeatures,
+   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
+   adsEnabled,
+   mobileAdsEnabled,
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index 7e0cc97..d7b159b 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -1,4 +1,4 @@
+-import { AI_FEATURE_DEFAULTS, normalizeAiProvider } from '@hellowhen/shared';
++import { AI_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, normalizeAiProvider } from '@hellowhen/shared';
+ const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
+ const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
+ const firstLaunchGuardsEnabled = !disabled(process.env.NEXT_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
+@@ -23,6 +23,19 @@ const aiFeatures = {
+   privateContentEnabled: false,
+   debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS),
+ } as const;
++const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED);
++const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED);
++const proSubscriptionFeatures = {
++  ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
++  subscriptionsEnabled,
++  proAccountsEnabled,
++  proAccountsVisible: proAccountsEnabled && enabled(process.env.NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE),
++  proTrialsEnabled: proAccountsEnabled && enabled(process.env.NEXT_PUBLIC_PRO_TRIALS_ENABLED),
++  identityVerificationEnabled: proAccountsEnabled && enabled(process.env.NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED),
++  monthlyPriceCents: Number(process.env.NEXT_PUBLIC_PRO_MONTHLY_PRICE_CENTS ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCents),
++  monthlyPriceCurrency: (process.env.NEXT_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCurrency).toLowerCase(),
++  trialDays: Number(process.env.NEXT_PUBLIC_PRO_TRIAL_DAYS ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.trialDays),
++} as const;
+ const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_MONEY_FEATURES_VISIBLE);
+ const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_PLANS_ENABLED);
+ 
+@@ -34,6 +47,7 @@ export const betaFeatures = {
+   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
+   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
+   businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
++  proSubscriptionFeatures,
+   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
+   adsEnabled,
+   webAdsEnabled,
+diff --git a/docs/product/future-subscription-roadmap.md b/docs/product/future-subscription-roadmap.md
+index a4d5359..eece8c6 100644
+--- a/docs/product/future-subscription-roadmap.md
++++ b/docs/product/future-subscription-roadmap.md
+@@ -409,9 +409,24 @@ PRO_ACCOUNTS_ENABLED=false
+ PRO_ACCOUNTS_VISIBLE=false
+ PRO_TRIALS_ENABLED=false
+ IDENTITY_VERIFICATION_ENABLED=false
++PRO_MONTHLY_PRICE_CENTS=1499
++PRO_MONTHLY_PRICE_CURRENCY=eur
++PRO_TRIAL_DAYS=14
++
++NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED=false
++NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED=false
++NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_PRO_TRIALS_ENABLED=false
++NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED=false
++
++EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED=false
++EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED=false
++EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_PRO_TRIALS_ENABLED=false
++EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED=false
+ ```
+ 
+-No visible UI.
++No visible UI. Price/trial values are planning defaults only until subscription billing is explicitly enabled.
+ 
+ ## Phase 3 — backend data foundation
+ 
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index c416185..6e9b953 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -2,3 +2,4 @@ export * from './format';
+ 
+ export * from './ads';
+ export * from './ai';
++export * from './subscriptions';
+diff --git a/packages/shared/src/subscriptions.ts b/packages/shared/src/subscriptions.ts
+new file mode 100644
+index 0000000..26f8add
+--- /dev/null
++++ b/packages/shared/src/subscriptions.ts
+@@ -0,0 +1,69 @@
++export const ACCOUNT_KINDS = ['individual', 'business_later'] as const;
++export type AccountKind = typeof ACCOUNT_KINDS[number];
++
++export const SUBSCRIPTION_TIERS = ['free', 'plus_later', 'pro', 'business_later'] as const;
++export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[number];
++
++export const SUBSCRIPTION_STATUSES = ['none', 'trialing', 'active', 'past_due', 'canceled', 'expired'] as const;
++export type SubscriptionStatus = typeof SUBSCRIPTION_STATUSES[number];
++
++export const PROFESSIONAL_STATUSES = ['none', 'pending_verification', 'verified', 'rejected', 'suspended'] as const;
++export type ProfessionalStatus = typeof PROFESSIONAL_STATUSES[number];
++
++export type ProSubscriptionFeatureFlags = {
++  subscriptionsEnabled: boolean;
++  proAccountsEnabled: boolean;
++  proAccountsVisible: boolean;
++  proTrialsEnabled: boolean;
++  identityVerificationEnabled: boolean;
++  monthlyPriceCents: number;
++  monthlyPriceCurrency: string;
++  trialDays: number;
++};
++
++export const PRO_SUBSCRIPTION_DEFAULTS = {
++  monthlyPriceCents: 1499,
++  monthlyPriceCurrency: 'eur',
++  trialDays: 14,
++} as const;
++
++export const PRO_SUBSCRIPTION_FEATURE_DEFAULTS: ProSubscriptionFeatureFlags = {
++  subscriptionsEnabled: false,
++  proAccountsEnabled: false,
++  proAccountsVisible: false,
++  proTrialsEnabled: false,
++  identityVerificationEnabled: false,
++  ...PRO_SUBSCRIPTION_DEFAULTS,
++};
++
++export type ProAccessState = {
++  professionalStatus: ProfessionalStatus;
++  subscriptionTier: SubscriptionTier;
++  subscriptionStatus: SubscriptionStatus;
++};
++
++export function normalizeAccountKind(value: string | undefined | null): AccountKind {
++  const normalized = String(value ?? 'individual').trim().toLowerCase();
++  return (ACCOUNT_KINDS as readonly string[]).includes(normalized) ? normalized as AccountKind : 'individual';
++}
++
++export function normalizeSubscriptionTier(value: string | undefined | null): SubscriptionTier {
++  const normalized = String(value ?? 'free').trim().toLowerCase();
++  return (SUBSCRIPTION_TIERS as readonly string[]).includes(normalized) ? normalized as SubscriptionTier : 'free';
++}
++
++export function normalizeSubscriptionStatus(value: string | undefined | null): SubscriptionStatus {
++  const normalized = String(value ?? 'none').trim().toLowerCase();
++  return (SUBSCRIPTION_STATUSES as readonly string[]).includes(normalized) ? normalized as SubscriptionStatus : 'none';
++}
++
++export function normalizeProfessionalStatus(value: string | undefined | null): ProfessionalStatus {
++  const normalized = String(value ?? 'none').trim().toLowerCase();
++  return (PROFESSIONAL_STATUSES as readonly string[]).includes(normalized) ? normalized as ProfessionalStatus : 'none';
++}
++
++export function hasProAccess(state: ProAccessState): boolean {
++  return state.professionalStatus === 'verified'
++    && state.subscriptionTier === 'pro'
++    && (state.subscriptionStatus === 'trialing' || state.subscriptionStatus === 'active');
++}

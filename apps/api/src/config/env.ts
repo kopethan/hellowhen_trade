@@ -143,6 +143,17 @@ export const env = {
   moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   businessAccountsVisible: (process.env.BUSINESS_ACCOUNTS_VISIBLE ?? 'false').toLowerCase() === 'true',
+  subscriptionsEnabled: enabled(process.env.SUBSCRIPTIONS_ENABLED),
+  proAccountsEnabled: enabled(process.env.PRO_ACCOUNTS_ENABLED),
+  proAccountsVisible: enabled(process.env.PRO_ACCOUNTS_VISIBLE),
+  proTrialsEnabled: enabled(process.env.PRO_TRIALS_ENABLED),
+  identityVerificationEnabled: enabled(process.env.IDENTITY_VERIFICATION_ENABLED),
+  proMonthlyPriceCents: Number(process.env.PRO_MONTHLY_PRICE_CENTS ?? 1499),
+  proMonthlyPriceCurrency: (process.env.PRO_MONTHLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
+  proTrialDays: Number(process.env.PRO_TRIAL_DAYS ?? 14),
+  proTradePackagesEnabled: enabled(process.env.PRO_TRADE_PACKAGES_ENABLED),
+  proTradePackageMaxSupportingNeeds: Number(process.env.PRO_TRADE_PACKAGE_MAX_SUPPORTING_NEEDS ?? 3),
+  proTradePackageMaxSupportingOffers: Number(process.env.PRO_TRADE_PACKAGE_MAX_SUPPORTING_OFFERS ?? 3),
   adsEnabled: (process.env.ADS_ENABLED ?? 'false').toLowerCase() === 'true',
   webAdsEnabled: (process.env.WEB_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
   mobileAdsEnabled: (process.env.MOBILE_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
@@ -295,6 +306,26 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
 
   if (env.businessAccountsVisible || publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')) {
     errors.push('Business/brand accounts must stay hidden for first launch.');
+  }
+
+  const subscriptionFlagsEnabled = env.subscriptionsEnabled
+    || env.proAccountsEnabled
+    || env.proAccountsVisible
+    || env.proTrialsEnabled
+    || env.identityVerificationEnabled
+    || env.proTradePackagesEnabled
+    || publicFlagEnabled('NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
+    || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE')
+    || publicFlagEnabled('EXPO_PUBLIC_PRO_TRIALS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED');
+  if (subscriptionFlagsEnabled) {
+    errors.push('Professional/subscription flags must stay disabled and hidden for first launch.');
   }
 
   const webAdsProviderFlag = publicFlagValue('NEXT_PUBLIC_ADS_PROVIDER');

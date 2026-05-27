@@ -11,6 +11,7 @@ import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTrade
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
+import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from '../proposals/proposalPackages.js';
 
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
@@ -22,7 +23,7 @@ const feedTradeInclude = {
   payment: true,
   escrow: true
 } as const;
-export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
+export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, packageItems: { include: { need: true, offer: true }, orderBy: { sortOrder: 'asc' as const } }, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
 
 type DeckRelatedEntity = { id: string } | null | undefined;
 type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
@@ -31,7 +32,8 @@ type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'off
   need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
   offer: (NonNullable<T['offer']> & { media: MediaAsset[] }) | null;
 };
-type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity };
+type ProposalPackageItemWithDeckRelations = { need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity; packageItems?: ProposalPackageItemWithDeckRelations[] };
 
 export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trades: T[], visibility: MediaVisibility = 'owner'): Promise<Array<TradeDeckHydrated<T>>> {
   const tradeIds = trades.map((trade) => trade.id);
@@ -72,8 +74,8 @@ export async function withTradeDeckMediaForActor<T extends TradeWithDeckRelation
 
 export async function withProposalTradeMedia<T extends ProposalWithTrade>(proposals: T[], visibility: MediaVisibility = 'owner'): Promise<T[]> {
   const trades = proposals.map((proposal) => proposal.trade).filter((trade): trade is TradeWithDeckRelations => Boolean(trade));
-  const proposedNeedIds = proposals.map((proposal) => proposal.proposedNeed?.id).filter((id): id is string => Boolean(id));
-  const proposedOfferIds = proposals.map((proposal) => proposal.proposedOffer?.id).filter((id): id is string => Boolean(id));
+  const proposedNeedIds = proposals.flatMap((proposal) => [proposal.proposedNeed?.id, ...(proposal.packageItems ?? []).map((item) => item.need?.id)]).filter((id): id is string => Boolean(id));
+  const proposedOfferIds = proposals.flatMap((proposal) => [proposal.proposedOffer?.id, ...(proposal.packageItems ?? []).map((item) => item.offer?.id)]).filter((id): id is string => Boolean(id));
   const [hydratedTrades, proposedNeedMedia, proposedOfferMedia] = await Promise.all([
     withTradeDeckMedia(trades, visibility),
     loadMediaByEntityIds('need', proposedNeedIds, visibility),
@@ -85,6 +87,11 @@ export async function withProposalTradeMedia<T extends ProposalWithTrade>(propos
     trade: proposal.trade ? byTradeId.get(proposal.trade.id) ?? proposal.trade : proposal.trade,
     proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
     proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
+    packageItems: proposal.packageItems?.map((item) => ({
+      ...item,
+      need: item.need ? { ...item.need, media: proposedNeedMedia.get(item.need.id) ?? [] } : item.need,
+      offer: item.offer ? { ...item.offer, media: proposedOfferMedia.get(item.offer.id) ?? [] } : item.offer,
+    })),
   })) as T[];
 }
 
@@ -905,25 +912,50 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
   if (await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(403).json({ error: 'user_blocked', message: 'This proposal is not available because one member has blocked the other.' });
 
   const requiredSide = proposalSideRequirement(trade.postType);
+  const packageInput = hasProposalPackageInput(input);
   let proposedNeedId: string | null = null;
   let proposedOfferId: string | null = null;
+  let packageKind: 'standard' | 'main_need_multi_offer' | 'main_offer_multi_need' = 'standard';
+  let packageItems: ReturnType<typeof toProposalPackageItemCreateManyRows> = [];
 
-  if (requiredSide === 'offer' && !input.proposedOfferId) {
-    return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
-  }
-  if (requiredSide === 'need' && !input.proposedNeedId) {
-    return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
-  }
+  if (packageInput) {
+    try {
+      const resolvedPackage = await resolveProposalPackagePayload(input, actorId, trade);
+      if (resolvedPackage) {
+        packageKind = resolvedPackage.packageKind;
+        proposedNeedId = resolvedPackage.proposedNeedId;
+        proposedOfferId = resolvedPackage.proposedOfferId;
+        packageItems = toProposalPackageItemCreateManyRows('__pending__', resolvedPackage.items);
+      }
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+      if (code === 'PRO_TRADE_PACKAGES_DISABLED') return res.status(403).json({ error: 'pro_trade_packages_disabled', message: 'Pro Trade Packages are hidden and disabled.' });
+      if (code === 'PRO_ACCESS_REQUIRED') return res.status(403).json({ error: 'pro_access_required', message: 'Trade Packages require verified Professional access.' });
+      if (code === 'PROPOSAL_PACKAGE_UNSUPPORTED_TRADE_TYPE') return res.status(400).json({ error: 'proposal_package_unsupported_trade_type', message: 'Trade Packages are only supported for Open Need and Open Offer proposal flows.' });
+      if (code === 'PROPOSAL_PACKAGE_KIND_MISMATCH') return res.status(400).json({ error: 'proposal_package_kind_mismatch', message: 'Package kind does not match this trade type.' });
+      if (code === 'INVALID_PROPOSAL_PACKAGE_OFFER') return res.status(400).json({ error: 'invalid_proposal_package_offer', message: 'Choose active Offers from your account.' });
+      if (code === 'INVALID_PROPOSAL_PACKAGE_NEED') return res.status(400).json({ error: 'invalid_proposal_package_need', message: 'Choose active Needs from your account.' });
+      if (code === 'INVALID_PROPOSAL_PACKAGE') return res.status(400).json({ error: 'invalid_proposal_package', message: 'The proposal package is not valid.', details: (error as { details?: unknown }).details });
+      throw error;
+    }
+  } else {
+    if (requiredSide === 'offer' && !input.proposedOfferId) {
+      return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
+    }
+    if (requiredSide === 'need' && !input.proposedNeedId) {
+      return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
+    }
 
-  if (input.proposedOfferId) {
-    const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
-    if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
-    proposedOfferId = offer.id;
-  }
-  if (input.proposedNeedId) {
-    const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
-    if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
-    proposedNeedId = need.id;
+    if (input.proposedOfferId) {
+      const offer = await prisma.offer.findFirst({ where: { id: input.proposedOfferId, ownerId: actorId } });
+      if (!offer || inventoryUnavailable(offer.status)) return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+      proposedOfferId = offer.id;
+    }
+    if (input.proposedNeedId) {
+      const need = await prisma.need.findFirst({ where: { id: input.proposedNeedId, ownerId: actorId } });
+      if (!need || inventoryUnavailable(need.status)) return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+      proposedNeedId = need.id;
+    }
   }
 
   const existingActiveProposal = await prisma.tradeProposal.findFirst({
@@ -934,7 +966,10 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
   if (existingActiveProposal?.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existingActiveProposal });
   if (existingActiveProposal?.status === 'accepted') return res.status(409).json({ error: 'proposal_already_accepted', message: 'Your proposal was already accepted.', proposal: existingActiveProposal });
   const proposal = await prisma.$transaction(async (tx) => {
-    const proposalRecord = await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId } });
+    const proposalRecord = await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId, packageKind } });
+    if (packageItems.length) {
+      await tx.tradeProposalPackageItem.createMany({ data: packageItems.map((item) => ({ ...item, proposalId: proposalRecord.id })) });
+    }
     await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
   });

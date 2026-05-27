@@ -6,6 +6,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
+import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from './proposalPackages.js';
 
 export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
@@ -124,18 +125,38 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
   if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
   if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
 
+  const packageInput = hasProposalPackageInput(input);
   let nextSide: { proposedNeedId: string | null; proposedOfferId: string | null };
+  let packageKind: 'standard' | 'main_need_multi_offer' | 'main_offer_multi_need' = proposal.packageKind ?? 'standard';
+  let packageItems: ReturnType<typeof toProposalPackageItemCreateManyRows> | null = null;
   try {
-    nextSide = await resolveProposalSideUpdate(input, proposal);
+    if (packageInput) {
+      const resolvedPackage = await resolveProposalPackagePayload(input, actorId, proposal.trade);
+      if (!resolvedPackage) throw Object.assign(new Error('invalid_proposal_package'), { code: 'INVALID_PROPOSAL_PACKAGE' });
+      nextSide = { proposedNeedId: resolvedPackage.proposedNeedId, proposedOfferId: resolvedPackage.proposedOfferId };
+      packageKind = resolvedPackage.packageKind;
+      packageItems = toProposalPackageItemCreateManyRows(proposal.id, resolvedPackage.items);
+    } else {
+      nextSide = await resolveProposalSideUpdate(input, proposal);
+    }
   } catch (error) {
     const response = proposalSideErrorResponse(res, error);
     if (response) return response;
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
+    if (code === 'PRO_TRADE_PACKAGES_DISABLED') return res.status(403).json({ error: 'pro_trade_packages_disabled', message: 'Pro Trade Packages are hidden and disabled.' });
+    if (code === 'PRO_ACCESS_REQUIRED') return res.status(403).json({ error: 'pro_access_required', message: 'Trade Packages require verified Professional access.' });
+    if (code === 'PROPOSAL_PACKAGE_UNSUPPORTED_TRADE_TYPE') return res.status(400).json({ error: 'proposal_package_unsupported_trade_type', message: 'Trade Packages are only supported for Open Need and Open Offer proposal flows.' });
+    if (code === 'PROPOSAL_PACKAGE_KIND_MISMATCH') return res.status(400).json({ error: 'proposal_package_kind_mismatch', message: 'Package kind does not match this trade type.' });
+    if (code === 'INVALID_PROPOSAL_PACKAGE_OFFER') return res.status(400).json({ error: 'invalid_proposal_package_offer', message: 'Choose active Offers from your account.' });
+    if (code === 'INVALID_PROPOSAL_PACKAGE_NEED') return res.status(400).json({ error: 'invalid_proposal_package_need', message: 'Choose active Needs from your account.' });
+    if (code === 'INVALID_PROPOSAL_PACKAGE') return res.status(400).json({ error: 'invalid_proposal_package', message: 'The proposal package is not valid.', details: (error as { details?: unknown }).details });
     throw error;
   }
 
   const messageChanged = typeof input.message === 'string' && input.message !== proposal.message;
   const sideChanged = nextSide.proposedNeedId !== proposal.proposedNeedId || nextSide.proposedOfferId !== proposal.proposedOfferId;
-  if (!messageChanged && !sideChanged && !proposal.messageDeletedAt) {
+  const packageChanged = packageInput;
+  if (!messageChanged && !sideChanged && !packageChanged && !proposal.messageDeletedAt) {
     const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
     return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
   }
@@ -145,6 +166,7 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
     const data: any = {
       proposedNeedId: nextSide.proposedNeedId,
       proposedOfferId: nextSide.proposedOfferId,
+      packageKind,
     };
     if (typeof input.message === 'string') {
       data.message = input.message;
@@ -153,6 +175,10 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
       data.messageDeletedAt = null;
     }
     await tx.tradeProposal.update({ where: { id: proposal.id }, data });
+    if (packageItems) {
+      await tx.tradeProposalPackageItem.deleteMany({ where: { proposalId: proposal.id } });
+      if (packageItems.length) await tx.tradeProposalPackageItem.createMany({ data: packageItems });
+    }
     if (typeof input.message === 'string') {
       const firstMessage = await tx.proposalMessage.findFirst({ where: { proposalId: proposal.id, senderId: proposal.applicantId }, orderBy: { createdAt: 'asc' } });
       if (firstMessage) {

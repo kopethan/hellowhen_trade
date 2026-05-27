@@ -48,3 +48,24 @@ export function requirePlansVisible(surface = 'Plans'): RequestHandler {
   }
   return (_req, _res, next) => next();
 }
+
+export function requireSubscriptionsEnabled(surface = 'Subscriptions'): RequestHandler {
+  if (!env.subscriptionsEnabled) {
+    return disabledSurface('subscriptions_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireProAccountsEnabled(surface = 'Professional accounts'): RequestHandler {
+  if (!env.subscriptionsEnabled || !env.proAccountsEnabled) {
+    return disabledSurface('pro_accounts_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireProAccountsVisible(surface = 'Professional accounts'): RequestHandler {
+  if (!env.subscriptionsEnabled || !env.proAccountsEnabled || !env.proAccountsVisible) {
+    return disabledSurface('pro_accounts_hidden', `${surface} are hidden for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}

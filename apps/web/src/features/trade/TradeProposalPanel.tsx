@@ -7,7 +7,9 @@ import type { NeedDto, OfferDto, TradeDto, TradeProposalDto } from '@hellowhen/c
 import { useEffect, useMemo, useState } from 'react';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getStatusLabel, getTradePostType, getTradeProposalCopy, type TradeI18n } from './tradePresentation';
+import { ProTradePackagePrototype } from './ProTradePackagePrototype';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
@@ -223,6 +225,9 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
   const [proposalOffers, setProposalOffers] = useState<OfferDto[]>([]);
   const [proposedNeedId, setProposedNeedId] = useState('');
   const [proposedOfferId, setProposedOfferId] = useState('');
+  const [packagePrototypeEnabled, setPackagePrototypeEnabled] = useState(false);
+  const [supportingNeedIds, setSupportingNeedIds] = useState<string[]>([]);
+  const [supportingOfferIds, setSupportingOfferIds] = useState<string[]>([]);
   const [sideLoading, setSideLoading] = useState(false);
   const [proposalFormError, setProposalFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -237,7 +242,9 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
   const activeProposalOffers = useMemo(() => proposalOffers.filter((offer) => offer.status === 'active'), [proposalOffers]);
   const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
   const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
-  const hasRequiredSide = requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
+  const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredProposalSide ?? '');
+  const hasPackageRequiredSide = requiredProposalSide === 'offer' ? supportingOfferIds.length > 0 : requiredProposalSide === 'need' ? supportingNeedIds.length > 0 : false;
+  const hasRequiredSide = packagePrototypeActive ? hasPackageRequiredSide : requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
 
   useEffect(() => {
     setProposedNeedId(proposalNeedIdFromUrl);
@@ -305,6 +312,8 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
         setProposalOffers(offers);
         setProposedNeedId((current) => current && needs.some((need) => need.id === current && need.status === 'active') ? current : '');
         setProposedOfferId((current) => current && offers.some((offer) => offer.id === current && offer.status === 'active') ? current : '');
+        setSupportingNeedIds((current) => current.filter((id) => needs.some((need) => need.id === id && need.status === 'active')).slice(0, betaFeatures.proTradePackageFeatures.maxSupportingNeeds));
+        setSupportingOfferIds((current) => current.filter((id) => offers.some((offer) => offer.id === id && offer.status === 'active')).slice(0, betaFeatures.proTradePackageFeatures.maxSupportingOffers));
       } catch {
         if (mounted) setNotice(t('trade.errors.couldNotLoadInventory'));
       } finally {
@@ -334,15 +343,33 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
     setLoading(true);
     setNotice(null);
     try {
+      const packagePayload = packagePrototypeActive && requiredProposalSide === 'offer'
+        ? {
+          packageKind: 'main_need_multi_offer' as const,
+          supportingOfferIds: supportingOfferIds.slice(0, betaFeatures.proTradePackageFeatures.maxSupportingOffers),
+          proposedOfferId: supportingOfferIds[0],
+        }
+        : packagePrototypeActive && requiredProposalSide === 'need'
+          ? {
+            packageKind: 'main_offer_multi_need' as const,
+            supportingNeedIds: supportingNeedIds.slice(0, betaFeatures.proTradePackageFeatures.maxSupportingNeeds),
+            proposedNeedId: supportingNeedIds[0],
+          }
+          : null;
       const response = await api.trades.createProposal(trade.id, {
         message,
-        ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed ? { proposedNeedId: selectedNeed.id } : {}),
-        ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer ? { proposedOfferId: selectedOffer.id } : {})
+        ...(packagePayload ?? {
+          ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed ? { proposedNeedId: selectedNeed.id } : {}),
+          ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer ? { proposedOfferId: selectedOffer.id } : {}),
+        }),
       });
       const proposal = normalizeProposal(response);
       if (!proposal) throw new Error('missing_proposal_response');
       setProposals((current) => upsertProposal(current, proposal));
       setProposalMessage('');
+      setPackagePrototypeEnabled(false);
+      setSupportingNeedIds([]);
+      setSupportingOfferIds([]);
       setProposalFormError(null);
       setNotice(t('trade.proposals.proposalSent'));
     } catch (error) {
@@ -430,6 +457,18 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
               href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
               i18n={i18n}
             />
+
+          <ProTradePackagePrototype
+            requiredSide={requiredProposalSide}
+            enabled={packagePrototypeEnabled}
+            needs={activeProposalNeeds}
+            offers={activeProposalOffers}
+            supportingNeedIds={supportingNeedIds}
+            supportingOfferIds={supportingOfferIds}
+            onToggleEnabled={setPackagePrototypeEnabled}
+            onSupportingNeedIdsChange={setSupportingNeedIds}
+            onSupportingOfferIdsChange={setSupportingOfferIds}
+          />
 
           <label className="field-label proposal-message-field">
             {t('trade.labels.message')}

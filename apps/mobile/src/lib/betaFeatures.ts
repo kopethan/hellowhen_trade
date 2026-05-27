@@ -1,4 +1,4 @@
-import { AI_FEATURE_DEFAULTS, normalizeAiProvider } from '@hellowhen/shared';
+import { AI_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, getProTradePackageEntitlements, normalizeAiProvider } from '@hellowhen/shared';
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
 const firstLaunchGuardsEnabled = !disabled(process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
@@ -23,6 +23,29 @@ const aiFeatures = {
   privateContentEnabled: false,
   debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS),
 } as const;
+const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED);
+const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED);
+const proSubscriptionFeatures = {
+  ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
+  subscriptionsEnabled,
+  proAccountsEnabled,
+  proAccountsVisible: proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE),
+  proTrialsEnabled: proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_TRIALS_ENABLED),
+  identityVerificationEnabled: proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED),
+  monthlyPriceCents: Number(process.env.EXPO_PUBLIC_PRO_MONTHLY_PRICE_CENTS ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCents),
+  monthlyPriceCurrency: (process.env.EXPO_PUBLIC_PRO_MONTHLY_PRICE_CURRENCY ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCurrency).toLowerCase(),
+  trialDays: Number(process.env.EXPO_PUBLIC_PRO_TRIAL_DAYS ?? PRO_SUBSCRIPTION_FEATURE_DEFAULTS.trialDays),
+} as const;
+const proTradePackagesEnabled = proAccountsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_TRADE_PACKAGES_ENABLED);
+const proTradePackageFeatures = {
+  ...getProTradePackageEntitlements({
+    enabled: proTradePackagesEnabled,
+    requiresProAccess: true,
+    maxSupportingNeeds: Number(process.env.EXPO_PUBLIC_PRO_TRADE_PACKAGE_MAX_SUPPORTING_NEEDS ?? 3),
+    maxSupportingOffers: Number(process.env.EXPO_PUBLIC_PRO_TRADE_PACKAGE_MAX_SUPPORTING_OFFERS ?? 3),
+  }),
+  visible: proTradePackagesEnabled && enabled(process.env.EXPO_PUBLIC_PRO_TRADE_PACKAGES_VISIBLE),
+} as const;
 const moneyFeaturesVisible = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_MONEY_FEATURES_VISIBLE);
 const plansEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLANS_ENABLED);
 
@@ -34,6 +57,8 @@ export const betaFeatures = {
   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_MONEY_TRADES_ENABLED),
   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.EXPO_PUBLIC_CASH_TRADES_ENABLED),
   businessAccountsVisible: !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
+  proSubscriptionFeatures,
+  proTradePackageFeatures,
   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,
   adsEnabled,
   mobileAdsEnabled,

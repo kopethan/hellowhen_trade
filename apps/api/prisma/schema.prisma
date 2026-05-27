@@ -20,6 +20,52 @@ enum UserTrustTier {
   restricted
 }
 
+
+enum AccountKind {
+  individual
+  business_later
+}
+
+enum ProfessionalStatus {
+  none
+  pending_verification
+  verified
+  rejected
+  suspended
+}
+
+enum SubscriptionTier {
+  free
+  plus_later
+  pro
+  business_later
+}
+
+enum SubscriptionStatus {
+  none
+  trialing
+  active
+  past_due
+  canceled
+  expired
+}
+
+enum IdentityVerificationProvider {
+  none
+  manual
+  stripe_identity
+  airwallex
+}
+
+enum IdentityVerificationStatus {
+  none
+  pending
+  verified
+  rejected
+  expired
+  cancelled
+}
+
 enum AuthIdentityProvider {
   email
   google
@@ -95,6 +141,22 @@ enum ProposalStatus {
   accepted
   declined
   withdrawn
+}
+
+enum TradeProposalPackageKind {
+  standard
+  main_need_multi_offer
+  main_offer_multi_need
+}
+
+enum TradeProposalPackageItemKind {
+  need
+  offer
+}
+
+enum TradeProposalPackageItemRole {
+  main
+  supporting
 }
 
 enum TradePublicMessageStatus {
@@ -365,6 +427,12 @@ model User {
   passwordHash    String?
   role            UserRole  @default(user)
   trustTier       UserTrustTier @default(new)
+  accountKind     AccountKind @default(individual)
+  professionalStatus ProfessionalStatus @default(none)
+  professionalStatusUpdatedAt DateTime?
+  subscriptionTier SubscriptionTier @default(free)
+  subscriptionStatus SubscriptionStatus @default(none)
+  subscriptionStatusUpdatedAt DateTime?
   trustTierUpdatedAt DateTime?
   trustTierNote   String?
   emailVerifiedAt DateTime?
@@ -388,6 +456,9 @@ model User {
 
   profile      Profile?
   settings     UserSettings?
+  professionalProfile ProfessionalProfile?
+  subscriptionState SubscriptionState?
+  identityVerificationState IdentityVerificationState?
   sessions     Session[]
   identities    UserIdentity[]
   passwordResetTokens PasswordResetToken[]
@@ -419,6 +490,8 @@ model User {
   moneyProviderTransactions MoneyProviderTransaction[]
   moneyPolicyAcknowledgements MoneyPolicyAcknowledgement[]
   adminAuditLogs AdminAuditLog[] @relation("AdminAuditLogs")
+  reviewedProfessionalProfiles ProfessionalProfile[] @relation("ReviewedProfessionalProfiles")
+  reviewedIdentityVerificationStates IdentityVerificationState[] @relation("ReviewedIdentityVerificationStates")
   reportsMade Report[] @relation("UserReportsMade")
   reviewedReports Report[] @relation("ReviewedReports")
   accountDeletionRequests AccountDeletionRequest[]
@@ -474,6 +547,89 @@ model ApiRequestMetric {
   @@index([statusGroup, createdAt])
   @@index([userId, createdAt])
   @@index([sessionId, createdAt])
+}
+
+
+model ProfessionalProfile {
+  id                String             @id @default(cuid())
+  userId            String             @unique
+  displayName       String?
+  headline          String?
+  professionalBio   String?
+  category          String?
+  specialties       String[]           @default([])
+  websiteUrl        String?
+  portfolioUrl      String?
+  countryCode       String?
+  preferredCurrency String             @default("eur")
+  status            ProfessionalStatus @default(none)
+  statusNote        String?
+  reviewedAt        DateTime?
+  reviewedById      String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewedProfessionalProfiles", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
+  @@index([countryCode])
+  @@index([category])
+  @@index([reviewedById, reviewedAt])
+}
+
+model SubscriptionState {
+  id                     String             @id @default(cuid())
+  userId                 String             @unique
+  tier                   SubscriptionTier   @default(free)
+  status                 SubscriptionStatus @default(none)
+  provider               String?
+  externalCustomerId     String?
+  externalSubscriptionId String?
+  currentPeriodStartedAt DateTime?
+  currentPeriodEndsAt    DateTime?
+  trialStartedAt         DateTime?
+  trialEndsAt            DateTime?
+  canceledAt             DateTime?
+  pastDueAt              DateTime?
+  expiresAt              DateTime?
+  lastSyncedAt           DateTime?
+  adminNote              String?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tier, status])
+  @@index([status, currentPeriodEndsAt])
+  @@index([externalCustomerId])
+  @@index([externalSubscriptionId])
+}
+
+model IdentityVerificationState {
+  id                     String                     @id @default(cuid())
+  userId                 String                     @unique
+  provider               IdentityVerificationProvider @default(none)
+  status                 IdentityVerificationStatus @default(none)
+  externalVerificationId String?
+  submittedAt            DateTime?
+  verifiedAt             DateTime?
+  rejectedAt             DateTime?
+  expiresAt              DateTime?
+  rejectionReason        String?
+  reviewedAt             DateTime?
+  reviewedById           String?
+  adminNote              String?
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+
+  user       User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewedIdentityVerificationStates", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([provider, externalVerificationId])
+  @@index([status, updatedAt])
+  @@index([provider, status])
+  @@index([reviewedById, reviewedAt])
 }
 
 model UserIdentity {
@@ -604,6 +760,7 @@ model Need {
   sourceTemplate InventoryTemplate? @relation("NeedSourceTemplate", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   trades Trade[]
   proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
+  proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageNeed")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
@@ -637,6 +794,7 @@ model Offer {
   sourceTemplate InventoryTemplate? @relation("OfferSourceTemplate", fields: [sourceTemplateId], references: [id], onDelete: SetNull)
   trades Trade[]
   proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
+  proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageOffer")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
@@ -745,6 +903,7 @@ model TradeProposal {
   messageEditCount Int           @default(0)
   messageDeletedAt DateTime?
   status          ProposalStatus @default(pending)
+  packageKind     TradeProposalPackageKind @default(standard)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   respondedAt     DateTime?
@@ -754,12 +913,34 @@ model TradeProposal {
   proposedNeed  Need?             @relation("ProposalNeed", fields: [proposedNeedId], references: [id], onDelete: SetNull)
   proposedOffer Offer?            @relation("ProposalOffer", fields: [proposedOfferId], references: [id], onDelete: SetNull)
   messages      ProposalMessage[]
+  packageItems  TradeProposalPackageItem[]
 
   @@index([tradeId, applicantId, status])
   @@index([tradeId, status])
   @@index([applicantId, status])
   @@index([proposedNeedId])
   @@index([proposedOfferId])
+  @@index([packageKind])
+}
+
+model TradeProposalPackageItem {
+  id          String                       @id @default(cuid())
+  proposalId  String
+  kind        TradeProposalPackageItemKind
+  role        TradeProposalPackageItemRole
+  needId      String?
+  offerId     String?
+  sortOrder   Int                          @default(0)
+  createdAt   DateTime                     @default(now())
+  updatedAt   DateTime                     @updatedAt
+
+  proposal TradeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  need     Need?         @relation("ProposalPackageNeed", fields: [needId], references: [id], onDelete: SetNull)
+  offer    Offer?        @relation("ProposalPackageOffer", fields: [offerId], references: [id], onDelete: SetNull)
+
+  @@index([proposalId, sortOrder])
+  @@index([needId])
+  @@index([offerId])
 }
 
 model ProposalMessage {

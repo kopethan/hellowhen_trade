@@ -6,6 +6,7 @@ import type { TradePostType, TradeStatus } from '@hellowhen/contracts';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
@@ -58,6 +59,9 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
   const [proposalOffers, setProposalOffers] = useState<OfferItem[]>([]);
   const [selectedProposalNeedId, setSelectedProposalNeedId] = useState(route.params.selectedProposalNeedId ?? '');
   const [selectedProposalOfferId, setSelectedProposalOfferId] = useState(route.params.selectedProposalOfferId ?? '');
+  const [packagePrototypeEnabled, setPackagePrototypeEnabled] = useState(false);
+  const [supportingProposalNeedIds, setSupportingProposalNeedIds] = useState<string[]>([]);
+  const [supportingProposalOfferIds, setSupportingProposalOfferIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [sideLoading, setSideLoading] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
@@ -127,6 +131,8 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
         setProposalOffers(offers);
         setSelectedProposalNeedId((current) => current && needs.some((need) => need.id === current && isNeedAvailable(need)) ? current : '');
         setSelectedProposalOfferId((current) => current && offers.some((offer) => offer.id === current && isOfferAvailable(offer)) ? current : '');
+        setSupportingProposalNeedIds((current) => current.filter((id) => needs.some((need) => need.id === id && isNeedAvailable(need))).slice(0, betaFeatures.proTradePackageFeatures.maxSupportingNeeds));
+        setSupportingProposalOfferIds((current) => current.filter((id) => offers.some((offer) => offer.id === id && isOfferAvailable(offer))).slice(0, betaFeatures.proTradePackageFeatures.maxSupportingOffers));
       } catch (caughtError) {
         if (mounted) setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotLoadInventory')));
       } finally {
@@ -140,19 +146,40 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
   async function createProposal() {
     const trimmed = proposalDraft.trim();
     if (trimmed.length < 3) return;
-    if (requiredSide === 'offer' && !selectedProposalOffer) { setError(t('trade.proposals.chooseOfferFirst')); return; }
-    if (requiredSide === 'need' && !selectedProposalNeed) { setError(t('trade.proposals.chooseNeedFirst')); return; }
+    const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
+    if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
+    if (packagePrototypeActive && requiredSide === 'need' && supportingProposalNeedIds.length === 0) { setError('Choose at least one supporting Need for the Pro package.'); return; }
+    if (!packagePrototypeActive && requiredSide === 'offer' && !selectedProposalOffer) { setError(t('trade.proposals.chooseOfferFirst')); return; }
+    if (!packagePrototypeActive && requiredSide === 'need' && !selectedProposalNeed) { setError(t('trade.proposals.chooseNeedFirst')); return; }
     setCreatingProposal(true);
     setError(null);
     setMessage(null);
     try {
+      const packagePayload = packagePrototypeActive && requiredSide === 'offer'
+        ? {
+          packageKind: 'main_need_multi_offer' as const,
+          supportingOfferIds: supportingProposalOfferIds.slice(0, betaFeatures.proTradePackageFeatures.maxSupportingOffers),
+          proposedOfferId: supportingProposalOfferIds[0],
+        }
+        : packagePrototypeActive && requiredSide === 'need'
+          ? {
+            packageKind: 'main_offer_multi_need' as const,
+            supportingNeedIds: supportingProposalNeedIds.slice(0, betaFeatures.proTradePackageFeatures.maxSupportingNeeds),
+            proposedNeedId: supportingProposalNeedIds[0],
+          }
+          : null;
       const result = await api.trades.createProposal(trade.id, {
         message: trimmed,
-        ...(selectedProposalOffer ? { proposedOfferId: selectedProposalOffer.id } : {}),
-        ...(selectedProposalNeed ? { proposedNeedId: selectedProposalNeed.id } : {}),
+        ...(packagePayload ?? {
+          ...(selectedProposalOffer ? { proposedOfferId: selectedProposalOffer.id } : {}),
+          ...(selectedProposalNeed ? { proposedNeedId: selectedProposalNeed.id } : {}),
+        }),
       }) as ProposalResponse;
       setProposals((current) => upsertProposal(current, result.proposal));
       setProposalDraft('');
+      setPackagePrototypeEnabled(false);
+      setSupportingProposalNeedIds([]);
+      setSupportingProposalOfferIds([]);
       setMessage(t('trade.proposals.proposalSentNative'));
       navigation.navigate('ProposalDetail', { proposalId: result.proposal.id });
     } catch (caughtError) {
@@ -211,6 +238,12 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
             offers={activeProposalOffers}
             selectedNeed={selectedProposalNeed}
             selectedOffer={selectedProposalOffer}
+            packagePrototypeEnabled={packagePrototypeEnabled}
+            supportingNeedIds={supportingProposalNeedIds}
+            supportingOfferIds={supportingProposalOfferIds}
+            onPackagePrototypeEnabledChange={setPackagePrototypeEnabled}
+            onSupportingNeedIdsChange={setSupportingProposalNeedIds}
+            onSupportingOfferIdsChange={setSupportingProposalOfferIds}
             onChooseNeed={() => openPicker('need')}
             onChooseOffer={() => openPicker('offer')}
             theme={theme}
@@ -254,9 +287,13 @@ function ProposalSideSummary({ proposal, theme, t }: { proposal: TradeProposalIt
   return <View style={styles.sideSummaryStack}>{entries.map((entry) => <InventoryPreviewCard key={`${entry.kind}-${entry.item.id}`} item={entry.item} kind={entry.kind} label={entry.label} theme={theme} t={t} compact />)}</View>;
 }
 
-function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
+function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, packagePrototypeEnabled, supportingNeedIds, supportingOfferIds, onPackagePrototypeEnabledChange, onSupportingNeedIdsChange, onSupportingOfferIdsChange, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; packagePrototypeEnabled: boolean; supportingNeedIds: string[]; supportingOfferIds: string[]; onPackagePrototypeEnabledChange: (enabled: boolean) => void; onSupportingNeedIdsChange: (ids: string[]) => void; onSupportingOfferIdsChange: (ids: string[]) => void; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
   const missingInventory = (requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0);
-  const disabled = loading || value.trim().length < 3 || (requiredSide === 'offer' && !selectedOffer) || (requiredSide === 'need' && !selectedNeed) || missingInventory;
+  const packagePrototypeVisible = betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
+  const packagePrototypeActive = packagePrototypeEnabled && packagePrototypeVisible;
+  const packageMissingSelection = packagePrototypeActive && ((requiredSide === 'offer' && supportingOfferIds.length === 0) || (requiredSide === 'need' && supportingNeedIds.length === 0));
+  const standardMissingSelection = !packagePrototypeActive && ((requiredSide === 'offer' && !selectedOffer) || (requiredSide === 'need' && !selectedNeed));
+  const disabled = loading || value.trim().length < 3 || packageMissingSelection || standardMissingSelection || missingInventory;
   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : proposalActionTitle(trade, t);
   return (
@@ -274,12 +311,78 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
           <InventoryPickerShortcut kind="need" title={t('trade.proposals.attachNeedToProposal')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedOptional')} onChoose={onChooseNeed} theme={theme} t={t} />
         </>
       )}
+      <NativeProTradePackagePrototype
+        requiredSide={requiredSide}
+        enabled={packagePrototypeEnabled}
+        needs={needs}
+        offers={offers}
+        supportingNeedIds={supportingNeedIds}
+        supportingOfferIds={supportingOfferIds}
+        onToggleEnabled={onPackagePrototypeEnabledChange}
+        onSupportingNeedIdsChange={onSupportingNeedIdsChange}
+        onSupportingOfferIdsChange={onSupportingOfferIdsChange}
+        theme={theme}
+      />
       <View style={styles.messageComposerBlock}>
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
         <TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
       </View>
       {missingInventory ? <InfoNotice tone="warning" title={t('trade.proposals.savedInventoryNeeded')} body={requiredSide === 'offer' ? t('trade.proposals.addOfferBeforeProposing') : t('trade.proposals.addNeedBeforeProposing')} /> : null}
       <ActionButton label={submitLabel} variant="primary" disabled={disabled} onPress={onSubmit} theme={theme} />
+    </View>
+  );
+}
+
+
+function togglePackageId(current: string[], id: string, max: number) {
+  if (current.includes(id)) return current.filter((itemId) => itemId !== id);
+  return [...current, id].slice(0, max);
+}
+
+function NativeProTradePackagePrototype({ requiredSide, enabled, needs, offers, supportingNeedIds, supportingOfferIds, onToggleEnabled, onSupportingNeedIdsChange, onSupportingOfferIdsChange, theme }: { requiredSide: RequiredProposalSide; enabled: boolean; needs: NeedItem[]; offers: OfferItem[]; supportingNeedIds: string[]; supportingOfferIds: string[]; onToggleEnabled: (enabled: boolean) => void; onSupportingNeedIdsChange: (ids: string[]) => void; onSupportingOfferIdsChange: (ids: string[]) => void; theme: ThemeTokens }) {
+  const flags = betaFeatures.proTradePackageFeatures;
+  if (!flags.visible || !['need', 'offer'].includes(requiredSide ?? '')) return null;
+  const isOfferPackage = requiredSide === 'offer';
+  const items = isOfferPackage ? offers : needs;
+  const selectedIds = isOfferPackage ? supportingOfferIds : supportingNeedIds;
+  const maxItems = isOfferPackage ? flags.maxSupportingOffers : flags.maxSupportingNeeds;
+  return (
+    <View style={[styles.proPackageBox, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
+      <View style={styles.proPackageHeader}>
+        <View style={styles.proPackageHeaderCopy}>
+          <SemanticBadge label="Hidden Pro prototype" tone="proposal" size="sm" />
+          <AppText style={styles.threadLabel}>{isOfferPackage ? 'Offer multiple Offers as a package' : 'Request multiple Needs as a package'}</AppText>
+        </View>
+        <Pressable accessibilityRole="switch" accessibilityState={{ checked: enabled }} onPress={() => onToggleEnabled(!enabled)} style={({ pressed }) => [styles.proPackageToggle, { borderColor: theme.semantic.proposal.border, backgroundColor: enabled ? theme.semantic.proposal.bg : theme.color.surface }, pressed && styles.pressed]}>
+          <AppText style={[styles.proPackageToggleText, { color: enabled ? '#FFFFFF' : theme.semantic.proposal.text }]}>{enabled ? 'On' : 'Off'}</AppText>
+        </Pressable>
+      </View>
+      <AppText style={[styles.muted, { color: theme.semantic.proposal.text }]}>Requires verified Pro access. Packages are accepted or declined as one unit.</AppText>
+      {enabled ? (
+        <View style={styles.proPackageItems}>
+          <View style={styles.proPackageLimitRow}>
+            <AppText style={styles.threadLabel}>{isOfferPackage ? 'Supporting Offers' : 'Supporting Needs'}</AppText>
+            <AppText style={[styles.muted, { color: theme.color.muted }]}>{selectedIds.length}/{maxItems}</AppText>
+          </View>
+          {items.length ? items.map((item) => {
+            const selected = selectedIds.includes(item.id);
+            const disabled = !selected && selectedIds.length >= maxItems;
+            return (
+              <Pressable key={item.id} accessibilityRole="checkbox" accessibilityState={{ checked: selected, disabled }} disabled={disabled} onPress={() => {
+                const nextIds = togglePackageId(selectedIds, item.id, maxItems);
+                if (isOfferPackage) onSupportingOfferIdsChange(nextIds);
+                else onSupportingNeedIdsChange(nextIds);
+              }} style={({ pressed }) => [styles.proPackageItem, { borderColor: selected ? theme.semantic.proposal.border : theme.color.border, backgroundColor: selected ? theme.color.surface : theme.color.subtleSurface, opacity: disabled ? 0.55 : 1 }, pressed && styles.pressed]}>
+                <View style={styles.proPackageItemCopy}>
+                  <AppText style={styles.inventoryChoiceTitle} numberOfLines={2}>{item.title}</AppText>
+                  <AppText style={[styles.inventoryChoiceMeta, { color: theme.color.muted }]} numberOfLines={1}>{proposalInventoryMeta(isOfferPackage ? 'offer' : 'need', item, () => '')}</AppText>
+                </View>
+                {selected ? <MobileIcon name="proposal-accepted" size={18} color={theme.semantic.proposal.text} /> : null}
+              </Pressable>
+            );
+          }) : <AppText style={[styles.muted, { color: theme.color.muted }]}>Create active saved {isOfferPackage ? 'Offers' : 'Needs'} before testing a package.</AppText>}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -332,6 +435,15 @@ const styles = StyleSheet.create({
   messageComposerBlock: { gap: 8 },
   threadLabel: { fontSize: 13, fontWeight: '900' },
   textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' },
+  proPackageBox: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 10 },
+  proPackageHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  proPackageHeaderCopy: { flex: 1, gap: 7 },
+  proPackageToggle: { minWidth: 54, minHeight: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  proPackageToggleText: { fontSize: 12, fontWeight: '900' },
+  proPackageItems: { gap: 8 },
+  proPackageLimitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  proPackageItem: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  proPackageItemCopy: { flex: 1, gap: 4 },
   inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 },
   inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   inventoryPickerHeading: { flex: 1, gap: 7 },

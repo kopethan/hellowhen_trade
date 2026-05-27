@@ -1,0 +1,308 @@
+diff --git a/apps/web/src/app/account/plans/page.tsx b/apps/web/src/app/account/plans/page.tsx
+new file mode 100644
+index 0000000..fb4821d
+--- /dev/null
++++ b/apps/web/src/app/account/plans/page.tsx
+@@ -0,0 +1,14 @@
++import { notFound } from 'next/navigation';
++import { MobilePage } from '../../../components/MobilePage';
++import { PlanSelectionClient } from '../../../features/account/PlanSelectionClient';
++import { betaFeatures } from '../../../lib/betaFeatures';
++
++export default function AccountPlansPage() {
++  if (!betaFeatures.proSubscriptionFeatures.proAccountsVisible) notFound();
++
++  return (
++    <MobilePage>
++      <PlanSelectionClient />
++    </MobilePage>
++  );
++}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 0276282..4769165 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2489,3 +2489,43 @@ html.dark .pro-package-prototype__item.selected {
+   color: var(--text-muted);
+   font-weight: 800;
+ }
++
++/* Hidden Pro plan selection prototype. Route is not reachable unless Pro visibility flags are enabled. */
++.plan-selection-page { display: grid; gap: 16px; }
++.plan-selection-note,
++.plan-selection-safety { display: grid; gap: 8px; }
++.plan-selection-grid { display: grid; gap: 14px; }
++.plan-selection-card {
++  display: grid;
++  gap: 14px;
++  border: 1px solid var(--app-border);
++  border-radius: 30px;
++  background: var(--app-surface);
++  padding: 18px;
++  box-shadow: var(--app-card-shadow);
++}
++.plan-selection-card.is-featured {
++  border-color: color-mix(in srgb, var(--success-border) 72%, var(--app-border));
++  background: linear-gradient(180deg, color-mix(in srgb, var(--success-bg) 42%, var(--app-surface)) 0%, var(--app-surface) 56%);
++}
++.plan-selection-card__header {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: start;
++  gap: 12px;
++}
++.plan-selection-card__header h3 { margin: 9px 0 4px; font-size: 24px; letter-spacing: -0.03em; }
++.plan-selection-card__header p,
++.plan-selection-card__description,
++.plan-selection-card__boundary { margin: 0; color: var(--app-text-muted); font-weight: 800; line-height: 1.45; }
++.plan-selection-card__header strong { white-space: nowrap; font-size: 15px; font-weight: 950; }
++.plan-selection-card__bullets { display: grid; gap: 9px; list-style: none; margin: 0; padding: 0; }
++.plan-selection-card__bullets li { display: flex; align-items: flex-start; gap: 8px; color: var(--app-text); font-size: 14px; font-weight: 850; line-height: 1.35; }
++.plan-selection-card__bullets li > span:first-child { display: grid; place-items: center; flex: 0 0 auto; width: 20px; height: 20px; border-radius: 999px; background: var(--success-bg); color: var(--success-text); font-size: 12px; font-weight: 950; }
++.plan-selection-card__boundary { border-top: 1px solid var(--app-border); padding-top: 12px; font-size: 13px; }
++.plan-selection-card button:disabled { cursor: not-allowed; opacity: 0.68; }
++
++@media (max-width: 420px) {
++  .plan-selection-card__header { grid-template-columns: 1fr; }
++  .plan-selection-card__header strong { justify-self: start; }
++}
+diff --git a/apps/web/src/features/account/PlanSelectionClient.tsx b/apps/web/src/features/account/PlanSelectionClient.tsx
+new file mode 100644
+index 0000000..531bd85
+--- /dev/null
++++ b/apps/web/src/features/account/PlanSelectionClient.tsx
+@@ -0,0 +1,151 @@
++'use client';
++
++import Link from 'next/link';
++import { betaFeatures } from '../../lib/betaFeatures';
++import { formatWebProMonthlyPrice, getWebProGate } from '../../lib/proGate';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++
++type PlanCard = {
++  id: 'free' | 'pro' | 'business';
++  badge?: string;
++  title: string;
++  price: string;
++  tagline: string;
++  description: string;
++  bullets: string[];
++  boundary?: string;
++  action: {
++    label: string;
++    kind: 'current' | 'link' | 'disabled';
++    href?: string;
++  };
++  featured?: boolean;
++};
++
++function PlanAction({ action }: { action: PlanCard['action'] }) {
++  if (action.kind === 'link' && action.href) return <Link className="button full" href={action.href}>{action.label}</Link>;
++  return <button className="secondary full" type="button" disabled>{action.label}</button>;
++}
++
++function PlanCardView({ card }: { card: PlanCard }) {
++  return (
++    <article className={`plan-selection-card ${card.featured ? 'is-featured' : ''}`.trim()}>
++      <div className="plan-selection-card__header">
++        <div>
++          {card.badge ? <span className={`semantic-badge ${card.featured ? 'success' : 'neutral'}`}>{card.badge}</span> : null}
++          <h3>{card.title}</h3>
++          <p>{card.tagline}</p>
++        </div>
++        <strong>{card.price}</strong>
++      </div>
++      <p className="plan-selection-card__description">{card.description}</p>
++      <ul className="plan-selection-card__bullets">
++        {card.bullets.map((bullet) => <li key={bullet}><span aria-hidden="true">✓</span> <span>{bullet}</span></li>)}
++      </ul>
++      {card.boundary ? <p className="plan-selection-card__boundary">{card.boundary}</p> : null}
++      <PlanAction action={card.action} />
++    </article>
++  );
++}
++
++export function PlanSelectionClient() {
++  const auth = useWebAuth();
++  const gate = getWebProGate();
++  const proPrice = formatWebProMonthlyPrice(gate);
++  const trialCopy = betaFeatures.proSubscriptionFeatures.proTrialsEnabled
++    ? `${gate.trialDays}-day trial planned`
++    : 'Trial planned for a future Pro beta';
++
++  const freeAction: PlanCard['action'] = auth.isAuthenticated
++    ? { label: 'Current plan', kind: 'current' }
++    : { label: 'Get started', kind: 'link', href: `/auth?next=${encodeURIComponent('/account/plans')}` };
++
++  const proActionLabel = betaFeatures.proSubscriptionFeatures.identityVerificationEnabled
++    ? 'Start Pro setup'
++    : 'Coming later';
++
++  const cards: PlanCard[] = [
++    {
++      id: 'free',
++      title: 'Free',
++      price: '€0/month',
++      tagline: 'Start trading needs and offers.',
++      description: 'Use the core Hellowhen Trade marketplace as an individual user.',
++      bullets: [
++        'Create Needs and Offers',
++        'Create normal one-to-one Trades',
++        'Send and receive proposals',
++        'Use public discussion and private proposal conversations',
++        'Basic profile and account settings',
++        'Report and support access',
++      ],
++      boundary: 'Professional tools, package proposals, portfolio features, and professional verification are not included.',
++      action: freeAction,
++    },
++    {
++      id: 'pro',
++      badge: 'For professionals',
++      title: 'Pro',
++      price: `${proPrice}/month`,
++      tagline: 'Show more value, build trust, and work faster.',
++      description: 'For freelancers, creators, service providers, consultants, and professionals who want stronger profile, proposal, and discovery tools.',
++      bullets: [
++        'Verified Professional badge',
++        'Professional profile section',
++        'Pro Trade Packages',
++        'Portfolio/gallery tools later',
++        'Reusable proposal and offer templates later',
++        'Basic analytics later',
++        'Priority visibility experiments later',
++      ],
++      boundary: `Requires identity verification and an active or trialing Pro subscription. ${trialCopy}.`,
++      action: { label: proActionLabel, kind: 'disabled' },
++      featured: true,
++    },
++    {
++      id: 'business',
++      badge: 'Coming later',
++      title: 'Business',
++      price: 'Custom / later',
++      tagline: 'For verified brands, teams, and organizations.',
++      description: 'Business accounts are planned for brands, agencies, shops, studios, and teams that need organization-level verification, campaigns, libraries, and team controls.',
++      bullets: [
++        'Business verification / KYB later',
++        'Team members and roles later',
++        'Brand profile and library items later',
++        'Campaign-style Needs and Offers later',
++        'Sponsored placements later',
++        'Business analytics and budgets later',
++      ],
++      boundary: 'Business is not part of the first Pro launch and will be designed separately.',
++      action: { label: 'Coming later', kind: 'disabled' },
++    },
++  ];
++
++  return (
++    <div className="plan-selection-page">
++      <div className="page-intro">
++        <div>
++          <p className="eyebrow">Plans</p>
++          <h2>Choose how you want to use Hellowhen</h2>
++          <p>Free stays available for normal Need and Offer trades. Pro is a future professional upgrade, and Business will be designed later.</p>
++        </div>
++      </div>
++
++      <section className="mobile-card mobile-card--soft plan-selection-note">
++        <span className="semantic-badge instruction">Hidden preview</span>
++        <h3>Not connected to billing yet</h3>
++        <p>This page is a hidden pricing and plan-selection prototype. It does not start checkout, identity verification, native purchases, or public Pro onboarding.</p>
++      </section>
++
++      <div className="plan-selection-grid">
++        {cards.map((card) => <PlanCardView key={card.id} card={card} />)}
++      </div>
++
++      <section className="mobile-card mobile-card--soft plan-selection-safety">
++        <h3>Pro safety boundaries</h3>
++        <p>Pro will never unlock moderation bypasses, private proposal access, report bypasses, or payment/payout access without later provider and compliance approval.</p>
++      </section>
++    </div>
++  );
++}
+diff --git a/docs/product/future-subscription-roadmap.md b/docs/product/future-subscription-roadmap.md
+index 2ae6b0d..799a172 100644
+--- a/docs/product/future-subscription-roadmap.md
++++ b/docs/product/future-subscription-roadmap.md
+@@ -629,6 +629,37 @@ Business coming later
+ 
+ Do not show Plus in the first plan-selection UI. Plus remains an undecided future non-professional upgrade.
+ 
++
++## Phase 12 — Hidden pricing / plan selection UI
++
++Add a hidden web plan-selection route:
++
++```txt
++/account/plans
++```
++
++The route must remain unavailable unless Pro surfaces are explicitly visible through hidden flags. With default first-launch flags, there must be no Account nav link, no public pricing card, no checkout, no identity-verification prompt, and no visible behavior change.
++
++When the hidden UI is enabled for dev/internal testing, it should show the future plan cards from `docs/product/pro-feature-catalog-and-plan-copy.md`:
++
++```txt
++Free
++Pro — EUR 14.99/month
++Business — coming later
++```
++
++The Pro card may explain the identity-verification and active/trialing subscription requirement, but all Pro actions remain provider-disabled until billing and verification providers are connected in a later phase.
++
++Still not included:
++
++- no checkout
++- no Stripe Billing
++- no Stripe Identity
++- no native in-app purchases
++- no Account nav entry while Pro is hidden
++- no Business onboarding
++- no Free/Plus limit changes
++
+ ### Patch 8 — Hidden Pro Trade Package entitlement constants
+ 
+ Add shared types and entitlement helpers for future Pro Trade Packages.
+diff --git a/docs/product/pro-feature-catalog-and-plan-copy.md b/docs/product/pro-feature-catalog-and-plan-copy.md
+index 17b54e0..ba6ec23 100644
+--- a/docs/product/pro-feature-catalog-and-plan-copy.md
++++ b/docs/product/pro-feature-catalog-and-plan-copy.md
+@@ -559,3 +559,36 @@ Business:
+   Coming later.
+   Separate organization/enterprise design.
+ ```
++
++## Hidden UI implementation note
++
++The first hidden plan-selection UI may live at:
++
++```txt
++/account/plans
++```
++
++It must be guarded by Pro visibility flags. If `PRO_ACCOUNTS_VISIBLE` / `NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE` are false, the route should not be visible or reachable as a normal user-facing page.
++
++The hidden UI can show the Free, Pro, and Business cards for internal review, but every Pro/Business action must remain non-functional until provider phases are implemented.
++
++Allowed hidden behavior:
++
++```txt
++Show the future Free / Pro / Business cards
++Show EUR 14.99/month planning price for Pro
++Show identity + subscription requirements
++Show Business as coming later
++Show a hidden-preview/provider-disabled notice
++```
++
++Forbidden in this phase:
++
++```txt
++checkout
++identity verification launch
++native purchase buttons
++Account nav link while Pro is hidden
++public upgrade prompts
++Business onboarding
++```

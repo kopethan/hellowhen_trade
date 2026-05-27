@@ -26,6 +26,7 @@ export function AccountHubClient() {
 
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
+    ...(betaFeatures.proSubscriptionFeatures.proAccountsVisible ? [{ href: '/account/plans', titleKey: 'account.items.plans.title', bodyKey: 'account.items.plans.body', icon: 'profile' as WebIconName }] : []),
     ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
     ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),

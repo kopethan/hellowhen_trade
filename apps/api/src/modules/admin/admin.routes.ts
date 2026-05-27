@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { adminBusinessProfileActionRequestSchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
@@ -909,6 +910,304 @@ adminRoutes.patch('/reports/:reportId/action', asyncRoute(async (req, res) => {
   const [hydrated] = await hydrateReports([updated]);
   res.json({ report: hydrated });
 }));
+
+const adminProfessionalStatusValues = ['none', 'pending_verification', 'verified', 'rejected', 'suspended'] as const;
+const adminSubscriptionTierValues = ['free', 'plus_later', 'pro', 'business_later'] as const;
+const adminSubscriptionStatusValues = ['none', 'trialing', 'active', 'past_due', 'canceled', 'expired'] as const;
+const adminIdentityVerificationProviderValues = ['none', 'manual', 'stripe_identity', 'airwallex'] as const;
+const adminIdentityVerificationStatusValues = ['none', 'pending', 'verified', 'rejected', 'expired', 'cancelled'] as const;
+const adminProfessionalStatusFilters = ['all', ...adminProfessionalStatusValues] as const;
+const adminSubscriptionTierFilters = ['all', ...adminSubscriptionTierValues] as const;
+const adminSubscriptionStatusFilters = ['all', ...adminSubscriptionStatusValues] as const;
+const adminIdentityVerificationStatusFilters = ['all', ...adminIdentityVerificationStatusValues] as const;
+
+const adminProListQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  professionalStatus: z.enum(adminProfessionalStatusFilters).optional().default('all'),
+  subscriptionTier: z.enum(adminSubscriptionTierFilters).optional().default('all'),
+  subscriptionStatus: z.enum(adminSubscriptionStatusFilters).optional().default('all'),
+  identityVerificationStatus: z.enum(adminIdentityVerificationStatusFilters).optional().default('all'),
+  take: z.coerce.number().int().min(1).max(250).optional().default(100),
+});
+
+const adminProDateField = z.preprocess((value) => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = new Date(trimmed);
+    return Number.isNaN(parsed.getTime()) ? value : parsed;
+  }
+  return value;
+}, z.date().nullable().optional());
+
+const adminProUpdateSchema = z.object({
+  professionalStatus: z.enum(adminProfessionalStatusValues).optional(),
+  subscriptionTier: z.enum(adminSubscriptionTierValues).optional(),
+  subscriptionStatus: z.enum(adminSubscriptionStatusValues).optional(),
+  identityVerificationProvider: z.enum(adminIdentityVerificationProviderValues).optional(),
+  identityVerificationStatus: z.enum(adminIdentityVerificationStatusValues).optional(),
+  trialStartedAt: adminProDateField,
+  trialEndsAt: adminProDateField,
+  currentPeriodStartedAt: adminProDateField,
+  currentPeriodEndsAt: adminProDateField,
+  expiresAt: adminProDateField,
+  verificationExpiresAt: adminProDateField,
+  professionalStatusNote: z.string().trim().max(500).nullable().optional(),
+  subscriptionAdminNote: z.string().trim().max(500).nullable().optional(),
+  identityAdminNote: z.string().trim().max(500).nullable().optional(),
+  rejectionReason: z.string().trim().max(500).nullable().optional(),
+  note: z.string().trim().min(3).max(500),
+});
+
+const adminProUserSelect = {
+  id: true,
+  email: true,
+  role: true,
+  trustTier: true,
+  accountKind: true,
+  professionalStatus: true,
+  professionalStatusUpdatedAt: true,
+  subscriptionTier: true,
+  subscriptionStatus: true,
+  subscriptionStatusUpdatedAt: true,
+  emailVerifiedAt: true,
+  ageConfirmedAt: true,
+  createdAt: true,
+  profile: { select: { displayName: true, handle: true, avatarUrl: true } },
+  professionalProfile: true,
+  subscriptionState: true,
+  identityVerificationState: true,
+} as const;
+
+function adminProConfigSnapshot() {
+  return {
+    subscriptionsEnabled: env.subscriptionsEnabled,
+    proAccountsEnabled: env.proAccountsEnabled,
+    proAccountsVisible: env.proAccountsVisible,
+    proTrialsEnabled: env.proTrialsEnabled,
+    identityVerificationEnabled: env.identityVerificationEnabled,
+    monthlyPriceCents: env.proMonthlyPriceCents,
+    monthlyPriceCurrency: env.proMonthlyPriceCurrency,
+    trialDays: env.proTrialDays,
+    providerConnected: false,
+    publicUpgradeVisible: false,
+  };
+}
+
+function adminProAccessBlockers(user: { professionalStatus: string; subscriptionTier: string; subscriptionStatus: string }) {
+  const blockers: string[] = [];
+  if (user.professionalStatus !== 'verified') blockers.push('identity_not_verified');
+  if (user.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
+  if (user.subscriptionStatus !== 'trialing' && user.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
+  return blockers;
+}
+
+function normalizeAdminProUser(user: any) {
+  const accessInput = {
+    professionalStatus: user.professionalStatus,
+    subscriptionTier: user.subscriptionTier,
+    subscriptionStatus: user.subscriptionStatus,
+  };
+  const access = hasProAccess(accessInput);
+  return {
+    ...user,
+    access: {
+      hasProAccess: access,
+      blockers: access ? [] : adminProAccessBlockers(user),
+    },
+  };
+}
+
+function adminProWhere(input: z.infer<typeof adminProListQuerySchema>) {
+  const where: Record<string, unknown> = {};
+  if (input.professionalStatus !== 'all') where.professionalStatus = input.professionalStatus;
+  if (input.subscriptionTier !== 'all') where.subscriptionTier = input.subscriptionTier;
+  if (input.subscriptionStatus !== 'all') where.subscriptionStatus = input.subscriptionStatus;
+  if (input.identityVerificationStatus !== 'all') where.identityVerificationState = { is: { status: input.identityVerificationStatus } };
+  if (input.q) {
+    where.OR = [
+      { email: { contains: input.q, mode: 'insensitive' as const } },
+      { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } },
+      { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } },
+      { professionalProfile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } },
+      { professionalProfile: { is: { headline: { contains: input.q, mode: 'insensitive' as const } } } },
+      { professionalProfile: { is: { category: { contains: input.q, mode: 'insensitive' as const } } } },
+    ];
+  }
+  return where;
+}
+
+async function loadAdminProUser(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: adminProUserSelect });
+  return user ? normalizeAdminProUser(user) : null;
+}
+
+function maybeDateValue(value: Date | null | undefined) {
+  return value === undefined ? undefined : value;
+}
+
+function identityStatusTimestampData(status: string | undefined, now: Date, existing?: any) {
+  if (!status) return {};
+  if (status === 'pending') return { submittedAt: existing?.submittedAt ?? now, verifiedAt: null, rejectedAt: null };
+  if (status === 'verified') return { verifiedAt: now, rejectedAt: null };
+  if (status === 'rejected') return { rejectedAt: now, verifiedAt: null };
+  return {};
+}
+
+adminRoutes.get('/pro/users', asyncRoute(async (req, res) => {
+  const input = adminProListQuerySchema.parse(req.query);
+  const where = adminProWhere(input);
+  const users = await prisma.user.findMany({
+    where: where as any,
+    select: adminProUserSelect,
+    orderBy: [{ professionalStatusUpdatedAt: 'desc' }, { subscriptionStatusUpdatedAt: 'desc' }, { createdAt: 'desc' }],
+    take: input.take,
+  });
+  const [verifiedProfessionals, activeProUsers, trialingProUsers, pendingIdentityReviews] = await Promise.all([
+    prisma.user.count({ where: { professionalStatus: 'verified' } }),
+    prisma.user.count({ where: { professionalStatus: 'verified', subscriptionTier: 'pro', subscriptionStatus: 'active' } }),
+    prisma.user.count({ where: { professionalStatus: 'verified', subscriptionTier: 'pro', subscriptionStatus: 'trialing' } }),
+    prisma.identityVerificationState.count({ where: { status: 'pending' } }),
+  ]);
+  res.json({
+    config: adminProConfigSnapshot(),
+    summary: { verifiedProfessionals, activeProUsers, trialingProUsers, pendingIdentityReviews },
+    users: users.map(normalizeAdminProUser),
+  });
+}));
+
+adminRoutes.patch('/pro/users/:userId', asyncRoute(async (req, res) => {
+  const input = adminProUpdateSchema.parse(req.body ?? {});
+  const existing = await prisma.user.findUnique({
+    where: { id: req.params.userId },
+    select: adminProUserSelect,
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  const now = new Date();
+  const professionalTouched = input.professionalStatus !== undefined || input.professionalStatusNote !== undefined;
+  const subscriptionTouched = input.subscriptionTier !== undefined
+    || input.subscriptionStatus !== undefined
+    || input.trialStartedAt !== undefined
+    || input.trialEndsAt !== undefined
+    || input.currentPeriodStartedAt !== undefined
+    || input.currentPeriodEndsAt !== undefined
+    || input.expiresAt !== undefined
+    || input.subscriptionAdminNote !== undefined;
+  const identityTouched = input.identityVerificationProvider !== undefined
+    || input.identityVerificationStatus !== undefined
+    || input.verificationExpiresAt !== undefined
+    || input.identityAdminNote !== undefined
+    || input.rejectionReason !== undefined;
+
+  if (!professionalTouched && !subscriptionTouched && !identityTouched) {
+    return res.status(400).json({ error: 'no_changes', message: 'Choose at least one Pro, subscription, or identity field to update.' });
+  }
+
+  await prisma.$transaction(async (tx: any) => {
+    const nextUserData: Record<string, unknown> = {};
+    if (input.professionalStatus !== undefined) {
+      nextUserData.professionalStatus = input.professionalStatus;
+      nextUserData.professionalStatusUpdatedAt = now;
+    }
+    if (input.subscriptionTier !== undefined) {
+      nextUserData.subscriptionTier = input.subscriptionTier;
+      nextUserData.subscriptionStatusUpdatedAt = now;
+    }
+    if (input.subscriptionStatus !== undefined) {
+      nextUserData.subscriptionStatus = input.subscriptionStatus;
+      nextUserData.subscriptionStatusUpdatedAt = now;
+    }
+    if (Object.keys(nextUserData).length) {
+      await tx.user.update({ where: { id: existing.id }, data: nextUserData });
+    }
+
+    if (professionalTouched) {
+      const nextProfessionalStatus = input.professionalStatus ?? existing.professionalProfile?.status ?? existing.professionalStatus;
+      await tx.professionalProfile.upsert({
+        where: { userId: existing.id },
+        create: {
+          userId: existing.id,
+          displayName: existing.profile?.displayName ?? null,
+          status: nextProfessionalStatus,
+          statusNote: input.professionalStatusNote ?? null,
+          reviewedAt: now,
+          reviewedById: req.user!.id,
+        },
+        update: {
+          ...(input.professionalStatus !== undefined ? { status: input.professionalStatus } : {}),
+          ...(input.professionalStatusNote !== undefined ? { statusNote: input.professionalStatusNote } : {}),
+          reviewedAt: now,
+          reviewedById: req.user!.id,
+        },
+      });
+    }
+
+    if (subscriptionTouched) {
+      const nextTier = input.subscriptionTier ?? existing.subscriptionState?.tier ?? existing.subscriptionTier;
+      const nextStatus = input.subscriptionStatus ?? existing.subscriptionState?.status ?? existing.subscriptionStatus;
+      const data = {
+        tier: nextTier,
+        status: nextStatus,
+        provider: existing.subscriptionState?.provider ?? 'manual_admin',
+        ...(input.trialStartedAt !== undefined ? { trialStartedAt: maybeDateValue(input.trialStartedAt) } : {}),
+        ...(input.trialEndsAt !== undefined ? { trialEndsAt: maybeDateValue(input.trialEndsAt) } : {}),
+        ...(input.currentPeriodStartedAt !== undefined ? { currentPeriodStartedAt: maybeDateValue(input.currentPeriodStartedAt) } : {}),
+        ...(input.currentPeriodEndsAt !== undefined ? { currentPeriodEndsAt: maybeDateValue(input.currentPeriodEndsAt) } : {}),
+        ...(input.expiresAt !== undefined ? { expiresAt: maybeDateValue(input.expiresAt) } : {}),
+        ...(input.subscriptionAdminNote !== undefined ? { adminNote: input.subscriptionAdminNote } : {}),
+        lastSyncedAt: now,
+      };
+      await tx.subscriptionState.upsert({
+        where: { userId: existing.id },
+        create: { userId: existing.id, ...data },
+        update: data,
+      });
+    }
+
+    if (identityTouched) {
+      const nextProvider = input.identityVerificationProvider ?? existing.identityVerificationState?.provider ?? 'manual';
+      const nextStatus = input.identityVerificationStatus ?? existing.identityVerificationState?.status ?? 'none';
+      const timestampData = identityStatusTimestampData(input.identityVerificationStatus, now, existing.identityVerificationState);
+      const data = {
+        provider: nextProvider,
+        status: nextStatus,
+        ...timestampData,
+        ...(input.verificationExpiresAt !== undefined ? { expiresAt: maybeDateValue(input.verificationExpiresAt) } : {}),
+        ...(input.rejectionReason !== undefined ? { rejectionReason: input.rejectionReason } : {}),
+        ...(input.identityAdminNote !== undefined ? { adminNote: input.identityAdminNote } : {}),
+        reviewedAt: now,
+        reviewedById: req.user!.id,
+      };
+      await tx.identityVerificationState.upsert({
+        where: { userId: existing.id },
+        create: { userId: existing.id, ...data },
+        update: data,
+      });
+    }
+
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: 'pro.admin_update',
+      targetType: 'user',
+      targetId: existing.id,
+      reason: input.note,
+      previousValue: normalizeAdminProUser(existing),
+      nextValue: {
+        professionalStatus: input.professionalStatus ?? existing.professionalStatus,
+        subscriptionTier: input.subscriptionTier ?? existing.subscriptionTier,
+        subscriptionStatus: input.subscriptionStatus ?? existing.subscriptionStatus,
+        identityVerificationStatus: input.identityVerificationStatus ?? existing.identityVerificationState?.status ?? 'none',
+      },
+      metadata: { providerConnected: false, publicUpgradeVisible: false, manualAdminOnly: true },
+    });
+  });
+
+  const user = await loadAdminProUser(existing.id);
+  res.json({ user, config: adminProConfigSnapshot() });
+}));
+
 
 adminRoutes.get('/users', asyncRoute(async (req, res) => {
   const userId = toStringParam(req.query.userId);

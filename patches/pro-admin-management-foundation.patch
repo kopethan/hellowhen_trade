@@ -1,0 +1,842 @@
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 65805d2..3bd3ffb 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
+ import { Router } from 'express';
+ import { z } from 'zod';
+ import { adminBusinessProfileActionRequestSchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
++import { hasProAccess } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -910,6 +911,304 @@ adminRoutes.patch('/reports/:reportId/action', asyncRoute(async (req, res) => {
+   res.json({ report: hydrated });
+ }));
+ 
++const adminProfessionalStatusValues = ['none', 'pending_verification', 'verified', 'rejected', 'suspended'] as const;
++const adminSubscriptionTierValues = ['free', 'plus_later', 'pro', 'business_later'] as const;
++const adminSubscriptionStatusValues = ['none', 'trialing', 'active', 'past_due', 'canceled', 'expired'] as const;
++const adminIdentityVerificationProviderValues = ['none', 'manual', 'stripe_identity', 'airwallex'] as const;
++const adminIdentityVerificationStatusValues = ['none', 'pending', 'verified', 'rejected', 'expired', 'cancelled'] as const;
++const adminProfessionalStatusFilters = ['all', ...adminProfessionalStatusValues] as const;
++const adminSubscriptionTierFilters = ['all', ...adminSubscriptionTierValues] as const;
++const adminSubscriptionStatusFilters = ['all', ...adminSubscriptionStatusValues] as const;
++const adminIdentityVerificationStatusFilters = ['all', ...adminIdentityVerificationStatusValues] as const;
++
++const adminProListQuerySchema = z.object({
++  q: z.string().trim().min(1).max(120).optional(),
++  professionalStatus: z.enum(adminProfessionalStatusFilters).optional().default('all'),
++  subscriptionTier: z.enum(adminSubscriptionTierFilters).optional().default('all'),
++  subscriptionStatus: z.enum(adminSubscriptionStatusFilters).optional().default('all'),
++  identityVerificationStatus: z.enum(adminIdentityVerificationStatusFilters).optional().default('all'),
++  take: z.coerce.number().int().min(1).max(250).optional().default(100),
++});
++
++const adminProDateField = z.preprocess((value) => {
++  if (value === undefined) return undefined;
++  if (value === null) return null;
++  if (typeof value === 'string') {
++    const trimmed = value.trim();
++    if (!trimmed) return null;
++    const parsed = new Date(trimmed);
++    return Number.isNaN(parsed.getTime()) ? value : parsed;
++  }
++  return value;
++}, z.date().nullable().optional());
++
++const adminProUpdateSchema = z.object({
++  professionalStatus: z.enum(adminProfessionalStatusValues).optional(),
++  subscriptionTier: z.enum(adminSubscriptionTierValues).optional(),
++  subscriptionStatus: z.enum(adminSubscriptionStatusValues).optional(),
++  identityVerificationProvider: z.enum(adminIdentityVerificationProviderValues).optional(),
++  identityVerificationStatus: z.enum(adminIdentityVerificationStatusValues).optional(),
++  trialStartedAt: adminProDateField,
++  trialEndsAt: adminProDateField,
++  currentPeriodStartedAt: adminProDateField,
++  currentPeriodEndsAt: adminProDateField,
++  expiresAt: adminProDateField,
++  verificationExpiresAt: adminProDateField,
++  professionalStatusNote: z.string().trim().max(500).nullable().optional(),
++  subscriptionAdminNote: z.string().trim().max(500).nullable().optional(),
++  identityAdminNote: z.string().trim().max(500).nullable().optional(),
++  rejectionReason: z.string().trim().max(500).nullable().optional(),
++  note: z.string().trim().min(3).max(500),
++});
++
++const adminProUserSelect = {
++  id: true,
++  email: true,
++  role: true,
++  trustTier: true,
++  accountKind: true,
++  professionalStatus: true,
++  professionalStatusUpdatedAt: true,
++  subscriptionTier: true,
++  subscriptionStatus: true,
++  subscriptionStatusUpdatedAt: true,
++  emailVerifiedAt: true,
++  ageConfirmedAt: true,
++  createdAt: true,
++  profile: { select: { displayName: true, handle: true, avatarUrl: true } },
++  professionalProfile: true,
++  subscriptionState: true,
++  identityVerificationState: true,
++} as const;
++
++function adminProConfigSnapshot() {
++  return {
++    subscriptionsEnabled: env.subscriptionsEnabled,
++    proAccountsEnabled: env.proAccountsEnabled,
++    proAccountsVisible: env.proAccountsVisible,
++    proTrialsEnabled: env.proTrialsEnabled,
++    identityVerificationEnabled: env.identityVerificationEnabled,
++    monthlyPriceCents: env.proMonthlyPriceCents,
++    monthlyPriceCurrency: env.proMonthlyPriceCurrency,
++    trialDays: env.proTrialDays,
++    providerConnected: false,
++    publicUpgradeVisible: false,
++  };
++}
++
++function adminProAccessBlockers(user: { professionalStatus: string; subscriptionTier: string; subscriptionStatus: string }) {
++  const blockers: string[] = [];
++  if (user.professionalStatus !== 'verified') blockers.push('identity_not_verified');
++  if (user.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
++  if (user.subscriptionStatus !== 'trialing' && user.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
++  return blockers;
++}
++
++function normalizeAdminProUser(user: any) {
++  const accessInput = {
++    professionalStatus: user.professionalStatus,
++    subscriptionTier: user.subscriptionTier,
++    subscriptionStatus: user.subscriptionStatus,
++  };
++  const access = hasProAccess(accessInput);
++  return {
++    ...user,
++    access: {
++      hasProAccess: access,
++      blockers: access ? [] : adminProAccessBlockers(user),
++    },
++  };
++}
++
++function adminProWhere(input: z.infer<typeof adminProListQuerySchema>) {
++  const where: Record<string, unknown> = {};
++  if (input.professionalStatus !== 'all') where.professionalStatus = input.professionalStatus;
++  if (input.subscriptionTier !== 'all') where.subscriptionTier = input.subscriptionTier;
++  if (input.subscriptionStatus !== 'all') where.subscriptionStatus = input.subscriptionStatus;
++  if (input.identityVerificationStatus !== 'all') where.identityVerificationState = { is: { status: input.identityVerificationStatus } };
++  if (input.q) {
++    where.OR = [
++      { email: { contains: input.q, mode: 'insensitive' as const } },
++      { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } },
++      { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } },
++      { professionalProfile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } },
++      { professionalProfile: { is: { headline: { contains: input.q, mode: 'insensitive' as const } } } },
++      { professionalProfile: { is: { category: { contains: input.q, mode: 'insensitive' as const } } } },
++    ];
++  }
++  return where;
++}
++
++async function loadAdminProUser(userId: string) {
++  const user = await prisma.user.findUnique({ where: { id: userId }, select: adminProUserSelect });
++  return user ? normalizeAdminProUser(user) : null;
++}
++
++function maybeDateValue(value: Date | null | undefined) {
++  return value === undefined ? undefined : value;
++}
++
++function identityStatusTimestampData(status: string | undefined, now: Date, existing?: any) {
++  if (!status) return {};
++  if (status === 'pending') return { submittedAt: existing?.submittedAt ?? now, verifiedAt: null, rejectedAt: null };
++  if (status === 'verified') return { verifiedAt: now, rejectedAt: null };
++  if (status === 'rejected') return { rejectedAt: now, verifiedAt: null };
++  return {};
++}
++
++adminRoutes.get('/pro/users', asyncRoute(async (req, res) => {
++  const input = adminProListQuerySchema.parse(req.query);
++  const where = adminProWhere(input);
++  const users = await prisma.user.findMany({
++    where: where as any,
++    select: adminProUserSelect,
++    orderBy: [{ professionalStatusUpdatedAt: 'desc' }, { subscriptionStatusUpdatedAt: 'desc' }, { createdAt: 'desc' }],
++    take: input.take,
++  });
++  const [verifiedProfessionals, activeProUsers, trialingProUsers, pendingIdentityReviews] = await Promise.all([
++    prisma.user.count({ where: { professionalStatus: 'verified' } }),
++    prisma.user.count({ where: { professionalStatus: 'verified', subscriptionTier: 'pro', subscriptionStatus: 'active' } }),
++    prisma.user.count({ where: { professionalStatus: 'verified', subscriptionTier: 'pro', subscriptionStatus: 'trialing' } }),
++    prisma.identityVerificationState.count({ where: { status: 'pending' } }),
++  ]);
++  res.json({
++    config: adminProConfigSnapshot(),
++    summary: { verifiedProfessionals, activeProUsers, trialingProUsers, pendingIdentityReviews },
++    users: users.map(normalizeAdminProUser),
++  });
++}));
++
++adminRoutes.patch('/pro/users/:userId', asyncRoute(async (req, res) => {
++  const input = adminProUpdateSchema.parse(req.body ?? {});
++  const existing = await prisma.user.findUnique({
++    where: { id: req.params.userId },
++    select: adminProUserSelect,
++  });
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++
++  const now = new Date();
++  const professionalTouched = input.professionalStatus !== undefined || input.professionalStatusNote !== undefined;
++  const subscriptionTouched = input.subscriptionTier !== undefined
++    || input.subscriptionStatus !== undefined
++    || input.trialStartedAt !== undefined
++    || input.trialEndsAt !== undefined
++    || input.currentPeriodStartedAt !== undefined
++    || input.currentPeriodEndsAt !== undefined
++    || input.expiresAt !== undefined
++    || input.subscriptionAdminNote !== undefined;
++  const identityTouched = input.identityVerificationProvider !== undefined
++    || input.identityVerificationStatus !== undefined
++    || input.verificationExpiresAt !== undefined
++    || input.identityAdminNote !== undefined
++    || input.rejectionReason !== undefined;
++
++  if (!professionalTouched && !subscriptionTouched && !identityTouched) {
++    return res.status(400).json({ error: 'no_changes', message: 'Choose at least one Pro, subscription, or identity field to update.' });
++  }
++
++  await prisma.$transaction(async (tx: any) => {
++    const nextUserData: Record<string, unknown> = {};
++    if (input.professionalStatus !== undefined) {
++      nextUserData.professionalStatus = input.professionalStatus;
++      nextUserData.professionalStatusUpdatedAt = now;
++    }
++    if (input.subscriptionTier !== undefined) {
++      nextUserData.subscriptionTier = input.subscriptionTier;
++      nextUserData.subscriptionStatusUpdatedAt = now;
++    }
++    if (input.subscriptionStatus !== undefined) {
++      nextUserData.subscriptionStatus = input.subscriptionStatus;
++      nextUserData.subscriptionStatusUpdatedAt = now;
++    }
++    if (Object.keys(nextUserData).length) {
++      await tx.user.update({ where: { id: existing.id }, data: nextUserData });
++    }
++
++    if (professionalTouched) {
++      const nextProfessionalStatus = input.professionalStatus ?? existing.professionalProfile?.status ?? existing.professionalStatus;
++      await tx.professionalProfile.upsert({
++        where: { userId: existing.id },
++        create: {
++          userId: existing.id,
++          displayName: existing.profile?.displayName ?? null,
++          status: nextProfessionalStatus,
++          statusNote: input.professionalStatusNote ?? null,
++          reviewedAt: now,
++          reviewedById: req.user!.id,
++        },
++        update: {
++          ...(input.professionalStatus !== undefined ? { status: input.professionalStatus } : {}),
++          ...(input.professionalStatusNote !== undefined ? { statusNote: input.professionalStatusNote } : {}),
++          reviewedAt: now,
++          reviewedById: req.user!.id,
++        },
++      });
++    }
++
++    if (subscriptionTouched) {
++      const nextTier = input.subscriptionTier ?? existing.subscriptionState?.tier ?? existing.subscriptionTier;
++      const nextStatus = input.subscriptionStatus ?? existing.subscriptionState?.status ?? existing.subscriptionStatus;
++      const data = {
++        tier: nextTier,
++        status: nextStatus,
++        provider: existing.subscriptionState?.provider ?? 'manual_admin',
++        ...(input.trialStartedAt !== undefined ? { trialStartedAt: maybeDateValue(input.trialStartedAt) } : {}),
++        ...(input.trialEndsAt !== undefined ? { trialEndsAt: maybeDateValue(input.trialEndsAt) } : {}),
++        ...(input.currentPeriodStartedAt !== undefined ? { currentPeriodStartedAt: maybeDateValue(input.currentPeriodStartedAt) } : {}),
++        ...(input.currentPeriodEndsAt !== undefined ? { currentPeriodEndsAt: maybeDateValue(input.currentPeriodEndsAt) } : {}),
++        ...(input.expiresAt !== undefined ? { expiresAt: maybeDateValue(input.expiresAt) } : {}),
++        ...(input.subscriptionAdminNote !== undefined ? { adminNote: input.subscriptionAdminNote } : {}),
++        lastSyncedAt: now,
++      };
++      await tx.subscriptionState.upsert({
++        where: { userId: existing.id },
++        create: { userId: existing.id, ...data },
++        update: data,
++      });
++    }
++
++    if (identityTouched) {
++      const nextProvider = input.identityVerificationProvider ?? existing.identityVerificationState?.provider ?? 'manual';
++      const nextStatus = input.identityVerificationStatus ?? existing.identityVerificationState?.status ?? 'none';
++      const timestampData = identityStatusTimestampData(input.identityVerificationStatus, now, existing.identityVerificationState);
++      const data = {
++        provider: nextProvider,
++        status: nextStatus,
++        ...timestampData,
++        ...(input.verificationExpiresAt !== undefined ? { expiresAt: maybeDateValue(input.verificationExpiresAt) } : {}),
++        ...(input.rejectionReason !== undefined ? { rejectionReason: input.rejectionReason } : {}),
++        ...(input.identityAdminNote !== undefined ? { adminNote: input.identityAdminNote } : {}),
++        reviewedAt: now,
++        reviewedById: req.user!.id,
++      };
++      await tx.identityVerificationState.upsert({
++        where: { userId: existing.id },
++        create: { userId: existing.id, ...data },
++        update: data,
++      });
++    }
++
++    await recordAdminAuditLog(tx, req.user!.id, {
++      action: 'pro.admin_update',
++      targetType: 'user',
++      targetId: existing.id,
++      reason: input.note,
++      previousValue: normalizeAdminProUser(existing),
++      nextValue: {
++        professionalStatus: input.professionalStatus ?? existing.professionalStatus,
++        subscriptionTier: input.subscriptionTier ?? existing.subscriptionTier,
++        subscriptionStatus: input.subscriptionStatus ?? existing.subscriptionStatus,
++        identityVerificationStatus: input.identityVerificationStatus ?? existing.identityVerificationState?.status ?? 'none',
++      },
++      metadata: { providerConnected: false, publicUpgradeVisible: false, manualAdminOnly: true },
++    });
++  });
++
++  const user = await loadAdminProUser(existing.id);
++  res.json({ user, config: adminProConfigSnapshot() });
++}));
++
++
+ adminRoutes.get('/users', asyncRoute(async (req, res) => {
+   const userId = toStringParam(req.query.userId);
+   const q = toStringParam(req.query.q);
+diff --git a/apps/web/src/app/admin/layout.tsx b/apps/web/src/app/admin/layout.tsx
+index 816bf2f..de9eed7 100644
+--- a/apps/web/src/app/admin/layout.tsx
++++ b/apps/web/src/app/admin/layout.tsx
+@@ -16,6 +16,7 @@ const adminNavItems = [
+   { href: '/admin', label: 'Overview' },
+   { href: '/admin/library', label: 'Starter library' },
+   { href: '/admin/users', label: 'Users' },
++  { href: '/admin/pro', label: 'Pro' },
+   { href: '/admin/usage', label: 'Usage' },
+   { href: '/admin/content', label: 'Content' },
+   { href: '/admin/reports', label: 'Reports' },
+@@ -33,7 +34,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
+           <div className="admin-nav__links">
+             {adminNavItems.map((item) => <Link key={item.href} href={item.href}>{item.label}</Link>)}
+           </div>
+-          <p className="admin-nav__note">First beta mode: money, wallet, payouts, and Plans stay out of launch admin navigation.</p>
++          <p className="admin-nav__note">First beta mode: Pro is admin-only; money, wallet, payouts, and Plans stay out of launch admin navigation.</p>
+         </nav>
+         {children}
+       </div>
+diff --git a/apps/web/src/app/admin/pro/page.tsx b/apps/web/src/app/admin/pro/page.tsx
+new file mode 100644
+index 0000000..74994a8
+--- /dev/null
++++ b/apps/web/src/app/admin/pro/page.tsx
+@@ -0,0 +1,420 @@
++'use client';
++
++import { useMemo, useState } from 'react';
++import {
++  IDENTITY_VERIFICATION_STATUSES,
++  PROFESSIONAL_STATUSES,
++  SUBSCRIPTION_STATUSES,
++  SUBSCRIPTION_TIERS,
++  type IdentityVerificationStatus,
++  type ProfessionalStatus,
++  type SubscriptionStatus,
++  type SubscriptionTier,
++} from '@hellowhen/shared';
++import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
++import { getWebApiBaseUrl } from '../../../lib/api';
++import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
++
++type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
++type FilterValue<T extends string> = T | 'all';
++
++type AdminProUser = {
++  id: string;
++  email: string;
++  role: string;
++  trustTier: string;
++  accountKind: string;
++  professionalStatus: ProfessionalStatus;
++  professionalStatusUpdatedAt: string | null;
++  subscriptionTier: SubscriptionTier;
++  subscriptionStatus: SubscriptionStatus;
++  subscriptionStatusUpdatedAt: string | null;
++  emailVerifiedAt: string | null;
++  ageConfirmedAt: string | null;
++  createdAt: string;
++  profile: { displayName?: string | null; handle?: string | null; avatarUrl?: string | null } | null;
++  professionalProfile: {
++    displayName?: string | null;
++    headline?: string | null;
++    category?: string | null;
++    status?: ProfessionalStatus;
++    statusNote?: string | null;
++    reviewedAt?: string | null;
++  } | null;
++  subscriptionState: {
++    tier: SubscriptionTier;
++    status: SubscriptionStatus;
++    provider?: string | null;
++    trialStartedAt?: string | null;
++    trialEndsAt?: string | null;
++    currentPeriodStartedAt?: string | null;
++    currentPeriodEndsAt?: string | null;
++    expiresAt?: string | null;
++    adminNote?: string | null;
++  } | null;
++  identityVerificationState: {
++    provider?: string | null;
++    status: IdentityVerificationStatus;
++    submittedAt?: string | null;
++    verifiedAt?: string | null;
++    rejectedAt?: string | null;
++    expiresAt?: string | null;
++    rejectionReason?: string | null;
++    adminNote?: string | null;
++  } | null;
++  access: { hasProAccess: boolean; blockers: string[] };
++};
++
++type AdminProResponse = {
++  config: {
++    subscriptionsEnabled: boolean;
++    proAccountsEnabled: boolean;
++    proAccountsVisible: boolean;
++    proTrialsEnabled: boolean;
++    identityVerificationEnabled: boolean;
++    monthlyPriceCents: number;
++    monthlyPriceCurrency: string;
++    trialDays: number;
++    providerConnected: boolean;
++    publicUpgradeVisible: boolean;
++  };
++  summary: {
++    verifiedProfessionals: number;
++    activeProUsers: number;
++    trialingProUsers: number;
++    pendingIdentityReviews: number;
++  };
++  users: AdminProUser[];
++};
++
++type FormState = {
++  professionalStatus: ProfessionalStatus;
++  subscriptionTier: SubscriptionTier;
++  subscriptionStatus: SubscriptionStatus;
++  identityVerificationStatus: IdentityVerificationStatus;
++  trialStartedAt: string;
++  trialEndsAt: string;
++  currentPeriodStartedAt: string;
++  currentPeriodEndsAt: string;
++  expiresAt: string;
++  verificationExpiresAt: string;
++  professionalStatusNote: string;
++  subscriptionAdminNote: string;
++  identityAdminNote: string;
++  rejectionReason: string;
++  note: string;
++};
++
++const professionalStatusFilters = ['all', ...PROFESSIONAL_STATUSES] as const;
++const subscriptionTierFilters = ['all', ...SUBSCRIPTION_TIERS] as const;
++const subscriptionStatusFilters = ['all', ...SUBSCRIPTION_STATUSES] as const;
++const identityStatusFilters = ['all', ...IDENTITY_VERIFICATION_STATUSES] as const;
++
++function personLabel(user?: AdminProUser | null) {
++  return user?.profile?.displayName || user?.profile?.handle || user?.professionalProfile?.displayName || user?.email || 'Unknown user';
++}
++
++function statusTone(value?: string) {
++  if (value === 'verified' || value === 'active' || value === 'trialing' || value === 'pro') return 'success';
++  if (value === 'pending' || value === 'pending_verification' || value === 'past_due') return 'warning';
++  if (value === 'rejected' || value === 'suspended' || value === 'restricted' || value === 'expired') return 'danger';
++  return 'admin';
++}
++
++function dateValue(value: string | Date | null | undefined) {
++  return value instanceof Date ? value.toISOString() : value ?? null;
++}
++
++function dateInputValue(value: string | null | undefined) {
++  if (!value) return '';
++  const parsed = new Date(value);
++  if (Number.isNaN(parsed.getTime())) return '';
++  return parsed.toISOString().slice(0, 10);
++}
++
++function formFromUser(user: AdminProUser): FormState {
++  return {
++    professionalStatus: user.professionalStatus,
++    subscriptionTier: user.subscriptionTier,
++    subscriptionStatus: user.subscriptionStatus,
++    identityVerificationStatus: user.identityVerificationState?.status ?? 'none',
++    trialStartedAt: dateInputValue(user.subscriptionState?.trialStartedAt),
++    trialEndsAt: dateInputValue(user.subscriptionState?.trialEndsAt),
++    currentPeriodStartedAt: dateInputValue(user.subscriptionState?.currentPeriodStartedAt),
++    currentPeriodEndsAt: dateInputValue(user.subscriptionState?.currentPeriodEndsAt),
++    expiresAt: dateInputValue(user.subscriptionState?.expiresAt),
++    verificationExpiresAt: dateInputValue(user.identityVerificationState?.expiresAt),
++    professionalStatusNote: user.professionalProfile?.statusNote ?? '',
++    subscriptionAdminNote: user.subscriptionState?.adminNote ?? '',
++    identityAdminNote: user.identityVerificationState?.adminNote ?? '',
++    rejectionReason: user.identityVerificationState?.rejectionReason ?? '',
++    note: '',
++  };
++}
++
++function compactDate(value: string | null | undefined) {
++  return value ? formatWebDateTime(dateValue(value)) : 'not set';
++}
++
++function BlockerList({ blockers }: { blockers: string[] }) {
++  if (!blockers.length) return <span className="semantic-badge success">Pro access</span>;
++  return <span className="semantic-badge warning">{blockers.map((item) => item.replaceAll('_', ' ')).join(' · ')}</span>;
++}
++
++export default function AdminProPage() {
++  const apiBase = useMemo(() => getWebApiBaseUrl(), []);
++  const { token, headers } = useAdminSessionToken();
++  const [users, setUsers] = useState<AdminProUser[]>([]);
++  const [config, setConfig] = useState<AdminProResponse['config'] | null>(null);
++  const [summary, setSummary] = useState<AdminProResponse['summary'] | null>(null);
++  const [query, setQuery] = useState('');
++  const [professionalStatus, setProfessionalStatus] = useState<FilterValue<ProfessionalStatus>>('all');
++  const [subscriptionTier, setSubscriptionTier] = useState<FilterValue<SubscriptionTier>>('all');
++  const [subscriptionStatus, setSubscriptionStatus] = useState<FilterValue<SubscriptionStatus>>('all');
++  const [identityStatus, setIdentityStatus] = useState<FilterValue<IdentityVerificationStatus>>('all');
++  const [selectedUser, setSelectedUser] = useState<AdminProUser | null>(null);
++  const [form, setForm] = useState<FormState | null>(null);
++  const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
++  const [loading, setLoading] = useState(false);
++
++  function updateForm<K extends keyof FormState>(key: K, value: FormState[K]) {
++    setForm((current) => current ? { ...current, [key]: value } : current);
++  }
++
++  function selectUser(user: AdminProUser) {
++    setSelectedUser(user);
++    setForm(formFromUser(user));
++    setNotice(null);
++  }
++
++  function clearLocalSession() {
++    clearAdminBrowserSession();
++    setUsers([]);
++    setSelectedUser(null);
++    setForm(null);
++    setNotice({ tone: 'info', body: 'Local admin browser session cleared.' });
++  }
++
++  async function loadUsers() {
++    if (!token) { setNotice({ tone: 'warning', body: adminSessionRequiredMessage() }); return; }
++    setLoading(true);
++    setNotice(null);
++    try {
++      const params = new URLSearchParams();
++      if (query.trim()) params.set('q', query.trim());
++      if (professionalStatus !== 'all') params.set('professionalStatus', professionalStatus);
++      if (subscriptionTier !== 'all') params.set('subscriptionTier', subscriptionTier);
++      if (subscriptionStatus !== 'all') params.set('subscriptionStatus', subscriptionStatus);
++      if (identityStatus !== 'all') params.set('identityVerificationStatus', identityStatus);
++      const suffix = params.toString() ? `?${params}` : '';
++      const response = await fetch(`${apiBase}/admin/pro/users${suffix}`, { headers });
++      if (!response.ok) throw new Error('Could not load Pro admin users. Make sure this account has admin role and satisfies 2FA requirements.');
++      const data = await response.json() as AdminProResponse;
++      setUsers(data.users);
++      setConfig(data.config);
++      setSummary(data.summary);
++      if (selectedUser) {
++        const updated = data.users.find((item) => item.id === selectedUser.id) ?? null;
++        setSelectedUser(updated);
++        setForm(updated ? formFromUser(updated) : null);
++      }
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load Pro users.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  async function saveUser() {
++    if (!token || !selectedUser || !form) return;
++    if (!form.note.trim()) {
++      setNotice({ tone: 'warning', body: 'Add an internal admin note before changing Pro, subscription, or identity status.' });
++      return;
++    }
++    setLoading(true);
++    setNotice(null);
++    try {
++      const payload = {
++        professionalStatus: form.professionalStatus,
++        subscriptionTier: form.subscriptionTier,
++        subscriptionStatus: form.subscriptionStatus,
++        identityVerificationProvider: form.identityVerificationStatus === 'none' ? 'none' : 'manual',
++        identityVerificationStatus: form.identityVerificationStatus,
++        trialStartedAt: form.trialStartedAt || null,
++        trialEndsAt: form.trialEndsAt || null,
++        currentPeriodStartedAt: form.currentPeriodStartedAt || null,
++        currentPeriodEndsAt: form.currentPeriodEndsAt || null,
++        expiresAt: form.expiresAt || null,
++        verificationExpiresAt: form.verificationExpiresAt || null,
++        professionalStatusNote: form.professionalStatusNote.trim() || null,
++        subscriptionAdminNote: form.subscriptionAdminNote.trim() || null,
++        identityAdminNote: form.identityAdminNote.trim() || null,
++        rejectionReason: form.rejectionReason.trim() || null,
++        note: form.note.trim(),
++      };
++      const response = await fetch(`${apiBase}/admin/pro/users/${selectedUser.id}`, { method: 'PATCH', headers, body: JSON.stringify(payload) });
++      if (!response.ok) {
++        const body = await response.json().catch(() => null) as { message?: string } | null;
++        throw new Error(body?.message || 'Could not save Pro admin changes.');
++      }
++      const data = await response.json() as { user: AdminProUser; config: AdminProResponse['config'] };
++      setConfig(data.config);
++      setSelectedUser(data.user);
++      setUsers((current) => current.map((item) => item.id === data.user.id ? data.user : item));
++      setForm(formFromUser(data.user));
++      setNotice({ tone: 'success', body: 'Pro admin state saved and written to the audit log.' });
++    } catch (error) {
++      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not save Pro admin changes.' });
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  return (
++    <main className="admin-console">
++      <section className="app-card admin-console__hero">
++        <div className="status-row"><span className="semantic-badge admin">Pro foundation</span><span className="semantic-badge warning">Admin only</span></div>
++        <h1>Professional subscriptions</h1>
++        <p>Manually review future professional status, trial/subscription state, and identity verification state. This does not expose public upgrade buttons, checkout, or identity provider calls.</p>
++        <div className="admin-console__login-grid">
++          <p className="notice-box info">Planned Pro price: {formatWebMoney(config?.monthlyPriceCents ?? 1499, config?.monthlyPriceCurrency ?? 'eur')}/month · trial default: {config?.trialDays ?? 14} days.</p>
++          <button type="button" className="secondary" onClick={clearLocalSession} disabled={!token}>Clear local session</button>
++        </div>
++        {config ? <div className="admin-money-strip">
++          <span><small>Subscriptions flag</small><strong>{config.subscriptionsEnabled ? 'enabled' : 'disabled'}</strong></span>
++          <span><small>Pro visible</small><strong>{config.proAccountsVisible ? 'visible' : 'hidden'}</strong></span>
++          <span><small>Provider</small><strong>{config.providerConnected ? 'connected' : 'none'}</strong></span>
++          <span><small>Public upgrade</small><strong>{config.publicUpgradeVisible ? 'visible' : 'hidden'}</strong></span>
++        </div> : null}
++        {summary ? <div className="admin-money-strip">
++          <span><small>Verified professionals</small><strong>{summary.verifiedProfessionals}</strong></span>
++          <span><small>Active Pro</small><strong>{summary.activeProUsers}</strong></span>
++          <span><small>Trialing Pro</small><strong>{summary.trialingProUsers}</strong></span>
++          <span><small>Pending identity</small><strong>{summary.pendingIdentityReviews}</strong></span>
++        </div> : null}
++        {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
++      </section>
++
++      <section className="admin-detail-grid admin-detail-grid--wide-left">
++        <article className="app-card admin-action-card">
++          <div className="status-row"><span className="semantic-badge info">Search</span><span className="semantic-badge admin">No billing provider</span></div>
++          <h2>Professional users</h2>
++          <div className="admin-trust-controls">
++            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search email, name, handle, headline, or category" />
++            <select value={professionalStatus} onChange={(event) => setProfessionalStatus(event.target.value as FilterValue<ProfessionalStatus>)}>
++              {professionalStatusFilters.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++            </select>
++            <select value={subscriptionTier} onChange={(event) => setSubscriptionTier(event.target.value as FilterValue<SubscriptionTier>)}>
++              {subscriptionTierFilters.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++            </select>
++            <select value={subscriptionStatus} onChange={(event) => setSubscriptionStatus(event.target.value as FilterValue<SubscriptionStatus>)}>
++              {subscriptionStatusFilters.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++            </select>
++            <select value={identityStatus} onChange={(event) => setIdentityStatus(event.target.value as FilterValue<IdentityVerificationStatus>)}>
++              {identityStatusFilters.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++            </select>
++            <button type="button" onClick={() => { void loadUsers(); }} disabled={loading || !token}>Load users</button>
++          </div>
++          <div className="admin-user-list">
++            {users.map((user) => (
++              <button type="button" key={user.id} className={selectedUser?.id === user.id ? 'admin-user-row is-active' : 'admin-user-row'} onClick={() => selectUser(user)}>
++                <span>
++                  <strong>{personLabel(user)}</strong>
++                  <small>{user.email} · joined {formatWebDateTime(dateValue(user.createdAt))}</small>
++                  <small>{user.professionalProfile?.headline || user.professionalProfile?.category || 'No professional profile yet'}</small>
++                  <small><BlockerList blockers={user.access.blockers} /></small>
++                </span>
++                <em className={`semantic-badge ${statusTone(user.professionalStatus)}`}>{user.professionalStatus.replaceAll('_', ' ')}</em>
++              </button>
++            ))}
++            {users.length === 0 ? <p>No Pro users loaded yet.</p> : null}
++          </div>
++        </article>
++
++        <article className="app-card admin-action-card">
++          {selectedUser && form ? (
++            <>
++              <div className="status-row">
++                <span className={`semantic-badge ${statusTone(selectedUser.professionalStatus)}`}>{selectedUser.professionalStatus.replaceAll('_', ' ')}</span>
++                <span className={`semantic-badge ${statusTone(selectedUser.subscriptionStatus)}`}>{selectedUser.subscriptionTier.replaceAll('_', ' ')} · {selectedUser.subscriptionStatus.replaceAll('_', ' ')}</span>
++                <BlockerList blockers={selectedUser.access.blockers} />
++              </div>
++              <h2>{personLabel(selectedUser)}</h2>
++              <p className="meta">{selectedUser.email}</p>
++              <p className="meta">Professional status updated: {compactDate(selectedUser.professionalStatusUpdatedAt)} · subscription updated: {compactDate(selectedUser.subscriptionStatusUpdatedAt)}</p>
++
++              <div className="admin-template-form">
++                <div className="admin-template-form__grid">
++                  <label>Professional status
++                    <select value={form.professionalStatus} onChange={(event) => updateForm('professionalStatus', event.target.value as ProfessionalStatus)}>
++                      {PROFESSIONAL_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++                    </select>
++                  </label>
++                  <label>Subscription tier
++                    <select value={form.subscriptionTier} onChange={(event) => updateForm('subscriptionTier', event.target.value as SubscriptionTier)}>
++                      {SUBSCRIPTION_TIERS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++                    </select>
++                  </label>
++                  <label>Subscription status
++                    <select value={form.subscriptionStatus} onChange={(event) => updateForm('subscriptionStatus', event.target.value as SubscriptionStatus)}>
++                      {SUBSCRIPTION_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++                    </select>
++                  </label>
++                  <label>Identity status
++                    <select value={form.identityVerificationStatus} onChange={(event) => updateForm('identityVerificationStatus', event.target.value as IdentityVerificationStatus)}>
++                      {IDENTITY_VERIFICATION_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
++                    </select>
++                  </label>
++                  <label>Trial starts
++                    <input type="date" value={form.trialStartedAt} onChange={(event) => updateForm('trialStartedAt', event.target.value)} />
++                  </label>
++                  <label>Trial ends
++                    <input type="date" value={form.trialEndsAt} onChange={(event) => updateForm('trialEndsAt', event.target.value)} />
++                  </label>
++                  <label>Current period starts
++                    <input type="date" value={form.currentPeriodStartedAt} onChange={(event) => updateForm('currentPeriodStartedAt', event.target.value)} />
++                  </label>
++                  <label>Current period ends
++                    <input type="date" value={form.currentPeriodEndsAt} onChange={(event) => updateForm('currentPeriodEndsAt', event.target.value)} />
++                  </label>
++                  <label>Subscription expires
++                    <input type="date" value={form.expiresAt} onChange={(event) => updateForm('expiresAt', event.target.value)} />
++                  </label>
++                  <label>Identity expires
++                    <input type="date" value={form.verificationExpiresAt} onChange={(event) => updateForm('verificationExpiresAt', event.target.value)} />
++                  </label>
++                </div>
++                <label>Professional review note
++                  <textarea value={form.professionalStatusNote} onChange={(event) => updateForm('professionalStatusNote', event.target.value)} rows={3} placeholder="Visible/internal note for professional review state." />
++                </label>
++                <label>Subscription admin note
++                  <textarea value={form.subscriptionAdminNote} onChange={(event) => updateForm('subscriptionAdminNote', event.target.value)} rows={3} placeholder="Internal note for trial/subscription state." />
++                </label>
++                <label>Identity admin note
++                  <textarea value={form.identityAdminNote} onChange={(event) => updateForm('identityAdminNote', event.target.value)} rows={3} placeholder="Internal note for manual identity review." />
++                </label>
++                <label>Identity rejection reason
++                  <textarea value={form.rejectionReason} onChange={(event) => updateForm('rejectionReason', event.target.value)} rows={2} placeholder="Reason if identity/professional review is rejected." />
++                </label>
++                <label>Required audit note
++                  <textarea value={form.note} onChange={(event) => updateForm('note', event.target.value)} rows={3} placeholder="Required internal admin note for the audit log." />
++                </label>
++                <div className="cta-row">
++                  <button type="button" onClick={() => { void saveUser(); }} disabled={loading || !token}>Save Pro state</button>
++                  <button type="button" className="secondary" onClick={() => selectUser(selectedUser)} disabled={loading}>Reset form</button>
++                </div>
++              </div>
++              <p className="notice-box warning">Manual Pro state is for hidden admin testing only. It does not create invoices, payments, provider verification, or public upgrade access.</p>
++            </>
++          ) : (
++            <>
++              <div className="status-row"><span className="semantic-badge admin">Select a user</span></div>
++              <h2>Pro state detail</h2>
++              <p>Load users and select one to manage professional review, subscription state, trial dates, identity state, and audit notes.</p>
++            </>
++          )}
++        </article>
++      </section>
++    </main>
++  );
++}
+diff --git a/docs/product/future-subscription-roadmap.md b/docs/product/future-subscription-roadmap.md
+index 6b93b80..d4e2106 100644
+--- a/docs/product/future-subscription-roadmap.md
++++ b/docs/product/future-subscription-roadmap.md
+@@ -455,6 +455,38 @@ Allow admin/dev to manually test:
+ 
+ No public upgrade screen yet.
+ 
++
++## Phase 4 implementation note — admin-only Pro management foundation
++
++The hidden admin foundation may include an internal admin console and admin API routes for manual testing only:
++
++- search users by email/name/handle/professional metadata
++- filter by professional status, subscription tier/status, and identity-verification status
++- update professional review status with an admin note
++- update subscription tier/status and trial/current-period dates with an admin note
++- update identity-verification status with an admin note
++- write every change to the admin audit log
++
++This admin foundation must not create public Pro behavior by itself.
++
++It must not add:
++
++- public Pro onboarding
++- pricing cards in normal UI
++- checkout or billing provider calls
++- identity-verification provider calls
++- automatic Pro activation from payment
++- Business account behavior
++
++Manual admin state is only useful for testing future gates such as:
++
++```txt
++professionalStatus = verified
++subscriptionTier = pro
++subscriptionStatus = trialing or active
++=> Pro access true
++```
++
+ ## Phase 5 — provider decisions
+ 
+ Before real Pro launch, decide:
+diff --git a/packages/shared/src/subscriptions.ts b/packages/shared/src/subscriptions.ts
+index 26f8add..b12f931 100644
+--- a/packages/shared/src/subscriptions.ts
++++ b/packages/shared/src/subscriptions.ts
+@@ -10,6 +10,12 @@ export type SubscriptionStatus = typeof SUBSCRIPTION_STATUSES[number];
+ export const PROFESSIONAL_STATUSES = ['none', 'pending_verification', 'verified', 'rejected', 'suspended'] as const;
+ export type ProfessionalStatus = typeof PROFESSIONAL_STATUSES[number];
+ 
++export const IDENTITY_VERIFICATION_PROVIDERS = ['none', 'manual', 'stripe_identity', 'airwallex'] as const;
++export type IdentityVerificationProvider = typeof IDENTITY_VERIFICATION_PROVIDERS[number];
++
++export const IDENTITY_VERIFICATION_STATUSES = ['none', 'pending', 'verified', 'rejected', 'expired', 'cancelled'] as const;
++export type IdentityVerificationStatus = typeof IDENTITY_VERIFICATION_STATUSES[number];
++
+ export type ProSubscriptionFeatureFlags = {
+   subscriptionsEnabled: boolean;
+   proAccountsEnabled: boolean;
+@@ -62,6 +68,17 @@ export function normalizeProfessionalStatus(value: string | undefined | null): P
+   return (PROFESSIONAL_STATUSES as readonly string[]).includes(normalized) ? normalized as ProfessionalStatus : 'none';
+ }
+ 
++
++export function normalizeIdentityVerificationProvider(value: string | undefined | null): IdentityVerificationProvider {
++  const normalized = String(value ?? 'none').trim().toLowerCase();
++  return (IDENTITY_VERIFICATION_PROVIDERS as readonly string[]).includes(normalized) ? normalized as IdentityVerificationProvider : 'none';
++}
++
++export function normalizeIdentityVerificationStatus(value: string | undefined | null): IdentityVerificationStatus {
++  const normalized = String(value ?? 'none').trim().toLowerCase();
++  return (IDENTITY_VERIFICATION_STATUSES as readonly string[]).includes(normalized) ? normalized as IdentityVerificationStatus : 'none';
++}
++
+ export function hasProAccess(state: ProAccessState): boolean {
+   return state.professionalStatus === 'verified'
+     && state.subscriptionTier === 'pro'
