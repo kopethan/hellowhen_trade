@@ -1623,7 +1623,15 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .admin-money-strip small { color: var(--app-text-muted); font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
 .admin-money-strip strong { font-size: 22px; letter-spacing: -0.04em; }
 .admin-action-card { display: grid; gap: 12px; }
+.admin-content-list { display: grid; gap: 12px; }
 .admin-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.admin-filter-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; align-items: end; }
+.admin-filter-row label { display: grid; gap: 6px; color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+.admin-filter-row input, .admin-filter-row select, .admin-filter-row textarea { width: 100%; }
+.admin-filter-row textarea { min-height: 92px; resize: vertical; }
+.admin-checkbox-row { align-self: center; display: flex !important; grid-template-columns: none !important; flex-direction: row; align-items: center; gap: 8px !important; color: var(--app-text); }
+.admin-checkbox-row input { width: auto; }
+.admin-wide-field { grid-column: 1 / -1; }
 .admin-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .admin-table-card { overflow-x: auto; }
 .admin-table-card table { width: 100%; border-collapse: collapse; font-size: 13px; }

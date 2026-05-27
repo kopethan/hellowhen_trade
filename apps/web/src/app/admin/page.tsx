@@ -12,6 +12,7 @@ type NoticeTone = 'info' | 'warning' | 'danger' | 'success';
 const adminSections = [
   { href: '/admin/library', title: 'Starter library', body: 'Create, edit, hide, or restore admin-managed starter Need and Offer templates.', tone: 'info' },
   { href: '/admin/users', title: 'Users', body: 'Search users, review launch status, suspend, restore, and force logout safely.', tone: 'warning' },
+  { href: '/admin/business', title: 'Business review', body: 'Review hidden Business, brand, agency, and Enterprise profile status with mandatory notes and audit trail.', tone: 'admin' },
   { href: '/admin/content', title: 'Content', body: 'Hide, restore, close, or mark reviewed trades, needs, and offers.', tone: 'danger' },
   { href: '/admin/reports', title: 'Report queue', body: 'Resolve, dismiss, hide targets, suspend owners, or escalate reports to support.', tone: 'danger' },
   { href: '/admin/support', title: 'Support inbox', body: 'Review tickets, reply, add internal notes, and close resolved user requests.', tone: 'info' },

@@ -2239,26 +2239,102 @@ adminRoutes.get('/stripe/events', asyncRoute(async (_req, res) => {
   res.json({ events });
 }));
 
-adminRoutes.get('/business-profiles', asyncRoute(async (_req, res) => {
-  const businessProfiles = await prisma.businessProfile.findMany({
-    include: {
-      owner: { select: { id: true, email: true, profile: true, trustTier: true } },
-      reviewer: { select: { id: true, email: true, profile: true } },
-      members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' } },
-      moneyProviderAccounts: { orderBy: { createdAt: 'desc' }, take: 5 },
-      _count: { select: { needs: true, offers: true, trades: true } },
-    },
-    orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
-    take: 150,
-  });
+const adminBusinessProfileStatusFilters = ['all', 'draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected'] as const;
+const adminBusinessProfileTypeFilters = ['all', 'business', 'agency', 'brand', 'enterprise'] as const;
+
+const adminBusinessProfileListQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  status: z.enum(adminBusinessProfileStatusFilters).optional().default('all'),
+  type: z.enum(adminBusinessProfileTypeFilters).optional().default('all'),
+  take: z.coerce.number().int().min(1).max(250).optional().default(150),
+});
+
+const adminBusinessProfileInclude = {
+  owner: { select: { id: true, email: true, profile: true, trustTier: true } },
+  reviewer: { select: { id: true, email: true, profile: true } },
+  members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' as const } },
+  moneyProviderAccounts: { orderBy: { createdAt: 'desc' as const }, take: 5 },
+  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } },
+} as const;
+
+function normalizeAdminBusinessProfile(profile: any) {
+  return { ...profile, counts: profile._count };
+}
+
+function adminBusinessProfileWhere(input: z.infer<typeof adminBusinessProfileListQuerySchema>) {
+  const where: Record<string, unknown> = {};
+  if (input.status !== 'all') where.status = input.status;
+  if (input.type !== 'all') where.type = input.type;
+  if (input.q) {
+    where.OR = [
+      { displayName: { contains: input.q, mode: 'insensitive' as const } },
+      { legalName: { contains: input.q, mode: 'insensitive' as const } },
+      { handle: { contains: input.q, mode: 'insensitive' as const } },
+      { websiteUrl: { contains: input.q, mode: 'insensitive' as const } },
+      { countryCode: { contains: input.q, mode: 'insensitive' as const } },
+      { owner: { email: { contains: input.q, mode: 'insensitive' as const } } },
+      { owner: { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } } },
+      { owner: { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } } },
+    ];
+  }
+  return where;
+}
+
+async function closeBusinessPublicContentForReview(tx: any, businessProfileId: string) {
+  const [needs, offers, trades, inventoryTemplates] = await Promise.all([
+    tx.need.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+    tx.offer.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+    tx.trade.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'closed' } }),
+    tx.inventoryTemplate.updateMany({ where: { businessProfileId, status: 'active' }, data: { status: 'archived' } }),
+  ]);
+  return {
+    needsClosed: needs.count,
+    offersClosed: offers.count,
+    tradesClosed: trades.count,
+    inventoryTemplatesArchived: inventoryTemplates.count,
+  };
+}
+
+async function businessProfileStatusSummary(where: Record<string, unknown>) {
+  const [total, draft, active, pendingReview, verified, restricted, disabled, rejected] = await Promise.all([
+    prisma.businessProfile.count({ where: where as any }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'draft' } }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'active' } }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'pending_review' } }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'verified' } }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'restricted' } }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'disabled' } }),
+    prisma.businessProfile.count({ where: { ...(where as any), status: 'rejected' } }),
+  ]);
+  return { total, draft, active, pendingReview, verified, restricted, disabled, rejected };
+}
+
+adminRoutes.get('/business-profiles', asyncRoute(async (req, res) => {
+  const input = adminBusinessProfileListQuerySchema.parse(req.query);
+  const where = adminBusinessProfileWhere(input);
+  const [businessProfiles, summary] = await Promise.all([
+    prisma.businessProfile.findMany({
+      where: where as any,
+      include: adminBusinessProfileInclude,
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
+      take: input.take,
+    }),
+    businessProfileStatusSummary(where),
+  ]);
   const provider = buildMoneyProviderStatus();
-  res.json({ provider, businessProfiles: businessProfiles.map((profile) => ({ ...profile, counts: profile._count })) });
+  const recentAuditLogs = await (prisma as any).adminAuditLog?.findMany({
+    where: { targetType: 'business_profile', targetId: { in: businessProfiles.map((profile) => profile.id) } },
+    orderBy: { createdAt: 'desc' },
+    take: 20,
+    include: { admin: { select: { id: true, email: true, profile: true } } },
+  }) ?? [];
+  res.json({ provider, summary, recentAuditLogs, businessProfiles: businessProfiles.map(normalizeAdminBusinessProfile) });
 }));
 
 adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(async (req, res) => {
   const input = adminBusinessProfileActionRequestSchema.parse(req.body);
-  const existing = await prisma.businessProfile.findUnique({ where: { id: req.params.businessProfileId } });
-  if (!existing) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
+  const businessProfileId = req.params.businessProfileId;
+  if (!businessProfileId) return res.status(400).json({ error: 'business_profile_id_required' });
   const statusByAction = {
     verify: 'verified',
     restrict: 'restricted',
@@ -2267,24 +2343,66 @@ adminRoutes.patch('/business-profiles/:businessProfileId/action', asyncRoute(asy
     activate: 'active',
   } as const;
   const nextStatus = statusByAction[input.action];
-  const updated = await prisma.businessProfile.update({
-    where: { id: existing.id },
-    data: {
-      status: nextStatus,
-      reviewedAt: new Date(),
-      reviewerId: req.user!.id,
-      reviewNote: input.note ?? null,
-      verifiedAt: input.action === 'verify' ? new Date() : input.action === 'activate' ? existing.verifiedAt : null,
-    },
-    include: {
-      owner: { select: { id: true, email: true, profile: true, trustTier: true } },
-      reviewer: { select: { id: true, email: true, profile: true } },
-      members: { include: { user: { select: { id: true, email: true, profile: true, trustTier: true } } }, orderBy: { createdAt: 'asc' } },
-      moneyProviderAccounts: { orderBy: { createdAt: 'desc' }, take: 5 },
-      _count: { select: { needs: true, offers: true, trades: true } },
-    },
+  const destructiveContentActionAllowed = input.action === 'restrict' || input.action === 'disable' || input.action === 'reject';
+  if (input.disablePublicContent && !destructiveContentActionAllowed) {
+    return res.status(400).json({ error: 'disable_public_content_not_allowed', message: 'Public Business content can only be closed when restricting, disabling, or rejecting a Business profile.' });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.businessProfile.findUnique({
+      where: { id: businessProfileId },
+      include: { _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true } } },
+    });
+    if (!existing) return null;
+
+    const now = new Date();
+    const contentAction = input.disablePublicContent ? await closeBusinessPublicContentForReview(tx, existing.id) : null;
+    const updated = await tx.businessProfile.update({
+      where: { id: existing.id },
+      data: {
+        status: nextStatus,
+        reviewedAt: now,
+        reviewerId: req.user!.id,
+        reviewNote: input.note,
+        verifiedAt: input.action === 'verify' ? (existing.verifiedAt ?? now) : input.action === 'activate' ? existing.verifiedAt : null,
+      },
+      include: adminBusinessProfileInclude,
+    });
+
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `business_profile.${input.action}`,
+      targetType: 'business_profile',
+      targetId: existing.id,
+      reason: input.note,
+      previousValue: {
+        status: existing.status,
+        reviewedAt: existing.reviewedAt,
+        reviewerId: existing.reviewerId,
+        reviewNote: existing.reviewNote,
+        verifiedAt: existing.verifiedAt,
+        counts: existing._count,
+      },
+      nextValue: {
+        status: updated.status,
+        reviewedAt: updated.reviewedAt,
+        reviewerId: updated.reviewerId,
+        reviewNote: updated.reviewNote,
+        verifiedAt: updated.verifiedAt,
+        counts: updated._count,
+      },
+      metadata: {
+        businessProfileType: existing.type,
+        ownerId: existing.ownerId,
+        disablePublicContent: input.disablePublicContent,
+        contentAction,
+      },
+    });
+
+    return { businessProfile: normalizeAdminBusinessProfile(updated), contentAction };
   });
-  res.json({ businessProfile: { ...updated, counts: updated._count } });
+
+  if (!result) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
+  res.json(result);
 }));
 
 

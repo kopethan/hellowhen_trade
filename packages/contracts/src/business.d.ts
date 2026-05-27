@@ -51,7 +51,8 @@ export declare const updateBusinessProfileRequestSchema: z.ZodObject<{
     displayName: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export declare const requestBusinessReviewRequestSchema: z.ZodObject<{
-    note: z.ZodOptional<z.ZodString>;
+    note: z.ZodString;
+    disablePublicContent: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
 }, z.core.$strip>;
 export declare const businessProviderOnboardingLinkRequestSchema: z.ZodObject<{
     accountType: z.ZodOptional<z.ZodEnum<{
@@ -69,7 +70,8 @@ export declare const adminBusinessProfileActionRequestSchema: z.ZodObject<{
         disable: "disable";
         activate: "activate";
     }>;
-    note: z.ZodOptional<z.ZodString>;
+    note: z.ZodString;
+    disablePublicContent: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
 }, z.core.$strip>;
 export type BusinessProfileType = z.infer<typeof businessProfileTypeSchema>;
 export type BusinessProfileStatus = z.infer<typeof businessProfileStatusSchema>;

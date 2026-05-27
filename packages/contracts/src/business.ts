@@ -33,7 +33,8 @@ export const businessProviderOnboardingLinkRequestSchema = z.object({
 
 export const adminBusinessProfileActionRequestSchema = z.object({
   action: z.enum(['verify', 'restrict', 'disable', 'reject', 'activate']),
-  note: z.string().trim().max(1000).optional(),
+  note: z.string().trim().min(3).max(1000),
+  disablePublicContent: z.boolean().optional().default(false),
 });
 
 export type BusinessProfileType = z.infer<typeof businessProfileTypeSchema>;
