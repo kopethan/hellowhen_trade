@@ -1,0 +1,21 @@
+diff --git a/apps/mobile/src/env.d.ts b/apps/mobile/src/env.d.ts
+--- a/apps/mobile/src/env.d.ts
++++ b/apps/mobile/src/env.d.ts
+@@ -12,6 +12,17 @@ declare const process: {
+     EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE?: string;
+     EXPO_PUBLIC_PLANS_ENABLED?: string;
+     EXPO_PUBLIC_PLANS_VISIBLE?: string;
++    EXPO_PUBLIC_ADS_ENABLED?: string;
++    EXPO_PUBLIC_MOBILE_ADS_ENABLED?: string;
++    EXPO_PUBLIC_ADS_PROVIDER?: string;
++    EXPO_PUBLIC_ADS_DEBUG_PLACEHOLDERS?: string;
++    EXPO_PUBLIC_AI_ENABLED?: string;
++    EXPO_PUBLIC_AI_PROVIDER?: string;
++    EXPO_PUBLIC_AI_MODERATION_ENABLED?: string;
++    EXPO_PUBLIC_AI_SUGGESTIONS_ENABLED?: string;
++    EXPO_PUBLIC_AI_ADMIN_ASSIST_ENABLED?: string;
++    EXPO_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED?: string;
++    EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS?: string;
+   };
+ };
+ 

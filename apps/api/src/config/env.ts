@@ -23,6 +23,7 @@ function disabled(value: string | undefined, defaultValue = false) {
 
 const moneyProviders = new Set(['none', 'stripe', 'airwallex']);
 const adsProviders = new Set(['none', 'adsense', 'admob']);
+const aiProviders = new Set(['none', 'openai', 'gemini', 'groq']);
 const airwallexEnvironments = new Set(['demo', 'production']);
 
 function parseMoneyProvider(value: string | undefined) {
@@ -38,6 +39,11 @@ function parseAirwallexEnv(value: string | undefined) {
 function parseAdsProvider(value: string | undefined) {
   const raw = String(value ?? 'none').toLowerCase();
   return adsProviders.has(raw) ? raw as 'none' | 'adsense' | 'admob' : 'none';
+}
+
+function parseAiProvider(value: string | undefined) {
+  const raw = String(value ?? 'none').toLowerCase();
+  return aiProviders.has(raw) ? raw as 'none' | 'openai' | 'gemini' | 'groq' : 'none';
 }
 
 export const env = {
@@ -142,6 +148,14 @@ export const env = {
   mobileAdsEnabled: (process.env.MOBILE_ADS_ENABLED ?? 'false').toLowerCase() === 'true',
   adsProvider: parseAdsProvider(process.env.ADS_PROVIDER),
   adsDebugPlaceholders: (process.env.ADS_DEBUG_PLACEHOLDERS ?? 'false').toLowerCase() === 'true',
+  aiProvider: parseAiProvider(process.env.AI_PROVIDER),
+  aiEnabled: enabled(process.env.AI_ENABLED),
+  aiModerationEnabled: enabled(process.env.AI_MODERATION_ENABLED),
+  aiSuggestionsEnabled: enabled(process.env.AI_SUGGESTIONS_ENABLED),
+  aiAdminAssistEnabled: enabled(process.env.AI_ADMIN_ASSIST_ENABLED),
+  aiSafetyClassifierEnabled: enabled(process.env.AI_SAFETY_CLASSIFIER_ENABLED),
+  aiPrivateContentEnabled: enabled(process.env.AI_PRIVATE_CONTENT_ENABLED),
+  aiDebugPlaceholders: enabled(process.env.AI_DEBUG_PLACEHOLDERS),
   plansEnabled: (process.env.PLANS_ENABLED ?? 'false').toLowerCase() === 'true',
   plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true',
   firstLaunchGuardsEnabled: !disabled(process.env.FIRST_LAUNCH_GUARDS_ENABLED, false)
@@ -302,6 +316,32 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
   if (env.plansEnabled || env.plansVisible || publicFlagEnabled('NEXT_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('NEXT_PUBLIC_PLANS_VISIBLE') || publicFlagEnabled('EXPO_PUBLIC_PLANS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_PLANS_VISIBLE')) {
     errors.push('Plans must stay disabled and hidden for first launch.');
   }
+
+  const publicAiEnabled = publicFlagEnabled('NEXT_PUBLIC_AI_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_MODERATION_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_SUGGESTIONS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_ADMIN_ASSIST_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_MODERATION_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_SUGGESTIONS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_ADMIN_ASSIST_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS');
+  const publicAiProvider = publicFlagValue('NEXT_PUBLIC_AI_PROVIDER');
+  const mobileAiProvider = publicFlagValue('EXPO_PUBLIC_AI_PROVIDER');
+  const aiRuntimeEnabled = env.aiEnabled
+    || env.aiModerationEnabled
+    || env.aiSuggestionsEnabled
+    || env.aiAdminAssistEnabled
+    || env.aiSafetyClassifierEnabled
+    || env.aiPrivateContentEnabled
+    || env.aiDebugPlaceholders;
+
+  if (env.aiProvider !== 'none' || (publicAiProvider && publicAiProvider !== 'none') || (mobileAiProvider && mobileAiProvider !== 'none') || aiRuntimeEnabled || publicAiEnabled) {
+    errors.push('AI features and providers must stay disabled for first launch. Keep AI_PROVIDER, NEXT_PUBLIC_AI_PROVIDER, and EXPO_PUBLIC_AI_PROVIDER as none, and keep all AI feature flags false.');
+  }
 }
 
 export function validateProductionEnv() {
@@ -319,6 +359,10 @@ export function validateProductionEnv() {
   if (!env.resendApiKey) errors.push('RESEND_API_KEY is required in production for password reset and email verification emails.');
   if (!isValidEmailSender(env.emailFrom)) errors.push('EMAIL_FROM must be a valid sender such as Hellowhen <support@mail.hellowhen.com>.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
+  const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiDebugPlaceholders;
+  if (aiConfigured && env.aiProvider === 'none') {
+    errors.push('AI feature flags require AI_PROVIDER to be set to a real provider in a later dedicated AI launch.');
+  }
   if ((env.webAdsEnabled || env.mobileAdsEnabled) && !env.adsEnabled) errors.push('WEB_ADS_ENABLED=true or MOBILE_ADS_ENABLED=true requires ADS_ENABLED=true in production.');
   if (env.adsDebugPlaceholders) errors.push('ADS_DEBUG_PLACEHOLDERS must stay false in production.');
   if (env.adsProvider !== 'none' && !env.adsEnabled) errors.push('ADS_PROVIDER requires ADS_ENABLED=true in production.');
