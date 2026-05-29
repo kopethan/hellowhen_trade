@@ -1,0 +1,298 @@
+diff --git a/docs/launch/business-hidden-guard-smoke.md b/docs/launch/business-hidden-guard-smoke.md
+new file mode 100644
+index 0000000..24bdf32
+--- /dev/null
++++ b/docs/launch/business-hidden-guard-smoke.md
+@@ -0,0 +1,116 @@
++# Business hidden guard smoke test
++
++Business, Enterprise, sponsored placements, campaigns, and budget sandbox work must remain hidden for the first launch.
++
++This smoke test verifies the Business batch stays fail-closed after patches B1-B9.
++
++## Default first-launch expectation
++
++Keep these disabled in local launch-mode testing and production:
++
++```env
++BUSINESS_ACCOUNTS_ENABLED=false
++BUSINESS_ACCOUNTS_VISIBLE=false
++BUSINESS_SPONSORED_CONTENT_ENABLED=false
++BUSINESS_CAMPAIGNS_ENABLED=false
++BUSINESS_BUDGETS_ENABLED=false
++
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=false
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED=false
++NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED=false
++NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED=false
++
++EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=false
++EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=false
++EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED=false
++EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED=false
++EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED=false
++```
++
++The first-launch production guard must also keep these off:
++
++```env
++MONEY_PROVIDER=none
++ADS_PROVIDER=none
++AI_PROVIDER=none
++SUBSCRIPTIONS_ENABLED=false
++PRO_ACCOUNTS_ENABLED=false
++PLANS_ENABLED=false
++```
++
++## Static guard check only
++
++Run this without starting the API:
++
++```powershell
++$env:BUSINESS_SMOKE_STATIC_ONLY="true"
++npm run business:hidden-smoke
++Remove-Item Env:\BUSINESS_SMOKE_STATIC_ONLY
++```
++
++Expected result:
++
++```txt
++Static Business hidden/first-launch guard checks: PASS
++```
++
++## Runtime hidden API check
++
++Start the API with Business disabled, then run:
++
++```powershell
++npm run dev:api
++```
++
++In another terminal:
++
++```powershell
++npm run business:hidden-smoke
++```
++
++Expected runtime checks:
++
++```txt
++/business: business_accounts_disabled PASS
++/business/profiles: business_accounts_disabled PASS
++/business/invitations/not-a-real-token/accept: business_accounts_disabled PASS
++```
++
++These checks confirm the top-level Business API is blocked before auth, ownership, team, sponsored placement, campaign, or budget logic can run.
++
++## Production guard check
++
++For first launch, production startup should fail if any Business public/runtime flag is accidentally enabled while `FIRST_LAUNCH_GUARDS_ENABLED` is not explicitly disabled.
++
++Examples that should fail in production:
++
++```env
++NODE_ENV=production
++BUSINESS_ACCOUNTS_ENABLED=true
++```
++
++```env
++NODE_ENV=production
++NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true
++```
++
++```env
++NODE_ENV=production
++BUSINESS_BUDGETS_ENABLED=true
++MONEY_PROVIDER=none
++```
++
++Do not bypass this with `FIRST_LAUNCH_GUARDS_ENABLED=false` for the first beta.
++
++## What this does not test
++
++This smoke test does not validate the later internal Business workflow with flags enabled. That belongs to a later Business QA phase after first-launch safety work.
++
++It intentionally does not test:
++
++- real sponsored feed placement rendering
++- campaigns as a public surface
++- business budgets with Stripe or Airwallex
++- wallet balances, credits, payouts, or provider webhooks
++- external ads SDKs
+diff --git a/package.json b/package.json
+index 161bc6a..32ac2f9 100644
+--- a/package.json
++++ b/package.json
+@@ -21,6 +21,7 @@
+     "admin:smoke": "node scripts/admin-launch-smoke.mjs",
+     "admin:rehearsal": "node scripts/admin-launch-smoke.mjs",
+     "plans:smoke": "node scripts/plans-hidden-smoke.mjs",
++    "business:hidden-smoke": "node scripts/business-hidden-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web"
+   },
+diff --git a/scripts/business-hidden-smoke.mjs b/scripts/business-hidden-smoke.mjs
+new file mode 100644
+index 0000000..55f1482
+--- /dev/null
++++ b/scripts/business-hidden-smoke.mjs
+@@ -0,0 +1,158 @@
++#!/usr/bin/env node
++
++import { readFileSync } from 'node:fs';
++import path from 'node:path';
++
++const root = process.cwd();
++const apiBase = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000').replace(/\/$/, '');
++const staticOnly = (process.env.BUSINESS_SMOKE_STATIC_ONLY || 'false').toLowerCase() === 'true';
++const expectBusinessEnabled = (process.env.EXPECT_BUSINESS_ENABLED || 'false').toLowerCase() === 'true';
++
++function read(relativePath) {
++  return readFileSync(path.join(root, relativePath), 'utf8');
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function assertContains(file, needle, message = `${file} must contain ${needle}`) {
++  const content = read(file);
++  assert(content.includes(needle), message);
++}
++
++function assertEnvDefaultFalse(envExample, key) {
++  const pattern = new RegExp(`^${key}=false$`, 'm');
++  assert(pattern.test(envExample), `.env.example must keep ${key}=false for first launch.`);
++}
++
++function assertEnvDefaultNone(envExample, key) {
++  const pattern = new RegExp(`^${key}=none$`, 'm');
++  assert(pattern.test(envExample), `.env.example must keep ${key}=none for first launch.`);
++}
++
++function runStaticGuardChecks() {
++  const envExample = read('.env.example');
++
++  [
++    'BUSINESS_ACCOUNTS_ENABLED',
++    'BUSINESS_ACCOUNTS_VISIBLE',
++    'BUSINESS_SPONSORED_CONTENT_ENABLED',
++    'BUSINESS_CAMPAIGNS_ENABLED',
++    'BUSINESS_BUDGETS_ENABLED',
++    'NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED',
++    'NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE',
++    'NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED',
++    'NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED',
++    'NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED',
++    'EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED',
++    'EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE',
++    'EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED',
++    'EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED',
++    'EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED',
++  ].forEach((key) => assertEnvDefaultFalse(envExample, key));
++
++  [
++    'MONEY_PROVIDER',
++    'NEXT_PUBLIC_MONEY_PROVIDER',
++    'EXPO_PUBLIC_MONEY_PROVIDER',
++    'ADS_PROVIDER',
++    'NEXT_PUBLIC_ADS_PROVIDER',
++    'EXPO_PUBLIC_ADS_PROVIDER',
++    'AI_PROVIDER',
++    'NEXT_PUBLIC_AI_PROVIDER',
++    'EXPO_PUBLIC_AI_PROVIDER',
++  ].forEach((key) => assertEnvDefaultNone(envExample, key));
++
++  assertContains('apps/api/src/routes.ts', "routes.use('/business', requireBusinessAccountsEnabled(), businessRoutes);", 'The Business API must stay behind requireBusinessAccountsEnabled().');
++  assertContains('apps/api/src/modules/admin/admin.routes.ts', "adminRoutes.use('/business-profiles', requireBusinessAccountsEnabled('Admin business profiles'));", 'Admin Business profiles must stay behind the Business account guard.');
++  assertContains('apps/api/src/modules/admin/admin.routes.ts', "adminRoutes.use('/business-sponsored-placements', requireBusinessSponsoredContentEnabled('Admin Business sponsored placements'));", 'Admin Business sponsored placements must stay behind the sponsored-content guard.');
++  assertContains('apps/api/src/modules/admin/admin.routes.ts', "adminRoutes.use('/business-campaigns', requireBusinessCampaignsEnabled('Admin Business campaigns'));", 'Admin Business campaigns must stay behind the campaign guard.');
++  assertContains('apps/api/src/modules/admin/admin.routes.ts', "adminRoutes.use('/business-budgets', requireBusinessBudgetsEnabled('Admin Business budget sandbox'));", 'Admin Business budgets must stay behind the budget guard.');
++
++  const featureGates = read('apps/api/src/middleware/featureGates.ts');
++  assert(featureGates.includes("business_accounts_disabled"), 'Feature gates must expose the disabled Business account error code.');
++  assert(featureGates.includes("business_sponsored_content_disabled"), 'Feature gates must expose the disabled Business sponsored-content error code.');
++  assert(featureGates.includes("business_campaigns_disabled"), 'Feature gates must expose the disabled Business campaigns error code.');
++  assert(featureGates.includes("business_budgets_disabled"), 'Feature gates must expose the disabled Business budgets error code.');
++
++  const apiEnv = read('apps/api/src/config/env.ts');
++  [
++    'env.businessAccountsEnabled',
++    'env.businessAccountsVisible',
++    'env.businessSponsoredContentEnabled',
++    'env.businessCampaignsEnabled',
++    'env.businessBudgetsEnabled',
++    "publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')",
++    "publicFlagEnabled('NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')",
++    "publicFlagEnabled('NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')",
++    "publicFlagEnabled('NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')",
++    "publicFlagEnabled('NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED')",
++    "publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')",
++    "publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE')",
++    "publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED')",
++    "publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED')",
++    "publicFlagEnabled('EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED')",
++  ].forEach((needle) => assert(apiEnv.includes(needle), `Production first-launch guard must check ${needle}.`));
++  assert(apiEnv.includes('Business/brand account, sponsored-content, campaign, and budget flags must stay disabled/hidden for first launch.'), 'Production first-launch guard must fail loudly if Business flags are enabled.');
++  assert(apiEnv.includes('BUSINESS_BUDGETS_ENABLED requires a sandbox-only money provider with provider account creation enabled in production.'), 'Business budget sandbox must require a sandbox-only provider gate.');
++
++  const webFeatures = read('apps/web/src/lib/betaFeatures.tsx');
++  assert(webFeatures.includes('const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);'), 'Web Business flags must be force-disabled by first-launch production guards.');
++  assert(webFeatures.includes('businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED)'), 'Web Business budget visibility must depend on Business accounts being enabled.');
++
++  const mobileFeatures = read('apps/mobile/src/lib/betaFeatures.ts');
++  assert(mobileFeatures.includes('const businessAccountsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED);'), 'Mobile Business flags must be force-disabled by first-launch production guards.');
++  assert(mobileFeatures.includes('businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED)'), 'Mobile Business budget visibility must depend on Business accounts being enabled.');
++
++  const businessPlan = read('docs/product/business-enterprise-account-plan.md');
++  assert(businessPlan.includes('BUSINESS_ACCOUNTS_ENABLED=false'), 'Business plan doc must keep enabled flag default off.');
++  assert(businessPlan.includes('BUSINESS_ACCOUNTS_VISIBLE=false'), 'Business plan doc must keep visible flag default off.');
++  assert(businessPlan.includes('BUSINESS_BUDGETS_ENABLED=false'), 'Business plan doc must keep budget flag default off.');
++
++  console.log('Static Business hidden/first-launch guard checks: PASS');
++}
++
++async function request(pathname, options = {}) {
++  const response = await fetch(`${apiBase}${pathname}`, {
++    ...options,
++    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
++  });
++  const body = await response.json().catch(() => null);
++  return { response, body };
++}
++
++async function expectDisabled(pathname, expectedError) {
++  const { response, body } = await request(pathname);
++  assert(response.status === 404, `${pathname} should return 404 while Business is disabled, got ${response.status}.`);
++  assert(body?.error === expectedError, `${pathname} should return ${expectedError}, got ${body?.error ?? 'no error body'}.`);
++  console.log(`${pathname}: ${expectedError} PASS`);
++}
++
++async function runRuntimeDisabledChecks() {
++  console.log(`Business hidden runtime smoke: ${apiBase}`);
++  await expectDisabled('/business', 'business_accounts_disabled');
++  await expectDisabled('/business/profiles', 'business_accounts_disabled');
++  await expectDisabled('/business/invitations/not-a-real-token/accept', 'business_accounts_disabled');
++}
++
++async function main() {
++  runStaticGuardChecks();
++
++  if (staticOnly) {
++    console.log('BUSINESS_SMOKE_STATIC_ONLY=true, skipped API runtime checks.');
++    return;
++  }
++
++  if (expectBusinessEnabled) {
++    console.log('EXPECT_BUSINESS_ENABLED=true, skipped disabled runtime checks. Use this only for later internal Business QA.');
++    return;
++  }
++
++  await runRuntimeDisabledChecks();
++}
++
++main().catch((error) => {
++  console.error(error instanceof Error ? error.message : error);
++  process.exitCode = 1;
++});

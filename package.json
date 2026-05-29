@@ -21,6 +21,7 @@
     "admin:smoke": "node scripts/admin-launch-smoke.mjs",
     "admin:rehearsal": "node scripts/admin-launch-smoke.mjs",
     "plans:smoke": "node scripts/plans-hidden-smoke.mjs",
+    "business:hidden-smoke": "node scripts/business-hidden-smoke.mjs",
     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web"
   },
