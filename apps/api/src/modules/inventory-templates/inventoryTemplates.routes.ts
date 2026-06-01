@@ -4,6 +4,7 @@ import { cloneInventoryTemplateRequestSchema, listInventoryTemplatesQuerySchema 
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+import { classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { loadMediaByEntityIds, withMedia, withOneMedia } from '../media/media.helpers.js';
 
 export const inventoryTemplatesRoutes = Router();
@@ -189,6 +190,15 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
       },
     });
     await cloneTemplateMediaToInventory(actorId, template.id, 'need', need.id);
+    await classifyContentRulesIfEnabled(prisma, {
+      targetType: 'need',
+      targetId: need.id,
+      title: need.title,
+      description: need.description,
+      userCategory: need.category,
+      tags: need.tags,
+      extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
+    });
     return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), need: await withOneMedia('need', need) });
   }
 
@@ -209,5 +219,14 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
     },
   });
   await cloneTemplateMediaToInventory(actorId, template.id, 'offer', offer.id);
+  await classifyContentRulesIfEnabled(prisma, {
+    targetType: 'offer',
+    targetId: offer.id,
+    title: offer.title,
+    description: offer.description,
+    userCategory: offer.category,
+    tags: offer.tags,
+    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+  });
   return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), offer: await withOneMedia('offer', offer) });
 }));

@@ -3,6 +3,7 @@ import { createNeedRequestSchema, updateNeedRequestSchema } from '@hellowhen/con
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 
 export const needsRoutes = Router();
@@ -85,7 +86,7 @@ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
 needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createNeedRequestSchema.parse(req.body);
   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
-  const need = await prisma.need.create({
+  let need = await prisma.need.create({
     data: {
       ownerId: req.user!.id,
       title: input.title,
@@ -101,6 +102,19 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     }
   });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
+  const classification = await classifyContentRulesIfEnabled(prisma, {
+    targetType: 'need',
+    targetId: need.id,
+    title: need.title,
+    description: need.description,
+    userCategory: need.category,
+    tags: need.tags,
+    extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
+  });
+  const gateDecision = buildContentReviewGateDecision(classification);
+  if (gateDecision.shouldGate && need.status === 'active') {
+    need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
+  }
   res.status(201).json({ need: await withOneMedia('need', need) });
 }));
 
@@ -113,8 +127,21 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
   if (active.activeTradeCount > 0) {
     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
-  const need = await prisma.need.update({ where: { id: existing.id }, data: buildNeedUpdateData(input) });
+  let need = await prisma.need.update({ where: { id: existing.id }, data: buildNeedUpdateData(input) });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
+  const classification = await classifyContentRulesIfEnabled(prisma, {
+    targetType: 'need',
+    targetId: need.id,
+    title: need.title,
+    description: need.description,
+    userCategory: need.category,
+    tags: need.tags,
+    extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
+  });
+  const gateDecision = buildContentReviewGateDecision(classification);
+  if (gateDecision.shouldGate && need.status === 'active') {
+    need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
+  }
   res.json({ need: await withOneMedia('need', need) });
 }));
 

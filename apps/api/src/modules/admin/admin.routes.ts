@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -17,6 +17,8 @@ import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withOneSupportMessageMedia, withOneSupportTicketMedia, withSupportTicketMedia } from '../support/support.routes.js';
 import { findReportTarget, hydrateReports, moderateReportedTarget } from '../reports/reports.routes.js';
 import { publicTradeVisibilityWhere, refundHeldWalletMoney, releaseHeldWalletMoney, tradeInclude, withOneTradeDeckMedia } from '../trades/trades.routes.js';
+import { buildAiSuggestionProviderStatus, classifyContentWithAiSuggestions, ContentAiSuggestionError } from '../content-intelligence/contentIntelligence.ai.js';
+import { assertContentPlacementSignalsEnabled, buildContentPlacementSignalData, buildContentPlacementSignalStatus } from '../content-intelligence/contentIntelligence.signals.js';
 import { API_METRICS_RETENTION_HOURS, USAGE_ACTIVITY_WINDOW_MINUTES, USAGE_LIVE_WINDOW_MINUTES, USAGE_MONITORING_PRIVACY_NOTE, USAGE_PRESENCE_RETENTION_HOURS, cleanupUsageMonitoringData, usageMonitoringWindowStart } from '../usage/usageRetention.js';
 import { buildAdminServerHealth } from '../usage/serverHealth.js';
 
@@ -1644,6 +1646,630 @@ adminRoutes.patch('/content/:type/:contentId/action', asyncRoute(async (req, res
     metadata: { ownerId: existing.ownerId, title: existing.title, businessOwned: isBusinessOwned, businessProfile: existing.businessProfile ?? null },
   });
   res.json({ item: updated });
+}));
+
+
+type AdminContentClassificationTargetType = 'need' | 'offer' | 'trade' | 'profile' | 'business_template' | 'business_need' | 'business_offer' | 'business_campaign';
+
+
+type ContentClassificationRow = {
+  id: string;
+  targetType: AdminContentClassificationTargetType;
+  targetId: string;
+  source: string;
+  status: string;
+  userCategory?: string | null;
+  systemCategory?: string | null;
+  categoryConfidence?: number | null;
+  categoryMismatch: boolean;
+  suggestedTags: string[];
+  suggestedNewTags: string[];
+  safetyCategory: string;
+  safetySeverity: string;
+  adultRelated: boolean;
+  childSafe: boolean;
+  spamOrScamRisk: boolean;
+  regulatedRisk: boolean;
+  suggestedAction: string;
+  reason?: string | null;
+  reviewedById?: string | null;
+  reviewedBy?: unknown;
+  reviewedAt?: Date | null;
+  adminNote?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type ContentPlacementSignalRow = {
+  id: string;
+  targetType: AdminContentClassificationTargetType;
+  targetId: string;
+  source: string;
+  status: string;
+  sourceClassificationId?: string | null;
+  category?: string | null;
+  tags: string[];
+  suggestedNewTags: string[];
+  safetyCategory: string;
+  safetySeverity: string;
+  adultRelated: boolean;
+  childSafe: boolean;
+  spamOrScamRisk: boolean;
+  regulatedRisk: boolean;
+  contextualEligible: boolean;
+  businessPlacementEligible: boolean;
+  adsPlacementEligible: boolean;
+  surfaces: string[];
+  reason?: string | null;
+  approvedById?: string | null;
+  approvedBy?: unknown;
+  approvedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type AdminContentIntelligenceTarget = {
+  id: string;
+  type: AdminContentClassificationTargetType;
+  title?: string | null;
+  description?: string | null;
+  status?: string | null;
+  category?: string | null;
+  ownerId?: string | null;
+  owner?: unknown;
+  businessProfileId?: string | null;
+  businessProfile?: unknown;
+  href?: string | null;
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+};
+
+function labelContentClassificationTarget(type: AdminContentClassificationTargetType) {
+  if (type === 'business_template') return 'business template';
+  if (type === 'business_need') return 'business need';
+  if (type === 'business_offer') return 'business offer';
+  if (type === 'business_campaign') return 'business campaign';
+  return type;
+}
+
+function classificationTargetHref(type: AdminContentClassificationTargetType, id: string) {
+  if (type === 'trade') return `/trades/${id}`;
+  if (type === 'need' || type === 'business_need') return `/needs/${id}`;
+  if (type === 'offer' || type === 'business_offer') return `/offers/${id}`;
+  return null;
+}
+
+function contentClassificationQueueWhere(input: any) {
+  const where: any = {};
+  if (input.targetType !== 'all') where.targetType = input.targetType;
+  if (input.source !== 'all') where.source = input.source;
+  if (input.status !== 'all') where.status = input.status;
+  if (input.safetyCategory !== 'all') where.safetyCategory = input.safetyCategory;
+  if (input.safetySeverity !== 'all') where.safetySeverity = input.safetySeverity;
+  if (input.suggestedAction !== 'all') where.suggestedAction = input.suggestedAction;
+  if (input.systemCategory !== 'all') where.systemCategory = input.systemCategory;
+  if (input.categoryMismatch !== 'all') where.categoryMismatch = input.categoryMismatch === 'true';
+  if (input.q) {
+    where.OR = [
+      { targetId: { contains: input.q, mode: 'insensitive' } },
+      { userCategory: { contains: input.q, mode: 'insensitive' } },
+      { reason: { contains: input.q, mode: 'insensitive' } },
+      { adminNote: { contains: input.q, mode: 'insensitive' } },
+    ];
+  }
+  return where;
+}
+
+function contentClassificationSnapshot(row: ContentClassificationRow | null | undefined) {
+  if (!row) return null;
+  return {
+    status: row.status,
+    source: row.source,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    userCategory: row.userCategory ?? null,
+    systemCategory: row.systemCategory ?? null,
+    categoryConfidence: row.categoryConfidence ?? null,
+    categoryMismatch: row.categoryMismatch,
+    suggestedTags: row.suggestedTags,
+    suggestedNewTags: row.suggestedNewTags,
+    safetyCategory: row.safetyCategory,
+    safetySeverity: row.safetySeverity,
+    adultRelated: row.adultRelated,
+    childSafe: row.childSafe,
+    spamOrScamRisk: row.spamOrScamRisk,
+    regulatedRisk: row.regulatedRisk,
+    suggestedAction: row.suggestedAction,
+    adminNote: row.adminNote ?? null,
+    reviewedById: row.reviewedById ?? null,
+    reviewedAt: row.reviewedAt ?? null,
+  };
+}
+
+function contentPlacementSignalSnapshot(row: ContentPlacementSignalRow | null | undefined) {
+  if (!row) return null;
+  return {
+    status: row.status,
+    source: row.source,
+    targetType: row.targetType,
+    targetId: row.targetId,
+    sourceClassificationId: row.sourceClassificationId ?? null,
+    category: row.category ?? null,
+    tags: row.tags,
+    suggestedNewTags: row.suggestedNewTags,
+    safetyCategory: row.safetyCategory,
+    safetySeverity: row.safetySeverity,
+    adultRelated: row.adultRelated,
+    childSafe: row.childSafe,
+    spamOrScamRisk: row.spamOrScamRisk,
+    regulatedRisk: row.regulatedRisk,
+    contextualEligible: row.contextualEligible,
+    businessPlacementEligible: row.businessPlacementEligible,
+    adsPlacementEligible: row.adsPlacementEligible,
+    surfaces: row.surfaces,
+    reason: row.reason ?? null,
+    approvedById: row.approvedById ?? null,
+    approvedAt: row.approvedAt ?? null,
+  };
+}
+
+function buildContentIntelligenceTarget(type: AdminContentClassificationTargetType, item: any): AdminContentIntelligenceTarget | null {
+  if (!item) return null;
+  if (type === 'need' || type === 'business_need') {
+    return {
+      id: item.id,
+      type,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      category: item.category ?? null,
+      ownerId: item.ownerId ?? null,
+      owner: item.owner ?? null,
+      businessProfileId: item.businessProfileId ?? null,
+      businessProfile: item.businessProfile ?? null,
+      href: classificationTargetHref(type, item.id),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+  if (type === 'offer' || type === 'business_offer') {
+    return {
+      id: item.id,
+      type,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      category: item.category ?? null,
+      ownerId: item.ownerId ?? null,
+      owner: item.owner ?? null,
+      businessProfileId: item.businessProfileId ?? null,
+      businessProfile: item.businessProfile ?? null,
+      href: classificationTargetHref(type, item.id),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+  if (type === 'trade') {
+    return {
+      id: item.id,
+      type,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      category: item.need?.category ?? item.offer?.category ?? null,
+      ownerId: item.ownerId ?? null,
+      owner: item.owner ?? null,
+      businessProfileId: item.businessProfileId ?? null,
+      businessProfile: item.businessProfile ?? null,
+      href: classificationTargetHref(type, item.id),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+  if (type === 'profile') {
+    return {
+      id: item.id,
+      type,
+      title: item.displayName || item.handle || item.user?.email || 'Profile',
+      description: item.bio ?? null,
+      status: item.user?.trustTier ?? null,
+      category: item.countryCode ?? null,
+      ownerId: item.userId ?? null,
+      owner: item.user ?? null,
+      href: null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+  if (type === 'business_template') {
+    return {
+      id: item.id,
+      type,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      category: item.category ?? null,
+      ownerId: item.businessProfile?.ownerId ?? null,
+      owner: item.businessProfile?.owner ?? null,
+      businessProfileId: item.businessProfileId ?? null,
+      businessProfile: item.businessProfile ?? null,
+      href: null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+  if (type === 'business_campaign') {
+    return {
+      id: item.id,
+      type,
+      title: item.title,
+      description: item.description,
+      status: item.status,
+      category: item.opportunityType ?? null,
+      ownerId: item.createdById ?? item.businessProfile?.ownerId ?? null,
+      owner: item.createdBy ?? item.businessProfile?.owner ?? null,
+      businessProfileId: item.businessProfileId ?? null,
+      businessProfile: item.businessProfile ?? null,
+      href: null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    };
+  }
+  return null;
+}
+
+async function hydrateContentClassificationTargets(rows: ContentClassificationRow[]) {
+  const targets = new Map<string, AdminContentIntelligenceTarget | null>();
+  const idsByType = new Map<AdminContentClassificationTargetType, string[]>();
+  for (const row of rows) {
+    const list = idsByType.get(row.targetType) ?? [];
+    list.push(row.targetId);
+    idsByType.set(row.targetType, list);
+  }
+
+  const needIds = [...new Set([...(idsByType.get('need') ?? []), ...(idsByType.get('business_need') ?? [])])];
+  const offerIds = [...new Set([...(idsByType.get('offer') ?? []), ...(idsByType.get('business_offer') ?? [])])];
+  const tradeIds = [...new Set(idsByType.get('trade') ?? [])];
+  const profileIds = [...new Set(idsByType.get('profile') ?? [])];
+  const templateIds = [...new Set(idsByType.get('business_template') ?? [])];
+  const campaignIds = [...new Set(idsByType.get('business_campaign') ?? [])];
+
+  const [needs, offers, trades, profiles, templates, campaigns] = await Promise.all([
+    needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: { ...adminLibraryBusinessProfileSelect, owner: { select: adminContentUserSelect } } } } }) : [],
+    offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: { ...adminLibraryBusinessProfileSelect, owner: { select: adminContentUserSelect } } } } }) : [],
+    tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, include: { owner: { select: adminContentUserSelect }, businessProfile: { select: { ...adminLibraryBusinessProfileSelect, owner: { select: adminContentUserSelect } } }, need: true, offer: true } }) : [],
+    profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, include: { user: { select: adminContentUserSelect } } }) : [],
+    templateIds.length ? prisma.inventoryTemplate.findMany({ where: { id: { in: templateIds } }, include: { businessProfile: { select: { ...adminLibraryBusinessProfileSelect, owner: { select: adminContentUserSelect } } } } }) : [],
+    campaignIds.length ? prisma.businessCampaign.findMany({ where: { id: { in: campaignIds } }, include: { createdBy: { select: adminContentUserSelect }, businessProfile: { select: { ...adminLibraryBusinessProfileSelect, owner: { select: adminContentUserSelect } } } } }) : [],
+  ]);
+
+  for (const item of needs) {
+    targets.set(`need:${item.id}`, buildContentIntelligenceTarget('need', item));
+    targets.set(`business_need:${item.id}`, buildContentIntelligenceTarget('business_need', item));
+  }
+  for (const item of offers) {
+    targets.set(`offer:${item.id}`, buildContentIntelligenceTarget('offer', item));
+    targets.set(`business_offer:${item.id}`, buildContentIntelligenceTarget('business_offer', item));
+  }
+  for (const item of trades) targets.set(`trade:${item.id}`, buildContentIntelligenceTarget('trade', item));
+  for (const item of profiles) targets.set(`profile:${item.id}`, buildContentIntelligenceTarget('profile', item));
+  for (const item of templates) targets.set(`business_template:${item.id}`, buildContentIntelligenceTarget('business_template', item));
+  for (const item of campaigns) targets.set(`business_campaign:${item.id}`, buildContentIntelligenceTarget('business_campaign', item));
+
+  const signalWhere = rows.map((row) => ({ targetType: row.targetType, targetId: row.targetId }));
+  const signalRows = signalWhere.length ? await (prisma as any).contentPlacementSignal.findMany({
+    where: { OR: signalWhere },
+    include: { approvedBy: { select: adminContentUserSelect } },
+  }) as ContentPlacementSignalRow[] : [];
+  const signals = new Map(signalRows.map((signal) => [`${signal.targetType}:${signal.targetId}`, signal]));
+
+  return rows.map((row) => ({
+    ...row,
+    target: targets.get(`${row.targetType}:${row.targetId}`) ?? null,
+    placementSignal: signals.get(`${row.targetType}:${row.targetId}`) ?? null,
+  }));
+}
+
+function contentIntelligenceFlags() {
+  const aiStatus = buildAiSuggestionProviderStatus();
+  const placementStatus = buildContentPlacementSignalStatus();
+  return {
+    contentIntelligenceEnabled: env.contentIntelligenceEnabled,
+    contentClassificationEnabled: env.contentClassificationEnabled,
+    aiModerationSuggestionsEnabled: env.aiModerationSuggestionsEnabled,
+    autoModerationActionsEnabled: env.autoModerationActionsEnabled,
+    aiProvider: aiStatus.provider,
+    aiAdminOnlySuggestionsAvailable: aiStatus.configured,
+    aiAdminOnlySuggestionsDisabledReason: aiStatus.configured ? null : aiStatus.disabledReason,
+    contentPlacementSignalsEnabled: env.contentPlacementSignalsEnabled,
+    businessContextualSignalsEnabled: env.businessContextualSignalsEnabled,
+    contextualAdSignalsEnabled: env.contextualAdSignalsEnabled,
+    placementSignalsAvailable: placementStatus.configured,
+    placementSignalsDisabledReason: placementStatus.configured ? null : placementStatus.disabledReason,
+  };
+}
+
+async function buildContentClassificationSummary() {
+  const client = (prisma as any).contentClassification;
+  const unreviewedWhere = { status: { in: ['pending', 'completed', 'failed'] } };
+  const [total, needsReview, highRisk, categoryMismatch, adultOrSexual, spamOrScam, regulated, failed] = await Promise.all([
+    client.count(),
+    client.count({ where: { ...unreviewedWhere, OR: [{ suggestedAction: { in: ['review', 'hide'] } }, { categoryMismatch: true }] } }),
+    client.count({ where: { ...unreviewedWhere, safetySeverity: { in: ['high', 'critical'] } } }),
+    client.count({ where: { ...unreviewedWhere, categoryMismatch: true } }),
+    client.count({ where: { ...unreviewedWhere, safetyCategory: { in: ['adult', 'sexual'] } } }),
+    client.count({ where: { ...unreviewedWhere, spamOrScamRisk: true } }),
+    client.count({ where: { ...unreviewedWhere, regulatedRisk: true } }),
+    client.count({ where: { status: 'failed' } }),
+  ]);
+  return { total, needsReview, highRisk, categoryMismatch, adultOrSexual, spamOrScam, regulated, failed };
+}
+
+adminRoutes.get('/content-intelligence', asyncRoute(async (req, res) => {
+  const input = adminListContentClassificationsQuerySchema.parse(req.query);
+  const rows = await (prisma as any).contentClassification.findMany({
+    where: contentClassificationQueueWhere(input),
+    include: { reviewedBy: { select: adminContentUserSelect } },
+    orderBy: { updatedAt: 'desc' },
+    take: input.take,
+  }) as ContentClassificationRow[];
+  const [classifications, summary] = await Promise.all([
+    hydrateContentClassificationTargets(rows),
+    buildContentClassificationSummary(),
+  ]);
+  res.json({ flags: contentIntelligenceFlags(), summary, classifications });
+}));
+
+adminRoutes.patch('/content-intelligence/:classificationId/action', asyncRoute(async (req, res) => {
+  const input = adminContentClassificationActionRequestSchema.parse(req.body ?? {});
+  const note = input.adminNote?.trim();
+  if (input.action === 'override' && !note) {
+    return res.status(400).json({ error: 'admin_note_required', message: 'Add an internal note before overriding a content classification.' });
+  }
+
+  const client = (prisma as any).contentClassification;
+  const existing = await client.findUnique({
+    where: { id: req.params.classificationId },
+    include: { reviewedBy: { select: adminContentUserSelect } },
+  }) as ContentClassificationRow | null;
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  const now = new Date();
+  const data = input.action === 'mark_reviewed'
+    ? {
+      status: 'reviewed',
+      reviewedById: req.user!.id,
+      reviewedAt: now,
+      ...(note ? { adminNote: note } : {}),
+    }
+    : {
+      status: 'overridden',
+      reviewedById: req.user!.id,
+      reviewedAt: now,
+      adminNote: note,
+      ...(input.systemCategory !== undefined ? { systemCategory: input.systemCategory } : {}),
+      ...(input.safetyCategory !== undefined ? { safetyCategory: input.safetyCategory } : {}),
+      ...(input.safetySeverity !== undefined ? { safetySeverity: input.safetySeverity } : {}),
+      ...(input.suggestedAction !== undefined ? { suggestedAction: input.suggestedAction } : {}),
+      ...(input.categoryMismatch !== undefined ? { categoryMismatch: input.categoryMismatch } : {}),
+      ...(input.suggestedTags !== undefined ? { suggestedTags: input.suggestedTags } : {}),
+      ...(input.suggestedNewTags !== undefined ? { suggestedNewTags: input.suggestedNewTags } : {}),
+      ...(input.adultRelated !== undefined ? { adultRelated: input.adultRelated } : {}),
+      ...(input.childSafe !== undefined ? { childSafe: input.childSafe } : {}),
+      ...(input.spamOrScamRisk !== undefined ? { spamOrScamRisk: input.spamOrScamRisk } : {}),
+      ...(input.regulatedRisk !== undefined ? { regulatedRisk: input.regulatedRisk } : {}),
+    };
+
+  const updated = await client.update({
+    where: { id: existing.id },
+    data,
+    include: { reviewedBy: { select: adminContentUserSelect } },
+  }) as ContentClassificationRow;
+
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: `content_intelligence.${input.action}`,
+    targetType: 'content_classification',
+    targetId: existing.id,
+    reason: note,
+    previousValue: contentClassificationSnapshot(existing),
+    nextValue: contentClassificationSnapshot(updated),
+    metadata: { targetType: existing.targetType, targetId: existing.targetId, source: existing.source, label: labelContentClassificationTarget(existing.targetType) },
+  });
+
+  const [classification] = await hydrateContentClassificationTargets([updated]);
+  res.json({ classification });
+}));
+
+
+
+adminRoutes.post('/content-intelligence/:classificationId/placement-signal', asyncRoute(async (req, res) => {
+  try {
+    assertContentPlacementSignalsEnabled();
+  } catch (error) {
+    const typed = error as Error & { statusCode?: number; code?: string };
+    return res.status(typed.statusCode ?? 409).json({ error: typed.code ?? 'content_placement_signals_disabled', message: typed.message });
+  }
+
+  const client = (prisma as any).contentClassification;
+  const existing = await client.findUnique({
+    where: { id: req.params.classificationId },
+    include: { reviewedBy: { select: adminContentUserSelect } },
+  }) as ContentClassificationRow | null;
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  if (!['reviewed', 'overridden'].includes(existing.status)) {
+    return res.status(409).json({ error: 'classification_not_reviewed', message: 'Review or override the classification before syncing contextual placement signals.' });
+  }
+
+  const signalClient = (prisma as any).contentPlacementSignal;
+  const previous = await signalClient.findUnique({
+    where: { targetType_targetId: { targetType: existing.targetType, targetId: existing.targetId } },
+    include: { approvedBy: { select: adminContentUserSelect } },
+  }) as ContentPlacementSignalRow | null;
+  const data = buildContentPlacementSignalData(existing, req.user!.id);
+  const signal = await signalClient.upsert({
+    where: { targetType_targetId: { targetType: existing.targetType, targetId: existing.targetId } },
+    create: data,
+    update: data,
+    include: { approvedBy: { select: adminContentUserSelect } },
+  }) as ContentPlacementSignalRow;
+
+  await recordAdminAuditLog(prisma, req.user!.id, {
+    action: 'content_intelligence.sync_placement_signal',
+    targetType: 'content_placement_signal',
+    targetId: signal.id,
+    reason: data.reason,
+    previousValue: contentPlacementSignalSnapshot(previous),
+    nextValue: contentPlacementSignalSnapshot(signal),
+    metadata: {
+      targetType: existing.targetType,
+      targetId: existing.targetId,
+      classificationId: existing.id,
+      source: existing.source,
+      contextualEligible: signal.contextualEligible,
+      businessPlacementEligible: signal.businessPlacementEligible,
+      adsPlacementEligible: signal.adsPlacementEligible,
+    },
+  });
+
+  res.json({ signal });
+}));
+
+adminRoutes.post('/content-intelligence/:classificationId/ai-suggestion', asyncRoute(async (req, res) => {
+  const input = adminContentClassificationAiSuggestionRequestSchema.parse(req.body ?? {});
+  const client = (prisma as any).contentClassification;
+  const existing = await client.findUnique({
+    where: { id: req.params.classificationId },
+    include: { reviewedBy: { select: adminContentUserSelect } },
+  }) as ContentClassificationRow | null;
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  const [hydrated] = await hydrateContentClassificationTargets([existing]);
+  const target = hydrated?.target;
+  if (!target) {
+    return res.status(404).json({ error: 'target_not_found', message: 'The classified target no longer exists.' });
+  }
+
+  const aiInput = {
+    targetType: existing.targetType,
+    targetId: existing.targetId,
+    title: target.title,
+    description: target.description,
+    userCategory: existing.userCategory ?? target.category ?? null,
+    tags: existing.suggestedTags,
+    extraText: [existing.reason, target.status, target.category, input.adminNote],
+    currentRules: {
+      userCategory: existing.userCategory ?? null,
+      systemCategory: existing.systemCategory ?? 'other',
+      categoryConfidence: existing.categoryConfidence ?? 0.25,
+      categoryMismatch: existing.categoryMismatch,
+      suggestedTags: existing.suggestedTags,
+      suggestedNewTags: existing.suggestedNewTags,
+      safetyCategory: existing.safetyCategory ?? 'unknown',
+      safetySeverity: existing.safetySeverity ?? 'low',
+      adultRelated: existing.adultRelated,
+      childSafe: existing.childSafe,
+      spamOrScamRisk: existing.spamOrScamRisk,
+      regulatedRisk: existing.regulatedRisk,
+      suggestedAction: existing.suggestedAction ?? 'review',
+      reason: existing.reason ?? '',
+    },
+  } as any;
+
+  try {
+    const result = await classifyContentWithAiSuggestions(aiInput);
+    const updated = await client.upsert({
+      where: { targetType_targetId_source: { targetType: existing.targetType, targetId: existing.targetId, source: 'ai' } },
+      create: {
+        targetType: existing.targetType,
+        targetId: existing.targetId,
+        source: 'ai',
+        status: 'completed',
+        ...result,
+        adminNote: input.adminNote?.trim() || null,
+      },
+      update: {
+        status: 'completed',
+        userCategory: result.userCategory,
+        systemCategory: result.systemCategory,
+        categoryConfidence: result.categoryConfidence,
+        categoryMismatch: result.categoryMismatch,
+        suggestedTags: result.suggestedTags,
+        suggestedNewTags: result.suggestedNewTags,
+        safetyCategory: result.safetyCategory,
+        safetySeverity: result.safetySeverity,
+        adultRelated: result.adultRelated,
+        childSafe: result.childSafe,
+        spamOrScamRisk: result.spamOrScamRisk,
+        regulatedRisk: result.regulatedRisk,
+        suggestedAction: result.suggestedAction,
+        reason: result.reason,
+        reviewedById: null,
+        reviewedAt: null,
+        adminNote: input.adminNote?.trim() || null,
+      },
+      include: { reviewedBy: { select: adminContentUserSelect } },
+    }) as ContentClassificationRow;
+
+    await recordAdminAuditLog(prisma, req.user!.id, {
+      action: 'content_intelligence.ai_suggestion',
+      targetType: 'content_classification',
+      targetId: updated.id,
+      reason: input.adminNote?.trim() || 'Admin requested AI content intelligence suggestion.',
+      previousValue: contentClassificationSnapshot(existing),
+      nextValue: contentClassificationSnapshot(updated),
+      metadata: { targetType: existing.targetType, targetId: existing.targetId, source: 'ai', basedOnClassificationId: existing.id, aiProvider: env.aiProvider },
+    });
+
+    const [classification] = await hydrateContentClassificationTargets([updated]);
+    res.json({ classification });
+  } catch (error) {
+    if (error instanceof ContentAiSuggestionError && error.statusCode === 409) {
+      return res.status(error.statusCode).json({ error: error.code, message: error.message });
+    }
+
+    const reason = error instanceof Error ? error.message : 'AI suggestion failed.';
+    const failed = await client.upsert({
+      where: { targetType_targetId_source: { targetType: existing.targetType, targetId: existing.targetId, source: 'ai' } },
+      create: {
+        targetType: existing.targetType,
+        targetId: existing.targetId,
+        source: 'ai',
+        status: 'failed',
+        userCategory: aiInput.userCategory,
+        safetyCategory: 'unknown',
+        safetySeverity: 'low',
+        childSafe: false,
+        suggestedAction: 'review',
+        reason,
+        adminNote: input.adminNote?.trim() || null,
+      },
+      update: {
+        status: 'failed',
+        userCategory: aiInput.userCategory,
+        safetyCategory: 'unknown',
+        safetySeverity: 'low',
+        childSafe: false,
+        suggestedAction: 'review',
+        reason,
+        reviewedById: null,
+        reviewedAt: null,
+        adminNote: input.adminNote?.trim() || null,
+      },
+      include: { reviewedBy: { select: adminContentUserSelect } },
+    }) as ContentClassificationRow;
+
+    await recordAdminAuditLog(prisma, req.user!.id, {
+      action: 'content_intelligence.ai_suggestion_failed',
+      targetType: 'content_classification',
+      targetId: failed.id,
+      reason,
+      previousValue: contentClassificationSnapshot(existing),
+      nextValue: contentClassificationSnapshot(failed),
+      metadata: { targetType: existing.targetType, targetId: existing.targetId, source: 'ai', basedOnClassificationId: existing.id, aiProvider: env.aiProvider },
+    });
+
+    res.status(error instanceof ContentAiSuggestionError ? error.statusCode : 502).json({ error: 'ai_suggestion_failed', message: reason });
+  }
 }));
 
 

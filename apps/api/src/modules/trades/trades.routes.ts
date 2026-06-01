@@ -8,6 +8,7 @@ import { optionalAuth, requireActiveAccount, requireAuth } from '../../middlewar
 import { buildLaunchLimits, limitExceeded } from '../limits/launchLimits.js';
 import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafety.js';
 import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
@@ -885,10 +886,37 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
         : `I need: ${needDescription}\n\nI offer: ${offerDescription}`
   );
 
-  const trade = await prisma.trade.create({
+  let trade = await prisma.trade.create({
     data: { ownerId: actorId, postType, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
     include: tradeInclude
   });
+
+  const classification = await classifyContentRulesIfEnabled(prisma, {
+    targetType: 'trade',
+    targetId: trade.id,
+    title: trade.title,
+    description: trade.description,
+    userCategory: need?.category ?? offer?.category ?? null,
+    tags: [...(need?.tags ?? []), ...(offer?.tags ?? [])],
+    extraText: [
+      trade.postType,
+      need?.title,
+      need?.description,
+      need?.timing,
+      need?.mode,
+      need?.locationLabel,
+      offer?.title,
+      offer?.description,
+      offer?.availability,
+      offer?.mode,
+      offer?.locationLabel,
+      ...(offer?.includes ?? []),
+    ],
+  });
+  const gateDecision = buildContentReviewGateDecision(classification);
+  if (gateDecision.shouldGate && trade.isPublic) {
+    trade = await prisma.trade.update({ where: { id: trade.id }, data: { isPublic: false }, include: tradeInclude });
+  }
 
   // Trade-level media is intentionally no longer attached here. The new deck design
   // renders media from the selected Need and Offer, which keeps admin review scoped

@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import nextEnv from '@next/env';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
+const sharedDistEntry = fileURLToPath(new URL('../../packages/shared/dist/index.js', import.meta.url));
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(repoRoot);
 
@@ -23,6 +24,16 @@ const nextConfig = {
   poweredByHeader: false,
   turbopack: {
     root: repoRoot,
+    resolveAlias: {
+      '@hellowhen/shared': '../../packages/shared/dist/index.js',
+    },
+  },
+  webpack(config) {
+    config.resolve.alias = {
+      ...(config.resolve.alias ?? {}),
+      '@hellowhen/shared': sharedDistEntry,
+    };
+    return config;
   },
   async headers() {
     const securityHeaders = [...baseSecurityHeaders, ...productionSecurityHeaders];

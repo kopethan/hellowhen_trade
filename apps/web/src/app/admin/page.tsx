@@ -15,6 +15,7 @@ const adminSections = [
   { href: '/admin/business', title: 'Business review', body: 'Review hidden Business, brand, agency, and Enterprise profile status with mandatory notes and audit trail.', tone: 'admin' },
   { href: '/admin/business-sponsored', title: 'Sponsored placements', body: 'Review hidden first-party Business sponsored placement intent without external ad SDKs, tracking, budgets, or money.', tone: 'warning' },
   { href: '/admin/content', title: 'Content', body: 'Hide, restore, close, or mark reviewed trades, needs, and offers.', tone: 'danger' },
+  { href: '/admin/content-intelligence', title: 'Content intelligence', body: 'Review admin-only safety, domain, category mismatch, and tag suggestions without public AI labels or automatic actions.', tone: 'admin' },
   { href: '/admin/reports', title: 'Report queue', body: 'Resolve, dismiss, hide targets, suspend owners, or escalate reports to support.', tone: 'danger' },
   { href: '/admin/support', title: 'Support inbox', body: 'Review tickets, reply, add internal notes, and close resolved user requests.', tone: 'info' },
   { href: '/admin/media', title: 'Media moderation', body: 'Review pending, flagged, removed, and restored uploaded images.', tone: 'warning' },

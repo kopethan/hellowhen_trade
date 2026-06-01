@@ -3,6 +3,7 @@ import { createOfferRequestSchema, updateOfferRequestSchema } from '@hellowhen/c
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 
 export const offersRoutes = Router();
@@ -86,7 +87,7 @@ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
 offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createOfferRequestSchema.parse(req.body);
   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
-  const offer = await prisma.offer.create({
+  let offer = await prisma.offer.create({
     data: {
       ownerId: req.user!.id,
       title: input.title,
@@ -103,6 +104,19 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     }
   });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
+  const classification = await classifyContentRulesIfEnabled(prisma, {
+    targetType: 'offer',
+    targetId: offer.id,
+    title: offer.title,
+    description: offer.description,
+    userCategory: offer.category,
+    tags: offer.tags,
+    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+  });
+  const gateDecision = buildContentReviewGateDecision(classification);
+  if (gateDecision.shouldGate && offer.status === 'active') {
+    offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
+  }
   res.status(201).json({ offer: await withOneMedia('offer', offer) });
 }));
 
@@ -115,8 +129,21 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
   if (active.activeTradeCount > 0) {
     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
-  const offer = await prisma.offer.update({ where: { id: existing.id }, data: buildOfferUpdateData(input) });
+  let offer = await prisma.offer.update({ where: { id: existing.id }, data: buildOfferUpdateData(input) });
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
+  const classification = await classifyContentRulesIfEnabled(prisma, {
+    targetType: 'offer',
+    targetId: offer.id,
+    title: offer.title,
+    description: offer.description,
+    userCategory: offer.category,
+    tags: offer.tags,
+    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+  });
+  const gateDecision = buildContentReviewGateDecision(classification);
+  if (gateDecision.shouldGate && offer.status === 'active') {
+    offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
+  }
   res.json({ offer: await withOneMedia('offer', offer) });
 }));
 

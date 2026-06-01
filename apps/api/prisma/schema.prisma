@@ -512,6 +512,82 @@ enum PlanPlaceMode {
   remote
 }
 
+
+enum ContentClassificationTargetType {
+  need
+  offer
+  trade
+  profile
+  business_template
+  business_need
+  business_offer
+  business_campaign
+}
+
+enum ContentClassificationSource {
+  rules
+  ai
+  admin
+}
+
+enum ContentClassificationStatus {
+  pending
+  completed
+  failed
+  reviewed
+  overridden
+}
+
+enum ContentPlacementSignalStatus {
+  pending
+  active
+  disabled
+  archived
+}
+
+enum ContentSafetyCategory {
+  safe
+  adult
+  sexual
+  violence
+  hate_or_harassment
+  self_harm
+  illegal_or_regulated
+  spam_or_scam
+  unknown
+}
+
+enum ContentSafetySeverity {
+  none
+  low
+  medium
+  high
+  critical
+}
+
+enum ContentSuggestedAction {
+  allow
+  review
+  hide
+}
+
+enum ContentDomainCategory {
+  design
+  development
+  photography_video
+  writing_copywriting
+  translation_language
+  marketing_social
+  business_startup
+  education_tutoring
+  local_help
+  events_community
+  creative_art
+  health_wellness
+  home_practical
+  other
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -606,6 +682,8 @@ model User {
   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
   usageHeartbeats UsageHeartbeat[]
   apiRequestMetrics ApiRequestMetric[]
+  reviewedContentClassifications ContentClassification[] @relation("ReviewedContentClassifications")
+  approvedContentPlacementSignals ContentPlacementSignal[] @relation("ApprovedContentPlacementSignals")
 }
 
 
@@ -653,6 +731,85 @@ model ApiRequestMetric {
   @@index([sessionId, createdAt])
 }
 
+
+
+
+model ContentClassification {
+  id                 String                          @id @default(cuid())
+  targetType         ContentClassificationTargetType
+  targetId           String
+  source             ContentClassificationSource     @default(rules)
+  status             ContentClassificationStatus     @default(pending)
+  userCategory       String?
+  systemCategory     ContentDomainCategory?
+  categoryConfidence Float?
+  categoryMismatch   Boolean                         @default(false)
+  suggestedTags      String[]                        @default([])
+  suggestedNewTags   String[]                        @default([])
+  safetyCategory     ContentSafetyCategory           @default(unknown)
+  safetySeverity     ContentSafetySeverity           @default(none)
+  adultRelated       Boolean                         @default(false)
+  childSafe          Boolean                         @default(true)
+  spamOrScamRisk     Boolean                         @default(false)
+  regulatedRisk      Boolean                         @default(false)
+  suggestedAction    ContentSuggestedAction           @default(allow)
+  reason             String?
+  reviewedById       String?
+  reviewedAt         DateTime?
+  adminNote          String?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  reviewedBy User? @relation("ReviewedContentClassifications", fields: [reviewedById], references: [id], onDelete: SetNull)
+  placementSignals ContentPlacementSignal[]
+
+  @@unique([targetType, targetId, source])
+  @@index([targetType, targetId])
+  @@index([status, updatedAt])
+  @@index([safetyCategory, safetySeverity])
+  @@index([systemCategory, categoryMismatch])
+  @@index([suggestedAction, updatedAt])
+  @@index([reviewedById, reviewedAt])
+}
+
+model ContentPlacementSignal {
+  id                     String                         @id @default(cuid())
+  targetType             ContentClassificationTargetType
+  targetId               String
+  source                 ContentClassificationSource    @default(admin)
+  status                 ContentPlacementSignalStatus   @default(pending)
+  sourceClassificationId String?
+  category               ContentDomainCategory?
+  tags                   String[]                       @default([])
+  suggestedNewTags       String[]                       @default([])
+  safetyCategory         ContentSafetyCategory          @default(unknown)
+  safetySeverity         ContentSafetySeverity          @default(none)
+  adultRelated           Boolean                        @default(false)
+  childSafe              Boolean                        @default(true)
+  spamOrScamRisk         Boolean                        @default(false)
+  regulatedRisk          Boolean                        @default(false)
+  contextualEligible     Boolean                        @default(false)
+  businessPlacementEligible Boolean                     @default(false)
+  adsPlacementEligible   Boolean                        @default(false)
+  surfaces               String[]                       @default([])
+  reason                 String?
+  approvedById           String?
+  approvedAt             DateTime?
+  createdAt              DateTime                       @default(now())
+  updatedAt              DateTime                       @updatedAt
+
+  sourceClassification ContentClassification? @relation(fields: [sourceClassificationId], references: [id], onDelete: SetNull)
+  approvedBy           User?                  @relation("ApprovedContentPlacementSignals", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@unique([targetType, targetId])
+  @@index([status, updatedAt])
+  @@index([category, status])
+  @@index([contextualEligible, updatedAt])
+  @@index([businessPlacementEligible, updatedAt])
+  @@index([adsPlacementEligible, updatedAt])
+  @@index([sourceClassificationId])
+  @@index([approvedById, approvedAt])
+}
 
 model ProfessionalProfile {
   id                String             @id @default(cuid())

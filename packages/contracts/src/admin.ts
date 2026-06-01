@@ -158,6 +158,166 @@ export const adminContentActionResponseSchema = z.object({
 });
 
 
+export const adminContentClassificationTargetTypeSchema = z.enum(['need', 'offer', 'trade', 'profile', 'business_template', 'business_need', 'business_offer', 'business_campaign']);
+export const adminContentClassificationSourceSchema = z.enum(['rules', 'ai', 'admin']);
+export const adminContentClassificationStatusSchema = z.enum(['pending', 'completed', 'failed', 'reviewed', 'overridden']);
+export const adminContentPlacementSignalStatusSchema = z.enum(['pending', 'active', 'disabled', 'archived']);
+export const adminContentSafetyCategorySchema = z.enum(['safe', 'adult', 'sexual', 'violence', 'hate_or_harassment', 'self_harm', 'illegal_or_regulated', 'spam_or_scam', 'unknown']);
+export const adminContentSafetySeveritySchema = z.enum(['none', 'low', 'medium', 'high', 'critical']);
+export const adminContentSuggestedActionSchema = z.enum(['allow', 'review', 'hide']);
+export const adminContentDomainCategorySchema = z.enum(['design', 'development', 'photography_video', 'writing_copywriting', 'translation_language', 'marketing_social', 'business_startup', 'education_tutoring', 'local_help', 'events_community', 'creative_art', 'health_wellness', 'home_practical', 'other']);
+
+export const adminContentIntelligenceTargetSchema = z.object({
+  id: z.string(),
+  type: adminContentClassificationTargetTypeSchema,
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+  ownerId: z.string().nullable().optional(),
+  owner: adminUserPreviewSchema.nullable().optional(),
+  businessProfileId: z.string().nullable().optional(),
+  businessProfile: z.unknown().nullable().optional(),
+  href: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough().nullable();
+
+
+export const adminContentPlacementSignalSchema = z.object({
+  id: z.string(),
+  targetType: adminContentClassificationTargetTypeSchema,
+  targetId: z.string(),
+  source: adminContentClassificationSourceSchema,
+  status: adminContentPlacementSignalStatusSchema,
+  sourceClassificationId: z.string().nullable().optional(),
+  category: adminContentDomainCategorySchema.nullable().optional(),
+  tags: z.array(z.string()).default([]),
+  suggestedNewTags: z.array(z.string()).default([]),
+  safetyCategory: adminContentSafetyCategorySchema,
+  safetySeverity: adminContentSafetySeveritySchema,
+  adultRelated: z.boolean(),
+  childSafe: z.boolean(),
+  spamOrScamRisk: z.boolean(),
+  regulatedRisk: z.boolean(),
+  contextualEligible: z.boolean(),
+  businessPlacementEligible: z.boolean(),
+  adsPlacementEligible: z.boolean(),
+  surfaces: z.array(z.string()).default([]),
+  reason: z.string().nullable().optional(),
+  approvedById: z.string().nullable().optional(),
+  approvedBy: adminUserPreviewSchema.nullable().optional(),
+  approvedAt: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}).passthrough();
+
+export const adminContentClassificationSchema = z.object({
+  id: z.string(),
+  targetType: adminContentClassificationTargetTypeSchema,
+  targetId: z.string(),
+  source: adminContentClassificationSourceSchema,
+  status: adminContentClassificationStatusSchema,
+  userCategory: z.string().nullable().optional(),
+  systemCategory: adminContentDomainCategorySchema.nullable().optional(),
+  categoryConfidence: z.number().nullable().optional(),
+  categoryMismatch: z.boolean(),
+  suggestedTags: z.array(z.string()).default([]),
+  suggestedNewTags: z.array(z.string()).default([]),
+  safetyCategory: adminContentSafetyCategorySchema,
+  safetySeverity: adminContentSafetySeveritySchema,
+  adultRelated: z.boolean(),
+  childSafe: z.boolean(),
+  spamOrScamRisk: z.boolean(),
+  regulatedRisk: z.boolean(),
+  suggestedAction: adminContentSuggestedActionSchema,
+  reason: z.string().nullable().optional(),
+  reviewedById: z.string().nullable().optional(),
+  reviewedBy: adminUserPreviewSchema.nullable().optional(),
+  reviewedAt: z.string().nullable().optional(),
+  adminNote: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  target: adminContentIntelligenceTargetSchema.optional(),
+  placementSignal: adminContentPlacementSignalSchema.nullable().optional(),
+}).passthrough();
+
+export const adminListContentClassificationsQuerySchema = z.object({
+  targetType: z.union([z.literal('all'), adminContentClassificationTargetTypeSchema]).optional().default('all'),
+  source: z.union([z.literal('all'), adminContentClassificationSourceSchema]).optional().default('all'),
+  status: z.union([z.literal('all'), adminContentClassificationStatusSchema]).optional().default('all'),
+  safetyCategory: z.union([z.literal('all'), adminContentSafetyCategorySchema]).optional().default('all'),
+  safetySeverity: z.union([z.literal('all'), adminContentSafetySeveritySchema]).optional().default('all'),
+  suggestedAction: z.union([z.literal('all'), adminContentSuggestedActionSchema]).optional().default('all'),
+  systemCategory: z.union([z.literal('all'), adminContentDomainCategorySchema]).optional().default('all'),
+  categoryMismatch: z.enum(['all', 'true', 'false']).optional().default('all'),
+  q: z.string().trim().min(1).max(120).optional(),
+  take: z.coerce.number().int().min(1).max(250).optional().default(100),
+});
+
+export const adminContentClassificationSummarySchema = z.object({
+  total: z.number().int(),
+  needsReview: z.number().int(),
+  highRisk: z.number().int(),
+  categoryMismatch: z.number().int(),
+  adultOrSexual: z.number().int(),
+  spamOrScam: z.number().int(),
+  regulated: z.number().int(),
+  failed: z.number().int(),
+});
+
+export const adminContentClassificationsResponseSchema = z.object({
+  flags: z.object({
+    contentIntelligenceEnabled: z.boolean(),
+    contentClassificationEnabled: z.boolean(),
+    aiModerationSuggestionsEnabled: z.boolean(),
+    autoModerationActionsEnabled: z.boolean(),
+    aiProvider: z.enum(['none', 'openai', 'gemini', 'groq']).optional(),
+    aiAdminOnlySuggestionsAvailable: z.boolean().optional(),
+    aiAdminOnlySuggestionsDisabledReason: z.string().nullable().optional(),
+    contentPlacementSignalsEnabled: z.boolean().optional(),
+    businessContextualSignalsEnabled: z.boolean().optional(),
+    contextualAdSignalsEnabled: z.boolean().optional(),
+    placementSignalsAvailable: z.boolean().optional(),
+    placementSignalsDisabledReason: z.string().nullable().optional(),
+  }),
+  summary: adminContentClassificationSummarySchema,
+  classifications: z.array(adminContentClassificationSchema),
+});
+
+export const adminContentClassificationActionRequestSchema = z.object({
+  action: z.enum(['mark_reviewed', 'override']),
+  adminNote: z.string().trim().min(3).max(1200).optional(),
+  systemCategory: adminContentDomainCategorySchema.nullable().optional(),
+  safetyCategory: adminContentSafetyCategorySchema.optional(),
+  safetySeverity: adminContentSafetySeveritySchema.optional(),
+  suggestedAction: adminContentSuggestedActionSchema.optional(),
+  categoryMismatch: z.boolean().optional(),
+  suggestedTags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  suggestedNewTags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  adultRelated: z.boolean().optional(),
+  childSafe: z.boolean().optional(),
+  spamOrScamRisk: z.boolean().optional(),
+  regulatedRisk: z.boolean().optional(),
+});
+
+export const adminContentClassificationActionResponseSchema = z.object({
+  classification: adminContentClassificationSchema,
+});
+
+export const adminContentClassificationAiSuggestionRequestSchema = z.object({
+  adminNote: z.string().trim().min(3).max(1200).optional(),
+});
+
+export const adminContentClassificationAiSuggestionResponseSchema = z.object({
+  classification: adminContentClassificationSchema,
+});
+
+export const adminContentClassificationPlacementSignalResponseSchema = z.object({
+  signal: adminContentPlacementSignalSchema,
+});
+
+
 export const adminLaunchChecklistItemSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -261,6 +421,23 @@ export type AdminContentItemDto = z.infer<typeof adminContentItemSchema>;
 export type AdminContentResponse = z.infer<typeof adminContentResponseSchema>;
 export type AdminContentActionRequest = z.infer<typeof adminContentActionRequestSchema>;
 export type AdminContentActionResponse = z.infer<typeof adminContentActionResponseSchema>;
+export type AdminContentClassificationTargetType = z.infer<typeof adminContentClassificationTargetTypeSchema>;
+export type AdminContentClassificationSource = z.infer<typeof adminContentClassificationSourceSchema>;
+export type AdminContentClassificationStatus = z.infer<typeof adminContentClassificationStatusSchema>;
+export type AdminContentPlacementSignalStatus = z.infer<typeof adminContentPlacementSignalStatusSchema>;
+export type AdminContentSafetyCategory = z.infer<typeof adminContentSafetyCategorySchema>;
+export type AdminContentSafetySeverity = z.infer<typeof adminContentSafetySeveritySchema>;
+export type AdminContentSuggestedAction = z.infer<typeof adminContentSuggestedActionSchema>;
+export type AdminContentDomainCategory = z.infer<typeof adminContentDomainCategorySchema>;
+export type AdminContentIntelligenceTargetDto = z.infer<typeof adminContentIntelligenceTargetSchema>;
+export type AdminContentPlacementSignalDto = z.infer<typeof adminContentPlacementSignalSchema>;
+export type AdminContentClassificationDto = z.infer<typeof adminContentClassificationSchema>;
+export type AdminContentClassificationsResponse = z.infer<typeof adminContentClassificationsResponseSchema>;
+export type AdminContentClassificationActionRequest = z.infer<typeof adminContentClassificationActionRequestSchema>;
+export type AdminContentClassificationActionResponse = z.infer<typeof adminContentClassificationActionResponseSchema>;
+export type AdminContentClassificationAiSuggestionRequest = z.infer<typeof adminContentClassificationAiSuggestionRequestSchema>;
+export type AdminContentClassificationAiSuggestionResponse = z.infer<typeof adminContentClassificationAiSuggestionResponseSchema>;
+export type AdminContentClassificationPlacementSignalResponse = z.infer<typeof adminContentClassificationPlacementSignalResponseSchema>;
 export type AdminRuntimeQaCheckDto = z.infer<typeof adminRuntimeQaCheckSchema>;
 export type AdminRuntimeQaResponse = z.infer<typeof adminRuntimeQaResponseSchema>;
 export type AdminModerationSmokeResponse = z.infer<typeof adminModerationSmokeResponseSchema>;

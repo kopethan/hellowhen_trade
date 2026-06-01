@@ -171,6 +171,25 @@ export const env = {
   aiSafetyClassifierEnabled: enabled(process.env.AI_SAFETY_CLASSIFIER_ENABLED),
   aiPrivateContentEnabled: enabled(process.env.AI_PRIVATE_CONTENT_ENABLED),
   aiDebugPlaceholders: enabled(process.env.AI_DEBUG_PLACEHOLDERS),
+  openaiApiKey: process.env.OPENAI_API_KEY ?? process.env.AI_API_KEY ?? '',
+  openaiContentSuggestionModel: process.env.OPENAI_CONTENT_SUGGESTION_MODEL ?? 'gpt-4o-mini',
+  geminiApiKey: process.env.GEMINI_API_KEY ?? process.env.AI_API_KEY ?? '',
+  geminiContentSuggestionModel: process.env.GEMINI_CONTENT_SUGGESTION_MODEL ?? 'gemini-1.5-flash',
+  groqApiKey: process.env.GROQ_API_KEY ?? process.env.AI_API_KEY ?? '',
+  groqContentSuggestionModel: process.env.GROQ_CONTENT_SUGGESTION_MODEL ?? 'llama-3.1-8b-instant',
+  aiContentSuggestionTimeoutMs: Number(process.env.AI_CONTENT_SUGGESTION_TIMEOUT_MS ?? 12000),
+  contentIntelligenceEnabled: enabled(process.env.CONTENT_INTELLIGENCE_ENABLED),
+  contentClassificationEnabled: enabled(process.env.CONTENT_CLASSIFICATION_ENABLED),
+  contentPlacementSignalsEnabled: enabled(process.env.CONTENT_PLACEMENT_SIGNALS_ENABLED),
+  businessContextualSignalsEnabled: enabled(process.env.BUSINESS_CONTEXTUAL_SIGNALS_ENABLED),
+  contextualAdSignalsEnabled: enabled(process.env.CONTEXTUAL_AD_SIGNALS_ENABLED),
+  aiModerationSuggestionsEnabled: enabled(process.env.AI_MODERATION_SUGGESTIONS_ENABLED),
+  autoModerationActionsEnabled: enabled(process.env.AUTO_MODERATION_ACTIONS_ENABLED),
+  contentReviewGateEnabled: enabled(process.env.CONTENT_REVIEW_GATE_ENABLED),
+  contentReviewGateHighRiskEnabled: enabled(process.env.CONTENT_REVIEW_GATE_HIGH_RISK_ENABLED),
+  contentReviewGateCategoryMismatchEnabled: enabled(process.env.CONTENT_REVIEW_GATE_CATEGORY_MISMATCH_ENABLED),
+  contentReviewGateSuggestedHideEnabled: enabled(process.env.CONTENT_REVIEW_GATE_SUGGESTED_HIDE_ENABLED),
+  contentReviewGateClassifierFailureEnabled: enabled(process.env.CONTENT_REVIEW_GATE_CLASSIFIER_FAILURE_ENABLED),
   plansEnabled: (process.env.PLANS_ENABLED ?? 'false').toLowerCase() === 'true',
   plansVisible: (process.env.PLANS_VISIBLE ?? 'false').toLowerCase() === 'true',
   firstLaunchGuardsEnabled: !disabled(process.env.FIRST_LAUNCH_GUARDS_ENABLED, false)
@@ -367,6 +386,23 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     errors.push('Plans must stay disabled and hidden for first launch.');
   }
 
+  const contentReviewGateRuntimeEnabled = env.contentReviewGateEnabled
+    || env.contentReviewGateHighRiskEnabled
+    || env.contentReviewGateCategoryMismatchEnabled
+    || env.contentReviewGateSuggestedHideEnabled
+    || env.contentReviewGateClassifierFailureEnabled;
+  if (env.contentPlacementSignalsEnabled || env.businessContextualSignalsEnabled || env.contextualAdSignalsEnabled) {
+    errors.push('Contextual placement/ad signals must stay disabled for first launch. Content Intelligence may store admin-reviewed classifications only.');
+  }
+
+  if (contentReviewGateRuntimeEnabled && env.autoModerationActionsEnabled) {
+    errors.push('Content review gate automation must stay disabled for first launch. Content Intelligence may store suggestions only.');
+  }
+
+  if (env.autoModerationActionsEnabled) {
+    errors.push('Automatic moderation actions must stay disabled for first launch. Content Intelligence may store suggestions only.');
+  }
+
   const publicAiEnabled = publicFlagEnabled('NEXT_PUBLIC_AI_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_MODERATION_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_SUGGESTIONS_ENABLED')
@@ -387,10 +423,14 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || env.aiAdminAssistEnabled
     || env.aiSafetyClassifierEnabled
     || env.aiPrivateContentEnabled
+    || env.aiModerationSuggestionsEnabled
     || env.aiDebugPlaceholders;
+  const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey)
+    || hasConfiguredValue(env.geminiApiKey)
+    || hasConfiguredValue(env.groqApiKey);
 
-  if (env.aiProvider !== 'none' || (publicAiProvider && publicAiProvider !== 'none') || (mobileAiProvider && mobileAiProvider !== 'none') || aiRuntimeEnabled || publicAiEnabled) {
-    errors.push('AI features and providers must stay disabled for first launch. Keep AI_PROVIDER, NEXT_PUBLIC_AI_PROVIDER, and EXPO_PUBLIC_AI_PROVIDER as none, and keep all AI feature flags false.');
+  if (env.aiProvider !== 'none' || (publicAiProvider && publicAiProvider !== 'none') || (mobileAiProvider && mobileAiProvider !== 'none') || aiRuntimeEnabled || publicAiEnabled || aiSecretsConfigured) {
+    errors.push('AI features, providers, and API keys must stay disabled for first launch. Keep AI_PROVIDER, NEXT_PUBLIC_AI_PROVIDER, and EXPO_PUBLIC_AI_PROVIDER as none, keep all AI feature flags false, and do not configure AI provider keys in production.');
   }
 }
 
@@ -416,10 +456,31 @@ export function validateProductionEnv() {
   if (publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED, EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED, and EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
-  const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiDebugPlaceholders;
+  const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+  const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
   if (aiConfigured && env.aiProvider === 'none') {
     errors.push('AI feature flags require AI_PROVIDER to be set to a real provider in a later dedicated AI launch.');
   }
+  if (env.contentPlacementSignalsEnabled && (!env.contentIntelligenceEnabled || !env.contentClassificationEnabled)) errors.push('CONTENT_PLACEMENT_SIGNALS_ENABLED requires CONTENT_INTELLIGENCE_ENABLED=true and CONTENT_CLASSIFICATION_ENABLED=true.');
+  if (env.businessContextualSignalsEnabled && (!env.contentPlacementSignalsEnabled || !env.businessSponsoredContentEnabled)) errors.push('BUSINESS_CONTEXTUAL_SIGNALS_ENABLED requires CONTENT_PLACEMENT_SIGNALS_ENABLED=true and BUSINESS_SPONSORED_CONTENT_ENABLED=true in a later Business launch.');
+  if (env.contextualAdSignalsEnabled && (!env.contentPlacementSignalsEnabled || !env.adsEnabled || env.adsProvider === 'none')) errors.push('CONTEXTUAL_AD_SIGNALS_ENABLED requires CONTENT_PLACEMENT_SIGNALS_ENABLED=true, ADS_ENABLED=true, and a real ADS_PROVIDER in a later ads launch.');
+  if (env.aiModerationSuggestionsEnabled && (!env.contentIntelligenceEnabled || !env.contentClassificationEnabled)) errors.push('AI_MODERATION_SUGGESTIONS_ENABLED requires CONTENT_INTELLIGENCE_ENABLED=true and CONTENT_CLASSIFICATION_ENABLED=true.');
+  if (env.aiModerationSuggestionsEnabled && (!env.aiAdminAssistEnabled || !env.aiSuggestionsEnabled)) errors.push('AI_MODERATION_SUGGESTIONS_ENABLED requires AI_ADMIN_ASSIST_ENABLED=true and AI_SUGGESTIONS_ENABLED=true for the admin-only suggestion workflow.');
+  if (env.aiModerationSuggestionsEnabled && env.aiPrivateContentEnabled) errors.push('AI_MODERATION_SUGGESTIONS_ENABLED cannot be combined with AI_PRIVATE_CONTENT_ENABLED in this admin-only classifier launch.');
+  if (aiConfigured && !aiSecretsConfigured) errors.push('AI provider launch requires a provider API key such as OPENAI_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY.');
+  const reviewGateConfigured = env.contentReviewGateEnabled
+    || env.contentReviewGateHighRiskEnabled
+    || env.contentReviewGateCategoryMismatchEnabled
+    || env.contentReviewGateSuggestedHideEnabled
+    || env.contentReviewGateClassifierFailureEnabled;
+  const reviewGateReasonConfigured = env.contentReviewGateHighRiskEnabled
+    || env.contentReviewGateCategoryMismatchEnabled
+    || env.contentReviewGateSuggestedHideEnabled
+    || env.contentReviewGateClassifierFailureEnabled;
+  if (reviewGateConfigured && (!env.contentIntelligenceEnabled || !env.contentClassificationEnabled)) errors.push('Content review gate flags require CONTENT_INTELLIGENCE_ENABLED=true and CONTENT_CLASSIFICATION_ENABLED=true.');
+  if (reviewGateReasonConfigured && !env.contentReviewGateEnabled) errors.push('Content review gate reason flags require CONTENT_REVIEW_GATE_ENABLED=true.');
+  if (env.autoModerationActionsEnabled && !env.contentReviewGateEnabled) errors.push('AUTO_MODERATION_ACTIONS_ENABLED requires CONTENT_REVIEW_GATE_ENABLED=true for the dedicated moderation review-gate launch.');
+  if (env.contentReviewGateEnabled && !env.autoModerationActionsEnabled) errors.push('CONTENT_REVIEW_GATE_ENABLED requires AUTO_MODERATION_ACTIONS_ENABLED=true so the gate is explicit and auditable.');
   if ((env.webAdsEnabled || env.mobileAdsEnabled) && !env.adsEnabled) errors.push('WEB_ADS_ENABLED=true or MOBILE_ADS_ENABLED=true requires ADS_ENABLED=true in production.');
   if (env.adsDebugPlaceholders) errors.push('ADS_DEBUG_PLACEHOLDERS must stay false in production.');
   if (env.adsProvider !== 'none' && !env.adsEnabled) errors.push('ADS_PROVIDER requires ADS_ENABLED=true in production.');

@@ -23,6 +23,7 @@ const adminNavItems = [
   { href: '/admin/business-budgets', label: 'Budget sandbox' },
   { href: '/admin/usage', label: 'Usage' },
   { href: '/admin/content', label: 'Content' },
+  { href: '/admin/content-intelligence', label: 'Intelligence' },
   { href: '/admin/reports', label: 'Reports' },
   { href: '/admin/support', label: 'Support' },
   { href: '/admin/media', label: 'Media' },
