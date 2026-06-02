@@ -1,0 +1,37 @@
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index fb0b675..7ea8866 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -94,20 +94,28 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
+   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
+   const [homeIntroDismissed, setHomeIntroDismissed] = useState(false);
++  const [homeIntroReady, setHomeIntroReady] = useState(false);
+   const { t, language } = useWebTranslation();
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const auth = useWebAuth();
+   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+   const createNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs/new' : '/needs/new';
+   const createOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers/new' : '/offers/new';
+-  const shouldShowHomeIntro = showHomeIntro && !homeIntroDismissed && (!auth.hydrated || !auth.isAuthenticated);
++  const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
+ 
+   useEffect(() => {
+-    if (!showHomeIntro) return;
++    if (!showHomeIntro) {
++      setHomeIntroReady(false);
++      return;
++    }
++
+     try {
+-      if (window.localStorage.getItem(homeTradeIntroSeenKey) === '1') setHomeIntroDismissed(true);
++      setHomeIntroDismissed(window.localStorage.getItem(homeTradeIntroSeenKey) === '1');
+     } catch {
+-      // Keep the intro visible when storage is unavailable.
++      // Keep the intro eligible for logged-out visitors when storage is unavailable.
++      setHomeIntroDismissed(false);
++    } finally {
++      setHomeIntroReady(true);
+     }
+   }, [showHomeIntro]);
+ 
