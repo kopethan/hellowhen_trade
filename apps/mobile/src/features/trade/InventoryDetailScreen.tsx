@@ -11,7 +11,7 @@ import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { ImagePickerField } from './components/ImagePickerField';
-import { buildManualTranslation, CategoryPicker, categoryLabel, getEditableTranslationLanguage, itemTypeLabel, LanguagePicker, ManualTranslationFields } from './components/InventoryFormFields';
+import { AddTranslationButton, buildManualTranslation, CategoryPicker, categoryLabel, getEditableTranslationLanguage, itemTypeLabel, ManualTranslationFields, OriginalLanguageSummary } from './components/InventoryFormFields';
 import {
   DangerButton,
   ExistingMediaManager,
@@ -53,6 +53,7 @@ export function InventoryDetailScreen({
   const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
   const [translationTitle, setTranslationTitle] = useState('');
   const [translationDescription, setTranslationDescription] = useState('');
+  const [translationEnabled, setTranslationEnabled] = useState(false);
   const [itemType, setItemType] = useState<InventoryItemType>('service');
   const [category, setCategory] = useState('');
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
@@ -80,8 +81,11 @@ export function InventoryDetailScreen({
     const nextTranslationLanguage = getEditableTranslationLanguage(nextDefaultLanguage);
     const nextTranslation = Array.isArray(nextItem.translations) ? nextItem.translations.find((translation) => translation?.languageCode === nextTranslationLanguage) : null;
     setDefaultLanguage(nextDefaultLanguage);
-    setTranslationTitle(typeof nextTranslation?.title === 'string' ? nextTranslation.title : '');
-    setTranslationDescription(typeof nextTranslation?.description === 'string' ? nextTranslation.description : '');
+    const nextTranslationTitle = typeof nextTranslation?.title === 'string' ? nextTranslation.title : '';
+    const nextTranslationDescription = typeof nextTranslation?.description === 'string' ? nextTranslation.description : '';
+    setTranslationTitle(nextTranslationTitle);
+    setTranslationDescription(nextTranslationDescription);
+    setTranslationEnabled(Boolean(nextTranslationTitle.trim() || nextTranslationDescription.trim()));
     setItemType((nextItem.itemType as InventoryItemType | undefined) ?? 'service');
     setCategory(getOptionalString(nextItem, 'category'));
     setTimingOrAvailability(isNeed ? getOptionalString(nextItem, 'timing') : getOptionalString(nextItem, 'availability'));
@@ -106,12 +110,6 @@ export function InventoryDetailScreen({
   }, [hydrateForm, isNeed, itemId, label, t]);
 
   useEffect(() => { void loadItem(); }, [loadItem]);
-
-  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
-    setDefaultLanguage(nextLanguage);
-    setTranslationTitle('');
-    setTranslationDescription('');
-  }
 
   async function saveItem(nextStatus?: string) {
     if (title.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
@@ -151,7 +149,7 @@ export function InventoryDetailScreen({
         title: title.trim(),
         description: description.trim(),
         defaultLanguage,
-        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
+        translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
         category: optionalText(category),
         mode,
         locationLabel: optionalText(locationLabel),
@@ -246,17 +244,22 @@ export function InventoryDetailScreen({
                 <View style={styles.form}>
                   <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={saving} />
                   <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={saving} />
-                  <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={saving} />
-                  <ManualTranslationFields
-                    defaultLanguage={defaultLanguage}
-                    title={translationTitle}
-                    description={translationDescription}
-                    onChangeTitle={setTranslationTitle}
-                    onChangeDescription={setTranslationDescription}
-                    titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
-                    descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
-                    disabled={saving}
-                  />
+                  <OriginalLanguageSummary languageCode={defaultLanguage} />
+                  {translationEnabled ? (
+                    <ManualTranslationFields
+                      defaultLanguage={defaultLanguage}
+                      title={translationTitle}
+                      description={translationDescription}
+                      onChangeTitle={setTranslationTitle}
+                      onChangeDescription={setTranslationDescription}
+                      onRemove={() => { setTranslationEnabled(false); setTranslationTitle(''); setTranslationDescription(''); }}
+                      titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+                      descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+                      disabled={saving}
+                    />
+                  ) : (
+                    <AddTranslationButton defaultLanguage={defaultLanguage} onAdd={() => setTranslationEnabled(true)} disabled={saving} />
+                  )}
                   <CategoryPicker value={category} onChange={setCategory} disabled={saving} />
                   <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
                   <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />

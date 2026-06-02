@@ -149,12 +149,43 @@ export function LanguagePicker({ value, onChange, disabled }: { value: Discovery
   );
 }
 
+export function OriginalLanguageSummary({ languageCode }: { languageCode: DiscoveryLanguage }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  return (
+    <View style={styles.field}>
+      <View style={[styles.languageSummary, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
+        <AppText style={[styles.languageSummaryText, { color: theme.semantic.proposal.text }]}>{t('inventory.form.originalContentLanguage', { language: inventoryLanguageLabel(languageCode, t) })}</AppText>
+      </View>
+    </View>
+  );
+}
+
+export function AddTranslationButton({ defaultLanguage, onAdd, disabled }: { defaultLanguage: DiscoveryLanguage; onAdd: () => void; disabled?: boolean }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const translationLanguage = getEditableTranslationLanguage(defaultLanguage);
+  return (
+    <View style={styles.field}>
+      <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.chooseTranslationLanguage')}</AppText>
+      <Pressable
+        disabled={disabled}
+        onPress={onAdd}
+        style={({ pressed }) => [styles.modeButton, styles.addLanguageButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}
+      >
+        <AppText style={[styles.modeButtonText, { color: theme.color.text }]}>{t('inventory.actions.addLanguage')} · {inventoryLanguageLabel(translationLanguage, t)}</AppText>
+      </Pressable>
+    </View>
+  );
+}
+
 export function ManualTranslationFields({
   defaultLanguage,
   title,
   description,
   onChangeTitle,
   onChangeDescription,
+  onRemove,
   disabled,
   titleMaxLength,
   descriptionMaxLength,
@@ -164,6 +195,7 @@ export function ManualTranslationFields({
   description: string;
   onChangeTitle: (value: string) => void;
   onChangeDescription: (value: string) => void;
+  onRemove?: () => void;
   disabled?: boolean;
   titleMaxLength?: number;
   descriptionMaxLength?: number;
@@ -174,7 +206,14 @@ export function ManualTranslationFields({
   return (
     <View style={styles.field}>
       <View style={styles.labelRow}>
-        <AppText style={styles.label}>{t('inventory.labels.manualTranslation')}</AppText>
+        <View style={styles.labelTopRow}>
+          <AppText style={styles.label}>{t('inventory.form.manualTranslationFor', { language: inventoryLanguageLabel(translationLanguage, t) })}</AppText>
+          {onRemove ? (
+            <Pressable disabled={disabled} onPress={onRemove} style={({ pressed }) => [styles.removeButton, disabled && styles.disabled, pressed && styles.pressed]}>
+              <AppText style={[styles.removeButtonText, { color: theme.semantic.danger.text }]}>{t('inventory.actions.removeTranslation')}</AppText>
+            </Pressable>
+          ) : null}
+        </View>
         <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.translationHelp')}</AppText>
       </View>
       <InventoryTextField
@@ -357,6 +396,28 @@ const styles = StyleSheet.create({
   },
   modeButtonSelected: {},
   modeButtonText: {
+    fontWeight: '900',
+  },
+  addLanguageButton: {
+    alignSelf: 'flex-start',
+  },
+  languageSummary: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  languageSummaryText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  removeButton: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  removeButtonText: {
+    fontSize: 12,
     fontWeight: '900',
   },
   modeButtonTextSelected: {

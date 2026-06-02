@@ -8,6 +8,8 @@ export type InventoryKind = 'need' | 'offer';
 export type InventoryItem = NeedDto | OfferDto;
 export type InventoryTranslationFormValues = { languageCode: DiscoveryLanguage; title: string; description: string };
 
+export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr'];
+
 export type InventoryI18n = {
   t?: (key: string, values?: TranslationValues) => string;
   language?: SupportedLanguage;
@@ -98,6 +100,15 @@ export function getEditableTranslationLanguage(defaultLanguage: DiscoveryLanguag
   return getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
 }
 
+export function getVisibleInventoryTranslations(values: InventoryFormValues) {
+  return values.translations.filter((translation) => translation.languageCode !== values.defaultLanguage);
+}
+
+export function getAvailableInventoryTranslationLanguages(values: InventoryFormValues) {
+  const usedLanguages = new Set([values.defaultLanguage, ...values.translations.map((translation) => translation.languageCode)]);
+  return inventoryLanguageOptions.filter((languageCode) => !usedLanguages.has(languageCode));
+}
+
 function translationToFormValue(translation: InventoryTranslationDto): InventoryTranslationFormValues {
   return {
     languageCode: translation.languageCode,
@@ -113,6 +124,10 @@ export function getInventoryTranslationDraft(values: InventoryFormValues, langua
 export function setInventoryTranslationDraft(values: InventoryFormValues, draft: InventoryTranslationFormValues): InventoryFormValues {
   const translations = values.translations.filter((translation) => translation.languageCode !== draft.languageCode);
   return { ...values, translations: [...translations, draft] };
+}
+
+export function removeInventoryTranslationDraft(values: InventoryFormValues, languageCode: DiscoveryLanguage): InventoryFormValues {
+  return { ...values, translations: values.translations.filter((translation) => translation.languageCode !== languageCode) };
 }
 
 export function normalizeInventoryTranslationsForPayload(values: InventoryFormValues) {

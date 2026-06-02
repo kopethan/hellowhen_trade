@@ -12,7 +12,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { buildManualTranslation, CategoryPicker, InventoryTextField, LanguagePicker, ManualTranslationFields, ModePicker, optionalText } from './components/InventoryFormFields';
+import { AddTranslationButton, buildManualTranslation, CategoryPicker, InventoryTextField, ManualTranslationFields, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { NeedItem } from './types';
@@ -24,21 +24,16 @@ export function CreateNeedScreen({ route, navigation }: Props) {
   const { t, language } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
+  const [defaultLanguage] = useState<DiscoveryLanguage>(language);
   const [translationTitle, setTranslationTitle] = useState('');
   const [translationDescription, setTranslationDescription] = useState('');
+  const [translationEnabled, setTranslationEnabled] = useState(false);
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [category, setCategory] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
-    setDefaultLanguage(nextLanguage);
-    setTranslationTitle('');
-    setTranslationDescription('');
-  }
 
   function validateForm() {
     const cleanTitle = title.trim();
@@ -71,7 +66,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
         title: cleanTitle,
         description: cleanDescription,
         defaultLanguage,
-        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
+        translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
         itemType: 'service',
         category: optionalText(category),
         mode,
@@ -136,17 +131,22 @@ export function CreateNeedScreen({ route, navigation }: Props) {
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
           <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
-          <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={submitting} />
-          <ManualTranslationFields
-            defaultLanguage={defaultLanguage}
-            title={translationTitle}
-            description={translationDescription}
-            onChangeTitle={setTranslationTitle}
-            onChangeDescription={setTranslationDescription}
-            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
-            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
-            disabled={submitting}
-          />
+          <OriginalLanguageSummary languageCode={defaultLanguage} />
+          {translationEnabled ? (
+            <ManualTranslationFields
+              defaultLanguage={defaultLanguage}
+              title={translationTitle}
+              description={translationDescription}
+              onChangeTitle={setTranslationTitle}
+              onChangeDescription={setTranslationDescription}
+              onRemove={() => { setTranslationEnabled(false); setTranslationTitle(''); setTranslationDescription(''); }}
+              titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+              descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+              disabled={submitting}
+            />
+          ) : (
+            <AddTranslationButton defaultLanguage={defaultLanguage} onAdd={() => setTranslationEnabled(true)} disabled={submitting} />
+          )}
         </AppCard>
 
         <AppCard>

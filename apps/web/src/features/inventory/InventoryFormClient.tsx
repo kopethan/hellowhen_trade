@@ -16,8 +16,9 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import {
   emptyInventoryFormValues,
-  getEditableTranslationLanguage,
+  getAvailableInventoryTranslationLanguages,
   getInventoryTranslationDraft,
+  getVisibleInventoryTranslations,
   inventoryLanguageLabel,
   inventoryToFormValues,
   inventoryStatusLabel,
@@ -27,6 +28,7 @@ import {
   normalizeInventoryItem,
   normalizeInventoryTranslationsForPayload,
   normalizeMediaUpload,
+  removeInventoryTranslationDraft,
   parseCsvList,
   parseLineList,
   sideClassName,
@@ -140,8 +142,10 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
   const noun = kindLabel(kind, i18n);
   const lowerNoun = noun.toLowerCase();
   const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
-  const translationLanguage = getEditableTranslationLanguage(values.defaultLanguage);
-  const translationDraft = getInventoryTranslationDraft(values, translationLanguage);
+  const originalLanguageLabel = inventoryLanguageLabel(values.defaultLanguage, i18n);
+  const visibleTranslations = getVisibleInventoryTranslations(values);
+  const availableTranslationLanguages = getAvailableInventoryTranslationLanguages(values);
+  const [translationPickerOpen, setTranslationPickerOpen] = useState(false);
 
   useEffect(() => {
     if (mode !== 'create') return;
@@ -198,6 +202,16 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
 
   function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
     setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  function addTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
+    setValues((current) => setInventoryTranslationDraft(current, { languageCode, title: '', description: '' }));
+    setTranslationPickerOpen(false);
+  }
+
+  function removeTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
+    setValues((current) => removeInventoryTranslationDraft(current, languageCode));
+    setTranslationPickerOpen(false);
   }
 
   async function uploadFiles(files: FileList | null) {
@@ -354,7 +368,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
 
         <fieldset className="inventory-form__editable" disabled={isEditProtected}>
         <section className="mobile-card inventory-form__hero">
-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
+          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)} · {originalLanguageLabel}</span>
           <label className="field-label">
             <span className="field-label__row"><span>{t('inventory.labels.title')}</span><small>{t('inventory.form.textCounter', { count: values.title.length, max: INVENTORY_TITLE_MAX_LENGTH })}</small></span>
             <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={INVENTORY_TITLE_MIN_LENGTH} maxLength={INVENTORY_TITLE_MAX_LENGTH} />
@@ -366,40 +380,67 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         </section>
 
         <section className="mobile-card mobile-card--soft inventory-translation-panel">
-          <div className="inventory-form__helper-copy">
-            <strong>{t('inventory.form.languageTitle')}</strong>
-            <span>{t('inventory.form.languageBody')}</span>
+          <div className="inventory-translation-panel__header">
+            <div className="inventory-form__helper-copy">
+              <strong>{t('inventory.form.languageTitle')}</strong>
+              <span>{t('inventory.form.languageBody')}</span>
+            </div>
+            <span className="inventory-language-summary">{t('inventory.form.originalContentLanguage', { language: inventoryLanguageLabel(values.defaultLanguage, i18n) })}</span>
           </div>
-          <label className="field-label">
-            {t('inventory.labels.defaultLanguage')}
-            <select value={values.defaultLanguage} onChange={(event) => updateField('defaultLanguage', event.target.value as InventoryFormValues['defaultLanguage'])}>
-              <option value="en">{inventoryLanguageLabel('en', i18n)}</option>
-              <option value="fr">{inventoryLanguageLabel('fr', i18n)}</option>
-            </select>
-          </label>
-          <div className="inventory-translation-panel__fields">
-            <p className="eyebrow">{t('inventory.labels.manualTranslation')} · {inventoryLanguageLabel(translationLanguage, i18n)}</p>
-            <label className="field-label">
-              <span className="field-label__row"><span>{t('inventory.form.translationTitleLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
-              <input
-                value={translationDraft.title}
-                onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), title: event.target.value }))}
-                placeholder={t('inventory.form.translationTitlePlaceholder')}
-                maxLength={INVENTORY_TITLE_MAX_LENGTH}
-              />
-            </label>
-            <label className="field-label">
-              <span className="field-label__row"><span>{t('inventory.form.translationDescriptionLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
-              <textarea
-                value={translationDraft.description}
-                onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), description: event.target.value }))}
-                placeholder={t('inventory.form.translationDescriptionPlaceholder')}
-                maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
-                rows={4}
-              />
-            </label>
-            <small>{t('inventory.form.translationHelp')}</small>
-          </div>
+
+          {visibleTranslations.map((translation) => {
+            const translationDraft = getInventoryTranslationDraft(values, translation.languageCode);
+            const translationLanguageLabel = inventoryLanguageLabel(translation.languageCode, i18n);
+            return (
+              <div className="inventory-translation-panel__fields" key={translation.languageCode}>
+                <div className="inventory-translation-panel__row">
+                  <p className="eyebrow">{t('inventory.form.manualTranslationFor', { language: translationLanguageLabel })}</p>
+                  <button type="button" className="button secondary compact" onClick={() => removeTranslationLanguage(translation.languageCode)}>{t('inventory.actions.removeTranslation')}</button>
+                </div>
+                <label className="field-label">
+                  <span className="field-label__row"><span>{t('inventory.form.translationTitleLabel', { language: translationLanguageLabel })}</span><small>{t('inventory.labels.optional')}</small></span>
+                  <input
+                    value={translationDraft.title}
+                    onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translation.languageCode), title: event.target.value }))}
+                    placeholder={t('inventory.form.translationTitlePlaceholder')}
+                    maxLength={INVENTORY_TITLE_MAX_LENGTH}
+                  />
+                </label>
+                <label className="field-label">
+                  <span className="field-label__row"><span>{t('inventory.form.translationDescriptionLabel', { language: translationLanguageLabel })}</span><small>{t('inventory.labels.optional')}</small></span>
+                  <textarea
+                    value={translationDraft.description}
+                    onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translation.languageCode), description: event.target.value }))}
+                    placeholder={t('inventory.form.translationDescriptionPlaceholder')}
+                    maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+                    rows={4}
+                  />
+                </label>
+                <small>{t('inventory.form.translationHelp')}</small>
+              </div>
+            );
+          })}
+
+          {availableTranslationLanguages.length ? (
+            <div className="inventory-language-actions">
+              {translationPickerOpen ? (
+                <div className="inventory-language-picker">
+                  <span>{t('inventory.form.chooseTranslationLanguage')}</span>
+                  <div className="inventory-language-picker__buttons">
+                    {availableTranslationLanguages.map((languageCode) => (
+                      <button type="button" className="button secondary compact" key={languageCode} onClick={() => addTranslationLanguage(languageCode)}>
+                        {inventoryLanguageLabel(languageCode, i18n)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="button secondary" onClick={() => setTranslationPickerOpen(true)}>{t('inventory.actions.addLanguage')}</button>
+              )}
+            </div>
+          ) : (
+            <small className="inventory-language-complete">{t('inventory.form.allLanguagesAdded')}</small>
+          )}
         </section>
 
         <section className="mobile-card mobile-card--soft inventory-form__grid inventory-form__grid--simple">

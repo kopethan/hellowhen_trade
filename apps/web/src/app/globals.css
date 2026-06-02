@@ -2069,8 +2069,16 @@ html[data-theme="dark"] .inventory-empty-state__plus {
 .inventory-form__helper-copy { display: grid; gap: 4px; color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.4; }
 .inventory-form__helper-copy strong { color: var(--app-text); font-size: 16px; font-weight: 950; }
 .inventory-translation-panel { display: grid; gap: 14px; }
+.inventory-translation-panel__header { display: grid; gap: 10px; }
+.inventory-language-summary { justify-self: start; border: 1px solid var(--proposal-border); border-radius: 999px; background: var(--proposal-bg); color: var(--proposal-text); padding: 7px 10px; font-size: 12px; font-weight: 950; }
 .inventory-translation-panel__fields { display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 12px; }
-.inventory-translation-panel__fields small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+.inventory-translation-panel__fields small, .inventory-language-complete { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+.inventory-translation-panel__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.inventory-language-actions, .inventory-language-picker { display: grid; gap: 10px; }
+.inventory-language-picker { border: 1px dashed var(--app-border); border-radius: 18px; padding: 12px; }
+.inventory-language-picker span { color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+.inventory-language-picker__buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.button.compact { min-height: 34px; padding: 8px 12px; font-size: 12px; }
 .inventory-card__body h3,
 .inventory-template-card__body h3,
 .public-profile-post-card h3,

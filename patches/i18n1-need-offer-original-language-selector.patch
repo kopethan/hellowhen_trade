@@ -1,0 +1,124 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 52f9255..251d842 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2068,7 +2068,7 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .inventory-form__grid--simple { grid-template-columns: 1fr; }
+ .inventory-form__helper-copy { display: grid; gap: 4px; color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.4; }
+ .inventory-form__helper-copy strong { color: var(--app-text); font-size: 16px; font-weight: 950; }
+-.inventory-translation-panel { display: grid; gap: 14px; }
++.inventory-language-selector, .inventory-translation-panel { display: grid; gap: 14px; }
+ .inventory-translation-panel__fields { display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 12px; }
+ .inventory-translation-panel__fields small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+ .inventory-card__body h3,
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 3876e25..699c385 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -141,6 +141,8 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+   const lowerNoun = noun.toLowerCase();
+   const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
+   const translationLanguage = getEditableTranslationLanguage(values.defaultLanguage);
++  const originalLanguageLabel = inventoryLanguageLabel(values.defaultLanguage, i18n);
++  const translationLanguageLabel = inventoryLanguageLabel(translationLanguage, i18n);
+   const translationDraft = getInventoryTranslationDraft(values, translationLanguage);
+ 
+   useEffect(() => {
+@@ -353,8 +355,22 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+         ) : null}
+ 
+         <fieldset className="inventory-form__editable" disabled={isEditProtected}>
++        <section className="mobile-card mobile-card--soft inventory-language-selector">
++          <div className="inventory-form__helper-copy">
++            <strong>{t('inventory.form.languageTitle')}</strong>
++            <span>{t('inventory.form.languageBody')}</span>
++          </div>
++          <label className="field-label">
++            {t('inventory.labels.defaultLanguage')}
++            <select value={values.defaultLanguage} onChange={(event) => updateField('defaultLanguage', event.target.value as InventoryFormValues['defaultLanguage'])}>
++              <option value="en">{inventoryLanguageLabel('en', i18n)}</option>
++              <option value="fr">{inventoryLanguageLabel('fr', i18n)}</option>
++            </select>
++          </label>
++        </section>
++
+         <section className="mobile-card inventory-form__hero">
+-          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
++          <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)} · {originalLanguageLabel}</span>
+           <label className="field-label">
+             <span className="field-label__row"><span>{t('inventory.labels.title')}</span><small>{t('inventory.form.textCounter', { count: values.title.length, max: INVENTORY_TITLE_MAX_LENGTH })}</small></span>
+             <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={INVENTORY_TITLE_MIN_LENGTH} maxLength={INVENTORY_TITLE_MAX_LENGTH} />
+@@ -367,20 +383,13 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+ 
+         <section className="mobile-card mobile-card--soft inventory-translation-panel">
+           <div className="inventory-form__helper-copy">
+-            <strong>{t('inventory.form.languageTitle')}</strong>
+-            <span>{t('inventory.form.languageBody')}</span>
++            <strong>{t('inventory.labels.manualTranslation')} · {translationLanguageLabel}</strong>
++            <span>{t('inventory.form.manualTranslationBody', { language: translationLanguageLabel })}</span>
+           </div>
+-          <label className="field-label">
+-            {t('inventory.labels.defaultLanguage')}
+-            <select value={values.defaultLanguage} onChange={(event) => updateField('defaultLanguage', event.target.value as InventoryFormValues['defaultLanguage'])}>
+-              <option value="en">{inventoryLanguageLabel('en', i18n)}</option>
+-              <option value="fr">{inventoryLanguageLabel('fr', i18n)}</option>
+-            </select>
+-          </label>
+           <div className="inventory-translation-panel__fields">
+-            <p className="eyebrow">{t('inventory.labels.manualTranslation')} · {inventoryLanguageLabel(translationLanguage, i18n)}</p>
++            <p className="eyebrow">{t('inventory.labels.manualTranslation')} · {translationLanguageLabel}</p>
+             <label className="field-label">
+-              <span className="field-label__row"><span>{t('inventory.form.translationTitleLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
++              <span className="field-label__row"><span>{t('inventory.form.translationTitleLabel', { language: translationLanguageLabel })}</span><small>{t('inventory.labels.optional')}</small></span>
+               <input
+                 value={translationDraft.title}
+                 onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), title: event.target.value }))}
+@@ -389,7 +398,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+               />
+             </label>
+             <label className="field-label">
+-              <span className="field-label__row"><span>{t('inventory.form.translationDescriptionLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
++              <span className="field-label__row"><span>{t('inventory.form.translationDescriptionLabel', { language: translationLanguageLabel })}</span><small>{t('inventory.labels.optional')}</small></span>
+               <textarea
+                 value={translationDraft.description}
+                 onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), description: event.target.value }))}
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index cc63954..f036dfb 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -178,11 +178,12 @@ export const inventory = {
+     simplifiedDetailsBody: 'Add only the basics now. Categories and tags can be improved later.',
+     categoryHelp: 'Optional, but recommended. It helps people find and understand your Need or Offer.',
+     languageTitle: 'Original language and translations',
+-    languageBody: 'Write the original Need or Offer in your default language first. You can add a manual translation for the other app language.',
+-    translationTitleLabel: 'Translated title',
+-    translationDescriptionLabel: 'Translated description',
++    languageBody: 'Choose the language used in the main title and description. This is independent from the app interface language.',
++    translationTitleLabel: 'Translated title ({{language}})',
++    translationDescriptionLabel: 'Translated description ({{language}})',
+     translationTitlePlaceholder: 'Write the translated title manually.',
+     translationDescriptionPlaceholder: 'Write the translated description manually.',
++    manualTranslationBody: 'Add an optional manual translation into {{language}}. Viewers using that language will see it first; otherwise they will see the original.',
+     translationHelp: 'Optional. Leave both fields empty if you do not want to add this translation yet.',
+   },
+   empty: {
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index de3d329..450194b 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -178,11 +178,12 @@ export const inventory = {
+     simplifiedDetailsBody: 'Ajoutez seulement l’essentiel maintenant. Les catégories et tags pourront être améliorés plus tard.',
+     categoryHelp: 'Optionnel, mais recommandé. Cela aide les autres à trouver et comprendre votre Need ou votre Offer.',
+     languageTitle: 'Langue originale et traductions',
+-    languageBody: 'Rédigez d’abord le besoin ou l’offre dans votre langue par défaut. Vous pouvez ajouter une traduction manuelle pour l’autre langue de l’app.',
+-    translationTitleLabel: 'Titre traduit',
+-    translationDescriptionLabel: 'Description traduite',
++    languageBody: 'Choisissez la langue utilisée dans le titre et la description principaux. Elle est indépendante de la langue de l’interface.',
++    translationTitleLabel: 'Titre traduit ({{language}})',
++    translationDescriptionLabel: 'Description traduite ({{language}})',
+     translationTitlePlaceholder: 'Rédigez le titre traduit manuellement.',
+     translationDescriptionPlaceholder: 'Rédigez la description traduite manuellement.',
++    manualTranslationBody: 'Ajoutez une traduction manuelle optionnelle en {{language}}. Les visiteurs qui utilisent cette langue la verront en priorité ; sinon ils verront l’original.',
+     translationHelp: 'Optionnel. Laissez les deux champs vides si vous ne voulez pas ajouter cette traduction maintenant.',
+   },
+   empty: {
