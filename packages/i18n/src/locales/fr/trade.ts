@@ -386,13 +386,14 @@ export const trade = {
   },
   homeIntro: {
     badge: 'Bêta 18+ · sans argent au lancement',
-    title: 'Découvrez les échanges créés depuis de vrais besoins et offres',
-    body: 'Hellowhen Trade aide les adultes à échanger des compétences, des services, du travail créatif et de l’aide utile. Parcourez les échanges publics, puis créez un Besoin ou une Offre quand vous voulez participer.',
+    title: 'Échanges de compétences et services depuis de vrais besoins et offres',
+    body: 'Parcourez les échanges publics, puis créez un Besoin ou une Offre quand vous voulez participer.',
     pointsLabel: 'Fonctionnement de Hellowhen Trade',
     pointNeed: 'Les Besoins expliquent l’aide recherchée.',
-    pointOffer: 'Les Offres montrent ce qu’une personne peut donner en retour.',
-    pointNoMoney: 'La première bêta reste service contre service : aucun wallet, paiement ou retrait.',
+    pointOffer: 'Les Offres montrent ce qu’une personne donne en retour.',
+    pointNoMoney: 'La première bêta reste service contre service.',
     actionsLabel: 'Actions de la page d’accueil',
+    dismiss: 'Masquer cette introduction',
   },
   create: {
     title: 'Créer un échange',
