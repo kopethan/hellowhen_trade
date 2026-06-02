@@ -79,7 +79,9 @@ function localFilter(trades: TradeDto[], filters: FeedFilters) {
   });
 }
 
-export function TradeFeedClient() {
+type TradeFeedClientProps = { showHomeIntro?: boolean };
+
+export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps = {}) {
   const [activeTab, setActiveTab] = useState<TradeFeedTab>('discover');
   const [filters, setFilters] = useState<FeedFilters>(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState<FeedFilters>(initialFilters);
@@ -94,6 +96,8 @@ export function TradeFeedClient() {
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+  const createNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs/new' : '/needs/new';
+  const createOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers/new' : '/offers/new';
 
   useEffect(() => {
     if (activeTab !== 'discover') return undefined;
@@ -161,6 +165,8 @@ export function TradeFeedClient() {
 
   return (
     <section className="mobile-page trade-feed-page">
+      {showHomeIntro ? <HomeTradeIntroBanner createTradeHref={createTradeHref} createNeedHref={createNeedHref} createOfferHref={createOfferHref} /> : null}
+
       <div className="trade-feed-tabs" role="tablist" aria-label={t('trade.mine.tabsLabel')}>
         <button type="button" role="tab" aria-selected={activeTab === 'discover'} className={activeTab === 'discover' ? 'is-active' : ''} onClick={() => setActiveTab('discover')}>{t('trade.mine.discoverTab')}</button>
         <button type="button" role="tab" aria-selected={activeTab === 'mine'} className={activeTab === 'mine' ? 'is-active' : ''} onClick={() => setActiveTab('mine')}>{t('trade.mine.myTradesTab')}</button>
@@ -263,6 +269,38 @@ export function TradeFeedClient() {
     </section>
   );
 }
+
+
+type HomeTradeIntroBannerProps = {
+  createTradeHref: string;
+  createNeedHref: string;
+  createOfferHref: string;
+};
+
+function HomeTradeIntroBanner({ createTradeHref, createNeedHref, createOfferHref }: HomeTradeIntroBannerProps) {
+  const { t } = useWebTranslation();
+
+  return (
+    <section className="home-trade-intro" aria-labelledby="home-trade-intro-title">
+      <div className="home-trade-intro__copy">
+        <span className="semantic-badge instruction">{t('trade.homeIntro.badge')}</span>
+        <h2 id="home-trade-intro-title">{t('trade.homeIntro.title')}</h2>
+        <p>{t('trade.homeIntro.body')}</p>
+        <div className="home-trade-intro__points" aria-label={t('trade.homeIntro.pointsLabel')}>
+          <span>{t('trade.homeIntro.pointNeed')}</span>
+          <span>{t('trade.homeIntro.pointOffer')}</span>
+          <span>{t('trade.homeIntro.pointNoMoney')}</span>
+        </div>
+      </div>
+      <div className="home-trade-intro__actions" aria-label={t('trade.homeIntro.actionsLabel')}>
+        <Link href={createTradeHref} className="button primary"><WebIcon name="trade" size={17} decorative /> {t('trade.emptyFeed.createTrade')}</Link>
+        <Link href={createNeedHref} className="button secondary"><WebIcon name="need" size={17} decorative /> {t('trade.emptyFeed.createNeed')}</Link>
+        <Link href={createOfferHref} className="button secondary"><WebIcon name="offer" size={17} decorative /> {t('trade.emptyFeed.createOffer')}</Link>
+      </div>
+    </section>
+  );
+}
+
 
 type MyTradesPanelProps = { createTradeHref: string };
 

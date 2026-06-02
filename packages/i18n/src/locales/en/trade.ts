@@ -384,6 +384,16 @@ export const trade = {
     inviteNeedOfferBody: 'The creator already posted both sides of this exchange. Applicants can ask to trade below.',
     usePrivateProposalArea: 'Use Private proposals to respond to this post.',
   },
+  homeIntro: {
+    badge: '18+ beta · no money at launch',
+    title: 'Discover trades from real Needs and Offers',
+    body: 'Hellowhen Trade is a simple place for adults to exchange skills, services, creative work, and useful help. Browse public trades, then create a Need or Offer when you are ready to take part.',
+    pointsLabel: 'How Hellowhen Trade works',
+    pointNeed: 'Needs explain what someone wants help with.',
+    pointOffer: 'Offers show what someone can give back.',
+    pointNoMoney: 'First beta stays service-for-service: no wallet, payouts, or money trades.',
+    actionsLabel: 'Homepage trade actions',
+  },
   create: {
     title: 'Create Trade',
     publishQuestion: 'What do you want to publish?',

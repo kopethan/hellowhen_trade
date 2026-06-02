@@ -7,7 +7,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return seoSitemapPaths.map((pathname) => ({
     url: getSeoUrl(pathname),
     lastModified: now,
-    changeFrequency: pathname === '/trades' ? 'daily' : 'weekly',
-    priority: pathname === '/trades' ? 1 : 0.7,
+    changeFrequency: pathname === '/' || pathname === '/trades' ? 'daily' : 'weekly',
+    priority: pathname === '/' || pathname === '/trades' ? 1 : 0.7,
   }));
 }

@@ -42,12 +42,11 @@ export const webTabs: WebTab[] = [
 export const utilityRoutePrefixes = ['/auth', '/admin', '/reset-password', '/credits'];
 
 export function isUtilityRoute(pathname: string) {
-  if (pathname === '/') return true;
   return utilityRoutePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: string; root?: boolean; backHref?: string }> = [
-  { match: (pathname) => pathname === '/trades', titleKey: 'navigation.routes.trades', root: true },
+  { match: (pathname) => pathname === '/' || pathname === '/trades', titleKey: 'navigation.routes.trades', root: true },
   { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true },
   { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true },
   { match: (pathname) => pathname === '/account', titleKey: 'navigation.routes.account', root: true },
