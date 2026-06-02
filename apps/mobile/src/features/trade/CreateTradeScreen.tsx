@@ -5,6 +5,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TradeExchangeMode, TradePostType } from '@hellowhen/contracts';
+import { buildGeneratedTradeDisplay, type GeneratedTradeDisplayLabels } from '@hellowhen/shared';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -17,7 +18,7 @@ import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
-import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
+import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryFormFields';
 import { TradeSquareDeck } from './components/TradeSquareDeck';
 import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
 import type { NeedItem, OfferItem, TradeDeckItem } from './types';
@@ -59,25 +60,36 @@ function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expi
 function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
 type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunction) { return mode ? modeLabel(mode, t) : undefined; }
-function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), need.category, need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
-function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), offer.category, offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
+function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), categoryLabel(need.category, t), need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
+function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), categoryLabel(offer.category, t), offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
 function buildExpiresAt(days: number | null) { if (!days) return undefined; const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + days); return expiresAt.toISOString(); }
 function amountFor(_needSelection: TradeCreateSideSelection | null, _offerSelection: TradeCreateSideSelection | null) { return 0; }
 function currencyFor(_needSelection: TradeCreateSideSelection | null, _offerSelection: TradeCreateSideSelection | null) { return 'eur'; }
 function postTypeLabel(postType: TradePostType | null, t: TFunction) { const option = postTypeOptions.find((item) => item.value === postType); return option ? t(option.labelKey) : t('trade.create.choosePublishType'); }
 function postTypeBody(postType: TradePostType | null, t: TFunction) { const option = postTypeOptions.find((item) => item.value === postType); return option ? t(option.bodyKey) : t('trade.create.chooseKindBody'); }
-function previewTitle(_selection: TradeCreateSideSelection | null, item: NeedItem | OfferItem | null, fallback: string) { return item?.title || fallback; }
+function tradeDisplayLabels(t: TFunction): Partial<GeneratedTradeDisplayLabels> {
+  return {
+    openNeedPrefix: `${t('trade.labels.openNeed')}: `,
+    openOfferPrefix: `${t('trade.labels.openOffer')}: `,
+    needLineLabel: t('trade.labels.iNeed'),
+    offerLineLabel: t('trade.labels.iOffer'),
+    openNeedPrompt: t('trade.labels.othersCanProposeOffers'),
+    openOfferPrompt: t('trade.labels.othersCanProposeNeeds'),
+    missingNeedTitle: t('trade.create.chooseWhatYouNeed'),
+    missingOfferTitle: t('trade.create.chooseWhatYouOffer'),
+    missingNeedDescription: t('trade.create.savedNeedFallback'),
+    missingOfferDescription: t('trade.create.savedOfferFallback'),
+  };
+}
 
 function buildPreviewTrade({ postType, needSelection, offerSelection, need, offer, amountCents: _amountCents, currency, expiryDays, t }: { postType: TradePostType | null; needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; amountCents: number; currency: string; expiryDays: number | null; t: TFunction }): TradeDeckItem {
   const resolvedPostType = postType ?? 'need_offer';
-  const needTitleValue = previewTitle(needSelection, need, t('trade.create.chooseWhatYouNeed'));
-  const offerTitleValue = previewTitle(offerSelection, offer, t('trade.create.chooseWhatYouOffer'));
-  const title = resolvedPostType === 'open_need' ? t('trade.create.openNeedTitle', { need: needTitleValue }) : resolvedPostType === 'open_offer' ? t('trade.create.openOfferTitle', { offer: offerTitleValue }) : t('trade.create.needOfferTitle', { need: needTitleValue, offer: offerTitleValue });
-  const description = resolvedPostType === 'open_need'
-    ? need?.description || t('trade.create.previewNeedOpenNeed')
-    : resolvedPostType === 'open_offer'
-      ? offer?.description || t('trade.create.previewOfferOpenOffer')
-      : [need?.description, offer?.description].filter(Boolean).join(` ${t('trade.labels.iOffer')}: `) || t('trade.create.previewNeedOffer');
+  const { title, description } = buildGeneratedTradeDisplay({
+    postType: resolvedPostType,
+    need,
+    offer,
+    labels: tradeDisplayLabels(t),
+  });
   const createdAt = new Date(0).toISOString();
 
   return {

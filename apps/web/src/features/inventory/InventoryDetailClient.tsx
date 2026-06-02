@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
-import { formatInventoryDate, getInventoryMetadata, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { formatInventoryDate, getInventoryMetadata, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
 
 type InventoryDetailClientProps = {
   kind: InventoryKind;
@@ -135,7 +135,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
         <dl className="trade-detail-list">
           <div><dt>{t('inventory.labels.status')}</dt><dd>{inventoryStatusLabel(item.status, i18n)}</dd></div>
           <div><dt>{t('inventory.labels.type')}</dt><dd>{itemTypeLabel(item.itemType, i18n)}</dd></div>
-          <div><dt>{t('inventory.labels.category')}</dt><dd>{item.category ?? t('inventory.labels.notSpecified')}</dd></div>
+          <div><dt>{t('inventory.labels.category')}</dt><dd>{inventoryCategoryLabel(item.category, i18n) || t('inventory.labels.notSpecified')}</dd></div>
           <div><dt>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</dt><dd>{timingLabel}</dd></div>
           <div><dt>{t('inventory.labels.mode')}</dt><dd>{modeLabel(item.mode, i18n) ?? t('inventory.labels.notSpecified')}</dd></div>
           <div><dt>{t('inventory.labels.location')}</dt><dd>{item.locationLabel ?? t('inventory.labels.notSpecified')}</dd></div>

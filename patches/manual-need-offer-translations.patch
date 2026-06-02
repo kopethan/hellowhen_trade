@@ -1,0 +1,1473 @@
+diff --git a/apps/api/prisma/migrations/20260602110000_manual_inventory_translations/migration.sql b/apps/api/prisma/migrations/20260602110000_manual_inventory_translations/migration.sql
+new file mode 100644
+index 0000000..97ee87c
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260602110000_manual_inventory_translations/migration.sql
+@@ -0,0 +1,37 @@
++-- Manual Need/Offer translations.
++-- Users write their original Need/Offer in a default language, then optionally add manual translated copy.
++
++CREATE TYPE "InventoryTranslationTargetType" AS ENUM ('need', 'offer');
++
++ALTER TABLE "Need" ADD COLUMN "defaultLanguage" TEXT NOT NULL DEFAULT 'en';
++ALTER TABLE "Offer" ADD COLUMN "defaultLanguage" TEXT NOT NULL DEFAULT 'en';
++
++CREATE TABLE "InventoryTranslation" (
++  "id" TEXT NOT NULL,
++  "targetType" "InventoryTranslationTargetType" NOT NULL,
++  "targetId" TEXT NOT NULL,
++  "languageCode" TEXT NOT NULL,
++  "title" TEXT NOT NULL,
++  "description" TEXT NOT NULL,
++  "createdById" TEXT,
++  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  "updatedAt" TIMESTAMP(3) NOT NULL,
++
++  CONSTRAINT "InventoryTranslation_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "InventoryTranslation_targetType_targetId_languageCode_key"
++  ON "InventoryTranslation"("targetType", "targetId", "languageCode");
++
++CREATE INDEX "InventoryTranslation_targetType_targetId_idx"
++  ON "InventoryTranslation"("targetType", "targetId");
++
++CREATE INDEX "InventoryTranslation_languageCode_idx"
++  ON "InventoryTranslation"("languageCode");
++
++CREATE INDEX "InventoryTranslation_createdById_idx"
++  ON "InventoryTranslation"("createdById");
++
++ALTER TABLE "InventoryTranslation"
++  ADD CONSTRAINT "InventoryTranslation_createdById_fkey"
++  FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index abe78b4..9b1ee0d 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -123,6 +123,11 @@ enum InventoryTemplateStatus {
+   archived
+ }
+ 
++enum InventoryTranslationTargetType {
++  need
++  offer
++}
++
+ enum TradePostType {
+   need_offer
+   open_need
+@@ -633,6 +638,7 @@ model User {
+   twoFactorChallenges TwoFactorChallenge[]
+   needs        Need[]
+   offers       Offer[]
++  inventoryTranslations InventoryTranslation[]
+   trades       Trade[] @relation("OwnedTrades")
+   providerTrades Trade[] @relation("ProvidedTrades")
+   tradeProposals TradeProposal[] @relation("ApplicantProposals")
+@@ -1005,6 +1011,7 @@ model Need {
+   sourceTemplateId String?
+   title         String
+   description   String
++  defaultLanguage String           @default("en")
+   itemType      InventoryItemType @default(service)
+   category      String?
+   timing        String?
+@@ -1038,6 +1045,7 @@ model Offer {
+   sourceTemplateId String?
+   title         String
+   description   String
++  defaultLanguage String           @default("en")
+   itemType      InventoryItemType @default(service)
+   category      String?
+   availability  String?
+@@ -1065,6 +1073,26 @@ model Offer {
+   @@index([mode])
+ }
+ 
++
++model InventoryTranslation {
++  id             String                         @id @default(cuid())
++  targetType     InventoryTranslationTargetType
++  targetId       String
++  languageCode   String
++  title          String
++  description    String
++  createdById    String?
++  createdAt      DateTime                       @default(now())
++  updatedAt      DateTime                       @updatedAt
++
++  createdBy      User?                          @relation(fields: [createdById], references: [id], onDelete: SetNull)
++
++  @@unique([targetType, targetId, languageCode])
++  @@index([targetType, targetId])
++  @@index([languageCode])
++  @@index([createdById])
++}
++
+ model InventoryTemplate {
+   id                String                      @id @default(cuid())
+   key               String                      @unique
+diff --git a/apps/api/src/modules/inventoryTranslations.ts b/apps/api/src/modules/inventoryTranslations.ts
+new file mode 100644
+index 0000000..1dba455
+--- /dev/null
++++ b/apps/api/src/modules/inventoryTranslations.ts
+@@ -0,0 +1,115 @@
++import type { Prisma, PrismaClient } from '@prisma/client';
++import { normalizeInventoryLanguageCode, withResolvedInventoryDisplay, type InventoryTranslationLike } from '@hellowhen/shared';
++import type { DiscoveryLanguage } from '@hellowhen/contracts';
++
++type InventoryTranslationTargetType = 'need' | 'offer';
++type InventoryTranslationInput = { languageCode: DiscoveryLanguage; title: string; description: string };
++type StoredInventoryTranslation = InventoryTranslationLike & { id?: string; targetType?: InventoryTranslationTargetType; targetId?: string; createdAt?: Date; updatedAt?: Date };
++type InventoryWithId = { id: string; defaultLanguage?: string | null; title?: string | null; description?: string | null; translations?: StoredInventoryTranslation[] | null };
++type TxClient = PrismaClient | Prisma.TransactionClient;
++
++function normalizeTranslations(input: InventoryTranslationInput[] | undefined, defaultLanguage: string) {
++  const defaultCode = normalizeInventoryLanguageCode(defaultLanguage) ?? 'en';
++  const byLanguage = new Map<DiscoveryLanguage, InventoryTranslationInput>();
++
++  for (const translation of input ?? []) {
++    const languageCode = normalizeInventoryLanguageCode(translation.languageCode);
++    if (!languageCode || languageCode === defaultCode) continue;
++    const title = translation.title.trim();
++    const description = translation.description.trim();
++    if (!title || !description) continue;
++    byLanguage.set(languageCode, { languageCode, title, description });
++  }
++
++  return [...byLanguage.values()];
++}
++
++export function inventoryTranslationExtraText(translations: InventoryTranslationInput[] | undefined) {
++  return (translations ?? []).flatMap((translation) => [translation.title, translation.description]).filter(Boolean);
++}
++
++export async function syncInventoryTranslations(
++  prisma: TxClient,
++  targetType: InventoryTranslationTargetType,
++  targetId: string,
++  createdById: string,
++  defaultLanguage: string,
++  input: InventoryTranslationInput[] | undefined,
++) {
++  if (input === undefined) return;
++  const translations = normalizeTranslations(input, defaultLanguage);
++  const keepLanguageCodes = translations.map((translation) => translation.languageCode);
++
++  await prisma.inventoryTranslation.deleteMany({
++    where: {
++      targetType,
++      targetId,
++      ...(keepLanguageCodes.length ? { languageCode: { notIn: keepLanguageCodes } } : {}),
++    },
++  });
++
++  for (const translation of translations) {
++    await prisma.inventoryTranslation.upsert({
++      where: { targetType_targetId_languageCode: { targetType, targetId, languageCode: translation.languageCode } },
++      update: { title: translation.title, description: translation.description },
++      create: { targetType, targetId, languageCode: translation.languageCode, title: translation.title, description: translation.description, createdById },
++    });
++  }
++}
++
++export async function loadInventoryTranslationsByTargetIds(
++  prisma: TxClient,
++  targetType: InventoryTranslationTargetType,
++  targetIds: string[],
++) {
++  const uniqueIds = [...new Set(targetIds.filter(Boolean))];
++  const map = new Map<string, StoredInventoryTranslation[]>();
++  if (!uniqueIds.length) return map;
++
++  const translations = await prisma.inventoryTranslation.findMany({
++    where: { targetType, targetId: { in: uniqueIds } },
++    orderBy: { languageCode: 'asc' },
++  });
++
++  for (const translation of translations) {
++    const current = map.get(translation.targetId) ?? [];
++    current.push(translation);
++    map.set(translation.targetId, current);
++  }
++
++  return map;
++}
++
++export async function withInventoryTranslations<T extends InventoryWithId>(
++  prisma: TxClient,
++  targetType: InventoryTranslationTargetType,
++  items: T[],
++): Promise<T[]> {
++  const translationsByTargetId = await loadInventoryTranslationsByTargetIds(prisma, targetType, items.map((item) => item.id));
++  return items.map((item) => ({ ...item, translations: translationsByTargetId.get(item.id) ?? [] }));
++}
++
++export async function withOneInventoryTranslation<T extends InventoryWithId>(
++  prisma: TxClient,
++  targetType: InventoryTranslationTargetType,
++  item: T,
++): Promise<T> {
++  const [hydrated] = await withInventoryTranslations(prisma, targetType, [item]);
++  return hydrated ?? ({ ...item, translations: [] } as T);
++}
++
++export function applyInventoryDisplayLanguage<T extends InventoryWithId>(items: T[], viewerLanguage?: string | null): T[] {
++  return items.map((item) => withResolvedInventoryDisplay(item, viewerLanguage) as T);
++}
++
++export function applyInventoryDisplayLanguageToTrade<T extends { need?: InventoryWithId | null; offer?: InventoryWithId | null }>(trade: T, viewerLanguage?: string | null): T {
++  return {
++    ...trade,
++    need: trade.need ? withResolvedInventoryDisplay(trade.need, viewerLanguage) : trade.need,
++    offer: trade.offer ? withResolvedInventoryDisplay(trade.offer, viewerLanguage) : trade.offer,
++  };
++}
++
++export function applyInventoryDisplayLanguageToTrades<T extends { need?: InventoryWithId | null; offer?: InventoryWithId | null }>(trades: T[], viewerLanguage?: string | null): T[] {
++  return trades.map((trade) => applyInventoryDisplayLanguageToTrade(trade, viewerLanguage));
++}
+diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
+index 5fca1dc..732e0e9 100644
+--- a/apps/api/src/modules/needs/needs.routes.ts
++++ b/apps/api/src/modules/needs/needs.routes.ts
+@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
++import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+ 
+ export const needsRoutes = Router();
+ needsRoutes.use(requireAuth);
+@@ -45,6 +46,7 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+     ...(input.description !== undefined ? { description: input.description } : {}),
++    ...(input.defaultLanguage !== undefined ? { defaultLanguage: input.defaultLanguage } : {}),
+     ...(input.status !== undefined ? { status: input.status } : {}),
+     ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
+     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+@@ -58,13 +60,15 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
+ 
+ needsRoutes.get('/mine', asyncRoute(async (req, res) => {
+   const needs = await prisma.need.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
+-  res.json({ needs: await withMedia('need', needs) });
++  const withTranslations = await withInventoryTranslations(prisma, 'need', needs);
++  res.json({ needs: await withMedia('need', withTranslations) });
+ }));
+ 
+ needsRoutes.get('/:needId', asyncRoute(async (req, res) => {
+   const need = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!need) return res.status(404).json({ error: 'not_found' });
+-  res.json({ need: await withOneMedia('need', need) });
++  const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
++  res.json({ need: await withOneMedia('need', withTranslations) });
+ }));
+ 
+ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
+@@ -91,6 +95,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+       ownerId: req.user!.id,
+       title: input.title,
+       description: input.description,
++      defaultLanguage: input.defaultLanguage ?? 'en',
+       itemType: input.itemType ?? 'service',
+       category: input.category ?? null,
+       timing: input.timing ?? null,
+@@ -101,6 +106,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+     }
+   });
++  await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations ?? []);
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'need',
+@@ -109,13 +115,14 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     description: need.description,
+     userCategory: need.category,
+     tags: need.tags,
+-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
++    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && need.status === 'active') {
+     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
+   }
+-  res.status(201).json({ need: await withOneMedia('need', need) });
++  const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
++  res.status(201).json({ need: await withOneMedia('need', withTranslations) });
+ }));
+ 
+ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
+@@ -128,6 +135,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+   }
+   let need = await prisma.need.update({ where: { id: existing.id }, data: buildNeedUpdateData(input) });
++  await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations);
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'need',
+@@ -136,13 +144,14 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+     description: need.description,
+     userCategory: need.category,
+     tags: need.tags,
+-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
++    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && need.status === 'active') {
+     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
+   }
+-  res.json({ need: await withOneMedia('need', need) });
++  const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
++  res.json({ need: await withOneMedia('need', withTranslations) });
+ }));
+ 
+ needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
+@@ -155,6 +164,7 @@ needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+ 
+   await prisma.$transaction([
+     prisma.trade.updateMany({ where: { needId: existing.id }, data: { needId: null } }),
++    prisma.inventoryTranslation.deleteMany({ where: { targetType: 'need', targetId: existing.id } }),
+     prisma.mediaAsset.updateMany({ where: { entityType: 'need', entityId: existing.id, status: { not: 'removed' } }, data: { status: 'removed' } }),
+     prisma.need.delete({ where: { id: existing.id } })
+   ]);
+diff --git a/apps/api/src/modules/offers/offers.routes.ts b/apps/api/src/modules/offers/offers.routes.ts
+index d93e492..6d00a6c 100644
+--- a/apps/api/src/modules/offers/offers.routes.ts
++++ b/apps/api/src/modules/offers/offers.routes.ts
+@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
++import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+ 
+ export const offersRoutes = Router();
+ offersRoutes.use(requireAuth);
+@@ -45,6 +46,7 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
+   return {
+     ...(input.title !== undefined ? { title: input.title } : {}),
+     ...(input.description !== undefined ? { description: input.description } : {}),
++    ...(input.defaultLanguage !== undefined ? { defaultLanguage: input.defaultLanguage } : {}),
+     ...(input.status !== undefined ? { status: input.status } : {}),
+     ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
+     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+@@ -59,13 +61,15 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
+ 
+ offersRoutes.get('/mine', asyncRoute(async (req, res) => {
+   const offers = await prisma.offer.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
+-  res.json({ offers: await withMedia('offer', offers) });
++  const withTranslations = await withInventoryTranslations(prisma, 'offer', offers);
++  res.json({ offers: await withMedia('offer', withTranslations) });
+ }));
+ 
+ offersRoutes.get('/:offerId', asyncRoute(async (req, res) => {
+   const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id, businessProfileId: null } });
+   if (!offer) return res.status(404).json({ error: 'not_found' });
+-  res.json({ offer: await withOneMedia('offer', offer) });
++  const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
++  res.json({ offer: await withOneMedia('offer', withTranslations) });
+ }));
+ 
+ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
+@@ -92,6 +96,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+       ownerId: req.user!.id,
+       title: input.title,
+       description: input.description,
++      defaultLanguage: input.defaultLanguage ?? 'en',
+       itemType: input.itemType ?? 'service',
+       category: input.category ?? null,
+       availability: input.availability ?? null,
+@@ -103,6 +108,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+     }
+   });
++  await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations ?? []);
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'offer',
+@@ -111,13 +117,14 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     description: offer.description,
+     userCategory: offer.category,
+     tags: offer.tags,
+-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
++    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && offer.status === 'active') {
+     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
+   }
+-  res.status(201).json({ offer: await withOneMedia('offer', offer) });
++  const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
++  res.status(201).json({ offer: await withOneMedia('offer', withTranslations) });
+ }));
+ 
+ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
+@@ -130,6 +137,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+   }
+   let offer = await prisma.offer.update({ where: { id: existing.id }, data: buildOfferUpdateData(input) });
++  await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations);
+   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'offer',
+@@ -138,13 +146,14 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+     description: offer.description,
+     userCategory: offer.category,
+     tags: offer.tags,
+-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
++    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && offer.status === 'active') {
+     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
+   }
+-  res.json({ offer: await withOneMedia('offer', offer) });
++  const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
++  res.json({ offer: await withOneMedia('offer', withTranslations) });
+ }));
+ 
+ offersRoutes.delete('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
+@@ -157,6 +166,7 @@ offersRoutes.delete('/:offerId', requireActiveAccount, asyncRoute(async (req, re
+ 
+   await prisma.$transaction([
+     prisma.trade.updateMany({ where: { offerId: existing.id }, data: { offerId: null } }),
++    prisma.inventoryTranslation.deleteMany({ where: { targetType: 'offer', targetId: existing.id } }),
+     prisma.mediaAsset.updateMany({ where: { entityType: 'offer', entityId: existing.id, status: { not: 'removed' } }, data: { status: 'removed' } }),
+     prisma.offer.delete({ where: { id: existing.id } })
+   ]);
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index f5a9aa6..071c805 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -1,7 +1,7 @@
+ import { Router } from 'express';
+ import type { MediaAsset, Prisma } from '@prisma/client';
+ import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+-import { buildGeneratedTradeDisplay } from '@hellowhen/shared';
++import { buildGeneratedTradeDisplay, type InventoryTranslationLike } from '@hellowhen/shared';
+ import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -11,6 +11,7 @@ import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafet
+ import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
+ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
+ import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
++import { applyInventoryDisplayLanguageToTrade, applyInventoryDisplayLanguageToTrades, loadInventoryTranslationsByTargetIds } from '../inventoryTranslations.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from '../proposals/proposalPackages.js';
+@@ -31,8 +32,8 @@ type DeckRelatedEntity = { id: string } | null | undefined;
+ type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+ type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'offer'> & {
+   media: MediaAsset[];
+-  need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
+-  offer: (NonNullable<T['offer']> & { media: MediaAsset[] }) | null;
++  need: (NonNullable<T['need']> & { media: MediaAsset[]; translations?: InventoryTranslationLike[] }) | null;
++  offer: (NonNullable<T['offer']> & { media: MediaAsset[]; translations?: InventoryTranslationLike[] }) | null;
+ };
+ type ProposalPackageItemWithDeckRelations = { need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+ type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity; packageItems?: ProposalPackageItemWithDeckRelations[] };
+@@ -42,17 +43,19 @@ export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trade
+   const needIds = trades.map((trade) => trade.need?.id).filter((id): id is string => Boolean(id));
+   const offerIds = trades.map((trade) => trade.offer?.id).filter((id): id is string => Boolean(id));
+ 
+-  const [tradeMedia, needMedia, offerMedia] = await Promise.all([
++  const [tradeMedia, needMedia, offerMedia, needTranslations, offerTranslations] = await Promise.all([
+     loadMediaByEntityIds('trade', tradeIds, visibility),
+     loadMediaByEntityIds('need', needIds, visibility),
+-    loadMediaByEntityIds('offer', offerIds, visibility)
++    loadMediaByEntityIds('offer', offerIds, visibility),
++    loadInventoryTranslationsByTargetIds(prisma, 'need', needIds),
++    loadInventoryTranslationsByTargetIds(prisma, 'offer', offerIds)
+   ]);
+ 
+   return trades.map((trade) => ({
+     ...trade,
+     media: tradeMedia.get(trade.id) ?? [],
+-    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [] } : null,
+-    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [] } : null
++    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [], translations: needTranslations.get(trade.need.id) ?? [] } : null,
++    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [], translations: offerTranslations.get(trade.offer.id) ?? [] } : null
+   })) as Array<TradeDeckHydrated<T>>;
+ }
+ 
+@@ -78,21 +81,23 @@ export async function withProposalTradeMedia<T extends ProposalWithTrade>(propos
+   const trades = proposals.map((proposal) => proposal.trade).filter((trade): trade is TradeWithDeckRelations => Boolean(trade));
+   const proposedNeedIds = proposals.flatMap((proposal) => [proposal.proposedNeed?.id, ...(proposal.packageItems ?? []).map((item) => item.need?.id)]).filter((id): id is string => Boolean(id));
+   const proposedOfferIds = proposals.flatMap((proposal) => [proposal.proposedOffer?.id, ...(proposal.packageItems ?? []).map((item) => item.offer?.id)]).filter((id): id is string => Boolean(id));
+-  const [hydratedTrades, proposedNeedMedia, proposedOfferMedia] = await Promise.all([
++  const [hydratedTrades, proposedNeedMedia, proposedOfferMedia, proposedNeedTranslations, proposedOfferTranslations] = await Promise.all([
+     withTradeDeckMedia(trades, visibility),
+     loadMediaByEntityIds('need', proposedNeedIds, visibility),
+-    loadMediaByEntityIds('offer', proposedOfferIds, visibility)
++    loadMediaByEntityIds('offer', proposedOfferIds, visibility),
++    loadInventoryTranslationsByTargetIds(prisma, 'need', proposedNeedIds),
++    loadInventoryTranslationsByTargetIds(prisma, 'offer', proposedOfferIds)
+   ]);
+   const byTradeId = new Map(hydratedTrades.map((trade) => [trade.id, trade]));
+   return proposals.map((proposal) => ({
+     ...proposal,
+     trade: proposal.trade ? byTradeId.get(proposal.trade.id) ?? proposal.trade : proposal.trade,
+-    proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
+-    proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
++    proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [], translations: proposedNeedTranslations.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
++    proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [], translations: proposedOfferTranslations.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
+     packageItems: proposal.packageItems?.map((item) => ({
+       ...item,
+-      need: item.need ? { ...item.need, media: proposedNeedMedia.get(item.need.id) ?? [] } : item.need,
+-      offer: item.offer ? { ...item.offer, media: proposedOfferMedia.get(item.offer.id) ?? [] } : item.offer,
++      need: item.need ? { ...item.need, media: proposedNeedMedia.get(item.need.id) ?? [], translations: proposedNeedTranslations.get(item.need.id) ?? [] } : item.need,
++      offer: item.offer ? { ...item.offer, media: proposedOfferMedia.get(item.offer.id) ?? [], translations: proposedOfferTranslations.get(item.offer.id) ?? [] } : item.offer,
+     })),
+   })) as T[];
+ }
+@@ -311,6 +316,15 @@ function resolveFeedDiscoveryPreferences(
+   };
+ }
+ 
++async function resolveViewerLanguage(actorId: string | undefined, acceptLanguageHeader: unknown): Promise<'en' | 'fr'> {
++  const actorPreferences = actorId
++    ? await prisma.user.findUnique({ where: { id: actorId }, select: { settings: { select: { language: true } } } })
++    : null;
++  return normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
++    ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
++    ?? 'en';
++}
++
+ function getLocaleAffinityScore(trade: FeedRankableTrade, preferences: FeedDiscoveryPreferences) {
+   let score = 0;
+   const ownerCountry = normalizeCountryCode(trade.owner?.profile?.countryCode);
+@@ -620,7 +634,8 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
+   const filteredTrades = input.hasImages
+     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
+     : hydratedTrades;
+-  res.json({ trades: sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields) });
++  const sortedTrades = sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields);
++  res.json({ trades: applyInventoryDisplayLanguageToTrades(sortedTrades, preferences.language) });
+ }));
+ 
+ tradesRoutes.get('/:tradeId/public-messages', requireAuth, asyncRoute(async (req, res) => {
+@@ -716,7 +731,8 @@ tradesRoutes.delete('/:tradeId/public-messages/:messageId', requireAuth, require
+ tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
+   const actorId = req.user!.id;
+   const trades = await prisma.trade.findMany({ where: { AND: [{ OR: [{ ownerId: actorId }, { providerId: actorId }] }, ...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });
+-  res.json({ trades: await withTradeDeckMedia(trades, 'owner') });
++  const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
++  res.json({ trades: applyInventoryDisplayLanguageToTrades(await withTradeDeckMedia(trades, 'owner'), viewerLanguage) });
+ }));
+ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
+   const actorId = req.user?.id;
+@@ -735,7 +751,9 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
+   if (actorId && ![trade.ownerId, trade.providerId].includes(actorId) && await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(404).json({ error: 'not_found' });
+   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
+   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
+-  res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
++  const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
++  const hydratedTrade = await withOneTradeDeckMedia(trade, visibility);
++  res.json({ trade: applyInventoryDisplayLanguageToTrade(hydratedTrade, viewerLanguage) });
+ }));
+ 
+ const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index 577bc06..26d1d1f 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -1,7 +1,7 @@
+ import React, { useState } from 'react';
+ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { TradeExchangeMode } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, TradeExchangeMode } from '@hellowhen/contracts';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+@@ -12,7 +12,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { CategoryPicker, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
++import { buildManualTranslation, CategoryPicker, InventoryTextField, LanguagePicker, ManualTranslationFields, ModePicker, optionalText } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import type { NeedItem } from './types';
+@@ -21,9 +21,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
+ type CreateNeedResponse = { need: NeedItem };
+ 
+ export function CreateNeedScreen({ route, navigation }: Props) {
+-  const { t } = useTranslation();
++  const { t, language } = useTranslation();
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
++  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
++  const [translationTitle, setTranslationTitle] = useState('');
++  const [translationDescription, setTranslationDescription] = useState('');
+   const [mode, setMode] = useState<TradeExchangeMode>('remote');
+   const [category, setCategory] = useState('');
+   const [locationLabel, setLocationLabel] = useState('');
+@@ -31,6 +34,12 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+ 
++  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
++    setDefaultLanguage(nextLanguage);
++    setTranslationTitle('');
++    setTranslationDescription('');
++  }
++
+   function validateForm() {
+     const cleanTitle = title.trim();
+     const cleanDescription = description.trim();
+@@ -38,6 +47,9 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('validation.needDescriptionTooShort');
+     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
++    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) return t('inventory.errors.translationIncomplete');
++    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
++    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
+     return null;
+   }
+ 
+@@ -58,6 +70,8 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+       const response = await api.needs.create({
+         title: cleanTitle,
+         description: cleanDescription,
++        defaultLanguage,
++        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
+         itemType: 'service',
+         category: optionalText(category),
+         mode,
+@@ -119,6 +133,22 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+           <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionNeedMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} />
+         </AppCard>
+ 
++        <AppCard>
++          <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
++          <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
++          <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={submitting} />
++          <ManualTranslationFields
++            defaultLanguage={defaultLanguage}
++            title={translationTitle}
++            description={translationDescription}
++            onChangeTitle={setTranslationTitle}
++            onChangeDescription={setTranslationDescription}
++            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++            disabled={submitting}
++          />
++        </AppCard>
++
+         <AppCard>
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index a0d3d22..73b7937 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -1,7 +1,7 @@
+ import React, { useState } from 'react';
+ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { TradeExchangeMode } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, TradeExchangeMode } from '@hellowhen/contracts';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+@@ -12,7 +12,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { CategoryPicker, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
++import { buildManualTranslation, CategoryPicker, InventoryTextField, LanguagePicker, ManualTranslationFields, ModePicker, optionalText } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import type { OfferItem } from './types';
+@@ -21,9 +21,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
+ type CreateOfferResponse = { offer: OfferItem };
+ 
+ export function CreateOfferScreen({ route, navigation }: Props) {
+-  const { t } = useTranslation();
++  const { t, language } = useTranslation();
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
++  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
++  const [translationTitle, setTranslationTitle] = useState('');
++  const [translationDescription, setTranslationDescription] = useState('');
+   const [mode, setMode] = useState<TradeExchangeMode>('remote');
+   const [category, setCategory] = useState('');
+   const [locationLabel, setLocationLabel] = useState('');
+@@ -31,6 +34,12 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+   const [submitting, setSubmitting] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+ 
++  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
++    setDefaultLanguage(nextLanguage);
++    setTranslationTitle('');
++    setTranslationDescription('');
++  }
++
+   function validateForm() {
+     const cleanTitle = title.trim();
+     const cleanDescription = description.trim();
+@@ -38,6 +47,9 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('validation.offerDescriptionTooShort');
+     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
++    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) return t('inventory.errors.translationIncomplete');
++    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
++    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
+     return null;
+   }
+ 
+@@ -58,6 +70,8 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+       const response = await api.offers.create({
+         title: cleanTitle,
+         description: cleanDescription,
++        defaultLanguage,
++        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
+         itemType: 'service',
+         category: optionalText(category),
+         mode,
+@@ -120,6 +134,22 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+           <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} />
+         </AppCard>
+ 
++        <AppCard>
++          <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
++          <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
++          <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={submitting} />
++          <ManualTranslationFields
++            defaultLanguage={defaultLanguage}
++            title={translationTitle}
++            description={translationDescription}
++            onChangeTitle={setTranslationTitle}
++            onChangeDescription={setTranslationDescription}
++            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++            disabled={submitting}
++          />
++        </AppCard>
++
+         <AppCard>
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index fd39778..e8dcd96 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -11,7 +11,7 @@ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { CategoryPicker, categoryLabel, itemTypeLabel } from './components/InventoryFormFields';
++import { buildManualTranslation, CategoryPicker, categoryLabel, getEditableTranslationLanguage, itemTypeLabel, LanguagePicker, ManualTranslationFields } from './components/InventoryFormFields';
+ import {
+   DangerButton,
+   ExistingMediaManager,
+@@ -26,7 +26,7 @@ import {
+   type InventoryMode,
+ } from './components/InventoryDetailFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+-import type { InventoryItemType } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, InventoryItemType } from '@hellowhen/contracts';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import { formatLocalizedDate } from '@hellowhen/i18n';
+ import type { NeedItem, OfferItem } from './types';
+@@ -50,6 +50,9 @@ export function InventoryDetailScreen({
+   const [item, setItem] = useState<InventoryItem | null>(null);
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
++  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
++  const [translationTitle, setTranslationTitle] = useState('');
++  const [translationDescription, setTranslationDescription] = useState('');
+   const [itemType, setItemType] = useState<InventoryItemType>('service');
+   const [category, setCategory] = useState('');
+   const [timingOrAvailability, setTimingOrAvailability] = useState('');
+@@ -73,13 +76,19 @@ export function InventoryDetailScreen({
+     setItem(nextItem);
+     setTitle(nextItem.title ?? '');
+     setDescription(nextItem.description ?? '');
++    const nextDefaultLanguage = (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
++    const nextTranslationLanguage = getEditableTranslationLanguage(nextDefaultLanguage);
++    const nextTranslation = Array.isArray(nextItem.translations) ? nextItem.translations.find((translation) => translation?.languageCode === nextTranslationLanguage) : null;
++    setDefaultLanguage(nextDefaultLanguage);
++    setTranslationTitle(typeof nextTranslation?.title === 'string' ? nextTranslation.title : '');
++    setTranslationDescription(typeof nextTranslation?.description === 'string' ? nextTranslation.description : '');
+     setItemType((nextItem.itemType as InventoryItemType | undefined) ?? 'service');
+     setCategory(getOptionalString(nextItem, 'category'));
+     setTimingOrAvailability(isNeed ? getOptionalString(nextItem, 'timing') : getOptionalString(nextItem, 'availability'));
+     setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
+     setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
+     setNewImages([]);
+-  }, [isNeed]);
++  }, [isNeed, language]);
+ 
+   const loadItem = useCallback(async () => {
+     setLoading(true);
+@@ -98,6 +107,12 @@ export function InventoryDetailScreen({
+ 
+   useEffect(() => { void loadItem(); }, [loadItem]);
+ 
++  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
++    setDefaultLanguage(nextLanguage);
++    setTranslationTitle('');
++    setTranslationDescription('');
++  }
++
+   async function saveItem(nextStatus?: string) {
+     if (title.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
+       setError(isNeed ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'));
+@@ -115,6 +130,18 @@ export function InventoryDetailScreen({
+       setError(t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH }));
+       return;
+     }
++    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) {
++      setError(t('inventory.errors.translationIncomplete'));
++      return;
++    }
++    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
++      setError(t('inventory.errors.translationTitleTooShort'));
++      return;
++    }
++    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) {
++      setError(t('inventory.errors.translationDescriptionTooShort'));
++      return;
++    }
+ 
+     setSaving(true);
+     setError(null);
+@@ -123,6 +150,8 @@ export function InventoryDetailScreen({
+       const payload = {
+         title: title.trim(),
+         description: description.trim(),
++        defaultLanguage,
++        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
+         category: optionalText(category),
+         mode,
+         locationLabel: optionalText(locationLabel),
+@@ -217,6 +246,17 @@ export function InventoryDetailScreen({
+                 <View style={styles.form}>
+                   <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={saving} />
+                   <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={saving} />
++                  <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={saving} />
++                  <ManualTranslationFields
++                    defaultLanguage={defaultLanguage}
++                    title={translationTitle}
++                    description={translationDescription}
++                    onChangeTitle={setTranslationTitle}
++                    onChangeDescription={setTranslationDescription}
++                    titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++                    descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                    disabled={saving}
++                  />
+                   <CategoryPicker value={category} onChange={setCategory} disabled={saving} />
+                   <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
+                   <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+index 111d501..924d667 100644
+--- a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -1,13 +1,14 @@
+ import React from 'react';
+ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+-import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+-import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
++import type { DiscoveryLanguage, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
++import { findInventoryCategoryOption, getAlternateInventoryLanguage, inventoryCategoryOptions } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ 
+ export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
+ export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
++export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr'];
+ 
+ type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ 
+@@ -45,6 +46,22 @@ export function itemTypePluralLabel(itemType: InventoryItemType | 'all', t?: TFu
+   return t?.('inventory.itemTypes.services') ?? 'Services';
+ }
+ 
++export function inventoryLanguageLabel(languageCode: DiscoveryLanguage, t?: TFunction) {
++  if (languageCode === 'fr') return t?.('inventory.languages.fr') ?? 'French';
++  return t?.('inventory.languages.en') ?? 'English';
++}
++
++export function getEditableTranslationLanguage(defaultLanguage: DiscoveryLanguage) {
++  return getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
++}
++
++export function buildManualTranslation(defaultLanguage: DiscoveryLanguage, title: string, description: string) {
++  const languageCode = getEditableTranslationLanguage(defaultLanguage);
++  const cleanTitle = title.trim();
++  const cleanDescription = description.trim();
++  return cleanTitle || cleanDescription ? [{ languageCode, title: cleanTitle, description: cleanDescription }] : [];
++}
++
+ 
+ export function categoryLabel(category?: string | null, t?: TFunction) {
+   const option = findInventoryCategoryOption(category);
+@@ -104,6 +121,83 @@ export function InventoryTextField({
+ }
+ 
+ 
++export function LanguagePicker({ value, onChange, disabled }: { value: DiscoveryLanguage; onChange: (language: DiscoveryLanguage) => void; disabled?: boolean }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <View style={styles.field}>
++      <View style={styles.labelRow}>
++        <AppText style={styles.label}>{t('inventory.labels.defaultLanguage')}</AppText>
++        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
++      </View>
++      <View style={styles.modeRow}>
++        {inventoryLanguageOptions.map((languageCode) => {
++          const selected = value === languageCode;
++          return (
++            <Pressable
++              key={languageCode}
++              disabled={disabled}
++              onPress={() => onChange(languageCode)}
++              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
++            >
++              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{inventoryLanguageLabel(languageCode, t)}</AppText>
++            </Pressable>
++          );
++        })}
++      </View>
++    </View>
++  );
++}
++
++export function ManualTranslationFields({
++  defaultLanguage,
++  title,
++  description,
++  onChangeTitle,
++  onChangeDescription,
++  disabled,
++  titleMaxLength,
++  descriptionMaxLength,
++}: {
++  defaultLanguage: DiscoveryLanguage;
++  title: string;
++  description: string;
++  onChangeTitle: (value: string) => void;
++  onChangeDescription: (value: string) => void;
++  disabled?: boolean;
++  titleMaxLength?: number;
++  descriptionMaxLength?: number;
++}) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const translationLanguage = getEditableTranslationLanguage(defaultLanguage);
++  return (
++    <View style={styles.field}>
++      <View style={styles.labelRow}>
++        <AppText style={styles.label}>{t('inventory.labels.manualTranslation')}</AppText>
++        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.translationHelp')}</AppText>
++      </View>
++      <InventoryTextField
++        label={t('inventory.form.translationTitleLabel', { language: inventoryLanguageLabel(translationLanguage, t) })}
++        value={title}
++        onChangeText={onChangeTitle}
++        placeholder={t('inventory.form.translationTitlePlaceholder')}
++        maxLength={titleMaxLength}
++        disabled={disabled}
++      />
++      <InventoryTextField
++        label={t('inventory.form.translationDescriptionLabel', { language: inventoryLanguageLabel(translationLanguage, t) })}
++        value={description}
++        onChangeText={onChangeDescription}
++        placeholder={t('inventory.form.translationDescriptionPlaceholder')}
++        maxLength={descriptionMaxLength}
++        multiline
++        disabled={disabled}
++      />
++    </View>
++  );
++}
++
+ export function CategoryPicker({ value, onChange, disabled }: { value: string; onChange: (category: string) => void; disabled?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index a0ce8ef..17f01dd 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2019,6 +2019,9 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .inventory-form__grid--simple { grid-template-columns: 1fr; }
+ .inventory-form__helper-copy { display: grid; gap: 4px; color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.4; }
+ .inventory-form__helper-copy strong { color: var(--app-text); font-size: 16px; font-weight: 950; }
++.inventory-translation-panel { display: grid; gap: 14px; }
++.inventory-translation-panel__fields { display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 22px; background: var(--app-surface); padding: 12px; }
++.inventory-translation-panel__fields small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+ .inventory-card__body h3,
+ .inventory-template-card__body h3,
+ .public-profile-post-card h3,
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index d3a82fd..3876e25 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -16,17 +16,22 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import {
+   emptyInventoryFormValues,
++  getEditableTranslationLanguage,
++  getInventoryTranslationDraft,
++  inventoryLanguageLabel,
+   inventoryToFormValues,
+   inventoryStatusLabel,
+   itemTypeLabel,
+   kindLabel,
+   mediaSrc,
+   normalizeInventoryItem,
++  normalizeInventoryTranslationsForPayload,
+   normalizeMediaUpload,
+   parseCsvList,
+   parseLineList,
+   sideClassName,
+   modeLabel,
++  setInventoryTranslationDraft,
+   sideLabel,
+   toIsoDate,
+   type InventoryFormValues,
+@@ -71,6 +76,8 @@ function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): Cre
+   return {
+     title: values.title.trim(),
+     description: values.description.trim(),
++    defaultLanguage: values.defaultLanguage,
++    translations: normalizeInventoryTranslationsForPayload(values),
+     status: values.status as NeedDto['status'],
+     itemType: values.itemType,
+     category: values.category.trim() || undefined,
+@@ -87,6 +94,8 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): Cr
+   return {
+     title: values.title.trim(),
+     description: values.description.trim(),
++    defaultLanguage: values.defaultLanguage,
++    translations: normalizeInventoryTranslationsForPayload(values),
+     status: values.status as OfferDto['status'],
+     itemType: values.itemType,
+     category: values.category.trim() || undefined,
+@@ -131,6 +140,13 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+   const noun = kindLabel(kind, i18n);
+   const lowerNoun = noun.toLowerCase();
+   const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
++  const translationLanguage = getEditableTranslationLanguage(values.defaultLanguage);
++  const translationDraft = getInventoryTranslationDraft(values, translationLanguage);
++
++  useEffect(() => {
++    if (mode !== 'create') return;
++    setValues((current) => current.defaultLanguage === language ? current : { ...current, defaultLanguage: language });
++  }, [language, mode]);
+ 
+   useEffect(() => {
+     if (mode !== 'edit' || !itemId) return;
+@@ -219,6 +235,15 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return kind === 'need' ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort');
+     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
++    const incompleteTranslation = values.translations.some((translation) => (
++      (translation.title.trim() !== '' && translation.description.trim() === '')
++      || (translation.title.trim() === '' && translation.description.trim() !== '')
++    ));
++    if (incompleteTranslation) return t('inventory.errors.translationIncomplete');
++    for (const translation of normalizeInventoryTranslationsForPayload(values)) {
++      if (translation.title.length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
++      if (translation.description.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
++    }
+     if (!parseMode(values.mode)) return t('validation.modeRequired');
+     return '';
+   }
+@@ -340,6 +365,43 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+           </label>
+         </section>
+ 
++        <section className="mobile-card mobile-card--soft inventory-translation-panel">
++          <div className="inventory-form__helper-copy">
++            <strong>{t('inventory.form.languageTitle')}</strong>
++            <span>{t('inventory.form.languageBody')}</span>
++          </div>
++          <label className="field-label">
++            {t('inventory.labels.defaultLanguage')}
++            <select value={values.defaultLanguage} onChange={(event) => updateField('defaultLanguage', event.target.value as InventoryFormValues['defaultLanguage'])}>
++              <option value="en">{inventoryLanguageLabel('en', i18n)}</option>
++              <option value="fr">{inventoryLanguageLabel('fr', i18n)}</option>
++            </select>
++          </label>
++          <div className="inventory-translation-panel__fields">
++            <p className="eyebrow">{t('inventory.labels.manualTranslation')} · {inventoryLanguageLabel(translationLanguage, i18n)}</p>
++            <label className="field-label">
++              <span className="field-label__row"><span>{t('inventory.form.translationTitleLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
++              <input
++                value={translationDraft.title}
++                onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), title: event.target.value }))}
++                placeholder={t('inventory.form.translationTitlePlaceholder')}
++                maxLength={INVENTORY_TITLE_MAX_LENGTH}
++              />
++            </label>
++            <label className="field-label">
++              <span className="field-label__row"><span>{t('inventory.form.translationDescriptionLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
++              <textarea
++                value={translationDraft.description}
++                onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), description: event.target.value }))}
++                placeholder={t('inventory.form.translationDescriptionPlaceholder')}
++                maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                rows={4}
++              />
++            </label>
++            <small>{t('inventory.form.translationHelp')}</small>
++          </div>
++        </section>
++
+         <section className="mobile-card mobile-card--soft inventory-form__grid inventory-form__grid--simple">
+           <div className="inventory-form__wide inventory-form__helper-copy">
+             <strong>{t('inventory.form.simplifiedDetailsTitle')}</strong>
+diff --git a/apps/web/src/features/inventory/inventoryPresentation.ts b/apps/web/src/features/inventory/inventoryPresentation.ts
+index 7058e7e..71db78d 100644
+--- a/apps/web/src/features/inventory/inventoryPresentation.ts
++++ b/apps/web/src/features/inventory/inventoryPresentation.ts
+@@ -1,11 +1,12 @@
+-import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
++import type { DiscoveryLanguage, InventoryItemType, InventoryTranslationDto, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+ import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+-import { findInventoryCategoryOption } from '@hellowhen/shared';
++import { findInventoryCategoryOption, getAlternateInventoryLanguage } from '@hellowhen/shared';
+ import { resolveWebAssetUrl } from '../../lib/api';
+ import { formatWebDate } from '../../lib/webFormat';
+ 
+ export type InventoryKind = 'need' | 'offer';
+ export type InventoryItem = NeedDto | OfferDto;
++export type InventoryTranslationFormValues = { languageCode: DiscoveryLanguage; title: string; description: string };
+ 
+ export type InventoryI18n = {
+   t?: (key: string, values?: TranslationValues) => string;
+@@ -20,6 +21,8 @@ function tr(i18n: InventoryI18n | undefined, key: string, fallback: string, valu
+ export type InventoryFormValues = {
+   title: string;
+   description: string;
++  defaultLanguage: DiscoveryLanguage;
++  translations: InventoryTranslationFormValues[];
+   status: string;
+   itemType: InventoryItemType;
+   category: string;
+@@ -35,6 +38,8 @@ export type InventoryFormValues = {
+ export const emptyInventoryFormValues: InventoryFormValues = {
+   title: '',
+   description: '',
++  defaultLanguage: 'en',
++  translations: [],
+   status: 'active',
+   itemType: 'service',
+   category: '',
+@@ -84,6 +89,43 @@ export function modeLabel(mode?: string | null, i18n?: InventoryI18n) {
+ }
+ 
+ 
++export function inventoryLanguageLabel(languageCode?: string | null, i18n?: InventoryI18n) {
++  if (languageCode === 'fr') return tr(i18n, 'inventory.languages.fr', 'French');
++  return tr(i18n, 'inventory.languages.en', 'English');
++}
++
++export function getEditableTranslationLanguage(defaultLanguage: DiscoveryLanguage) {
++  return getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
++}
++
++function translationToFormValue(translation: InventoryTranslationDto): InventoryTranslationFormValues {
++  return {
++    languageCode: translation.languageCode,
++    title: translation.title ?? '',
++    description: translation.description ?? '',
++  };
++}
++
++export function getInventoryTranslationDraft(values: InventoryFormValues, languageCode: DiscoveryLanguage): InventoryTranslationFormValues {
++  return values.translations.find((translation) => translation.languageCode === languageCode) ?? { languageCode, title: '', description: '' };
++}
++
++export function setInventoryTranslationDraft(values: InventoryFormValues, draft: InventoryTranslationFormValues): InventoryFormValues {
++  const translations = values.translations.filter((translation) => translation.languageCode !== draft.languageCode);
++  return { ...values, translations: [...translations, draft] };
++}
++
++export function normalizeInventoryTranslationsForPayload(values: InventoryFormValues) {
++  return values.translations
++    .filter((translation) => translation.languageCode !== values.defaultLanguage)
++    .filter((translation) => translation.title.trim() || translation.description.trim())
++    .map((translation) => ({
++      languageCode: translation.languageCode,
++      title: translation.title.trim(),
++      description: translation.description.trim(),
++    }));
++}
++
+ export function inventoryCategoryLabel(category?: string | null, i18n?: InventoryI18n) {
+   const option = findInventoryCategoryOption(category);
+   if (!option) return category?.trim() ?? '';
+@@ -117,6 +159,8 @@ export function inventoryToFormValues(item?: InventoryItem | null): InventoryFor
+   return {
+     title: item.title ?? '',
+     description: item.description ?? '',
++    defaultLanguage: item.defaultLanguage ?? 'en',
++    translations: (item.translations ?? []).map(translationToFormValue),
+     status: item.status ?? 'active',
+     itemType: item.itemType ?? 'service',
+     category: item.category ?? '',
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index bed3791..708b355 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -53,9 +53,29 @@ const offerMetadataSchema = z.object({
+   tags: tradeTagsSchema
+ });
+ 
++const inventoryTranslationInputSchema = z.object({
++  languageCode: discoveryLanguageSchema,
++  title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
++  description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH)
++});
++const inventoryTranslationsInputSchema = z.array(inventoryTranslationInputSchema).max(4).optional();
++
++export const inventoryTranslationSchema = z.object({
++  id: z.string().optional(),
++  targetType: z.enum(['need', 'offer']).optional(),
++  targetId: z.string().optional(),
++  languageCode: discoveryLanguageSchema,
++  title: z.string(),
++  description: z.string(),
++  createdAt: z.string().optional(),
++  updatedAt: z.string().optional()
++});
++
+ export const createNeedRequestSchema = z.object({
+   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
+   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
++  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
++  translations: inventoryTranslationsInputSchema,
+   status: needStatusSchema.optional(),
+   expiresAt: z.string().datetime().optional(),
+   mediaIds: z.array(z.string()).max(5).optional()
+@@ -64,6 +84,8 @@ export const createNeedRequestSchema = z.object({
+ export const createOfferRequestSchema = z.object({
+   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
+   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
++  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
++  translations: inventoryTranslationsInputSchema,
+   status: offerStatusSchema.optional(),
+   expiresAt: z.string().datetime().optional(),
+   mediaIds: z.array(z.string()).max(5).optional()
+@@ -138,6 +160,8 @@ export const createTradeRequestSchema = z.object({
+ const inventoryUpdateBaseSchema = z.object({
+   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH).optional(),
+   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH).optional(),
++  defaultLanguage: discoveryLanguageSchema.optional(),
++  translations: inventoryTranslationsInputSchema,
+   status: z.string().optional(),
+   expiresAt: z.string().datetime().nullable().optional(),
+   itemType: inventoryItemTypeSchema.optional(),
+@@ -239,6 +263,8 @@ export const needSchema = z.object({
+   sourceTemplateId: z.string().nullable().optional(),
+   title: z.string(),
+   description: z.string(),
++  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
++  translations: z.array(inventoryTranslationSchema).optional(),
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().nullable().optional(),
+   timing: z.string().nullable().optional(),
+@@ -259,6 +285,8 @@ export const offerSchema = z.object({
+   sourceTemplateId: z.string().nullable().optional(),
+   title: z.string(),
+   description: z.string(),
++  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
++  translations: z.array(inventoryTranslationSchema).optional(),
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().nullable().optional(),
+   availability: z.string().nullable().optional(),
+@@ -429,6 +457,7 @@ export const tradeProposalSchema = z.object({
+ 
+ export type NeedDto = z.infer<typeof needSchema>;
+ export type OfferDto = z.infer<typeof offerSchema>;
++export type InventoryTranslationDto = z.infer<typeof inventoryTranslationSchema>;
+ export type InventoryTemplateDto = z.infer<typeof inventoryTemplateSchema>;
+ export type CloneInventoryTemplateResponse = z.infer<typeof cloneInventoryTemplateResponseSchema>;
+ export type TradeDto = z.infer<typeof tradeSchema>;
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index 6c46d1e..cc63954 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -10,6 +10,8 @@ export const inventory = {
+     starterOffers: 'Starter Offers',
+     title: 'Title',
+     description: 'Description',
++    defaultLanguage: 'Original language',
++    manualTranslation: 'Manual translation',
+     status: 'Status',
+     type: 'Type',
+     category: 'Category',
+@@ -63,6 +65,10 @@ export const inventory = {
+     local: 'Local',
+     hybrid: 'Hybrid',
+   },
++  languages: {
++    en: 'English',
++    fr: 'French',
++  },
+   categories: {
+     design: 'Design',
+     development: 'Development',
+@@ -171,6 +177,13 @@ export const inventory = {
+     simplifiedDetailsTitle: 'How can it be exchanged?',
+     simplifiedDetailsBody: 'Add only the basics now. Categories and tags can be improved later.',
+     categoryHelp: 'Optional, but recommended. It helps people find and understand your Need or Offer.',
++    languageTitle: 'Original language and translations',
++    languageBody: 'Write the original Need or Offer in your default language first. You can add a manual translation for the other app language.',
++    translationTitleLabel: 'Translated title',
++    translationDescriptionLabel: 'Translated description',
++    translationTitlePlaceholder: 'Write the translated title manually.',
++    translationDescriptionPlaceholder: 'Write the translated description manually.',
++    translationHelp: 'Optional. Leave both fields empty if you do not want to add this translation yet.',
+   },
+   empty: {
+     createFirstNeed: 'Create your first need',
+@@ -234,6 +247,9 @@ export const inventory = {
+     titleOfferTooShort: 'Add a clear offer title.',
+     descriptionNeedTooShort: 'Describe the need with at least one useful detail.',
+     descriptionOfferTooShort: 'Describe the offer with at least one useful detail.',
++    translationIncomplete: 'Complete both translated title and translated description, or leave both empty.',
++    translationTitleTooShort: 'Add a clearer translated title.',
++    translationDescriptionTooShort: 'Add more detail to the translated description.',
+     starterLibraryError: 'Starter library error',
+   },
+   delete: {
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index 46a63de..de3d329 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -10,6 +10,8 @@ export const inventory = {
+     starterOffers: 'Offres de départ',
+     title: 'Titre',
+     description: 'Description',
++    defaultLanguage: 'Langue originale',
++    manualTranslation: 'Traduction manuelle',
+     status: 'Statut',
+     type: 'Type',
+     category: 'Catégorie',
+@@ -63,6 +65,10 @@ export const inventory = {
+     local: 'Local',
+     hybrid: 'Hybride',
+   },
++  languages: {
++    en: 'Anglais',
++    fr: 'Français',
++  },
+   categories: {
+     design: 'Design',
+     development: 'Développement',
+@@ -171,6 +177,13 @@ export const inventory = {
+     simplifiedDetailsTitle: 'Comment l’échange peut-il se faire ?',
+     simplifiedDetailsBody: 'Ajoutez seulement l’essentiel maintenant. Les catégories et tags pourront être améliorés plus tard.',
+     categoryHelp: 'Optionnel, mais recommandé. Cela aide les autres à trouver et comprendre votre Need ou votre Offer.',
++    languageTitle: 'Langue originale et traductions',
++    languageBody: 'Rédigez d’abord le besoin ou l’offre dans votre langue par défaut. Vous pouvez ajouter une traduction manuelle pour l’autre langue de l’app.',
++    translationTitleLabel: 'Titre traduit',
++    translationDescriptionLabel: 'Description traduite',
++    translationTitlePlaceholder: 'Rédigez le titre traduit manuellement.',
++    translationDescriptionPlaceholder: 'Rédigez la description traduite manuellement.',
++    translationHelp: 'Optionnel. Laissez les deux champs vides si vous ne voulez pas ajouter cette traduction maintenant.',
+   },
+   empty: {
+     createFirstNeed: 'Créer votre premier besoin',
+@@ -234,6 +247,9 @@ export const inventory = {
+     titleOfferTooShort: 'Ajoutez un titre clair pour l’offre.',
+     descriptionNeedTooShort: 'Décrivez le besoin avec au moins un détail utile.',
+     descriptionOfferTooShort: 'Décrivez l’offre avec au moins un détail utile.',
++    translationIncomplete: 'Complétez le titre et la description traduits, ou laissez les deux champs vides.',
++    translationTitleTooShort: 'Ajoutez un titre traduit plus clair.',
++    translationDescriptionTooShort: 'Ajoutez plus de détails dans la description traduite.',
+     starterLibraryError: 'Erreur de bibliothèque de départ',
+   },
+   delete: {
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index 593f6ee..8c73288 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -6,5 +6,6 @@ export * from './subscriptions.js';
+ export * from './tradePackages.js';
+ 
+ export * from './inventoryCategories.js';
++export * from './inventoryTranslations.js';
+ 
+ export * from './tradeDisplay.js';
+diff --git a/packages/shared/src/inventoryTranslations.ts b/packages/shared/src/inventoryTranslations.ts
+new file mode 100644
+index 0000000..cd81f92
+--- /dev/null
++++ b/packages/shared/src/inventoryTranslations.ts
+@@ -0,0 +1,65 @@
++export type InventoryLanguageCode = 'en' | 'fr';
++
++export type InventoryTranslationLike = {
++  languageCode?: string | null;
++  title?: string | null;
++  description?: string | null;
++};
++
++export type InventoryTranslatableLike = {
++  title?: string | null;
++  description?: string | null;
++  defaultLanguage?: string | null;
++  translations?: InventoryTranslationLike[] | null;
++};
++
++export type InventoryDisplayCopy = {
++  title: string;
++  description: string;
++  languageCode: string;
++  isTranslated: boolean;
++};
++
++export function normalizeInventoryLanguageCode(value?: string | null): InventoryLanguageCode | null {
++  const normalized = value?.trim().toLowerCase().replace('_', '-').split('-')[0];
++  if (normalized === 'en' || normalized === 'fr') return normalized;
++  return null;
++}
++
++export function getAlternateInventoryLanguage(languageCode: string): InventoryLanguageCode {
++  return normalizeInventoryLanguageCode(languageCode) === 'fr' ? 'en' : 'fr';
++}
++
++export function resolveInventoryDisplayCopy(item: InventoryTranslatableLike, viewerLanguage?: string | null): InventoryDisplayCopy {
++  const defaultLanguage = normalizeInventoryLanguageCode(item.defaultLanguage) ?? 'en';
++  const requestedLanguage = normalizeInventoryLanguageCode(viewerLanguage) ?? defaultLanguage;
++  const original = {
++    title: item.title?.trim() ?? '',
++    description: item.description?.trim() ?? '',
++    languageCode: defaultLanguage,
++    isTranslated: false,
++  };
++
++  if (requestedLanguage === defaultLanguage) return original;
++
++  const translation = (item.translations ?? []).find((entry) => normalizeInventoryLanguageCode(entry.languageCode) === requestedLanguage);
++  const translatedTitle = translation?.title?.trim();
++  const translatedDescription = translation?.description?.trim();
++  if (!translatedTitle || !translatedDescription) return original;
++
++  return {
++    title: translatedTitle,
++    description: translatedDescription,
++    languageCode: requestedLanguage,
++    isTranslated: true,
++  };
++}
++
++export function withResolvedInventoryDisplay<T extends InventoryTranslatableLike>(item: T, viewerLanguage?: string | null): T {
++  const display = resolveInventoryDisplayCopy(item, viewerLanguage);
++  return {
++    ...item,
++    title: display.title,
++    description: display.description,
++  };
++}

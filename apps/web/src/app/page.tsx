@@ -1,5 +1,8 @@
-import { redirect } from 'next/navigation';
+import { PublicLandingPage } from '../features/landing/PublicLandingPage';
+import { publicPageMetadata } from '../lib/seo';
+
+export const metadata = publicPageMetadata({ pathname: '/' });
 
 export default function HomePage() {
-  redirect('/trades');
+  return <PublicLandingPage />;
 }

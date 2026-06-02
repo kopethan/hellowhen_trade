@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
 import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, TradePostType, WalletLimitsDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
+import { buildGeneratedTradeDisplay, type GeneratedTradeDisplayLabels } from '@hellowhen/shared';
 import { MobilePage, PageIntro } from '../../components/MobilePage';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -36,8 +37,6 @@ type TradeCreateValues = {
   amount: string;
   currency: SupportedCurrency;
   expiresAt: string;
-  title: string;
-  description: string;
 };
 
 function normalizeCreatedTradeId(value: unknown) {
@@ -133,25 +132,39 @@ function createSideChooseHref(side: 'need' | 'offer', values: TradeCreateValues)
   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
 }
 
-function sideTitle(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[], t: Translator) {
-  const need = values.needMode === 'money' ? t('account.walletMoney') : (findNeed(needs, values.needId)?.title ?? t('inventory.labels.need'));
-  const offer = values.offerMode === 'money' ? t('account.walletMoney') : (findOffer(offers, values.offerId)?.title ?? t('inventory.labels.offer'));
-  if (values.postType === 'open_need') return t('trade.create.openNeedTitle', { need });
-  if (values.postType === 'open_offer') return t('trade.create.openOfferTitle', { offer });
-  return t('trade.create.needOfferTitle', { need, offer });
+
+function tradeDisplayLabels(t: Translator): Partial<GeneratedTradeDisplayLabels> {
+  return {
+    openNeedPrefix: `${t('trade.labels.openNeed')}: `,
+    openOfferPrefix: `${t('trade.labels.openOffer')}: `,
+    needLineLabel: t('trade.labels.iNeed'),
+    offerLineLabel: t('trade.labels.iOffer'),
+    openNeedPrompt: t('trade.labels.othersCanProposeOffers'),
+    openOfferPrompt: t('trade.labels.othersCanProposeNeeds'),
+    missingNeedTitle: t('trade.create.chooseWhatYouNeed'),
+    missingOfferTitle: t('trade.create.chooseWhatYouOffer'),
+    missingNeedDescription: t('trade.create.savedNeedFallback'),
+    missingOfferDescription: t('trade.create.savedOfferFallback'),
+  };
 }
 
-function sideDescription(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[], amountCents: number, t: Translator) {
-  const need = values.needMode === 'money'
-    ? t('trade.create.walletMoneyDescription', { amount: formatWebMoney(amountCents, values.currency) })
-    : (findNeed(needs, values.needId)?.title ?? t('trade.create.savedNeedFallback'));
-  const offer = values.offerMode === 'money'
-    ? t('trade.create.walletMoneyDescription', { amount: formatWebMoney(amountCents, values.currency) })
-    : (findOffer(offers, values.offerId)?.title ?? t('trade.create.savedOfferFallback'));
-  if (values.postType === 'open_need') return t('trade.create.openNeedDescription', { need });
-  if (values.postType === 'open_offer') return t('trade.create.openOfferDescription', { offer });
-  return t('trade.create.needOfferDescription', { need, offer });
+function moneySideLabel(amountCents: number, currency: SupportedCurrency) {
+  return formatWebMoney(amountCents, currency);
 }
+
+function buildWebGeneratedTradeDisplay(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[], amountCents: number, t: Translator) {
+  const need = findNeed(needs, values.needId);
+  const offer = findOffer(offers, values.offerId);
+  const moneyLabel = moneySideLabel(Number.isFinite(amountCents) ? amountCents : 0, values.currency);
+
+  return buildGeneratedTradeDisplay({
+    postType: values.postType || 'need_offer',
+    need: values.needMode === 'money' ? { moneyLabel } : need,
+    offer: values.offerMode === 'money' ? { moneyLabel } : offer,
+    labels: tradeDisplayLabels(t),
+  });
+}
+
 
 function isActiveNeed(need: NeedDto) {
   return need.status === 'active' || need.status === 'draft';
@@ -292,8 +305,6 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     amount: '',
     currency: preferredCurrency,
     expiresAt: '',
-    title: '',
-    description: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -388,8 +399,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const visibleDuplicateTrade: DuplicateTradeConflict | DuplicateTradeSummary | null = duplicateTrade ?? duplicateConflict;
   const usesMoney = values.postType === 'need_offer' && (values.needMode === 'money' || values.offerMode === 'money');
   const blocksMoneyMoney = values.postType === 'need_offer' && values.needMode === 'money' && values.offerMode === 'money';
-  const autoTitle = sideTitle(values, selectableNeeds, selectableOffers, t);
-  const autoDescription = Number.isFinite(amountCents) ? sideDescription(values, selectableNeeds, selectableOffers, amountCents || 0, t) : '';
+  const generatedDisplay = values.postType && Number.isFinite(amountCents) ? buildWebGeneratedTradeDisplay(values, selectableNeeds, selectableOffers, amountCents || 0, t) : { title: '', description: '' };
+  const autoTitle = generatedDisplay.title;
+  const autoDescription = generatedDisplay.description;
 
   useEffect(() => {
     const inventoryReady = loadState === 'live' || loadState === 'demo';
@@ -422,8 +434,6 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return t('trade.create.validationMoneyMinimum');
     if (usesMoney && limits && !limits.moneyTradesEnabled) return t('trade.create.validationMoneyDisabled');
     if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return t('trade.create.validationMoneyLimit', { amount: formatWebMoney(limits.perTradeMoneyCapCents, values.currency) });
-    if (values.title.trim() && values.title.trim().length < 3) return t('trade.create.validationTitleLength');
-    if (values.description.trim() && values.description.trim().length < 10) return t('trade.create.validationDescriptionLength');
     return '';
   }
 
@@ -446,8 +456,6 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       amountCents: postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney ? amountCents : 0,
       currency: values.currency,
       expiresAt: toIsoDate(values.expiresAt),
-      title: values.title.trim() || autoTitle,
-      description: values.description.trim() || autoDescription,
     };
 
     setSaving(true);
@@ -489,15 +497,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     return buildPreviewTrade({
       ownerId: auth.user?.id,
       postType: values.postType,
-      title: values.title.trim() || autoTitle,
-      description: values.description.trim() || autoDescription || t('trade.create.previewNeedOffer'),
+      title: autoTitle,
+      description: autoDescription || t('trade.create.previewNeedOffer'),
       need: values.postType !== 'open_offer' && values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_offer' ? null : selectedNeed,
       offer: values.postType !== 'open_need' && values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_need' ? null : selectedOffer,
       amountCents: values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
       currency: values.currency,
       expiresAt: toIsoDate(values.expiresAt) ?? null,
     });
-  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.description, values.expiresAt, values.needMode, values.offerMode, values.postType, values.title]);
+  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.expiresAt, values.needMode, values.offerMode, values.postType]);
 
   const chooseNeedHref = createSideChooseHref('need', values);
   const chooseOfferHref = createSideChooseHref('offer', values);
@@ -686,14 +694,11 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         </section>
 
         <section className="mobile-card trade-create-details">
-          <label className="field-label">
-            {t('inventory.labels.title')} · {t('inventory.labels.optional')}
-            <input value={values.title} onChange={(event) => updateValue('title', event.target.value)} placeholder={autoTitle} maxLength={120} />
-          </label>
-          <label className="field-label">
-            {t('inventory.labels.description')} · {t('inventory.labels.optional')}
-            <textarea value={values.description} onChange={(event) => updateValue('description', event.target.value)} placeholder={autoDescription} rows={4} maxLength={2000} />
-          </label>
+          <div className="trade-create-generated-copy" aria-live="polite">
+            <p className="eyebrow">{t('trade.create.generatedFromSidesEyebrow')}</p>
+            <h3>{autoTitle}</h3>
+            <p>{autoDescription || t('trade.create.previewReuseBody')}</p>
+          </div>
           <label className="field-label">
             {t('trade.labels.expires')} · {t('inventory.labels.optional')}
             <input type="date" value={values.expiresAt} onChange={(event) => updateValue('expiresAt', event.target.value)} />

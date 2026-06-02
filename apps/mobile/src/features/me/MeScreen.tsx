@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react
 import * as ImagePicker from 'expo-image-picker';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileDto } from '@hellowhen/contracts';
+import { normalizeUsername, publicUserPath, usernameChangeAvailableAt, validateUsername } from '@hellowhen/shared';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
@@ -25,6 +26,11 @@ type ProfileResponse = { profile: ProfileDto };
 function optionalText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function optionalUsername(value: string) {
+  const normalized = value.trim() ? normalizeUsername(value) : '';
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function getStoredAvatarSource(url?: string | null) {
@@ -55,6 +61,11 @@ export function ProfileScreen({ navigation }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const avatarSource = avatarImage?.uri ? getLocalAvatarSource(avatarImage.uri) : getStoredAvatarSource(avatarUrl);
+  const publicProfilePath = publicUserPath(handle);
+  const usernameAvailableAt = usernameChangeAvailableAt(auth.user?.profile?.handleChangedAt ?? null);
+  const usernameCooldownHint = usernameAvailableAt && usernameAvailableAt.getTime() > Date.now()
+    ? t('profile.edit.handleCooldownHint', { date: usernameAvailableAt.toLocaleDateString() })
+    : null;
   const countrySelectOptions = useMemo(() => countryOptions.map((country) => ({
     value: country.code,
     label: t(`common.locale.countries.${country.code}`),
@@ -82,7 +93,8 @@ export function ProfileScreen({ navigation }: Props) {
       setError(t('validation.displayNameRequired'));
       return;
     }
-    if (handle.trim() && !/^[a-zA-Z0-9_]{3,32}$/.test(handle.trim())) {
+    const normalizedHandle = optionalUsername(handle);
+    if (normalizedHandle && !validateUsername(normalizedHandle).ok) {
       setError(t('profile.edit.invalidHandle'));
       return;
     }
@@ -93,7 +105,7 @@ export function ProfileScreen({ navigation }: Props) {
 
     try {
       const avatarMediaIds = avatarImage ? await uploadSelectedImages([avatarImage]) : [];
-      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: optionalText(handle), bio: optionalText(bio), countryCode, preferredCurrency, ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
+      const result = await api.profile.updateMe({ displayName: displayName.trim(), handle: normalizedHandle, bio: optionalText(bio), countryCode, preferredCurrency, ...(avatarMediaIds[0] ? { avatarMediaId: avatarMediaIds[0] } : {}) }) as ProfileResponse;
       setAvatarImage(null);
       setAvatarUrl(result.profile.avatarUrl ?? null);
       auth.updateLocalProfile({ displayName: result.profile.displayName, handle: result.profile.handle, bio: result.profile.bio, avatarUrl: result.profile.avatarUrl, avatarMediaId: result.profile.avatarMediaId, countryCode: result.profile.countryCode, preferredCurrency: result.profile.preferredCurrency });
@@ -162,7 +174,7 @@ export function ProfileScreen({ navigation }: Props) {
 
         <AppCard>
           <ProfileField label={t('profile.edit.fields.displayName')} value={displayName} onChangeText={setDisplayName} placeholder="Kopy" disabled={saving} />
-          <ProfileField label={t('profile.edit.fields.handle')} hint={t('profile.edit.handleHint')} value={handle} onChangeText={setHandle} placeholder="kopy" disabled={saving} autoCapitalize="none" />
+          <ProfileField label={t('profile.edit.fields.handle')} hint={usernameCooldownHint ?? (publicProfilePath ? t('profile.edit.publicUrlHint', { path: publicProfilePath }) : t('profile.edit.handlePolicyHint'))} value={handle} onChangeText={setHandle} placeholder="kopy" disabled={saving} autoCapitalize="none" />
           <ProfileField label={t('profile.edit.fields.bio')} hint={t('inventory.labels.optional')} value={bio} onChangeText={setBio} placeholder={t('profile.edit.bioPlaceholderNative')} disabled={saving} multiline />
         </AppCard>
 

@@ -19,7 +19,7 @@ type ReportContentButtonProps = {
   buttonClassName?: string;
 };
 
-const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other'];
+const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
 
 export function ReportContentButton({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', buttonClassName = 'button secondary danger-text' }: ReportContentButtonProps) {
   const auth = useWebAuth();

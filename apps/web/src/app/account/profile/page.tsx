@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import type { MediaAssetDto } from '@hellowhen/contracts';
+import { normalizeUsername, publicUserPath, usernameChangeAvailableAt, validateUsername } from '@hellowhen/shared';
 import { MobilePage, PageIntro } from '../../../components/MobilePage';
 import { api } from '../../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../../lib/webErrors';
@@ -138,9 +139,14 @@ export default function AccountProfilePage() {
     setMessage(null);
     try {
       if (!displayName.trim()) throw new Error(t('validation.displayNameRequired'));
+      const normalizedHandle = handle.trim() ? normalizeUsername(handle) : '';
+      if (normalizedHandle) {
+        const handleResult = validateUsername(normalizedHandle);
+        if (!handleResult.ok) throw new Error(t('profile.edit.invalidHandle'));
+      }
       const nextProfile = await api.profile.updateMe({
         displayName: displayName.trim(),
-        handle: handle.trim() || undefined,
+        handle: normalizedHandle || undefined,
         bio: bio.trim() || undefined,
         countryCode,
         preferredCurrency,
@@ -156,6 +162,12 @@ export default function AccountProfilePage() {
 
   const avatarUrl = avatarPreviewUrl || (avatar ? mediaSrc(avatar) : assetUrl(profile?.avatarUrl));
   const avatarInitial = displayName.trim().slice(0, 1).toUpperCase() || 'H';
+  const normalizedHandle = handle.trim() ? normalizeUsername(handle) : '';
+  const publicProfilePath = publicUserPath(normalizedHandle);
+  const usernameAvailableAt = usernameChangeAvailableAt(profile?.handleChangedAt ?? null);
+  const usernameCooldownHint = usernameAvailableAt && usernameAvailableAt.getTime() > Date.now()
+    ? t('profile.edit.handleCooldownHint', { date: usernameAvailableAt.toLocaleDateString() })
+    : null;
 
   return (
     <MobilePage>
@@ -209,6 +221,8 @@ export default function AccountProfilePage() {
             <label className="field-label">
               {t('profile.edit.fields.handle')}
               <input value={handle} onChange={(event) => setHandle(event.target.value)} placeholder={t('profile.edit.placeholders.handle')} autoCapitalize="none" />
+              <span className="field-hint">{publicProfilePath ? t('profile.edit.publicUrlHint', { path: publicProfilePath }) : t('profile.edit.handleHint')}</span>
+              <span className="field-hint">{usernameCooldownHint ?? t('profile.edit.handlePolicyHint')}</span>
             </label>
             <label className="field-label">
               {t('profile.edit.fields.bio')}

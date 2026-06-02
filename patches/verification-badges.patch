@@ -1,0 +1,411 @@
+diff --git a/apps/api/src/modules/business/business.routes.ts b/apps/api/src/modules/business/business.routes.ts
+index ef53525..0163f58 100644
+--- a/apps/api/src/modules/business/business.routes.ts
++++ b/apps/api/src/modules/business/business.routes.ts
+@@ -41,6 +41,7 @@ import {
+   requestBusinessReviewRequestSchema,
+   updateBusinessProfileRequestSchema,
+ } from '@hellowhen/contracts';
++import { getBusinessVerificationBadges } from '@hellowhen/shared';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
+@@ -637,6 +638,11 @@ async function getPublicBusinessProfileResponse(slug: string) {
+       verifiedAt: businessProfile.verifiedAt,
+       createdAt: businessProfile.createdAt,
+       updatedAt: businessProfile.updatedAt,
++      badges: getBusinessVerificationBadges({
++        type: businessProfile.type,
++        status: businessProfile.status,
++        verifiedAt: businessProfile.verifiedAt,
++      }),
+       counts: businessProfile._count,
+     },
+     stats: {
+diff --git a/apps/api/src/modules/users/publicUser.ts b/apps/api/src/modules/users/publicUser.ts
+index 4344e04..b3eab8d 100644
+--- a/apps/api/src/modules/users/publicUser.ts
++++ b/apps/api/src/modules/users/publicUser.ts
+@@ -21,5 +21,8 @@ export const publicUserPreviewSelect = {
+ export const publicUserProfileSelect = {
+   id: true,
+   createdAt: true,
++  emailVerifiedAt: true,
++  trustTier: true,
++  professionalStatus: true,
+   profile: { select: publicProfileSelect },
+ } as const;
+diff --git a/apps/api/src/modules/users/users.routes.ts b/apps/api/src/modules/users/users.routes.ts
+index 497dff8..8ed50f8 100644
+--- a/apps/api/src/modules/users/users.routes.ts
++++ b/apps/api/src/modules/users/users.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import { createUserBlockRequestSchema } from '@hellowhen/contracts';
++import { getUserVerificationBadges } from '@hellowhen/shared';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { optionalAuth, requireAuth } from '../../middleware/auth.js';
+ import { prisma } from '../../lib/prisma.js';
+@@ -56,7 +57,7 @@ usersRoutes.delete('/:userId/block', requireAuth, asyncRoute(async (req, res) =>
+ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+   const user = await prisma.user.findUnique({
+     where: { id: userId },
+-    select: { ...publicUserProfileSelect, trustTier: true },
++    select: publicUserProfileSelect,
+   });
+ 
+   if (!user || user.trustTier === 'restricted') return null;
+@@ -85,6 +86,11 @@ async function getPublicProfileResponse(userId: string, viewerId?: string) {
+       id: user.id,
+       memberSince: user.createdAt,
+       profile: user.profile,
++      badges: getUserVerificationBadges({
++        emailVerifiedAt: user.emailVerifiedAt,
++        trustTier: user.trustTier,
++        professionalStatus: user.professionalStatus,
++      }),
+     },
+     stats: {
+       completedTradesCount,
+diff --git a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+index f66973e..fd6d059 100644
+--- a/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
++++ b/apps/mobile/src/features/users/PublicUserProfileScreen.tsx
+@@ -1,7 +1,7 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { PublicProfileResponse, PublicProfileTradeSummary } from '@hellowhen/contracts';
++import type { PublicProfileResponse, PublicProfileTradeSummary, PublicVerificationBadge } from '@hellowhen/contracts';
+ import { AppCard } from '../../components/AppCard';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+@@ -32,6 +32,25 @@ function formatHandle(handle?: string | null) {
+   return normalized ? `@${normalized}` : null;
+ }
+ 
++
++function verificationBadgeTone(tone?: PublicVerificationBadge['tone']) {
++  if (tone === 'success' || tone === 'trusted') return 'success';
++  if (tone === 'professional') return 'proposal';
++  if (tone === 'business') return 'trade';
++  if (tone === 'enterprise') return 'admin';
++  return 'muted';
++}
++
++function VerificationBadgeRow({ badges }: { badges?: PublicVerificationBadge[] | null }) {
++  const safeBadges = badges?.filter((badge) => badge?.kind && badge.label) ?? [];
++  if (!safeBadges.length) return null;
++  return (
++    <View style={styles.badgeRow}>
++      {safeBadges.map((badge) => <SemanticBadge key={badge.kind} label={badge.label} tone={verificationBadgeTone(badge.tone)} size="sm" />)}
++    </View>
++  );
++}
++
+ function formatDate(value?: string | null, language = 'en') {
+   if (!value) return null;
+   const date = new Date(value);
+@@ -261,6 +280,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
+               <UserAvatar src={profile.user.profile?.avatarUrl} displayName={name} handle={profile.user.profile?.handle} size="lg" />
+               <View style={styles.heroCopy}>
+                 <AppText style={styles.displayName}>{name}</AppText>
++                <VerificationBadgeRow badges={profile.user.badges} />
+                 {handleLabel ? <AppText style={[styles.handle, { color: theme.color.muted }]}>{handleLabel}</AppText> : null}
+                 {profile.user.profile?.bio ? <AppText style={[styles.bio, { color: theme.color.text }]}>{profile.user.profile.bio}</AppText> : null}
+                 <View style={styles.metaRow}>
+@@ -304,6 +324,7 @@ const styles = StyleSheet.create({
+   handle: { fontSize: 14, fontWeight: '800' },
+   bio: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
+   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
++  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
+   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 87a1d06..b7f85e3 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -200,6 +200,12 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .semantic-badge.neutral { background: var(--app-surface-soft); color: var(--app-text-muted); border-color: var(--app-border); }
+ .semantic-badge.money, .semantic-badge.credits { background: var(--money-bg); color: var(--money-text); border-color: var(--money-border); }
+ .semantic-badge.admin { background: var(--admin-bg); color: var(--admin-text); border-color: var(--admin-border); }
++.semantic-badge.trusted { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
++.semantic-badge.professional { background: var(--proposal-bg); color: var(--proposal-text); border-color: var(--proposal-border); }
++.semantic-badge.business { background: var(--trade-bg); color: var(--trade-text); border-color: var(--trade-border); }
++.semantic-badge.enterprise { background: var(--admin-bg); color: var(--admin-text); border-color: var(--admin-border); }
++.verification-badge-row { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
++.verification-badge-row--sm .semantic-badge { padding: 5px 9px; font-size: 10px; }
+ .notice-box { border-radius: 18px; border: 1px solid; padding: 14px; font-weight: 750; }
+ .notice-box.admin { background: var(--admin-bg); color: var(--admin-text); border-color: var(--admin-border); }
+ .notice-box.info { background: var(--info-bg); color: var(--info-text); border-color: var(--info-border); }
+diff --git a/apps/web/src/features/business/PublicBusinessProfileClient.tsx b/apps/web/src/features/business/PublicBusinessProfileClient.tsx
+index 1d60ab1..3cf61aa 100644
+--- a/apps/web/src/features/business/PublicBusinessProfileClient.tsx
++++ b/apps/web/src/features/business/PublicBusinessProfileClient.tsx
+@@ -11,6 +11,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { businessStatusLabel, businessTypeLabel } from '../account/accountPresentation';
+ import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
++import { VerificationBadgeList } from '../users/VerificationBadgeList';
+ 
+ type TFunction = ReturnType<typeof useWebTranslation>['t'];
+ 
+@@ -247,6 +248,7 @@ export function PublicBusinessProfileClient({ businessSlug }: { businessSlug: st
+             <span className="semantic-badge instruction">{businessTypeLabel(business.type, t)}</span>
+           </div>
+           <h2>{business.displayName}</h2>
++          <VerificationBadgeList badges={business.badges} />
+           <div className="public-profile-meta-row">
+             {path ? <span>{path}</span> : null}
+             <span>Created {createdAt}</span>
+diff --git a/apps/web/src/features/users/PublicUserProfileClient.tsx b/apps/web/src/features/users/PublicUserProfileClient.tsx
+index 2f3b918..fe2c7ce 100644
+--- a/apps/web/src/features/users/PublicUserProfileClient.tsx
++++ b/apps/web/src/features/users/PublicUserProfileClient.tsx
+@@ -8,6 +8,7 @@ import { WebIcon } from '../../components/WebIcon';
+ import { ReportContentButton } from '../../components/ReportContentButton';
+ import { api, resolveWebAssetUrl } from '../../lib/api';
+ import { UserAvatar } from './UserAvatar';
++import { VerificationBadgeList } from './VerificationBadgeList';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
+ import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
+@@ -285,6 +286,7 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
+         <div className="public-profile-hero__body">
+           <span className="semantic-badge trade">{t('profile.publicBadge')}</span>
+           <h2>{displayName}</h2>
++          <VerificationBadgeList badges={profile.user.badges} />
+           <div className="public-profile-meta-row">
+             {handle ? <span>@{handle}</span> : null}
+             <span>{t('profile.memberSince', { date: memberSince })}</span>
+diff --git a/apps/web/src/features/users/VerificationBadgeList.tsx b/apps/web/src/features/users/VerificationBadgeList.tsx
+new file mode 100644
+index 0000000..d5e0b6a
+--- /dev/null
++++ b/apps/web/src/features/users/VerificationBadgeList.tsx
+@@ -0,0 +1,31 @@
++import type { PublicVerificationBadge } from '@hellowhen/contracts';
++
++type VerificationBadgeListProps = {
++  badges?: PublicVerificationBadge[] | null;
++  size?: 'sm' | 'md';
++  className?: string;
++};
++
++function toneClass(tone?: PublicVerificationBadge['tone']) {
++  if (tone === 'success') return 'success';
++  if (tone === 'trusted') return 'trusted';
++  if (tone === 'professional') return 'professional';
++  if (tone === 'business') return 'business';
++  if (tone === 'enterprise') return 'enterprise';
++  return 'neutral';
++}
++
++export function VerificationBadgeList({ badges, size = 'md', className = '' }: VerificationBadgeListProps) {
++  const safeBadges = badges?.filter((badge) => badge?.kind && badge.label) ?? [];
++  if (!safeBadges.length) return null;
++
++  return (
++    <div className={['verification-badge-row', size === 'sm' ? 'verification-badge-row--sm' : '', className].filter(Boolean).join(' ')}>
++      {safeBadges.map((badge) => (
++        <span key={badge.kind} className={`semantic-badge ${toneClass(badge.tone)}`} title={badge.title ?? badge.label}>
++          {badge.label}
++        </span>
++      ))}
++    </div>
++  );
++}
+diff --git a/packages/contracts/src/business.js b/packages/contracts/src/business.js
+index 80ab46e..c6fd405 100644
+--- a/packages/contracts/src/business.js
++++ b/packages/contracts/src/business.js
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+-import { publicProfileTradeSummarySchema } from './users.js';
++import { publicProfileTradeSummarySchema, publicVerificationBadgeSchema } from './users.js';
+ import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+@@ -68,6 +68,7 @@ export const publicBusinessProfileResponseSchema = z.object({
+         verifiedAt: z.string().nullable().optional(),
+         createdAt: z.string(),
+         updatedAt: z.string(),
++        badges: z.array(publicVerificationBadgeSchema).optional().default([]),
+         counts: z.object({
+             needs: z.number().int().nonnegative().optional(),
+             offers: z.number().int().nonnegative().optional(),
+diff --git a/packages/contracts/src/business.ts b/packages/contracts/src/business.ts
+index fe0149f..5222d3d 100644
+--- a/packages/contracts/src/business.ts
++++ b/packages/contracts/src/business.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+-import { publicProfileTradeSummarySchema } from './users.js';
++import { publicProfileTradeSummarySchema, publicVerificationBadgeSchema } from './users.js';
+ import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
+ 
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+@@ -74,6 +74,7 @@ export const publicBusinessProfileResponseSchema = z.object({
+     verifiedAt: z.string().nullable().optional(),
+     createdAt: z.string(),
+     updatedAt: z.string(),
++    badges: z.array(publicVerificationBadgeSchema).optional().default([]),
+     counts: z.object({
+       needs: z.number().int().nonnegative().optional(),
+       offers: z.number().int().nonnegative().optional(),
+diff --git a/packages/contracts/src/users.js b/packages/contracts/src/users.js
+index 8c44053..46dd258 100644
+--- a/packages/contracts/src/users.js
++++ b/packages/contracts/src/users.js
+@@ -1,6 +1,12 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+ import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
++export const publicVerificationBadgeSchema = z.object({
++    kind: z.enum(['email_verified', 'professional', 'trusted', 'business', 'verified_business', 'brand', 'agency', 'enterprise']),
++    label: z.string(),
++    tone: z.enum(['neutral', 'success', 'trusted', 'professional', 'business', 'enterprise']),
++    title: z.string().optional(),
++});
+ export const publicProfileSchema = z.object({
+     displayName: z.string().nullable().optional(),
+     handle: z.string().nullable().optional(),
+@@ -12,6 +18,7 @@ export const publicUserProfileSchema = z.object({
+     id: z.string(),
+     memberSince: z.string(),
+     profile: publicProfileSchema.nullable().optional(),
++    badges: z.array(publicVerificationBadgeSchema).optional().default([]),
+ });
+ const publicNeedSummarySchema = z.object({
+     id: z.string(),
+diff --git a/packages/contracts/src/users.ts b/packages/contracts/src/users.ts
+index 056f3d0..6bbaabc 100644
+--- a/packages/contracts/src/users.ts
++++ b/packages/contracts/src/users.ts
+@@ -2,6 +2,13 @@ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+ import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
+ 
++export const publicVerificationBadgeSchema = z.object({
++  kind: z.enum(['email_verified', 'professional', 'trusted', 'business', 'verified_business', 'brand', 'agency', 'enterprise']),
++  label: z.string(),
++  tone: z.enum(['neutral', 'success', 'trusted', 'professional', 'business', 'enterprise']),
++  title: z.string().optional(),
++});
++
+ export const publicProfileSchema = z.object({
+   displayName: z.string().nullable().optional(),
+   handle: z.string().nullable().optional(),
+@@ -14,6 +21,7 @@ export const publicUserProfileSchema = z.object({
+   id: z.string(),
+   memberSince: z.string(),
+   profile: publicProfileSchema.nullable().optional(),
++  badges: z.array(publicVerificationBadgeSchema).optional().default([]),
+ });
+ 
+ const publicNeedSummarySchema = z.object({
+@@ -118,6 +126,7 @@ export const userBlocksResponseSchema = z.object({
+ });
+ 
+ 
++export type PublicVerificationBadge = z.infer<typeof publicVerificationBadgeSchema>;
+ export type PublicProfile = z.infer<typeof publicProfileSchema>;
+ export type PublicUserProfile = z.infer<typeof publicUserProfileSchema>;
+ export type PublicProfileTradeSummary = z.infer<typeof publicProfileTradeSummarySchema>;
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index f627083..d63c01e 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -12,3 +12,4 @@ export * from './tradeDisplay.js';
+ 
+ export * from './usernames.js';
+ export * from './businessHandles.js';
++export * from './verificationBadges.js';
+diff --git a/packages/shared/src/verificationBadges.ts b/packages/shared/src/verificationBadges.ts
+new file mode 100644
+index 0000000..aacda2c
+--- /dev/null
++++ b/packages/shared/src/verificationBadges.ts
+@@ -0,0 +1,79 @@
++export type VerificationBadgeTone = 'neutral' | 'success' | 'trusted' | 'professional' | 'business' | 'enterprise';
++
++export type UserVerificationBadgeKind = 'email_verified' | 'professional' | 'trusted';
++export type BusinessVerificationBadgeKind = 'business' | 'verified_business' | 'brand' | 'agency' | 'enterprise';
++export type VerificationBadgeKind = UserVerificationBadgeKind | BusinessVerificationBadgeKind;
++
++export type PublicVerificationBadge = {
++  kind: VerificationBadgeKind;
++  label: string;
++  tone: VerificationBadgeTone;
++  title?: string;
++};
++
++type UserBadgeInput = {
++  emailVerifiedAt?: string | Date | null;
++  trustTier?: string | null;
++  professionalStatus?: string | null;
++};
++
++type BusinessBadgeInput = {
++  type?: string | null;
++  status?: string | null;
++  verifiedAt?: string | Date | null;
++};
++
++export const userVerificationBadgeLabels: Record<UserVerificationBadgeKind, string> = {
++  email_verified: 'Email verified',
++  professional: 'Professional',
++  trusted: 'Trusted member',
++};
++
++export const businessVerificationBadgeLabels: Record<BusinessVerificationBadgeKind, string> = {
++  business: 'Business',
++  verified_business: 'Verified business',
++  brand: 'Brand',
++  agency: 'Agency',
++  enterprise: 'Enterprise',
++};
++
++function userBadge(kind: UserVerificationBadgeKind, tone: VerificationBadgeTone, title?: string): PublicVerificationBadge {
++  return { kind, label: userVerificationBadgeLabels[kind], tone, ...(title ? { title } : {}) };
++}
++
++function businessBadge(kind: BusinessVerificationBadgeKind, tone: VerificationBadgeTone, title?: string): PublicVerificationBadge {
++  return { kind, label: businessVerificationBadgeLabels[kind], tone, ...(title ? { title } : {}) };
++}
++
++export function getUserVerificationBadges(input: UserBadgeInput): PublicVerificationBadge[] {
++  if (input.trustTier === 'restricted') return [];
++
++  const badges: PublicVerificationBadge[] = [];
++  if (input.emailVerifiedAt || input.trustTier === 'email_verified' || input.trustTier === 'stripe_verified' || input.trustTier === 'trusted') {
++    badges.push(userBadge('email_verified', 'success', 'This member has verified their email address.'));
++  }
++  if (input.professionalStatus === 'verified') {
++    badges.push(userBadge('professional', 'professional', 'This member has an admin-reviewed professional status.'));
++  }
++  if (input.trustTier === 'trusted') {
++    badges.push(userBadge('trusted', 'trusted', 'This member has been manually marked trusted by Hellowhen admins.'));
++  }
++  return badges;
++}
++
++export function getBusinessVerificationBadges(input: BusinessBadgeInput): PublicVerificationBadge[] {
++  const badges: PublicVerificationBadge[] = [];
++  const type = input.type ?? 'business';
++
++  badges.push(businessBadge('business', 'business', 'This is a Business profile namespace, separate from personal usernames.'));
++
++  if (type === 'brand') badges.push(businessBadge('brand', 'business', 'This Business profile is marked as a brand.'));
++  if (type === 'agency') badges.push(businessBadge('agency', 'business', 'This Business profile is marked as an agency.'));
++  if (type === 'enterprise') badges.push(businessBadge('enterprise', 'enterprise', 'This Business profile is marked as an enterprise.'));
++
++  if (input.status === 'verified' || input.verifiedAt) {
++    badges.push(businessBadge('verified_business', 'success', 'This Business profile was verified by Hellowhen admins.'));
++  }
++
++  return badges;
++}

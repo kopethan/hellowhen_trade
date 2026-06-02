@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { MediaAsset, Prisma } from '@prisma/client';
-import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+import { createTradeProposalRequestSchema, createTradePublicMessageRequestSchema, createTradeRequestSchema, listTradePublicMessagesQuerySchema, listTradesFeedQuerySchema, renewTradeRequestSchema, updateTradePublicMessageRequestSchema, updateTradeStatusRequestSchema, type ListTradesFeedQuery } from '@hellowhen/contracts';
+import { buildGeneratedTradeDisplay, type InventoryTranslationLike } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
@@ -10,6 +11,7 @@ import { buildMoneySafetyStatus, getMoneySafetyBlock } from '../money/moneySafet
 import { mirrorProviderTradeHold, mirrorProviderTradeRefund, mirrorProviderTradeRelease } from '../money/tradeMoney.js';
 import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { loadMediaByEntityIds, type MediaVisibility } from '../media/media.helpers.js';
+import { applyInventoryDisplayLanguageToTrade, applyInventoryDisplayLanguageToTrades, loadInventoryTranslationsByTargetIds } from '../inventoryTranslations.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from '../proposals/proposalPackages.js';
@@ -30,8 +32,8 @@ type DeckRelatedEntity = { id: string } | null | undefined;
 type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type TradeDeckHydrated<T extends TradeWithDeckRelations> = Omit<T, 'need' | 'offer'> & {
   media: MediaAsset[];
-  need: (NonNullable<T['need']> & { media: MediaAsset[] }) | null;
-  offer: (NonNullable<T['offer']> & { media: MediaAsset[] }) | null;
+  need: (NonNullable<T['need']> & { media: MediaAsset[]; translations?: InventoryTranslationLike[] }) | null;
+  offer: (NonNullable<T['offer']> & { media: MediaAsset[]; translations?: InventoryTranslationLike[] }) | null;
 };
 type ProposalPackageItemWithDeckRelations = { need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
 type ProposalWithTrade = { trade?: TradeWithDeckRelations | null; proposedNeed?: DeckRelatedEntity; proposedOffer?: DeckRelatedEntity; packageItems?: ProposalPackageItemWithDeckRelations[] };
@@ -41,17 +43,19 @@ export async function withTradeDeckMedia<T extends TradeWithDeckRelations>(trade
   const needIds = trades.map((trade) => trade.need?.id).filter((id): id is string => Boolean(id));
   const offerIds = trades.map((trade) => trade.offer?.id).filter((id): id is string => Boolean(id));
 
-  const [tradeMedia, needMedia, offerMedia] = await Promise.all([
+  const [tradeMedia, needMedia, offerMedia, needTranslations, offerTranslations] = await Promise.all([
     loadMediaByEntityIds('trade', tradeIds, visibility),
     loadMediaByEntityIds('need', needIds, visibility),
-    loadMediaByEntityIds('offer', offerIds, visibility)
+    loadMediaByEntityIds('offer', offerIds, visibility),
+    loadInventoryTranslationsByTargetIds(prisma, 'need', needIds),
+    loadInventoryTranslationsByTargetIds(prisma, 'offer', offerIds)
   ]);
 
   return trades.map((trade) => ({
     ...trade,
     media: tradeMedia.get(trade.id) ?? [],
-    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [] } : null,
-    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [] } : null
+    need: trade.need ? { ...trade.need, media: needMedia.get(trade.need.id) ?? [], translations: needTranslations.get(trade.need.id) ?? [] } : null,
+    offer: trade.offer ? { ...trade.offer, media: offerMedia.get(trade.offer.id) ?? [], translations: offerTranslations.get(trade.offer.id) ?? [] } : null
   })) as Array<TradeDeckHydrated<T>>;
 }
 
@@ -77,21 +81,23 @@ export async function withProposalTradeMedia<T extends ProposalWithTrade>(propos
   const trades = proposals.map((proposal) => proposal.trade).filter((trade): trade is TradeWithDeckRelations => Boolean(trade));
   const proposedNeedIds = proposals.flatMap((proposal) => [proposal.proposedNeed?.id, ...(proposal.packageItems ?? []).map((item) => item.need?.id)]).filter((id): id is string => Boolean(id));
   const proposedOfferIds = proposals.flatMap((proposal) => [proposal.proposedOffer?.id, ...(proposal.packageItems ?? []).map((item) => item.offer?.id)]).filter((id): id is string => Boolean(id));
-  const [hydratedTrades, proposedNeedMedia, proposedOfferMedia] = await Promise.all([
+  const [hydratedTrades, proposedNeedMedia, proposedOfferMedia, proposedNeedTranslations, proposedOfferTranslations] = await Promise.all([
     withTradeDeckMedia(trades, visibility),
     loadMediaByEntityIds('need', proposedNeedIds, visibility),
-    loadMediaByEntityIds('offer', proposedOfferIds, visibility)
+    loadMediaByEntityIds('offer', proposedOfferIds, visibility),
+    loadInventoryTranslationsByTargetIds(prisma, 'need', proposedNeedIds),
+    loadInventoryTranslationsByTargetIds(prisma, 'offer', proposedOfferIds)
   ]);
   const byTradeId = new Map(hydratedTrades.map((trade) => [trade.id, trade]));
   return proposals.map((proposal) => ({
     ...proposal,
     trade: proposal.trade ? byTradeId.get(proposal.trade.id) ?? proposal.trade : proposal.trade,
-    proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
-    proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
+    proposedNeed: proposal.proposedNeed ? { ...proposal.proposedNeed, media: proposedNeedMedia.get(proposal.proposedNeed.id) ?? [], translations: proposedNeedTranslations.get(proposal.proposedNeed.id) ?? [] } : proposal.proposedNeed,
+    proposedOffer: proposal.proposedOffer ? { ...proposal.proposedOffer, media: proposedOfferMedia.get(proposal.proposedOffer.id) ?? [], translations: proposedOfferTranslations.get(proposal.proposedOffer.id) ?? [] } : proposal.proposedOffer,
     packageItems: proposal.packageItems?.map((item) => ({
       ...item,
-      need: item.need ? { ...item.need, media: proposedNeedMedia.get(item.need.id) ?? [] } : item.need,
-      offer: item.offer ? { ...item.offer, media: proposedOfferMedia.get(item.offer.id) ?? [] } : item.offer,
+      need: item.need ? { ...item.need, media: proposedNeedMedia.get(item.need.id) ?? [], translations: proposedNeedTranslations.get(item.need.id) ?? [] } : item.need,
+      offer: item.offer ? { ...item.offer, media: proposedOfferMedia.get(item.offer.id) ?? [], translations: proposedOfferTranslations.get(item.offer.id) ?? [] } : item.offer,
     })),
   })) as T[];
 }
@@ -122,6 +128,19 @@ function betaMoneyDisabledPayload() {
     error: 'money_trades_disabled',
     message: 'Money, wallet, and credit trades are disabled for the first beta. Create Need + Offer exchanges only.'
   };
+}
+
+function defaultRenewExpiry() {
+  const expiry = new Date();
+  expiry.setDate(expiry.getDate() + 30);
+  return expiry;
+}
+
+function parseRenewExpiry(value?: string | null) {
+  if (!value) return defaultRenewExpiry();
+  const expiry = new Date(value);
+  if (Number.isNaN(expiry.getTime())) return null;
+  return expiry;
 }
 
 function canReadTradeDiscussionWhere(actorId: string, tradeId: string): Prisma.TradeWhereInput {
@@ -308,6 +327,15 @@ function resolveFeedDiscoveryPreferences(
       ?? 'en',
     countryCode: normalizeCountryCode(filters.countryCode) ?? normalizeCountryCode(actorPreferences?.profile?.countryCode),
   };
+}
+
+async function resolveViewerLanguage(actorId: string | undefined, acceptLanguageHeader: unknown): Promise<'en' | 'fr'> {
+  const actorPreferences = actorId
+    ? await prisma.user.findUnique({ where: { id: actorId }, select: { settings: { select: { language: true } } } })
+    : null;
+  return normalizeDiscoveryLanguage(actorPreferences?.settings?.language)
+    ?? resolveLanguageFromAcceptLanguage(acceptLanguageHeader)
+    ?? 'en';
 }
 
 function getLocaleAffinityScore(trade: FeedRankableTrade, preferences: FeedDiscoveryPreferences) {
@@ -619,7 +647,8 @@ tradesRoutes.get('/feed', optionalAuth, asyncRoute(async (req, res) => {
   const filteredTrades = input.hasImages
     ? hydratedTrades.filter((trade) => (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0) > 0)
     : hydratedTrades;
-  res.json({ trades: sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields) });
+  const sortedTrades = sortTradesForDiscovery(filteredTrades, input, actorId, preferences).slice(0, requestedTake).map(stripFeedRankingOnlyFields);
+  res.json({ trades: applyInventoryDisplayLanguageToTrades(sortedTrades, preferences.language) });
 }));
 
 tradesRoutes.get('/:tradeId/public-messages', requireAuth, asyncRoute(async (req, res) => {
@@ -714,8 +743,31 @@ tradesRoutes.delete('/:tradeId/public-messages/:messageId', requireAuth, require
 
 tradesRoutes.get('/mine', requireAuth, asyncRoute(async (req, res) => {
   const actorId = req.user!.id;
-  const trades = await prisma.trade.findMany({ where: { AND: [{ OR: [{ ownerId: actorId }, { providerId: actorId }] }, ...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])] }, include: tradeInclude, orderBy: { createdAt: 'desc' } });
-  res.json({ trades: await withTradeDeckMedia(trades, 'owner') });
+  const rawScope = typeof req.query.scope === 'string' ? req.query.scope : 'all';
+  const scope = rawScope === 'created' || rawScope === 'involved' ? rawScope : 'all';
+  const ownershipWhere: Prisma.TradeWhereInput = scope === 'created'
+    ? { ownerId: actorId }
+    : scope === 'involved'
+      ? { AND: [{ ownerId: { not: actorId } }, { OR: [{ providerId: actorId }, { proposals: { some: { applicantId: actorId } } }] }] }
+      : { OR: [{ ownerId: actorId }, { providerId: actorId }] };
+  const trades = await prisma.trade.findMany({
+    where: { AND: [ownershipWhere, ...(betaMoneyOff() ? [noMoneyTradeWhere()] : [])] },
+    include: { ...tradeInclude, _count: { select: { proposals: true } } },
+    orderBy: { createdAt: 'desc' }
+  });
+  const proposalSummaries = scope === 'created' || trades.length === 0 ? [] : await prisma.tradeProposal.findMany({
+    where: { applicantId: actorId, tradeId: { in: trades.map((trade) => trade.id) } },
+    select: { id: true, tradeId: true, status: true, createdAt: true, respondedAt: true },
+    orderBy: { createdAt: 'desc' },
+  });
+  const proposalByTradeId = new Map(proposalSummaries.map((proposal) => [proposal.tradeId, proposal]));
+  const tradesWithViewerContext = trades.map((trade) => {
+    const viewerProposal = proposalByTradeId.get(trade.id) ?? null;
+    const viewerInvolvement = trade.ownerId === actorId ? 'owner' : trade.providerId === actorId ? 'provider' : viewerProposal ? 'applicant' : undefined;
+    return viewerInvolvement ? { ...trade, viewerInvolvement, viewerProposal } : trade;
+  });
+  const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
+  res.json({ trades: applyInventoryDisplayLanguageToTrades(await withTradeDeckMedia(tradesWithViewerContext, 'owner'), viewerLanguage) });
 }));
 tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   const actorId = req.user?.id;
@@ -734,7 +786,9 @@ tradesRoutes.get('/:tradeId', optionalAuth, asyncRoute(async (req, res) => {
   if (actorId && ![trade.ownerId, trade.providerId].includes(actorId) && await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(404).json({ error: 'not_found' });
   const isParticipant = actorId && (trade.ownerId === actorId || trade.providerId === actorId);
   const visibility: MediaVisibility = isParticipant ? 'owner' : trade.isPublic && trade.status === 'active' ? 'trade_public' : 'public';
-  res.json({ trade: await withOneTradeDeckMedia(trade, visibility) });
+  const viewerLanguage = await resolveViewerLanguage(actorId, req.headers['accept-language']);
+  const hydratedTrade = await withOneTradeDeckMedia(trade, visibility);
+  res.json({ trade: applyInventoryDisplayLanguageToTrade(hydratedTrade, viewerLanguage) });
 }));
 
 const tradeDeleteAllowedStatuses = ['draft', 'active', 'expired', 'cancelled', 'closed'] as const;
@@ -866,25 +920,11 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
   if (offerIsMoney && input.amountCents > 0 && (!wallet || wallet.availableBalanceCents < input.amountCents)) return res.status(400).json({ error: 'insufficient_wallet_balance', message: 'You can only offer money that is available in your wallet.' });
 
   const moneyLabel = moneyTitle(input.amountCents, input.currency);
-  const needTitle = needIsMoney ? moneyLabel : need?.title;
-  const offerTitle = offerIsMoney ? moneyLabel : offer?.title;
-  const needDescription = needIsMoney ? `Wallet money requested: ${moneyLabel}` : need?.description;
-  const offerDescription = offerIsMoney ? `Wallet money offered: ${moneyLabel}` : offer?.description;
-
-  const title = input.title?.trim() || (
-    postType === 'open_need'
-      ? `Open Need: ${needTitle}`
-      : postType === 'open_offer'
-        ? `Open Offer: ${offerTitle}`
-        : `${needTitle} <-> ${offerTitle}`
-  );
-  const description = input.description?.trim() || (
-    postType === 'open_need'
-      ? `I need: ${needDescription}\n\nOthers can propose offers.`
-      : postType === 'open_offer'
-        ? `I offer: ${offerDescription}\n\nOthers can propose needs.`
-        : `I need: ${needDescription}\n\nI offer: ${offerDescription}`
-  );
+  const { title, description } = buildGeneratedTradeDisplay({
+    postType,
+    need: needIsMoney ? { moneyLabel: `Wallet money requested: ${moneyLabel}` } : need,
+    offer: offerIsMoney ? { moneyLabel: `Wallet money offered: ${moneyLabel}` } : offer,
+  });
 
   let trade = await prisma.trade.create({
     data: { ownerId: actorId, postType, title, description, creditAmount: 0, amountCents: input.amountCents, currency: input.currency, needId: need?.id ?? null, offerId: offer?.id ?? null, status: 'active', isPublic: true, expiresAt: input.expiresAt ? new Date(input.expiresAt) : null },
@@ -1115,9 +1155,38 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, requireActiveAccount, asyncR
   }
   return res.status(409).json({ error: 'invalid_trade_status_transition' });
 }));
-tradesRoutes.post('/:tradeId/close', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
-  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: req.user!.id } });
+tradesRoutes.post('/:tradeId/renew', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = renewTradeRequestSchema.parse(req.body ?? {});
+  const actorId = req.user!.id;
+  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: actorId }, include: tradeInclude });
   if (!trade) return res.status(404).json({ error: 'not_found' });
-  const closed = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'closed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
-  res.json({ trade: await withOneTradeDeckMedia(closed, 'owner') });
+  if (trade.providerId || ['in_progress', 'submitted', 'completed', 'disputed', 'cancelled'].includes(trade.status)) {
+    return res.status(409).json({ error: 'trade_not_renewable', message: 'Only open, expired, or closed trades without an accepted provider can be renewed.' });
+  }
+  if (betaMoneyOff() && tradeHasMoneySurface(trade)) return res.status(403).json(betaMoneyDisabledPayload());
+  if (trade.need && inventoryUnavailable(trade.need.status)) return res.status(409).json({ error: 'need_not_available', message: 'Reactivate or edit the linked Need before renewing this trade.' });
+  if (trade.offer && inventoryUnavailable(trade.offer.status)) return res.status(409).json({ error: 'offer_not_available', message: 'Reactivate or edit the linked Offer before renewing this trade.' });
+  const expiresAt = parseRenewExpiry(input.expiresAt);
+  if (!expiresAt) return res.status(400).json({ error: 'invalid_expiry', message: 'Choose a valid expiry date.' });
+  if (expiresAt <= new Date()) return res.status(400).json({ error: 'expiry_in_past', message: 'Choose a future expiry date.' });
+
+  const renewed = await prisma.trade.update({
+    where: { id: trade.id },
+    data: { status: 'active', isPublic: true, expiresAt, closedAt: null, cancelledAt: null, cancelledByUserId: null, cancelReason: null },
+    include: tradeInclude
+  });
+  res.json({ trade: await withOneTradeDeckMedia(renewed, 'owner'), renewed: true });
+}));
+
+tradesRoutes.post('/:tradeId/close', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+  const trade = await prisma.trade.findFirst({ where: { id: req.params.tradeId, ownerId: req.user!.id }, include: tradeInclude });
+  if (!trade) return res.status(404).json({ error: 'not_found' });
+  if (!['draft', 'active', 'expired'].includes(trade.status)) {
+    return res.status(409).json({ error: 'trade_not_closable', message: 'Only draft, open, or expired trades can be closed from My Trades. Accepted trades must be cancelled from the private thread.' });
+  }
+  const closed = await prisma.$transaction(async (tx) => {
+    await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+    return tx.trade.update({ where: { id: trade.id }, data: { status: 'closed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
+  });
+  res.json({ trade: await withOneTradeDeckMedia(closed, 'owner'), closed: true });
 }));

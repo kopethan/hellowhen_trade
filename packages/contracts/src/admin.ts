@@ -4,6 +4,8 @@ import { userTrustTierSchema, walletLimitsSchema } from './wallet.js';
 export const adminProfilePreviewSchema = z.object({
   displayName: z.string().nullable().optional(),
   handle: z.string().nullable().optional(),
+  handleChangedAt: z.string().nullable().optional(),
+  handleChangeCount: z.number().int().nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
   countryCode: z.string().nullable().optional(),
   preferredCurrency: z.string().nullable().optional(),
@@ -107,6 +109,11 @@ export const adminUserModerationActionRequestSchema = z.object({
   action: z.enum(['suspend', 'restore', 'mark_reviewed', 'force_logout']),
   note: z.string().trim().min(3).max(1200).optional(),
   trustTier: userTrustTierSchema.optional(),
+});
+
+export const adminUpdateUsernameRequestSchema = z.object({
+  handle: z.string().trim().min(3).max(32),
+  note: z.string().trim().min(3).max(1200),
 });
 
 export const adminContentTypeSchema = z.enum(['trade', 'need', 'offer']);

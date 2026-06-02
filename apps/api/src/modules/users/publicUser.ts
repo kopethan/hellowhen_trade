@@ -21,5 +21,8 @@ export const publicUserPreviewSelect = {
 export const publicUserProfileSelect = {
   id: true,
   createdAt: true,
+  emailVerifiedAt: true,
+  trustTier: true,
+  professionalStatus: true,
   profile: { select: publicProfileSelect },
 } as const;

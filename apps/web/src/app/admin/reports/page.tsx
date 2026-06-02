@@ -16,7 +16,7 @@ type LastAction = { tone: NoticeTone; title: string; body: string; details?: str
 
 const statusFilters: StatusFilter[] = ['pending', 'reviewing', 'resolved', 'dismissed', 'all'];
 const targetFilters: TargetFilter[] = ['all', 'user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'plan', 'plan_place'];
-const reasonFilters: ReasonFilter[] = ['all', 'spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other'];
+const reasonFilters: ReasonFilter[] = ['all', 'spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
 const bulkReportActions: ReportAction[] = ['mark_reviewing', 'resolve', 'dismiss', 'reopen'];
 const noteRequiredReportActions: ReportAction[] = ['reopen', 'hide_target', 'restore_target', 'suspend_target_owner', 'unsuspend_target_owner', 'dismiss', 'resolve', 'escalate_to_support'];
 const visibilityTargetTypes = new Set(['trade', 'need', 'offer', 'public_message', 'media', 'plan', 'plan_place']);

@@ -1,13 +1,32 @@
 import './globals.css';
 import type { ReactNode } from 'react';
+import type { Metadata } from 'next';
 import Script from 'next/script';
 import { WebMobileShell } from '../components/WebMobileShell';
 import { WebAppProviders } from '../providers/WebAppProviders';
+import { getSeoSiteUrl, seoDefaultDescription, seoDefaultTitle, seoSiteName } from '../lib/seo';
 
-export const metadata = {
-  title: 'Hellowhen Trade',
-  description: 'Trade needs and offers through a clean mobile-first web app.',
+export const metadata: Metadata = {
+  metadataBase: new URL(getSeoSiteUrl()),
+  title: {
+    default: seoDefaultTitle,
+    template: `%s | ${seoSiteName}`,
+  },
+  description: seoDefaultDescription,
+  applicationName: seoSiteName,
   icons: { icon: '/favicon.svg' },
+  openGraph: {
+    type: 'website',
+    siteName: seoSiteName,
+    title: seoDefaultTitle,
+    description: seoDefaultDescription,
+    url: getSeoSiteUrl(),
+  },
+  twitter: {
+    card: 'summary',
+    title: seoDefaultTitle,
+    description: seoDefaultDescription,
+  },
 };
 
 const themeScript = `

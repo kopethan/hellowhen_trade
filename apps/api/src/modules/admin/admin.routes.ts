@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
 import { hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
@@ -21,6 +21,7 @@ import { buildAiSuggestionProviderStatus, classifyContentWithAiSuggestions, Cont
 import { assertContentPlacementSignalsEnabled, buildContentPlacementSignalData, buildContentPlacementSignalStatus } from '../content-intelligence/contentIntelligence.signals.js';
 import { API_METRICS_RETENTION_HOURS, USAGE_ACTIVITY_WINDOW_MINUTES, USAGE_LIVE_WINDOW_MINUTES, USAGE_MONITORING_PRIVACY_NOTE, USAGE_PRESENCE_RETENTION_HOURS, cleanupUsageMonitoringData, usageMonitoringWindowStart } from '../usage/usageRetention.js';
 import { buildAdminServerHealth } from '../usage/serverHealth.js';
+import { buildUsernameHistoryData, ensureUsernameAvailable, normalizeProfileHandle, usernameErrorPayload } from '../profile/profileUsernames.js';
 
 export const adminRoutes = Router();
 const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
@@ -795,13 +796,13 @@ function reportSupportCategory(reason: string, targetType: string) {
   if (reason === 'illegal_unsafe' || reason === 'harassment' || reason === 'scam') return 'safety_concern';
   if (targetType === 'media' || reason === 'inappropriate_image') return 'media_issue';
   if (targetType === 'trade' || targetType === 'proposal' || targetType === 'message' || targetType === 'public_message') return 'trade_issue';
-  if (targetType === 'user' || targetType === 'profile' || reason === 'fake_profile') return 'account_issue';
+  if (targetType === 'user' || targetType === 'profile' || reason === 'fake_profile' || reason === 'impersonation') return 'account_issue';
   return 'general_feedback';
 }
 
 function reportSupportPriority(reason: string) {
   if (reason === 'illegal_unsafe' || reason === 'scam') return 'urgent';
-  if (reason === 'harassment' || reason === 'inappropriate_image') return 'high';
+  if (reason === 'harassment' || reason === 'inappropriate_image' || reason === 'impersonation') return 'high';
   return 'normal';
 }
 
@@ -1302,6 +1303,79 @@ adminRoutes.patch('/users/:userId/trust-tier', asyncRoute(async (req, res) => {
     return updated;
   });
   res.json({ user: { ...user, limits: await buildLaunchLimits(prisma, user.id) } });
+}));
+
+adminRoutes.patch('/users/:userId/username', asyncRoute(async (req, res) => {
+  const input = adminUpdateUsernameRequestSchema.parse(req.body ?? {});
+  const note = input.note.trim();
+  let nextHandle: string | null = null;
+  try {
+    nextHandle = normalizeProfileHandle(input.handle);
+  } catch (caughtError) {
+    const payload = usernameErrorPayload(caughtError);
+    if (payload) return res.status(payload.status).json(payload.body);
+    throw caughtError;
+  }
+  if (!nextHandle) return res.status(400).json({ error: 'invalid_username', message: 'Choose a valid username.' });
+
+  const existing = await prisma.user.findUnique({
+    where: { id: req.params.userId },
+    select: {
+      id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true,
+      emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, createdAt: true, lastLoginAt: true,
+      profile: { select: { id: true, userId: true, displayName: true, handle: true, handleChangedAt: true, handleChangeCount: true, bio: true, avatarUrl: true, avatarMediaId: true, countryCode: true, preferredCurrency: true, createdAt: true, updatedAt: true } },
+      wallet: true,
+      _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } },
+    },
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+  const currentProfile = existing.profile;
+  if (currentProfile?.handle === nextHandle) return res.json({ user: { ...existing, limits: await buildLaunchLimits(prisma, existing.id) } });
+
+  const now = new Date();
+  try {
+    await ensureUsernameAvailable(nextHandle, { ownerProfileId: currentProfile?.id ?? null, ignoreHistoryHold: true, now });
+  } catch (caughtError) {
+    const payload = usernameErrorPayload(caughtError);
+    if (payload) return res.status(payload.status).json(payload.body);
+    throw caughtError;
+  }
+
+  const user = await prisma.$transaction(async (tx: any) => {
+    const updatedProfile = await tx.profile.upsert({
+      where: { userId: existing.id },
+      create: { userId: existing.id, handle: nextHandle, handleChangedAt: now, handleChangeCount: 1 },
+      update: { handle: nextHandle, handleChangedAt: now, handleChangeCount: { increment: 1 } },
+    });
+    await tx.usernameHistory.create({
+      data: buildUsernameHistoryData({
+        profileId: updatedProfile.id,
+        userId: existing.id,
+        oldHandle: currentProfile?.handle ?? null,
+        newHandle: nextHandle,
+        changedById: req.user!.id,
+        changedByRole: 'admin',
+        reason: note,
+        now,
+      }),
+    });
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: 'user.username.override',
+      targetType: 'user',
+      targetId: existing.id,
+      reason: note,
+      previousValue: { handle: currentProfile?.handle ?? null, handleChangedAt: currentProfile?.handleChangedAt ?? null, handleChangeCount: currentProfile?.handleChangeCount ?? 0 },
+      nextValue: { handle: nextHandle, handleChangedAt: now },
+      metadata: { cooldownBypassed: true, previousUsernameHoldBypassed: true },
+    });
+    return tx.user.findUnique({
+      where: { id: existing.id },
+      select: { id: true, email: true, role: true, trustTier: true, trustTierUpdatedAt: true, trustTierNote: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, createdAt: true, lastLoginAt: true, profile: true, wallet: true, _count: { select: { needs: true, offers: true, trades: true, supportTickets: true, mediaAssets: true } } },
+    });
+  });
+
+  if (!user) return res.status(404).json({ error: 'not_found' });
+  res.json({ user: { ...user, limits: await buildLaunchLimits(prisma, existing.id) } });
 }));
 
 

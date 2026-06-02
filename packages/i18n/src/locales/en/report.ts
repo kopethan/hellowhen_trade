@@ -27,6 +27,7 @@ export const report = {
     harassment: 'Harassment',
     illegal_unsafe: 'Illegal or unsafe content',
     fake_profile: 'Fake profile',
+    impersonation: 'Impersonation',
     inappropriate_image: 'Inappropriate image',
     other: 'Other',
   },

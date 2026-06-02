@@ -53,9 +53,29 @@ const offerMetadataSchema = z.object({
   tags: tradeTagsSchema
 });
 
+const inventoryTranslationInputSchema = z.object({
+  languageCode: discoveryLanguageSchema,
+  title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
+  description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH)
+});
+const inventoryTranslationsInputSchema = z.array(inventoryTranslationInputSchema).max(4).optional();
+
+export const inventoryTranslationSchema = z.object({
+  id: z.string().optional(),
+  targetType: z.enum(['need', 'offer']).optional(),
+  targetId: z.string().optional(),
+  languageCode: discoveryLanguageSchema,
+  title: z.string(),
+  description: z.string(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional()
+});
+
 export const createNeedRequestSchema = z.object({
   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
+  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+  translations: inventoryTranslationsInputSchema,
   status: needStatusSchema.optional(),
   expiresAt: z.string().datetime().optional(),
   mediaIds: z.array(z.string()).max(5).optional()
@@ -64,13 +84,17 @@ export const createNeedRequestSchema = z.object({
 export const createOfferRequestSchema = z.object({
   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH),
   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH),
+  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+  translations: inventoryTranslationsInputSchema,
   status: offerStatusSchema.optional(),
   expiresAt: z.string().datetime().optional(),
   mediaIds: z.array(z.string()).max(5).optional()
 }).merge(offerMetadataSchema);
 
 export const createTradeRequestSchema = z.object({
+  // Deprecated: new create flows only send Need/Offer ids. The API generates Trade display copy.
   title: z.string().min(3).max(120).optional(),
+  // Deprecated: new create flows only send Need/Offer ids. The API generates Trade display copy.
   description: z.string().min(10).max(2000).optional(),
   creditAmount: z.number().int().min(0).max(100000).optional().default(0),
   amountCents: z.number().int().min(0).max(10000000).optional().default(0),
@@ -136,6 +160,8 @@ export const createTradeRequestSchema = z.object({
 const inventoryUpdateBaseSchema = z.object({
   title: z.string().min(INVENTORY_TITLE_MIN_LENGTH).max(INVENTORY_TITLE_MAX_LENGTH).optional(),
   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH).optional(),
+  defaultLanguage: discoveryLanguageSchema.optional(),
+  translations: inventoryTranslationsInputSchema,
   status: z.string().optional(),
   expiresAt: z.string().datetime().nullable().optional(),
   itemType: inventoryItemTypeSchema.optional(),
@@ -184,6 +210,7 @@ export const listTradesFeedQuerySchema = z.object({
   take: z.coerce.number().int().min(1).max(100).optional(),
 });
 export const updateTradeStatusRequestSchema = z.object({ status: tradeActionStatusSchema, cancelReason: z.string().trim().min(3).max(800).optional() });
+export const renewTradeRequestSchema = z.object({ expiresAt: z.string().datetime().nullable().optional() });
 export const adminTradeDisputeActionRequestSchema = z.object({ action: z.enum(['refund_payer', 'release_seller', 'mark_resolved']), note: z.string().trim().max(1200).optional() });
 const tradeProposalPackageRequestFieldsSchema = z.object({
   packageKind: tradeProposalPackageKindSchema.optional().default('standard'),
@@ -237,6 +264,8 @@ export const needSchema = z.object({
   sourceTemplateId: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),
+  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+  translations: z.array(inventoryTranslationSchema).optional(),
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
@@ -257,6 +286,8 @@ export const offerSchema = z.object({
   sourceTemplateId: z.string().nullable().optional(),
   title: z.string(),
   description: z.string(),
+  defaultLanguage: discoveryLanguageSchema.optional().default('en'),
+  translations: z.array(inventoryTranslationSchema).optional(),
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
@@ -347,6 +378,13 @@ export const tradeEscrowSchema = z.object({
   holdReleasedAt: z.string().nullable().optional(),
 }).passthrough();
 
+export const tradeViewerProposalSchema = z.object({
+  id: z.string(),
+  status: proposalStatusSchema,
+  createdAt: z.string(),
+  respondedAt: z.string().nullable().optional(),
+}).passthrough();
+
 export const tradeSchema = z.object({
   id: z.string(),
   ownerId: z.string(),
@@ -381,6 +419,8 @@ export const tradeSchema = z.object({
   offer: offerSchema.nullable().optional(),
   payment: tradePaymentSchema.nullable().optional(),
   escrow: tradeEscrowSchema.nullable().optional(),
+  viewerInvolvement: z.enum(['owner', 'provider', 'applicant']).optional(),
+  viewerProposal: tradeViewerProposalSchema.nullable().optional(),
   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
   media: z.array(mediaAssetSchema).optional()
 });
@@ -427,9 +467,11 @@ export const tradeProposalSchema = z.object({
 
 export type NeedDto = z.infer<typeof needSchema>;
 export type OfferDto = z.infer<typeof offerSchema>;
+export type InventoryTranslationDto = z.infer<typeof inventoryTranslationSchema>;
 export type InventoryTemplateDto = z.infer<typeof inventoryTemplateSchema>;
 export type CloneInventoryTemplateResponse = z.infer<typeof cloneInventoryTemplateResponseSchema>;
 export type TradeDto = z.infer<typeof tradeSchema>;
+export type TradeViewerProposalDto = z.infer<typeof tradeViewerProposalSchema>;
 export type TradePostType = z.infer<typeof tradePostTypeSchema>;
 export type TradeStatus = z.infer<typeof tradeStatusSchema>;
 export type TradeActionStatus = z.infer<typeof tradeActionStatusSchema>;
@@ -462,6 +504,7 @@ export type ListInventoryTemplatesQuery = z.infer<typeof listInventoryTemplatesQ
 export type CloneInventoryTemplateRequest = z.infer<typeof cloneInventoryTemplateRequestSchema>;
 export type ListTradesFeedQuery = z.infer<typeof listTradesFeedQuerySchema>;
 export type UpdateTradeStatusRequest = z.infer<typeof updateTradeStatusRequestSchema>;
+export type RenewTradeRequest = z.infer<typeof renewTradeRequestSchema>;
 export type AdminTradeDisputeActionRequest = z.infer<typeof adminTradeDisputeActionRequestSchema>;
 export type CreateTradeProposalRequest = z.input<typeof createTradeProposalRequestSchema>;
 export type UpdateProposalStatusRequest = z.infer<typeof updateProposalStatusRequestSchema>;

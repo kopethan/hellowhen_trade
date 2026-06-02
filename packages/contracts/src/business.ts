@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { mediaAssetSchema } from './media.js';
+import { publicProfileTradeSummarySchema, publicVerificationBadgeSchema } from './users.js';
 import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
 
 export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
@@ -32,6 +34,65 @@ export const createBusinessProfileRequestSchema = z.object({
 
 export const updateBusinessProfileRequestSchema = createBusinessProfileRequestSchema.partial().extend({
   displayName: z.string().trim().min(2).max(100).optional(),
+});
+
+
+export const publicBusinessInventoryItemSchema = z.object({
+  id: z.string(),
+  ownerId: z.string(),
+  businessProfileId: z.string().nullable().optional(),
+  title: z.string(),
+  description: z.string(),
+  itemType: inventoryItemTypeSchema.optional().default('service'),
+  category: z.string().nullable().optional(),
+  timing: z.string().nullable().optional(),
+  availability: z.string().nullable().optional(),
+  mode: tradeExchangeModeSchema.nullable().optional(),
+  locationLabel: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  includes: z.array(z.string()).optional(),
+  status: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  expiresAt: z.string().nullable().optional(),
+  media: z.array(mediaAssetSchema).optional(),
+}).passthrough();
+
+export const publicBusinessProfileResponseSchema = z.object({
+  businessProfile: z.object({
+    id: z.string(),
+    ownerId: z.string(),
+    displayName: z.string(),
+    legalName: z.string().nullable().optional(),
+    slug: z.string().nullable().optional(),
+    handle: z.string().nullable().optional(),
+    type: businessProfileTypeSchema,
+    status: businessProfileStatusSchema,
+    description: z.string().nullable().optional(),
+    websiteUrl: z.string().nullable().optional(),
+    countryCode: z.string().nullable().optional(),
+    verifiedAt: z.string().nullable().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    badges: z.array(publicVerificationBadgeSchema).optional().default([]),
+    counts: z.object({
+      needs: z.number().int().nonnegative().optional(),
+      offers: z.number().int().nonnegative().optional(),
+      trades: z.number().int().nonnegative().optional(),
+      inventoryTemplates: z.number().int().nonnegative().optional(),
+      campaigns: z.number().int().nonnegative().optional(),
+    }).optional(),
+  }),
+  stats: z.object({
+    activeTradesCount: z.number().int().nonnegative(),
+    openNeedsCount: z.number().int().nonnegative(),
+    openOffersCount: z.number().int().nonnegative(),
+  }),
+  sections: z.object({
+    activeTrades: z.array(publicProfileTradeSummarySchema),
+    openNeeds: z.array(publicBusinessInventoryItemSchema),
+    openOffers: z.array(publicBusinessInventoryItemSchema),
+  }),
 });
 
 export const requestBusinessReviewRequestSchema = z.object({
@@ -307,6 +368,8 @@ export type BusinessBudgetLedgerEntryType = z.infer<typeof businessBudgetLedgerE
 export type CreateBusinessProfileRequest = z.infer<typeof createBusinessProfileRequestSchema>;
 export type UpdateBusinessProfileRequest = z.infer<typeof updateBusinessProfileRequestSchema>;
 export type RequestBusinessReviewRequest = z.infer<typeof requestBusinessReviewRequestSchema>;
+export type PublicBusinessInventoryItem = z.infer<typeof publicBusinessInventoryItemSchema>;
+export type PublicBusinessProfileResponse = z.infer<typeof publicBusinessProfileResponseSchema>;
 export type BusinessProviderOnboardingLinkRequest = z.infer<typeof businessProviderOnboardingLinkRequestSchema>;
 export type BusinessInviteMemberRequest = z.infer<typeof businessInviteMemberRequestSchema>;
 export type BusinessUpdateMemberRequest = z.infer<typeof businessUpdateMemberRequestSchema>;

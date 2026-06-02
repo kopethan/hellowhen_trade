@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
 
 export const offersRoutes = Router();
 offersRoutes.use(requireAuth);
@@ -45,6 +46,7 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
   return {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.defaultLanguage !== undefined ? { defaultLanguage: input.defaultLanguage } : {}),
     ...(input.status !== undefined ? { status: input.status } : {}),
     ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
@@ -59,13 +61,15 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
 
 offersRoutes.get('/mine', asyncRoute(async (req, res) => {
   const offers = await prisma.offer.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
-  res.json({ offers: await withMedia('offer', offers) });
+  const withTranslations = await withInventoryTranslations(prisma, 'offer', offers);
+  res.json({ offers: await withMedia('offer', withTranslations) });
 }));
 
 offersRoutes.get('/:offerId', asyncRoute(async (req, res) => {
   const offer = await prisma.offer.findFirst({ where: { id: req.params.offerId, ownerId: req.user!.id, businessProfileId: null } });
   if (!offer) return res.status(404).json({ error: 'not_found' });
-  res.json({ offer: await withOneMedia('offer', offer) });
+  const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+  res.json({ offer: await withOneMedia('offer', withTranslations) });
 }));
 
 offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
@@ -92,6 +96,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       ownerId: req.user!.id,
       title: input.title,
       description: input.description,
+      defaultLanguage: input.defaultLanguage ?? 'en',
       itemType: input.itemType ?? 'service',
       category: input.category ?? null,
       availability: input.availability ?? null,
@@ -103,6 +108,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
     }
   });
+  await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations ?? []);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'offer',
@@ -111,13 +117,14 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     description: offer.description,
     userCategory: offer.category,
     tags: offer.tags,
-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && offer.status === 'active') {
     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
   }
-  res.status(201).json({ offer: await withOneMedia('offer', offer) });
+  const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+  res.status(201).json({ offer: await withOneMedia('offer', withTranslations) });
 }));
 
 offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
@@ -130,6 +137,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
   let offer = await prisma.offer.update({ where: { id: existing.id }, data: buildOfferUpdateData(input) });
+  await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'offer',
@@ -138,13 +146,14 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
     description: offer.description,
     userCategory: offer.category,
     tags: offer.tags,
-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && offer.status === 'active') {
     offer = await prisma.offer.update({ where: { id: offer.id }, data: { status: 'pending_review' } });
   }
-  res.json({ offer: await withOneMedia('offer', offer) });
+  const withTranslations = await withOneInventoryTranslation(prisma, 'offer', offer);
+  res.json({ offer: await withOneMedia('offer', withTranslations) });
 }));
 
 offersRoutes.delete('/:offerId', requireActiveAccount, asyncRoute(async (req, res) => {
@@ -157,6 +166,7 @@ offersRoutes.delete('/:offerId', requireActiveAccount, asyncRoute(async (req, re
 
   await prisma.$transaction([
     prisma.trade.updateMany({ where: { offerId: existing.id }, data: { offerId: null } }),
+    prisma.inventoryTranslation.deleteMany({ where: { targetType: 'offer', targetId: existing.id } }),
     prisma.mediaAsset.updateMany({ where: { entityType: 'offer', entityId: existing.id, status: { not: 'removed' } }, data: { status: 'removed' } }),
     prisma.offer.delete({ where: { id: existing.id } })
   ]);

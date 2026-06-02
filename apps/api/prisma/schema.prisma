@@ -123,6 +123,11 @@ enum InventoryTemplateStatus {
   archived
 }
 
+enum InventoryTranslationTargetType {
+  need
+  offer
+}
+
 enum TradePostType {
   need_offer
   open_need
@@ -463,6 +468,7 @@ enum ReportReason {
   harassment
   illegal_unsafe
   fake_profile
+  impersonation
   inappropriate_image
   other
 }
@@ -633,6 +639,7 @@ model User {
   twoFactorChallenges TwoFactorChallenge[]
   needs        Need[]
   offers       Offer[]
+  inventoryTranslations InventoryTranslation[]
   trades       Trade[] @relation("OwnedTrades")
   providerTrades Trade[] @relation("ProvidedTrades")
   tradeProposals TradeProposal[] @relation("ApplicantProposals")
@@ -682,6 +689,8 @@ model User {
   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
   usageHeartbeats UsageHeartbeat[]
   apiRequestMetrics ApiRequestMetric[]
+  usernameHistory UsernameHistory[] @relation("UsernameHistoryUser")
+  usernameChangesApproved UsernameHistory[] @relation("UsernameHistoryChangedBy")
   reviewedContentClassifications ContentClassification[] @relation("ReviewedContentClassifications")
   approvedContentPlacementSignals ContentPlacementSignal[] @relation("ApprovedContentPlacementSignals")
 }
@@ -972,6 +981,8 @@ model Profile {
   userId      String   @unique
   displayName String?
   handle      String?  @unique
+  handleChangedAt DateTime?
+  handleChangeCount Int @default(0)
   bio         String?
   avatarUrl   String?
   avatarMediaId String?
@@ -981,8 +992,33 @@ model Profile {
   updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  usernameHistory UsernameHistory[]
 
   @@index([avatarMediaId])
+  @@index([handleChangedAt])
+}
+
+model UsernameHistory {
+  id            String   @id @default(cuid())
+  profileId     String
+  userId        String
+  oldHandle     String?
+  newHandle     String
+  changedById   String?
+  changedByRole String   @default("user")
+  reason        String?
+  releasedAt    DateTime?
+  createdAt     DateTime @default(now())
+
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  user      User    @relation("UsernameHistoryUser", fields: [userId], references: [id], onDelete: Cascade)
+  changedBy User?   @relation("UsernameHistoryChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([profileId, createdAt])
+  @@index([userId, createdAt])
+  @@index([oldHandle, releasedAt])
+  @@index([newHandle, createdAt])
+  @@index([changedById, createdAt])
 }
 
 model UserSettings {
@@ -1005,6 +1041,7 @@ model Need {
   sourceTemplateId String?
   title         String
   description   String
+  defaultLanguage String           @default("en")
   itemType      InventoryItemType @default(service)
   category      String?
   timing        String?
@@ -1038,6 +1075,7 @@ model Offer {
   sourceTemplateId String?
   title         String
   description   String
+  defaultLanguage String           @default("en")
   itemType      InventoryItemType @default(service)
   category      String?
   availability  String?
@@ -1063,6 +1101,26 @@ model Offer {
   @@index([category])
   @@index([itemType])
   @@index([mode])
+}
+
+
+model InventoryTranslation {
+  id             String                         @id @default(cuid())
+  targetType     InventoryTranslationTargetType
+  targetId       String
+  languageCode   String
+  title          String
+  description    String
+  createdById    String?
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  createdBy      User?                          @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([targetType, targetId, languageCode])
+  @@index([targetType, targetId])
+  @@index([languageCode])
+  @@index([createdById])
 }
 
 model InventoryTemplate {

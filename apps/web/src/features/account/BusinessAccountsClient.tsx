@@ -1,6 +1,8 @@
 'use client';
 
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
+import { publicBusinessPath } from '@hellowhen/shared';
+import Link from 'next/link';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
@@ -11,6 +13,7 @@ type BusinessInviteRole = Exclude<BusinessRole, 'owner'>;
 type BusinessProfile = {
   id: string;
   displayName: string;
+  handle?: string | null;
   type: string;
   status: string;
   preferredCurrency?: string;
@@ -436,6 +439,7 @@ export function BusinessAccountsClient() {
           title: contentForm.title,
           description: contentForm.description,
           itemType: contentForm.itemType,
+          defaultLanguage: 'en',
           category: contentForm.category.trim() || undefined,
           timing: contentForm.timing.trim() || undefined,
           mediaIds: [],
@@ -447,6 +451,7 @@ export function BusinessAccountsClient() {
           title: contentForm.title,
           description: contentForm.description,
           itemType: contentForm.itemType,
+          defaultLanguage: 'en',
           category: contentForm.category.trim() || undefined,
           availability: contentForm.availability.trim() || undefined,
           mediaIds: [],
@@ -654,6 +659,7 @@ export function BusinessAccountsClient() {
             <div className="status-row" style={{ marginTop: 12 }}>
               <span className="semantic-badge instruction">{businessTypeLabel(selectedProfile.type)}</span>
               <span className="semantic-badge neutral">{businessStatusLabel(selectedProfile.status)}</span>
+              {publicBusinessPath(selectedProfile.handle) ? <Link href={publicBusinessPath(selectedProfile.handle) ?? '#'} className="semantic-badge info">{publicBusinessPath(selectedProfile.handle)}</Link> : <span className="semantic-badge warning">No /b URL yet</span>}
               <span className="meta">Needs {selectedProfile.counts?.needs ?? 0} · Offers {selectedProfile.counts?.offers ?? 0} · Trades {selectedProfile.counts?.trades ?? 0} · Templates {selectedProfile.counts?.inventoryTemplates ?? 0} · Campaigns {selectedProfile.counts?.campaigns ?? 0}</span>
             </div>
           ) : null}

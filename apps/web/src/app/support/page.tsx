@@ -1,5 +1,12 @@
 import type { CreateGuestSupportTicketRequest } from '@hellowhen/contracts';
 import { PublicSupportClient } from '../../features/account/PublicSupportClient';
+import { publicPageMetadata } from '../../lib/seo';
+
+export const metadata = publicPageMetadata({
+  title: 'Support — Hellowhen Trade',
+  description: 'Contact Hellowhen Trade support for help, safety questions, reports, and first beta feedback.',
+  pathname: '/support',
+});
 
 type GuestSupportCategory = CreateGuestSupportTicketRequest['category'];
 

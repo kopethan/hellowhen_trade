@@ -1,0 +1,407 @@
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index 5638508..577bc06 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -12,7 +12,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
++import { CategoryPicker, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import type { NeedItem } from './types';
+@@ -25,6 +25,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
+   const [mode, setMode] = useState<TradeExchangeMode>('remote');
++  const [category, setCategory] = useState('');
+   const [locationLabel, setLocationLabel] = useState('');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+@@ -58,6 +59,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+         title: cleanTitle,
+         description: cleanDescription,
+         itemType: 'service',
++        category: optionalText(category),
+         mode,
+         locationLabel: optionalText(locationLabel),
+         tags: [],
+@@ -120,6 +122,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+         <AppCard>
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
++          <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
+           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationNeedPlaceholder')} disabled={submitting} />
+         </AppCard>
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index 3ea744b..a0d3d22 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -12,7 +12,7 @@ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
++import { CategoryPicker, InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import type { OfferItem } from './types';
+@@ -25,6 +25,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
+   const [mode, setMode] = useState<TradeExchangeMode>('remote');
++  const [category, setCategory] = useState('');
+   const [locationLabel, setLocationLabel] = useState('');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+@@ -58,6 +59,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+         title: cleanTitle,
+         description: cleanDescription,
+         itemType: 'service',
++        category: optionalText(category),
+         mode,
+         locationLabel: optionalText(locationLabel),
+         includes: [],
+@@ -121,6 +123,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+         <AppCard>
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
++          <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
+           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationOfferPlaceholder')} disabled={submitting} />
+         </AppCard>
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index c79b283..c7bab41 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -17,7 +17,7 @@ import { MobileIcon } from '../../components/MobileIcon';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+-import { itemTypeLabel, modeLabel } from './components/InventoryFormFields';
++import { categoryLabel, itemTypeLabel, modeLabel } from './components/InventoryFormFields';
+ import { TradeSquareDeck } from './components/TradeSquareDeck';
+ import { buildTradeSquareDeckCards } from './components/TradeSquareDeckCards';
+ import type { NeedItem, OfferItem, TradeDeckItem } from './types';
+@@ -59,8 +59,8 @@ function isNeedAvailable(need: NeedItem) { return !['fulfilled', 'closed', 'expi
+ function isOfferAvailable(offer: OfferItem) { return !['accepted', 'closed', 'expired'].includes(offer.status); }
+ type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunction) { return mode ? modeLabel(mode, t) : undefined; }
+-function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), need.category, need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
+-function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), offer.category, offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
++function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), categoryLabel(need.category, t), need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
++function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), categoryLabel(offer.category, t), offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
+ function buildExpiresAt(days: number | null) { if (!days) return undefined; const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + days); return expiresAt.toISOString(); }
+ function amountFor(_needSelection: TradeCreateSideSelection | null, _offerSelection: TradeCreateSideSelection | null) { return 0; }
+ function currencyFor(_needSelection: TradeCreateSideSelection | null, _offerSelection: TradeCreateSideSelection | null) { return 'eur'; }
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index 9d238de..fd39778 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -11,7 +11,7 @@ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { itemTypeLabel } from './components/InventoryFormFields';
++import { CategoryPicker, categoryLabel, itemTypeLabel } from './components/InventoryFormFields';
+ import {
+   DangerButton,
+   ExistingMediaManager,
+@@ -123,6 +123,7 @@ export function InventoryDetailScreen({
+       const payload = {
+         title: title.trim(),
+         description: description.trim(),
++        category: optionalText(category),
+         mode,
+         locationLabel: optionalText(locationLabel),
+         status: nextStatus ?? item?.status ?? 'draft',
+@@ -182,7 +183,7 @@ export function InventoryDetailScreen({
+   const updatedAt = formatLocalizedDate(typeof item?.updatedAt === 'string' ? item.updatedAt : null, language, '');
+ 
+   const meta = useMemo(
+-    () => [itemTypeLabel(itemType, t), category, timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
++    () => [itemTypeLabel(itemType, t), categoryLabel(category, t), timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
+     [category, itemType, locationLabel, mode, t, timingOrAvailability],
+   );
+ 
+@@ -216,6 +217,7 @@ export function InventoryDetailScreen({
+                 <View style={styles.form}>
+                   <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={saving} />
+                   <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={saving} />
++                  <CategoryPicker value={category} onChange={setCategory} disabled={saving} />
+                   <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
+                   <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />
+                 </View>
+diff --git a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+index 324c5db..111d501 100644
+--- a/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryFormFields.tsx
+@@ -1,6 +1,7 @@
+ import React from 'react';
+ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+ import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
++import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
+ import { AppText } from '../../../components/AppText';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+@@ -44,6 +45,13 @@ export function itemTypePluralLabel(itemType: InventoryItemType | 'all', t?: TFu
+   return t?.('inventory.itemTypes.services') ?? 'Services';
+ }
+ 
++
++export function categoryLabel(category?: string | null, t?: TFunction) {
++  const option = findInventoryCategoryOption(category);
++  if (!option) return category?.trim() ?? '';
++  return t?.(option.labelKey) ?? option.value;
++}
++
+ export function modeLabel(mode: TradeExchangeMode, t?: TFunction) {
+   if (mode === 'remote') return t?.('inventory.modes.remote') ?? 'Remote';
+   if (mode === 'local') return t?.('inventory.modes.local') ?? 'Local';
+@@ -95,6 +103,42 @@ export function InventoryTextField({
+   );
+ }
+ 
++
++export function CategoryPicker({ value, onChange, disabled }: { value: string; onChange: (category: string) => void; disabled?: boolean }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <View style={styles.field}>
++      <View style={styles.labelRow}>
++        <AppText style={styles.label}>{t('inventory.labels.category')}</AppText>
++        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.categoryHelp')}</AppText>
++      </View>
++      <View style={styles.modeRow}>
++        <Pressable
++          disabled={disabled}
++          onPress={() => onChange('')}
++          style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, !value && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
++        >
++          <AppText style={[styles.modeButtonText, { color: !value ? theme.semantic.proposal.text : theme.color.muted }]}>{t('inventory.labels.optional')}</AppText>
++        </Pressable>
++        {inventoryCategoryOptions.map((option) => {
++          const selected = value === option.value;
++          return (
++            <Pressable
++              key={option.value}
++              disabled={disabled}
++              onPress={() => onChange(option.value)}
++              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
++            >
++              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{t(option.labelKey)}</AppText>
++            </Pressable>
++          );
++        })}
++      </View>
++    </View>
++  );
++}
++
+ export function InventoryTypePicker({ value, onChange, disabled }: { value: InventoryItemType; onChange: (itemType: InventoryItemType) => void; disabled?: boolean }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+diff --git a/apps/web/src/features/inventory/InventoryDetailClient.tsx b/apps/web/src/features/inventory/InventoryDetailClient.tsx
+index 9b5eae6..2316383 100644
+--- a/apps/web/src/features/inventory/InventoryDetailClient.tsx
++++ b/apps/web/src/features/inventory/InventoryDetailClient.tsx
+@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+-import { formatInventoryDate, getInventoryMetadata, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
++import { formatInventoryDate, getInventoryMetadata, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+ 
+ type InventoryDetailClientProps = {
+   kind: InventoryKind;
+@@ -135,7 +135,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
+         <dl className="trade-detail-list">
+           <div><dt>{t('inventory.labels.status')}</dt><dd>{inventoryStatusLabel(item.status, i18n)}</dd></div>
+           <div><dt>{t('inventory.labels.type')}</dt><dd>{itemTypeLabel(item.itemType, i18n)}</dd></div>
+-          <div><dt>{t('inventory.labels.category')}</dt><dd>{item.category ?? t('inventory.labels.notSpecified')}</dd></div>
++          <div><dt>{t('inventory.labels.category')}</dt><dd>{inventoryCategoryLabel(item.category, i18n) || t('inventory.labels.notSpecified')}</dd></div>
+           <div><dt>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</dt><dd>{timingLabel}</dd></div>
+           <div><dt>{t('inventory.labels.mode')}</dt><dd>{modeLabel(item.mode, i18n) ?? t('inventory.labels.notSpecified')}</dd></div>
+           <div><dt>{t('inventory.labels.location')}</dt><dd>{item.locationLabel ?? t('inventory.labels.notSpecified')}</dd></div>
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 42c0583..d3a82fd 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -4,6 +4,7 @@ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import type { FormEvent } from 'react';
+ import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
++import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import { useEffect, useMemo, useState } from 'react';
+ import { ConfirmDialog } from '../../components/ConfirmDialog';
+@@ -344,6 +345,15 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+             <strong>{t('inventory.form.simplifiedDetailsTitle')}</strong>
+             <span>{t('inventory.form.simplifiedDetailsBody')}</span>
+           </div>
++          <label className="field-label inventory-form__wide">
++            <span className="field-label__row"><span>{t('inventory.labels.category')}</span><small>{t('inventory.labels.optional')}</small></span>
++            <select value={values.category} onChange={(event) => updateField('category', event.target.value)}>
++              <option value="">{t('inventory.labels.optional')}</option>
++              {values.category && !findInventoryCategoryOption(values.category) ? <option value={values.category}>{values.category}</option> : null}
++              {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
++            </select>
++            <small>{t('inventory.form.categoryHelp')}</small>
++          </label>
+           <label className="field-label">
+             {t('inventory.labels.mode')}
+             <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
+diff --git a/apps/web/src/features/inventory/inventoryPresentation.ts b/apps/web/src/features/inventory/inventoryPresentation.ts
+index a9e3842..7058e7e 100644
+--- a/apps/web/src/features/inventory/inventoryPresentation.ts
++++ b/apps/web/src/features/inventory/inventoryPresentation.ts
+@@ -1,5 +1,6 @@
+ import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+ import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
++import { findInventoryCategoryOption } from '@hellowhen/shared';
+ import { resolveWebAssetUrl } from '../../lib/api';
+ import { formatWebDate } from '../../lib/webFormat';
+ 
+@@ -82,6 +83,13 @@ export function modeLabel(mode?: string | null, i18n?: InventoryI18n) {
+   return null;
+ }
+ 
++
++export function inventoryCategoryLabel(category?: string | null, i18n?: InventoryI18n) {
++  const option = findInventoryCategoryOption(category);
++  if (!option) return category?.trim() ?? '';
++  return tr(i18n, option.labelKey, option.value);
++}
++
+ export function inventoryStatusLabel(status?: string | null, i18n?: InventoryI18n) {
+   if (!status) return tr(i18n, 'inventory.labels.notSpecified', 'Not specified');
+   return tr(i18n, `inventory.statuses.${status}`, status.replace(/_/g, ' '));
+@@ -93,7 +101,7 @@ export function sideClassName(kind: InventoryKind) {
+ 
+ export function getInventoryMetadata(item: InventoryItem, i18n?: InventoryI18n) {
+   const timing = isNeed(item) ? item.timing : item.availability;
+-  return [itemTypeLabel(item.itemType, i18n), item.category, timing, modeLabel(item.mode, i18n), item.locationLabel]
++  return [itemTypeLabel(item.itemType, i18n), inventoryCategoryLabel(item.category, i18n), timing, modeLabel(item.mode, i18n), item.locationLabel]
+     .filter((value): value is string => Boolean(value && value.trim()))
+     .join(' · ');
+ }
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index 9168c3c..6c46d1e 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -63,6 +63,23 @@ export const inventory = {
+     local: 'Local',
+     hybrid: 'Hybrid',
+   },
++  categories: {
++    design: 'Design',
++    development: 'Development',
++    photographyVideo: 'Photography / Video',
++    writingCopywriting: 'Writing / Copywriting',
++    translationLanguage: 'Translation / Language',
++    marketingSocial: 'Marketing / Social Media',
++    businessStartup: 'Business / Startup',
++    educationTutoring: 'Education / Tutoring',
++    localHelp: 'Local Help',
++    eventsCommunity: 'Events / Community',
++    sportsOutdoor: 'Sports / Outdoor',
++    creativeArt: 'Creative / Art',
++    healthWellness: 'Health / Wellness',
++    homePractical: 'Home / Practical Help',
++    other: 'Other',
++  },
+   statuses: {
+     draft: 'Draft',
+     active: 'Active',
+@@ -153,6 +170,7 @@ export const inventory = {
+     textCounter: '{{count}}/{{max}}',
+     simplifiedDetailsTitle: 'How can it be exchanged?',
+     simplifiedDetailsBody: 'Add only the basics now. Categories and tags can be improved later.',
++    categoryHelp: 'Optional, but recommended. It helps people find and understand your Need or Offer.',
+   },
+   empty: {
+     createFirstNeed: 'Create your first need',
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index d9a5fe0..46a63de 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -63,6 +63,23 @@ export const inventory = {
+     local: 'Local',
+     hybrid: 'Hybride',
+   },
++  categories: {
++    design: 'Design',
++    development: 'Développement',
++    photographyVideo: 'Photo / Vidéo',
++    writingCopywriting: 'Rédaction / Copywriting',
++    translationLanguage: 'Traduction / Langues',
++    marketingSocial: 'Marketing / Réseaux sociaux',
++    businessStartup: 'Business / Startup',
++    educationTutoring: 'Éducation / Cours',
++    localHelp: 'Aide locale',
++    eventsCommunity: 'Événements / Communauté',
++    sportsOutdoor: 'Sport / Plein air',
++    creativeArt: 'Créatif / Art',
++    healthWellness: 'Santé / Bien-être',
++    homePractical: 'Maison / Aide pratique',
++    other: 'Autre',
++  },
+   statuses: {
+     draft: 'Brouillon',
+     active: 'Actif',
+@@ -153,6 +170,7 @@ export const inventory = {
+     textCounter: '{{count}}/{{max}}',
+     simplifiedDetailsTitle: 'Comment l’échange peut-il se faire ?',
+     simplifiedDetailsBody: 'Ajoutez seulement l’essentiel maintenant. Les catégories et tags pourront être améliorés plus tard.',
++    categoryHelp: 'Optionnel, mais recommandé. Cela aide les autres à trouver et comprendre votre Need ou votre Offer.',
+   },
+   empty: {
+     createFirstNeed: 'Créer votre premier besoin',
+diff --git a/packages/shared/src/index.ts b/packages/shared/src/index.ts
+index 0d7e815..f88516b 100644
+--- a/packages/shared/src/index.ts
++++ b/packages/shared/src/index.ts
+@@ -4,3 +4,5 @@ export * from './ads.js';
+ export * from './ai.js';
+ export * from './subscriptions.js';
+ export * from './tradePackages.js';
++
++export * from './inventoryCategories.js';
+diff --git a/packages/shared/src/inventoryCategories.ts b/packages/shared/src/inventoryCategories.ts
+new file mode 100644
+index 0000000..545efb4
+--- /dev/null
++++ b/packages/shared/src/inventoryCategories.ts
+@@ -0,0 +1,30 @@
++export type InventoryCategoryValue = typeof inventoryCategoryOptions[number]['value'];
++
++export type InventoryCategoryOption = {
++  value: string;
++  labelKey: string;
++};
++
++export const inventoryCategoryOptions = [
++  { value: 'Design', labelKey: 'inventory.categories.design' },
++  { value: 'Development', labelKey: 'inventory.categories.development' },
++  { value: 'Photography / Video', labelKey: 'inventory.categories.photographyVideo' },
++  { value: 'Writing / Copywriting', labelKey: 'inventory.categories.writingCopywriting' },
++  { value: 'Translation / Language', labelKey: 'inventory.categories.translationLanguage' },
++  { value: 'Marketing / Social Media', labelKey: 'inventory.categories.marketingSocial' },
++  { value: 'Business / Startup', labelKey: 'inventory.categories.businessStartup' },
++  { value: 'Education / Tutoring', labelKey: 'inventory.categories.educationTutoring' },
++  { value: 'Local Help', labelKey: 'inventory.categories.localHelp' },
++  { value: 'Events / Community', labelKey: 'inventory.categories.eventsCommunity' },
++  { value: 'Sports / Outdoor', labelKey: 'inventory.categories.sportsOutdoor' },
++  { value: 'Creative / Art', labelKey: 'inventory.categories.creativeArt' },
++  { value: 'Health / Wellness', labelKey: 'inventory.categories.healthWellness' },
++  { value: 'Home / Practical Help', labelKey: 'inventory.categories.homePractical' },
++  { value: 'Other', labelKey: 'inventory.categories.other' },
++] as const satisfies readonly InventoryCategoryOption[];
++
++export function findInventoryCategoryOption(value?: string | null) {
++  const normalized = value?.trim().toLowerCase();
++  if (!normalized) return null;
++  return inventoryCategoryOptions.find((option) => option.value.toLowerCase() === normalized) ?? null;
++}

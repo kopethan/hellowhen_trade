@@ -3,6 +3,7 @@ import { updateProfileRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { assertUsernameChangeAllowed, buildUsernameHistoryData, ensureUsernameAvailable, normalizeProfileHandle, usernameErrorPayload } from './profileUsernames.js';
 
 export const profileRoutes = Router();
 
@@ -15,7 +16,7 @@ function createProfileError(error: string, message: string, status = 400) {
 function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.parse>) {
   return {
     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
-    ...(input.handle !== undefined ? { handle: input.handle } : {}),
+    ...(input.handle !== undefined ? { handle: normalizeProfileHandle(input.handle) } : {}),
     ...(input.bio !== undefined ? { bio: input.bio } : {}),
     // Avatar URLs are server-managed through owned MediaAsset records.
     // Do not persist client-supplied URLs here; they can become unsafe rendered content.
@@ -24,13 +25,6 @@ function getProfilePatch(input: ReturnType<typeof updateProfileRequestSchema.par
   };
 }
 
-async function getOrCreateProfile(userId: string, data: ReturnType<typeof getProfilePatch>) {
-  return prisma.profile.upsert({
-    where: { userId },
-    create: { userId, ...data },
-    update: data
-  });
-}
 
 async function attachAvatarMedia(userId: string, profileId: string, mediaId: string) {
   const media = await prisma.mediaAsset.findFirst({ where: { id: mediaId, ownerId: userId, status: 'active' } });
@@ -51,7 +45,50 @@ profileRoutes.patch('/me', asyncRoute(async (req, res) => {
   const input = updateProfileRequestSchema.parse(req.body);
   const userId = req.user!.id;
 
-  let profile = await getOrCreateProfile(userId, getProfilePatch(input));
+  let profile;
+  try {
+    const patch = getProfilePatch(input);
+    const now = new Date();
+    const currentProfile = await prisma.profile.findUnique({
+      where: { userId },
+      select: { id: true, userId: true, handle: true, handleChangedAt: true },
+    });
+    const wantsHandleChange = Boolean('handle' in patch && patch.handle && patch.handle !== currentProfile?.handle);
+    if (wantsHandleChange && patch.handle) {
+      assertUsernameChangeAllowed(currentProfile, now);
+      await ensureUsernameAvailable(patch.handle, { ownerProfileId: currentProfile?.id ?? null, now });
+    }
+
+    profile = await prisma.$transaction(async (tx: any) => {
+      const updated = await tx.profile.upsert({
+        where: { userId },
+        create: { userId, ...patch },
+        update: {
+          ...patch,
+          ...(wantsHandleChange ? { handleChangedAt: now, handleChangeCount: { increment: 1 } } : {}),
+        },
+      });
+      if (wantsHandleChange && patch.handle && currentProfile) {
+        await tx.usernameHistory.create({
+          data: buildUsernameHistoryData({
+            profileId: updated.id,
+            userId,
+            oldHandle: currentProfile.handle,
+            newHandle: patch.handle,
+            changedById: userId,
+            changedByRole: 'user',
+            reason: 'User changed username from profile settings.',
+            now,
+          }),
+        });
+      }
+      return updated;
+    });
+  } catch (caughtError) {
+    const payload = usernameErrorPayload(caughtError);
+    if (payload) return res.status(payload.status).json(payload.body);
+    throw caughtError;
+  }
 
   if (input.removeAvatar) {
     if (profile.avatarMediaId) {

@@ -8,6 +8,7 @@ import { WebIcon } from '../../components/WebIcon';
 import { ReportContentButton } from '../../components/ReportContentButton';
 import { api, resolveWebAssetUrl } from '../../lib/api';
 import { UserAvatar } from './UserAvatar';
+import { VerificationBadgeList } from './VerificationBadgeList';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
 import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
@@ -169,7 +170,7 @@ function ProfileSkeleton() {
   );
 }
 
-export function PublicUserProfileClient({ userId }: { userId: string }) {
+export function PublicUserProfileClient({ userId, username }: { userId?: string; username?: string }) {
   const { t, language } = useWebTranslation();
   const auth = useWebAuth();
   const [profile, setProfile] = useState<PublicProfileResponse | null>(null);
@@ -182,7 +183,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.users.publicProfile(userId);
+      const response = username ? await api.users.publicProfileByUsername(username) : await api.users.publicProfile(userId ?? '');
       setProfile(response);
     } catch (cause) {
       setProfile(null);
@@ -190,7 +191,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [t, userId]);
+  }, [t, userId, username]);
 
   useEffect(() => {
     let mounted = true;
@@ -198,7 +199,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.users.publicProfile(userId);
+        const response = username ? await api.users.publicProfileByUsername(username) : await api.users.publicProfile(userId ?? '');
         if (!mounted) return;
         setProfile(response);
       } catch (cause) {
@@ -212,7 +213,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
 
     void loadMountedProfile();
     return () => { mounted = false; };
-  }, [t, userId]);
+  }, [t, userId, username]);
 
   const displayName = profileName(profile?.user.profile, t);
   const location = countryLabel(profile?.user.profile?.countryCode, language);
@@ -285,6 +286,7 @@ export function PublicUserProfileClient({ userId }: { userId: string }) {
         <div className="public-profile-hero__body">
           <span className="semantic-badge trade">{t('profile.publicBadge')}</span>
           <h2>{displayName}</h2>
+          <VerificationBadgeList badges={profile.user.badges} />
           <div className="public-profile-meta-row">
             {handle ? <span>@{handle}</span> : null}
             <span>{t('profile.memberSince', { date: memberSince })}</span>

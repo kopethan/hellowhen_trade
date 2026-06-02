@@ -18,7 +18,7 @@ type ReportContentPanelProps = {
   helperKey?: string;
 };
 
-const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other'];
+const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
 
 export function ReportContentPanel({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content' }: ReportContentPanelProps) {
   const auth = useAuth();

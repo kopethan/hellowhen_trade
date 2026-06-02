@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
 import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
+import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -15,17 +16,22 @@ import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import {
   emptyInventoryFormValues,
+  getEditableTranslationLanguage,
+  getInventoryTranslationDraft,
+  inventoryLanguageLabel,
   inventoryToFormValues,
   inventoryStatusLabel,
   itemTypeLabel,
   kindLabel,
   mediaSrc,
   normalizeInventoryItem,
+  normalizeInventoryTranslationsForPayload,
   normalizeMediaUpload,
   parseCsvList,
   parseLineList,
   sideClassName,
   modeLabel,
+  setInventoryTranslationDraft,
   sideLabel,
   toIsoDate,
   type InventoryFormValues,
@@ -70,6 +76,8 @@ function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): Cre
   return {
     title: values.title.trim(),
     description: values.description.trim(),
+    defaultLanguage: values.defaultLanguage,
+    translations: normalizeInventoryTranslationsForPayload(values),
     status: values.status as NeedDto['status'],
     itemType: values.itemType,
     category: values.category.trim() || undefined,
@@ -86,6 +94,8 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): Cr
   return {
     title: values.title.trim(),
     description: values.description.trim(),
+    defaultLanguage: values.defaultLanguage,
+    translations: normalizeInventoryTranslationsForPayload(values),
     status: values.status as OfferDto['status'],
     itemType: values.itemType,
     category: values.category.trim() || undefined,
@@ -130,6 +140,13 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
   const noun = kindLabel(kind, i18n);
   const lowerNoun = noun.toLowerCase();
   const isEditProtected = mode === 'edit' && Boolean(deleteImpact?.blocked);
+  const translationLanguage = getEditableTranslationLanguage(values.defaultLanguage);
+  const translationDraft = getInventoryTranslationDraft(values, translationLanguage);
+
+  useEffect(() => {
+    if (mode !== 'create') return;
+    setValues((current) => current.defaultLanguage === language ? current : { ...current, defaultLanguage: language });
+  }, [language, mode]);
 
   useEffect(() => {
     if (mode !== 'edit' || !itemId) return;
@@ -218,6 +235,15 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return kind === 'need' ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort');
     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+    const incompleteTranslation = values.translations.some((translation) => (
+      (translation.title.trim() !== '' && translation.description.trim() === '')
+      || (translation.title.trim() === '' && translation.description.trim() !== '')
+    ));
+    if (incompleteTranslation) return t('inventory.errors.translationIncomplete');
+    for (const translation of normalizeInventoryTranslationsForPayload(values)) {
+      if (translation.title.length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
+      if (translation.description.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
+    }
     if (!parseMode(values.mode)) return t('validation.modeRequired');
     return '';
   }
@@ -339,11 +365,57 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
           </label>
         </section>
 
+        <section className="mobile-card mobile-card--soft inventory-translation-panel">
+          <div className="inventory-form__helper-copy">
+            <strong>{t('inventory.form.languageTitle')}</strong>
+            <span>{t('inventory.form.languageBody')}</span>
+          </div>
+          <label className="field-label">
+            {t('inventory.labels.defaultLanguage')}
+            <select value={values.defaultLanguage} onChange={(event) => updateField('defaultLanguage', event.target.value as InventoryFormValues['defaultLanguage'])}>
+              <option value="en">{inventoryLanguageLabel('en', i18n)}</option>
+              <option value="fr">{inventoryLanguageLabel('fr', i18n)}</option>
+            </select>
+          </label>
+          <div className="inventory-translation-panel__fields">
+            <p className="eyebrow">{t('inventory.labels.manualTranslation')} · {inventoryLanguageLabel(translationLanguage, i18n)}</p>
+            <label className="field-label">
+              <span className="field-label__row"><span>{t('inventory.form.translationTitleLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
+              <input
+                value={translationDraft.title}
+                onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), title: event.target.value }))}
+                placeholder={t('inventory.form.translationTitlePlaceholder')}
+                maxLength={INVENTORY_TITLE_MAX_LENGTH}
+              />
+            </label>
+            <label className="field-label">
+              <span className="field-label__row"><span>{t('inventory.form.translationDescriptionLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
+              <textarea
+                value={translationDraft.description}
+                onChange={(event) => setValues((current) => setInventoryTranslationDraft(current, { ...getInventoryTranslationDraft(current, translationLanguage), description: event.target.value }))}
+                placeholder={t('inventory.form.translationDescriptionPlaceholder')}
+                maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+                rows={4}
+              />
+            </label>
+            <small>{t('inventory.form.translationHelp')}</small>
+          </div>
+        </section>
+
         <section className="mobile-card mobile-card--soft inventory-form__grid inventory-form__grid--simple">
           <div className="inventory-form__wide inventory-form__helper-copy">
             <strong>{t('inventory.form.simplifiedDetailsTitle')}</strong>
             <span>{t('inventory.form.simplifiedDetailsBody')}</span>
           </div>
+          <label className="field-label inventory-form__wide">
+            <span className="field-label__row"><span>{t('inventory.labels.category')}</span><small>{t('inventory.labels.optional')}</small></span>
+            <select value={values.category} onChange={(event) => updateField('category', event.target.value)}>
+              <option value="">{t('inventory.labels.optional')}</option>
+              {values.category && !findInventoryCategoryOption(values.category) ? <option value={values.category}>{values.category}</option> : null}
+              {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
+            </select>
+            <small>{t('inventory.form.categoryHelp')}</small>
+          </label>
           <label className="field-label">
             {t('inventory.labels.mode')}
             <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>

@@ -12,7 +12,7 @@
     "dev:mobile": "npm run start -w @hellowhen/mobile",
     "stop:dev": "powershell -ExecutionPolicy Bypass -File scripts/stop-dev.ps1",
     "build": "npm run build:packages && npm run build:apps",
-    "typecheck": "npm run build -w @hellowhen/contracts && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run prisma:generate && npm run build:packages && npm run typecheck --workspaces --if-present",
     "lint": "npm run typecheck",
     "prisma:generate": "prisma generate --schema apps/api/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema apps/api/prisma/schema.prisma",

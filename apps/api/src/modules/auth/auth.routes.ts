@@ -23,6 +23,7 @@ import { signAccessToken } from '../../lib/tokens.js';
 import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
 import { createRateLimiter, ipAndBodyFieldRateLimitKey } from '../../middleware/rateLimit.js';
 import { buildOtpAuthUrl, decryptTotpSecret, encryptTotpSecret, generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotpCode } from './totp.js';
+import { generateUniqueUsername } from '../profile/profileUsernames.js';
 
 export const authRoutes = Router();
 
@@ -149,9 +150,11 @@ async function ensureUserBootstrap(userId: string, displayName?: string | null) 
   if (!user) throw new Error('user_not_found');
 
   if (!user.profile) {
-    await prisma.profile.create({ data: { userId, displayName: displayName ?? null, preferredCurrency: 'eur' } });
-  } else if (displayName && !user.profile.displayName) {
-    await prisma.profile.update({ where: { userId }, data: { displayName } });
+    const handle = await generateUniqueUsername(displayName, user.email);
+    await prisma.profile.create({ data: { userId, displayName: displayName ?? null, handle, preferredCurrency: 'eur' } });
+  } else if (!user.profile.handle || (displayName && !user.profile.displayName)) {
+    const handle = user.profile.handle ?? await generateUniqueUsername(displayName ?? user.profile.displayName, user.email);
+    await prisma.profile.update({ where: { userId }, data: { ...(displayName && !user.profile.displayName ? { displayName } : {}), handle } });
   }
 
   if (!user.settings) await prisma.userSettings.create({ data: { userId } });
@@ -334,6 +337,8 @@ authRoutes.post('/register', authMutationRateLimit, asyncRoute(async (req, res) 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return res.status(409).json({ error: 'email_already_exists', message: 'An account already exists with this email. Try logging in or resetting your password.' });
 
+  const handle = await generateUniqueUsername(input.displayName, email);
+
   const user = await prisma.user.create({
     data: {
       email,
@@ -344,7 +349,7 @@ authRoutes.post('/register', authMutationRateLimit, asyncRoute(async (req, res) 
       privacyVersion: POLICY_VERSION,
       ageConfirmedAt: new Date(),
       declaredAgeBucket: input.declaredAgeBucket,
-      profile: { create: { displayName: input.displayName ?? null, countryCode: input.countryCode ?? null, preferredCurrency: input.preferredCurrency ?? 'eur' } },
+      profile: { create: { displayName: input.displayName ?? null, handle, countryCode: input.countryCode ?? null, preferredCurrency: input.preferredCurrency ?? 'eur' } },
       settings: { create: {} },
       wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: input.preferredCurrency ?? 'eur' } },
       identities: { create: { provider: 'email', providerUserId: email, email } }
@@ -444,6 +449,7 @@ authRoutes.post('/google', loginRateLimit, asyncRoute(async (req, res) => {
           message: 'Confirm that you are 18 or older and accept the Terms and Privacy Policy before creating a Hellowhen account with Google.'
         });
       }
+      const handle = await generateUniqueUsername(googleUser.displayName, googleUser.email);
       const created = await prisma.user.create({
         data: {
           email: googleUser.email,
@@ -458,7 +464,7 @@ authRoutes.post('/google', loginRateLimit, asyncRoute(async (req, res) => {
           privacyVersion: POLICY_VERSION,
           ageConfirmedAt: new Date(),
           declaredAgeBucket: ADULT_AGE_BUCKET,
-          profile: { create: { displayName: googleUser.displayName, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
+          profile: { create: { displayName: googleUser.displayName, handle, avatarUrl: googleUser.avatarUrl, preferredCurrency: 'eur' } },
           settings: { create: {} },
           wallet: { create: { purchasedAvailableCredits: STARTING_CREDITS, currency: 'eur' } },
           identities: { create: [{ provider: 'google', providerUserId: googleUser.sub, email: googleUser.email }] }

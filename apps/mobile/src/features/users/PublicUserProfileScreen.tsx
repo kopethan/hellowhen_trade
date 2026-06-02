@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { PublicProfileResponse, PublicProfileTradeSummary } from '@hellowhen/contracts';
+import type { PublicProfileResponse, PublicProfileTradeSummary, PublicVerificationBadge } from '@hellowhen/contracts';
 import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
@@ -30,6 +30,25 @@ function displayNameForProfile(profile: PublicProfileResponse['user']['profile']
 function formatHandle(handle?: string | null) {
   const normalized = handle?.trim().replace(/^@+/, '') ?? '';
   return normalized ? `@${normalized}` : null;
+}
+
+
+function verificationBadgeTone(tone?: PublicVerificationBadge['tone']) {
+  if (tone === 'success' || tone === 'trusted') return 'success';
+  if (tone === 'professional') return 'proposal';
+  if (tone === 'business') return 'trade';
+  if (tone === 'enterprise') return 'admin';
+  return 'muted';
+}
+
+function VerificationBadgeRow({ badges }: { badges?: PublicVerificationBadge[] | null }) {
+  const safeBadges = badges?.filter((badge) => badge?.kind && badge.label) ?? [];
+  if (!safeBadges.length) return null;
+  return (
+    <View style={styles.badgeRow}>
+      {safeBadges.map((badge) => <SemanticBadge key={badge.kind} label={badge.label} tone={verificationBadgeTone(badge.tone)} size="sm" />)}
+    </View>
+  );
 }
 
 function formatDate(value?: string | null, language = 'en') {
@@ -261,6 +280,7 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
               <UserAvatar src={profile.user.profile?.avatarUrl} displayName={name} handle={profile.user.profile?.handle} size="lg" />
               <View style={styles.heroCopy}>
                 <AppText style={styles.displayName}>{name}</AppText>
+                <VerificationBadgeRow badges={profile.user.badges} />
                 {handleLabel ? <AppText style={[styles.handle, { color: theme.color.muted }]}>{handleLabel}</AppText> : null}
                 {profile.user.profile?.bio ? <AppText style={[styles.bio, { color: theme.color.text }]}>{profile.user.profile.bio}</AppText> : null}
                 <View style={styles.metaRow}>
@@ -304,6 +324,7 @@ const styles = StyleSheet.create({
   handle: { fontSize: 14, fontWeight: '800' },
   bio: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },
   statValue: { fontSize: 25, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import type { AdminUserSummaryDto, AdminUsersResponse, UserTrustTier } from '@hellowhen/contracts';
+import { normalizeUsername, publicUserPath, usernameChangeAvailableAt } from '@hellowhen/shared';
 import { getWebApiBaseUrl } from '../../../lib/api';
 import { formatWebDateTime, formatWebMoney } from '../../../lib/webFormat';
 import { adminSessionRequiredMessage, clearAdminBrowserSession, useAdminSessionToken } from '../../../features/admin/adminSession';
@@ -49,6 +50,8 @@ export default function AdminUsersPage() {
   const [selectedUser, setSelectedUser] = useState<AdminUserSummaryDto | null>(null);
   const [nextTier, setNextTier] = useState<UserTrustTier>('new');
   const [note, setNote] = useState('');
+  const [adminUsername, setAdminUsername] = useState('');
+  const [usernameNote, setUsernameNote] = useState('');
   const [notice, setNotice] = useState<{ tone: NoticeTone; body: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [deepLinkUserId, setDeepLinkUserId] = useState<string | null>(null);
@@ -89,7 +92,10 @@ export default function AdminUsersPage() {
       if (selectedUser) {
         const updatedSelected = data.users.find((item) => item.id === selectedUser.id) ?? null;
         setSelectedUser(updatedSelected);
-        if (updatedSelected) setNextTier(updatedSelected.trustTier);
+        if (updatedSelected) {
+          setNextTier(updatedSelected.trustTier);
+          setAdminUsername(updatedSelected.profile?.handle ?? '');
+        }
       }
     } catch (error) {
       setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not load users.' });
@@ -112,6 +118,8 @@ export default function AdminUsersPage() {
       setSelectedUser(linkedUser);
       if (linkedUser) {
         setNextTier(linkedUser.trustTier);
+        setAdminUsername(linkedUser.profile?.handle ?? '');
+        setUsernameNote('');
         setQuery(linkedUser.email);
         setNotice({ tone: 'success', body: `Loaded linked user ${personLabel(linkedUser)} from usage monitoring.` });
       } else {
@@ -178,9 +186,48 @@ export default function AdminUsersPage() {
     }
   }
 
+
+  async function updateUsernameOverride() {
+    if (!token || !selectedUser) return;
+    const normalizedHandle = normalizeUsername(adminUsername);
+    if (!normalizedHandle) {
+      setNotice({ tone: 'warning', body: 'Choose a username before saving an admin override.' });
+      return;
+    }
+    if (!usernameNote.trim()) {
+      setNotice({ tone: 'warning', body: 'Add an internal note before overriding a username.' });
+      return;
+    }
+    setLoading(true);
+    setNotice(null);
+    try {
+      const response = await fetch(`${apiBase}/admin/users/${selectedUser.id}/username`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ handle: normalizedHandle, note: usernameNote.trim() }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(body?.message || 'Could not override username.');
+      }
+      const data = await response.json() as { user: AdminUserSummaryDto };
+      setSelectedUser(data.user);
+      setUsers((current) => current.map((item) => item.id === data.user.id ? data.user : item));
+      setAdminUsername(data.user.profile?.handle ?? '');
+      setUsernameNote('');
+      setNotice({ tone: 'success', body: 'Username override saved and written to the admin audit log.' });
+    } catch (error) {
+      setNotice({ tone: 'danger', body: error instanceof Error ? error.message : 'Could not override username.' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function selectUser(user: AdminUserSummaryDto) {
     setSelectedUser(user);
     setNextTier(user.trustTier);
+    setAdminUsername(user.profile?.handle ?? '');
+    setUsernameNote('');
     setNote('');
   }
 
@@ -238,6 +285,16 @@ export default function AdminUsersPage() {
                 <span><small>Wallet balance</small><strong>{formatWebMoney(Number(selectedUser.wallet?.availableBalanceCents ?? 0), selectedUser.wallet?.currency ?? 'eur')}</strong></span>
                 <span><small>Held</small><strong>{formatWebMoney(Number(selectedUser.wallet?.heldBalanceCents ?? 0), selectedUser.wallet?.currency ?? 'eur')}</strong></span>
                 <span><small>Pending payout</small><strong>{formatWebMoney(Number(selectedUser.wallet?.pendingPayoutCents ?? 0), selectedUser.wallet?.currency ?? 'eur')}</strong></span>
+              </div>
+              <div className="admin-action-card">
+                <div className="status-row"><span className="semantic-badge admin">Username</span><span className="semantic-badge warning">Admin override bypasses cooldown</span></div>
+                <label className="meta" htmlFor="admin-user-username">Public username</label>
+                <input id="admin-user-username" value={adminUsername} onChange={(event) => setAdminUsername(event.target.value)} placeholder="username" />
+                <p className="meta">Current URL: {selectedUser.profile?.handle ? publicUserPath(selectedUser.profile.handle) : 'No public username yet'} · changes: {selectedUser.profile?.handleChangeCount ?? 0}{selectedUser.profile?.handleChangedAt ? ` · normal user cooldown until ${formatWebDateTime(usernameChangeAvailableAt(selectedUser.profile.handleChangedAt)?.toISOString() ?? null)}` : ''}</p>
+                <textarea value={usernameNote} onChange={(event) => setUsernameNote(event.target.value)} placeholder="Internal note required for username override, impersonation fix, or support request." rows={3} />
+                <div className="cta-row">
+                  <button type="button" className="secondary" onClick={() => { void updateUsernameOverride(); }} disabled={loading || !token || normalizeUsername(adminUsername) === (selectedUser.profile?.handle ?? '')}>Save username override</button>
+                </div>
               </div>
               <div className="admin-action-card">
                 <label className="meta" htmlFor="admin-user-next-tier">Trust tier</label>

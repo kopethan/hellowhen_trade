@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { mediaAssetSchema } from './media.js';
 import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
+export const publicVerificationBadgeSchema = z.object({
+    kind: z.enum(['email_verified', 'professional', 'trusted', 'business', 'verified_business', 'brand', 'agency', 'enterprise']),
+    label: z.string(),
+    tone: z.enum(['neutral', 'success', 'trusted', 'professional', 'business', 'enterprise']),
+    title: z.string().optional(),
+});
 export const publicProfileSchema = z.object({
     displayName: z.string().nullable().optional(),
     handle: z.string().nullable().optional(),
@@ -12,6 +18,7 @@ export const publicUserProfileSchema = z.object({
     id: z.string(),
     memberSince: z.string(),
     profile: publicProfileSchema.nullable().optional(),
+    badges: z.array(publicVerificationBadgeSchema).optional().default([]),
 });
 const publicNeedSummarySchema = z.object({
     id: z.string(),

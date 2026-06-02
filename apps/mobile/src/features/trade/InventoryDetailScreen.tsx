@@ -11,7 +11,7 @@ import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { ImagePickerField } from './components/ImagePickerField';
-import { itemTypeLabel } from './components/InventoryFormFields';
+import { buildManualTranslation, CategoryPicker, categoryLabel, getEditableTranslationLanguage, itemTypeLabel, LanguagePicker, ManualTranslationFields } from './components/InventoryFormFields';
 import {
   DangerButton,
   ExistingMediaManager,
@@ -26,7 +26,7 @@ import {
   type InventoryMode,
 } from './components/InventoryDetailFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
-import type { InventoryItemType } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryItemType } from '@hellowhen/contracts';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { formatLocalizedDate } from '@hellowhen/i18n';
 import type { NeedItem, OfferItem } from './types';
@@ -50,6 +50,9 @@ export function InventoryDetailScreen({
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
+  const [translationTitle, setTranslationTitle] = useState('');
+  const [translationDescription, setTranslationDescription] = useState('');
   const [itemType, setItemType] = useState<InventoryItemType>('service');
   const [category, setCategory] = useState('');
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
@@ -73,13 +76,19 @@ export function InventoryDetailScreen({
     setItem(nextItem);
     setTitle(nextItem.title ?? '');
     setDescription(nextItem.description ?? '');
+    const nextDefaultLanguage = (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
+    const nextTranslationLanguage = getEditableTranslationLanguage(nextDefaultLanguage);
+    const nextTranslation = Array.isArray(nextItem.translations) ? nextItem.translations.find((translation) => translation?.languageCode === nextTranslationLanguage) : null;
+    setDefaultLanguage(nextDefaultLanguage);
+    setTranslationTitle(typeof nextTranslation?.title === 'string' ? nextTranslation.title : '');
+    setTranslationDescription(typeof nextTranslation?.description === 'string' ? nextTranslation.description : '');
     setItemType((nextItem.itemType as InventoryItemType | undefined) ?? 'service');
     setCategory(getOptionalString(nextItem, 'category'));
     setTimingOrAvailability(isNeed ? getOptionalString(nextItem, 'timing') : getOptionalString(nextItem, 'availability'));
     setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
     setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
     setNewImages([]);
-  }, [isNeed]);
+  }, [isNeed, language]);
 
   const loadItem = useCallback(async () => {
     setLoading(true);
@@ -98,6 +107,12 @@ export function InventoryDetailScreen({
 
   useEffect(() => { void loadItem(); }, [loadItem]);
 
+  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
+    setDefaultLanguage(nextLanguage);
+    setTranslationTitle('');
+    setTranslationDescription('');
+  }
+
   async function saveItem(nextStatus?: string) {
     if (title.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
       setError(isNeed ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'));
@@ -115,6 +130,18 @@ export function InventoryDetailScreen({
       setError(t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH }));
       return;
     }
+    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) {
+      setError(t('inventory.errors.translationIncomplete'));
+      return;
+    }
+    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
+      setError(t('inventory.errors.translationTitleTooShort'));
+      return;
+    }
+    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) {
+      setError(t('inventory.errors.translationDescriptionTooShort'));
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -123,6 +150,9 @@ export function InventoryDetailScreen({
       const payload = {
         title: title.trim(),
         description: description.trim(),
+        defaultLanguage,
+        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
+        category: optionalText(category),
         mode,
         locationLabel: optionalText(locationLabel),
         status: nextStatus ?? item?.status ?? 'draft',
@@ -182,7 +212,7 @@ export function InventoryDetailScreen({
   const updatedAt = formatLocalizedDate(typeof item?.updatedAt === 'string' ? item.updatedAt : null, language, '');
 
   const meta = useMemo(
-    () => [itemTypeLabel(itemType, t), category, timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
+    () => [itemTypeLabel(itemType, t), categoryLabel(category, t), timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
     [category, itemType, locationLabel, mode, t, timingOrAvailability],
   );
 
@@ -216,6 +246,18 @@ export function InventoryDetailScreen({
                 <View style={styles.form}>
                   <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={saving} />
                   <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={saving} />
+                  <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={saving} />
+                  <ManualTranslationFields
+                    defaultLanguage={defaultLanguage}
+                    title={translationTitle}
+                    description={translationDescription}
+                    onChangeTitle={setTranslationTitle}
+                    onChangeDescription={setTranslationDescription}
+                    titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+                    descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+                    disabled={saving}
+                  />
+                  <CategoryPicker value={category} onChange={setCategory} disabled={saving} />
                   <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
                   <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />
                 </View>

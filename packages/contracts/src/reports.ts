@@ -19,7 +19,7 @@ export const reportUserPreviewSchema = z.object({
 }).passthrough();
 
 export const reportTargetTypeSchema = z.enum(['user', 'profile', 'trade', 'need', 'offer', 'proposal', 'message', 'public_message', 'media', 'plan', 'plan_place']);
-export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'inappropriate_image', 'other']);
+export const reportReasonSchema = z.enum(['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other']);
 export const reportStatusSchema = z.enum(['pending', 'reviewing', 'resolved', 'dismissed']);
 
 export const createReportRequestSchema = z.object({

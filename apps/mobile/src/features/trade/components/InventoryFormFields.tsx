@@ -1,12 +1,14 @@
 import React from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import type { InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+import { findInventoryCategoryOption, getAlternateInventoryLanguage, inventoryCategoryOptions } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 
 export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
 export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
+export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr'];
 
 type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
@@ -42,6 +44,29 @@ export function itemTypePluralLabel(itemType: InventoryItemType | 'all', t?: TFu
   if (itemType === 'goods') return t?.('inventory.itemTypes.goods') ?? 'Goods';
   if (itemType === 'other') return t?.('inventory.itemTypes.other') ?? 'Other';
   return t?.('inventory.itemTypes.services') ?? 'Services';
+}
+
+export function inventoryLanguageLabel(languageCode: DiscoveryLanguage, t?: TFunction) {
+  if (languageCode === 'fr') return t?.('inventory.languages.fr') ?? 'French';
+  return t?.('inventory.languages.en') ?? 'English';
+}
+
+export function getEditableTranslationLanguage(defaultLanguage: DiscoveryLanguage) {
+  return getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
+}
+
+export function buildManualTranslation(defaultLanguage: DiscoveryLanguage, title: string, description: string) {
+  const languageCode = getEditableTranslationLanguage(defaultLanguage);
+  const cleanTitle = title.trim();
+  const cleanDescription = description.trim();
+  return cleanTitle || cleanDescription ? [{ languageCode, title: cleanTitle, description: cleanDescription }] : [];
+}
+
+
+export function categoryLabel(category?: string | null, t?: TFunction) {
+  const option = findInventoryCategoryOption(category);
+  if (!option) return category?.trim() ?? '';
+  return t?.(option.labelKey) ?? option.value;
 }
 
 export function modeLabel(mode: TradeExchangeMode, t?: TFunction) {
@@ -91,6 +116,119 @@ export function InventoryTextField({
         textAlignVertical={multiline ? 'top' : 'center'}
         style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
       />
+    </View>
+  );
+}
+
+
+export function LanguagePicker({ value, onChange, disabled }: { value: DiscoveryLanguage; onChange: (language: DiscoveryLanguage) => void; disabled?: boolean }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  return (
+    <View style={styles.field}>
+      <View style={styles.labelRow}>
+        <AppText style={styles.label}>{t('inventory.labels.defaultLanguage')}</AppText>
+        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
+      </View>
+      <View style={styles.modeRow}>
+        {inventoryLanguageOptions.map((languageCode) => {
+          const selected = value === languageCode;
+          return (
+            <Pressable
+              key={languageCode}
+              disabled={disabled}
+              onPress={() => onChange(languageCode)}
+              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+            >
+              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{inventoryLanguageLabel(languageCode, t)}</AppText>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+export function ManualTranslationFields({
+  defaultLanguage,
+  title,
+  description,
+  onChangeTitle,
+  onChangeDescription,
+  disabled,
+  titleMaxLength,
+  descriptionMaxLength,
+}: {
+  defaultLanguage: DiscoveryLanguage;
+  title: string;
+  description: string;
+  onChangeTitle: (value: string) => void;
+  onChangeDescription: (value: string) => void;
+  disabled?: boolean;
+  titleMaxLength?: number;
+  descriptionMaxLength?: number;
+}) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const translationLanguage = getEditableTranslationLanguage(defaultLanguage);
+  return (
+    <View style={styles.field}>
+      <View style={styles.labelRow}>
+        <AppText style={styles.label}>{t('inventory.labels.manualTranslation')}</AppText>
+        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.translationHelp')}</AppText>
+      </View>
+      <InventoryTextField
+        label={t('inventory.form.translationTitleLabel', { language: inventoryLanguageLabel(translationLanguage, t) })}
+        value={title}
+        onChangeText={onChangeTitle}
+        placeholder={t('inventory.form.translationTitlePlaceholder')}
+        maxLength={titleMaxLength}
+        disabled={disabled}
+      />
+      <InventoryTextField
+        label={t('inventory.form.translationDescriptionLabel', { language: inventoryLanguageLabel(translationLanguage, t) })}
+        value={description}
+        onChangeText={onChangeDescription}
+        placeholder={t('inventory.form.translationDescriptionPlaceholder')}
+        maxLength={descriptionMaxLength}
+        multiline
+        disabled={disabled}
+      />
+    </View>
+  );
+}
+
+export function CategoryPicker({ value, onChange, disabled }: { value: string; onChange: (category: string) => void; disabled?: boolean }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  return (
+    <View style={styles.field}>
+      <View style={styles.labelRow}>
+        <AppText style={styles.label}>{t('inventory.labels.category')}</AppText>
+        <AppText style={[styles.hint, { color: theme.color.muted }]}>{t('inventory.form.categoryHelp')}</AppText>
+      </View>
+      <View style={styles.modeRow}>
+        <Pressable
+          disabled={disabled}
+          onPress={() => onChange('')}
+          style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, !value && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+        >
+          <AppText style={[styles.modeButtonText, { color: !value ? theme.semantic.proposal.text : theme.color.muted }]}>{t('inventory.labels.optional')}</AppText>
+        </Pressable>
+        {inventoryCategoryOptions.map((option) => {
+          const selected = value === option.value;
+          return (
+            <Pressable
+              key={option.value}
+              disabled={disabled}
+              onPress={() => onChange(option.value)}
+              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+            >
+              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{t(option.labelKey)}</AppText>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }

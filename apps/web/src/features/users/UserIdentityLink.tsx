@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { MouseEvent, ReactNode } from 'react';
+import { publicUserPath } from '@hellowhen/shared';
 import { UserAvatar, getUserDisplayName, type UserAvatarSize } from './UserAvatar';
 
 type UserIdentityProfile = {
@@ -72,7 +73,7 @@ export function UserIdentityLink({
   const name = getUserDisplayName(resolvedDisplayName, resolvedHandle);
   const handleLabel = cleanHandle(resolvedHandle);
   const secondary = subtitle ?? statusText ?? (showHandle && handleLabel ? `@${handleLabel}` : null);
-  const targetHref = href ?? (resolvedUserId ? `/users/${encodeURIComponent(resolvedUserId)}` : undefined);
+  const targetHref = href ?? publicUserPath(resolvedHandle) ?? (resolvedUserId ? `/users/${encodeURIComponent(resolvedUserId)}` : undefined);
   const classes = [
     'user-identity-link',
     `user-identity-link--${variant}`,

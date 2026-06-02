@@ -1,0 +1,119 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 54eda41..a0ce8ef 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -1295,6 +1295,9 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+ .trade-side-money-state span, .trade-side-empty-state span { color: var(--app-text-muted); font-weight: 750; }
+ .trade-side-empty-state .button { justify-self: start; margin-top: 2px; }
+ .trade-money-panel, .trade-create-preview, .trade-create-details { display: grid; gap: 14px; }
++.trade-create-generated-copy { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 14px; }
++.trade-create-generated-copy h3 { margin: 0; font-size: 16px; }
++.trade-create-generated-copy p:last-child { margin: 0; color: var(--app-text-muted); font-size: 13px; font-weight: 750; line-height: 1.45; white-space: pre-line; }
+ .trade-money-panel__grid { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; }
+ .trade-create-preview__sides { display: grid; gap: 10px; }
+ .trade-create-preview__sides div { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface-soft); padding: 12px; }
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index a3283fa..4ac571d 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -36,8 +36,6 @@ type TradeCreateValues = {
+   amount: string;
+   currency: SupportedCurrency;
+   expiresAt: string;
+-  title: string;
+-  description: string;
+ };
+ 
+ function normalizeCreatedTradeId(value: unknown) {
+@@ -292,8 +290,6 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+     amount: '',
+     currency: preferredCurrency,
+     expiresAt: '',
+-    title: '',
+-    description: '',
+   });
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState('');
+@@ -422,8 +418,6 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return t('trade.create.validationMoneyMinimum');
+     if (usesMoney && limits && !limits.moneyTradesEnabled) return t('trade.create.validationMoneyDisabled');
+     if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return t('trade.create.validationMoneyLimit', { amount: formatWebMoney(limits.perTradeMoneyCapCents, values.currency) });
+-    if (values.title.trim() && values.title.trim().length < 3) return t('trade.create.validationTitleLength');
+-    if (values.description.trim() && values.description.trim().length < 10) return t('trade.create.validationDescriptionLength');
+     return '';
+   }
+ 
+@@ -446,8 +440,8 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+       amountCents: postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney ? amountCents : 0,
+       currency: values.currency,
+       expiresAt: toIsoDate(values.expiresAt),
+-      title: values.title.trim() || autoTitle,
+-      description: values.description.trim() || autoDescription,
++      title: autoTitle,
++      description: autoDescription,
+     };
+ 
+     setSaving(true);
+@@ -489,15 +483,15 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+     return buildPreviewTrade({
+       ownerId: auth.user?.id,
+       postType: values.postType,
+-      title: values.title.trim() || autoTitle,
+-      description: values.description.trim() || autoDescription || t('trade.create.previewNeedOffer'),
++      title: autoTitle,
++      description: autoDescription || t('trade.create.previewNeedOffer'),
+       need: values.postType !== 'open_offer' && values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_offer' ? null : selectedNeed,
+       offer: values.postType !== 'open_need' && values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_need' ? null : selectedOffer,
+       amountCents: values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
+       currency: values.currency,
+       expiresAt: toIsoDate(values.expiresAt) ?? null,
+     });
+-  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.description, values.expiresAt, values.needMode, values.offerMode, values.postType, values.title]);
++  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.expiresAt, values.needMode, values.offerMode, values.postType]);
+ 
+   const chooseNeedHref = createSideChooseHref('need', values);
+   const chooseOfferHref = createSideChooseHref('offer', values);
+@@ -686,14 +680,11 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+         </section>
+ 
+         <section className="mobile-card trade-create-details">
+-          <label className="field-label">
+-            {t('inventory.labels.title')} · {t('inventory.labels.optional')}
+-            <input value={values.title} onChange={(event) => updateValue('title', event.target.value)} placeholder={autoTitle} maxLength={120} />
+-          </label>
+-          <label className="field-label">
+-            {t('inventory.labels.description')} · {t('inventory.labels.optional')}
+-            <textarea value={values.description} onChange={(event) => updateValue('description', event.target.value)} placeholder={autoDescription} rows={4} maxLength={2000} />
+-          </label>
++          <div className="trade-create-generated-copy" aria-live="polite">
++            <p className="eyebrow">{t('trade.create.generatedFromSidesEyebrow')}</p>
++            <h3>{autoTitle}</h3>
++            <p>{autoDescription || t('trade.create.previewReuseBody')}</p>
++          </div>
+           <label className="field-label">
+             {t('trade.labels.expires')} · {t('inventory.labels.optional')}
+             <input type="date" value={values.expiresAt} onChange={(event) => updateValue('expiresAt', event.target.value)} />
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index efd3a95..19c2b36 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -418,6 +418,7 @@ export const trade = {
+     expiry14Days: '14 days',
+     expiry30Days: '30 days',
+     expiryUrgencyBody: 'Sooner expiry may increase visibility because urgent trades are shown more often. No expiry is allowed, but it may get less priority over time.',
++    generatedFromSidesEyebrow: 'Generated from your Need and Offer',
+     deckPreview: 'Deck preview',
+     previewCards: '{{count}} cards',
+     previewHint: 'Swipe the preview to check selected image cards.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 1843f15..e6d3b20 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -418,6 +418,7 @@ export const trade = {
+     expiry14Days: '14 jours',
+     expiry30Days: '30 jours',
+     expiryUrgencyBody: 'Une expiration plus proche peut augmenter la visibilité car les échanges urgents sont affichés plus souvent. Aucune expiration est possible, mais la priorité peut baisser avec le temps.',
++    generatedFromSidesEyebrow: 'Généré depuis votre besoin et votre offre',
+     deckPreview: 'Aperçu du deck',
+     previewCards: '{{count}} cartes',
+     previewHint: 'Balayez l’aperçu pour vérifier les cartes images sélectionnées.',

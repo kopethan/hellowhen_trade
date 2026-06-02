@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { createUserBlockRequestSchema } from '@hellowhen/contracts';
+import { getUserVerificationBadges } from '@hellowhen/shared';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { optionalAuth, requireAuth } from '../../middleware/auth.js';
 import { prisma } from '../../lib/prisma.js';
 import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
 import { publicUserProfileSelect } from './publicUser.js';
+import { normalizeProfileHandle, usernameErrorPayload } from '../profile/profileUsernames.js';
 import { userBlockState } from './userBlocks.js';
 
 export const usersRoutes = Router();
@@ -51,19 +53,17 @@ usersRoutes.delete('/:userId/block', requireAuth, asyncRoute(async (req, res) =>
   res.json({ blocked: false });
 }));
 
-usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, res) => {
-  const userId = req.params.userId;
-  if (!userId) return res.status(400).json({ error: 'missing_user_id' });
 
+async function getPublicProfileResponse(userId: string, viewerId?: string) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { ...publicUserProfileSelect, trustTier: true },
+    select: publicUserProfileSelect,
   });
 
-  if (!user || user.trustTier === 'restricted') return res.status(404).json({ error: 'not_found' });
+  if (!user || user.trustTier === 'restricted') return null;
 
-  const viewerState = req.user ? await userBlockState(req.user.id, userId) : undefined;
-  if (viewerState?.isBlockingMe) return res.status(404).json({ error: 'not_found' });
+  const viewerState = viewerId ? await userBlockState(viewerId, userId) : undefined;
+  if (viewerState?.isBlockingMe) return null;
 
   const [completedTradesCount, activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
     prisma.trade.count({ where: { status: 'completed', OR: [{ ownerId: userId }, { providerId: userId }] } }),
@@ -81,11 +81,16 @@ usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, 
     withTradeDeckMedia(openOffers, 'trade_public'),
   ]);
 
-  res.json({
+  return {
     user: {
       id: user.id,
       memberSince: user.createdAt,
       profile: user.profile,
+      badges: getUserVerificationBadges({
+        emailVerifiedAt: user.emailVerifiedAt,
+        trustTier: user.trustTier,
+        professionalStatus: user.professionalStatus,
+      }),
     },
     stats: {
       completedTradesCount,
@@ -99,5 +104,33 @@ usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, 
       openOffers: viewerState?.isBlockedByMe ? [] : openOffersWithMedia,
     },
     viewerState,
-  });
+  };
+}
+
+usersRoutes.get('/by-username/:username/public-profile', optionalAuth, asyncRoute(async (req, res) => {
+  let username: string;
+  try {
+    username = normalizeProfileHandle(req.params.username) ?? '';
+  } catch (caughtError) {
+    const payload = usernameErrorPayload(caughtError);
+    if (payload) return res.status(payload.status).json(payload.body);
+    throw caughtError;
+  }
+  if (!username) return res.status(400).json({ error: 'missing_username' });
+
+  const profile = await prisma.profile.findUnique({ where: { handle: username }, select: { userId: true } });
+  if (!profile) return res.status(404).json({ error: 'not_found' });
+
+  const response = await getPublicProfileResponse(profile.userId, req.user?.id);
+  if (!response) return res.status(404).json({ error: 'not_found' });
+  res.json(response);
+}));
+
+usersRoutes.get('/:userId/public-profile', optionalAuth, asyncRoute(async (req, res) => {
+  const userId = req.params.userId;
+  if (!userId) return res.status(400).json({ error: 'missing_user_id' });
+
+  const response = await getPublicProfileResponse(userId, req.user?.id);
+  if (!response) return res.status(404).json({ error: 'not_found' });
+  res.json(response);
 }));

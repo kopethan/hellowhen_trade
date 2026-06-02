@@ -100,6 +100,8 @@ export declare const businessBudgetProviderSchema: z.ZodEnum<{
 }>;
 export declare const createBusinessProfileRequestSchema: z.ZodObject<any>;
 export declare const updateBusinessProfileRequestSchema: z.ZodObject<any>;
+export declare const publicBusinessInventoryItemSchema: z.ZodObject<any>;
+export declare const publicBusinessProfileResponseSchema: z.ZodObject<any>;
 export declare const requestBusinessReviewRequestSchema: z.ZodObject<any>;
 export declare const businessProviderOnboardingLinkRequestSchema: z.ZodObject<any>;
 export declare const businessInviteMemberRequestSchema: z.ZodObject<any>;
@@ -160,6 +162,8 @@ export type BusinessBudgetLedgerEntryType = z.infer<typeof businessBudgetLedgerE
 export type CreateBusinessProfileRequest = z.infer<typeof createBusinessProfileRequestSchema>;
 export type UpdateBusinessProfileRequest = z.infer<typeof updateBusinessProfileRequestSchema>;
 export type RequestBusinessReviewRequest = z.infer<typeof requestBusinessReviewRequestSchema>;
+export type PublicBusinessInventoryItem = z.infer<typeof publicBusinessInventoryItemSchema>;
+export type PublicBusinessProfileResponse = z.infer<typeof publicBusinessProfileResponseSchema>;
 export type BusinessProviderOnboardingLinkRequest = z.infer<typeof businessProviderOnboardingLinkRequestSchema>;
 export type BusinessInviteMemberRequest = z.infer<typeof businessInviteMemberRequestSchema>;
 export type BusinessUpdateMemberRequest = z.infer<typeof businessUpdateMemberRequestSchema>;

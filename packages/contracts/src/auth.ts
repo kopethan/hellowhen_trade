@@ -124,6 +124,8 @@ export type AuthUser = {
   profile?: {
     displayName?: string | null;
     handle?: string | null;
+    handleChangedAt?: string | null;
+    handleChangeCount?: number | null;
     avatarUrl?: string | null;
     bio?: string | null;
     avatarMediaId?: string | null;

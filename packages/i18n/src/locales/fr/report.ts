@@ -27,6 +27,7 @@ export const report = {
     harassment: 'Harcèlement',
     illegal_unsafe: 'Contenu illégal ou dangereux',
     fake_profile: 'Faux profil',
+    impersonation: 'Usurpation d’identité',
     inappropriate_image: 'Image inappropriée',
     other: 'Autre',
   },

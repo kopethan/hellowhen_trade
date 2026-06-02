@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, TradeExchangeMode } from '@hellowhen/contracts';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -12,7 +12,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
-import { InventoryTextField, ModePicker, optionalText } from './components/InventoryFormFields';
+import { buildManualTranslation, CategoryPicker, InventoryTextField, LanguagePicker, ManualTranslationFields, ModePicker, optionalText } from './components/InventoryFormFields';
 import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { OfferItem } from './types';
@@ -21,14 +21,24 @@ type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
 type CreateOfferResponse = { offer: OfferItem };
 
 export function CreateOfferScreen({ route, navigation }: Props) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
+  const [translationTitle, setTranslationTitle] = useState('');
+  const [translationDescription, setTranslationDescription] = useState('');
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
+  const [category, setCategory] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function handleDefaultLanguageChange(nextLanguage: DiscoveryLanguage) {
+    setDefaultLanguage(nextLanguage);
+    setTranslationTitle('');
+    setTranslationDescription('');
+  }
 
   function validateForm() {
     const cleanTitle = title.trim();
@@ -37,6 +47,9 @@ export function CreateOfferScreen({ route, navigation }: Props) {
     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('validation.offerDescriptionTooShort');
     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
+    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) return t('inventory.errors.translationIncomplete');
+    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
+    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
     return null;
   }
 
@@ -57,7 +70,10 @@ export function CreateOfferScreen({ route, navigation }: Props) {
       const response = await api.offers.create({
         title: cleanTitle,
         description: cleanDescription,
+        defaultLanguage,
+        translations: buildManualTranslation(defaultLanguage, translationTitle, translationDescription),
         itemType: 'service',
+        category: optionalText(category),
         mode,
         locationLabel: optionalText(locationLabel),
         includes: [],
@@ -119,8 +135,25 @@ export function CreateOfferScreen({ route, navigation }: Props) {
         </AppCard>
 
         <AppCard>
+          <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
+          <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
+          <LanguagePicker value={defaultLanguage} onChange={handleDefaultLanguageChange} disabled={submitting} />
+          <ManualTranslationFields
+            defaultLanguage={defaultLanguage}
+            title={translationTitle}
+            description={translationDescription}
+            onChangeTitle={setTranslationTitle}
+            onChangeDescription={setTranslationDescription}
+            titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+            descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+            disabled={submitting}
+          />
+        </AppCard>
+
+        <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
+          <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationOfferPlaceholder')} disabled={submitting} />
         </AppCard>

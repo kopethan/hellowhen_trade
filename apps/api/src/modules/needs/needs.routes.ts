@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
 
 export const needsRoutes = Router();
 needsRoutes.use(requireAuth);
@@ -45,6 +46,7 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
   return {
     ...(input.title !== undefined ? { title: input.title } : {}),
     ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.defaultLanguage !== undefined ? { defaultLanguage: input.defaultLanguage } : {}),
     ...(input.status !== undefined ? { status: input.status } : {}),
     ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt ? new Date(input.expiresAt) : null } : {}),
     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
@@ -58,13 +60,15 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
 
 needsRoutes.get('/mine', asyncRoute(async (req, res) => {
   const needs = await prisma.need.findMany({ where: { ownerId: req.user!.id, businessProfileId: null }, orderBy: { createdAt: 'desc' } });
-  res.json({ needs: await withMedia('need', needs) });
+  const withTranslations = await withInventoryTranslations(prisma, 'need', needs);
+  res.json({ needs: await withMedia('need', withTranslations) });
 }));
 
 needsRoutes.get('/:needId', asyncRoute(async (req, res) => {
   const need = await prisma.need.findFirst({ where: { id: req.params.needId, ownerId: req.user!.id, businessProfileId: null } });
   if (!need) return res.status(404).json({ error: 'not_found' });
-  res.json({ need: await withOneMedia('need', need) });
+  const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+  res.json({ need: await withOneMedia('need', withTranslations) });
 }));
 
 needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
@@ -91,6 +95,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       ownerId: req.user!.id,
       title: input.title,
       description: input.description,
+      defaultLanguage: input.defaultLanguage ?? 'en',
       itemType: input.itemType ?? 'service',
       category: input.category ?? null,
       timing: input.timing ?? null,
@@ -101,6 +106,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
     }
   });
+  await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations ?? []);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'need',
@@ -109,13 +115,14 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     description: need.description,
     userCategory: need.category,
     tags: need.tags,
-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
+    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && need.status === 'active') {
     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
   }
-  res.status(201).json({ need: await withOneMedia('need', need) });
+  const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+  res.status(201).json({ need: await withOneMedia('need', withTranslations) });
 }));
 
 needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
@@ -128,6 +135,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
   let need = await prisma.need.update({ where: { id: existing.id }, data: buildNeedUpdateData(input) });
+  await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations);
   await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'need',
@@ -136,13 +144,14 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
     description: need.description,
     userCategory: need.category,
     tags: need.tags,
-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
+    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && need.status === 'active') {
     need = await prisma.need.update({ where: { id: need.id }, data: { status: 'pending_review' } });
   }
-  res.json({ need: await withOneMedia('need', need) });
+  const withTranslations = await withOneInventoryTranslation(prisma, 'need', need);
+  res.json({ need: await withOneMedia('need', withTranslations) });
 }));
 
 needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res) => {
@@ -155,6 +164,7 @@ needsRoutes.delete('/:needId', requireActiveAccount, asyncRoute(async (req, res)
 
   await prisma.$transaction([
     prisma.trade.updateMany({ where: { needId: existing.id }, data: { needId: null } }),
+    prisma.inventoryTranslation.deleteMany({ where: { targetType: 'need', targetId: existing.id } }),
     prisma.mediaAsset.updateMany({ where: { entityType: 'need', entityId: existing.id, status: { not: 'removed' } }, data: { status: 'removed' } }),
     prisma.need.delete({ where: { id: existing.id } })
   ]);

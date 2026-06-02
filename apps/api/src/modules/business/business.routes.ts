@@ -41,6 +41,7 @@ import {
   requestBusinessReviewRequestSchema,
   updateBusinessProfileRequestSchema,
 } from '@hellowhen/contracts';
+import { getBusinessVerificationBadges } from '@hellowhen/shared';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth, requireFreshSensitiveAction } from '../../middleware/auth.js';
@@ -48,10 +49,10 @@ import { requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, require
 import { getActiveMoneyProvider } from '../money/providers/moneyProviderRegistry.js';
 import { MoneyProviderError } from '../money/providers/moneyProvider.types.js';
 import { withMedia, withOneMedia } from '../media/media.helpers.js';
+import { publicTradeVisibilityWhere, withTradeDeckMedia } from '../trades/trades.routes.js';
+import { businessSlugErrorPayload, ensureBusinessSlugAvailable, normalizeBusinessProfileHandle } from './businessHandles.js';
 
 export const businessRoutes = Router();
-
-businessRoutes.use(requireAuth);
 
 const INVITATION_TTL_DAYS = 30;
 const teamManageRoles = new Set(['owner', 'admin']);
@@ -81,6 +82,24 @@ const businessTeamInclude = {
     orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
   },
 } satisfies Prisma.BusinessProfileInclude;
+
+const publicBusinessProfileSelect = {
+  id: true,
+  ownerId: true,
+  displayName: true,
+  legalName: true,
+  handle: true,
+  type: true,
+  status: true,
+  description: true,
+  websiteUrl: true,
+  countryCode: true,
+  verifiedAt: true,
+  createdAt: true,
+  updatedAt: true,
+  owner: { select: { id: true, trustTier: true } },
+  _count: { select: { needs: true, offers: true, trades: true, inventoryTemplates: true, campaigns: true } },
+} satisfies Prisma.BusinessProfileSelect;
 
 function providerError(res: Response, error: unknown) {
   if (error instanceof MoneyProviderError) {
@@ -576,6 +595,87 @@ async function writeTeamAuditLog(client: unknown, input: {
   });
 }
 
+
+async function getPublicBusinessProfileResponse(slug: string) {
+  const businessProfile = await prisma.businessProfile.findFirst({
+    where: {
+      handle: slug,
+      status: { in: ['active', 'verified'] },
+      owner: { trustTier: { not: 'restricted' } },
+    },
+    select: publicBusinessProfileSelect,
+  });
+  if (!businessProfile) return null;
+
+  const [activeTradesCount, openNeedsCount, openOffersCount, activeTrades, openNeeds, openOffers] = await Promise.all([
+    prisma.trade.count({ where: { ...publicTradeVisibilityWhere(), businessProfileId: businessProfile.id } }),
+    prisma.need.count({ where: { businessProfileId: businessProfile.id, status: 'active' } }),
+    prisma.offer.count({ where: { businessProfileId: businessProfile.id, status: 'active' } }),
+    prisma.trade.findMany({ where: { ...publicTradeVisibilityWhere(), businessProfileId: businessProfile.id }, include: { need: true, offer: true }, orderBy: { createdAt: 'desc' }, take: 12 }),
+    prisma.need.findMany({ where: { businessProfileId: businessProfile.id, status: 'active' }, orderBy: { createdAt: 'desc' }, take: 12 }),
+    prisma.offer.findMany({ where: { businessProfileId: businessProfile.id, status: 'active' }, orderBy: { createdAt: 'desc' }, take: 12 }),
+  ]);
+
+  const [activeTradesWithMedia, openNeedsWithMedia, openOffersWithMedia] = await Promise.all([
+    withTradeDeckMedia(activeTrades, 'trade_public'),
+    withMedia('need', openNeeds, 'trade_public'),
+    withMedia('offer', openOffers, 'trade_public'),
+  ]);
+
+  return {
+    businessProfile: {
+      id: businessProfile.id,
+      ownerId: businessProfile.ownerId,
+      displayName: businessProfile.displayName,
+      legalName: businessProfile.legalName,
+      slug: businessProfile.handle,
+      handle: businessProfile.handle,
+      type: businessProfile.type,
+      status: businessProfile.status,
+      description: businessProfile.description,
+      websiteUrl: businessProfile.websiteUrl,
+      countryCode: businessProfile.countryCode,
+      verifiedAt: businessProfile.verifiedAt,
+      createdAt: businessProfile.createdAt,
+      updatedAt: businessProfile.updatedAt,
+      badges: getBusinessVerificationBadges({
+        type: businessProfile.type,
+        status: businessProfile.status,
+        verifiedAt: businessProfile.verifiedAt,
+      }),
+      counts: businessProfile._count,
+    },
+    stats: {
+      activeTradesCount,
+      openNeedsCount,
+      openOffersCount,
+    },
+    sections: {
+      activeTrades: activeTradesWithMedia,
+      openNeeds: openNeedsWithMedia,
+      openOffers: openOffersWithMedia,
+    },
+  };
+}
+
+businessRoutes.get('/by-slug/:slug/public-profile', asyncRoute(async (req, res) => {
+  let slug: string;
+  try {
+    slug = normalizeBusinessProfileHandle(req.params.slug) ?? '';
+  } catch (caughtError) {
+    const payload = businessSlugErrorPayload(caughtError);
+    if (payload) return res.status(payload.status).json(payload.body);
+    throw caughtError;
+  }
+  if (!slug) return res.status(400).json({ error: 'missing_business_slug' });
+
+  const response = await getPublicBusinessProfileResponse(slug);
+  if (!response) return res.status(404).json({ error: 'not_found', message: 'Business profile not found.' });
+  res.json(response);
+}));
+
+businessRoutes.use(requireAuth);
+
 businessRoutes.get('/mine', asyncRoute(async (req, res) => {
   const businessProfiles = await prisma.businessProfile.findMany({
     where: { OR: [{ ownerId: req.user!.id }, { members: { some: { userId: req.user!.id } } }] },
@@ -603,6 +703,7 @@ businessRoutes.get('/invitations/mine', asyncRoute(async (req, res) => {
 
 businessRoutes.post('/', asyncRoute(async (req, res) => {
   const input = createBusinessProfileRequestSchema.parse(req.body);
+  const handle = input.handle ? await ensureBusinessSlugAvailable(input.handle) : null;
   const businessProfile = await prisma.$transaction(async (tx) => {
     const created = await tx.businessProfile.create({
       data: {
@@ -610,7 +711,7 @@ businessRoutes.post('/', asyncRoute(async (req, res) => {
         type: input.type,
         displayName: input.displayName,
         legalName: input.legalName ?? null,
-        handle: input.handle ?? null,
+        handle,
         description: input.description ?? null,
         websiteUrl: input.websiteUrl ?? null,
         countryCode: input.countryCode?.toUpperCase() ?? null,
@@ -703,13 +804,18 @@ businessRoutes.patch('/:businessProfileId', asyncRoute(async (req, res) => {
   const existing = await findAccessibleBusinessProfile(businessProfileId, req.user!.id);
   if (!existing) return res.status(404).json({ error: 'not_found', message: 'Business or brand profile not found.' });
   if (existing.ownerId !== req.user!.id) return res.status(403).json({ error: 'business_owner_required', message: 'Only the business owner can update this profile.' });
+  const handle = input.handle !== undefined
+    ? input.handle
+      ? await ensureBusinessSlugAvailable(input.handle, { ownerBusinessProfileId: existing.id })
+      : null
+    : undefined;
   const businessProfile = await prisma.businessProfile.update({
     where: { id: existing.id },
     data: {
       ...(input.type !== undefined ? { type: input.type } : {}),
       ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
       ...(input.legalName !== undefined ? { legalName: input.legalName ?? null } : {}),
-      ...(input.handle !== undefined ? { handle: input.handle ?? null } : {}),
+      ...(handle !== undefined ? { handle } : {}),
       ...(input.description !== undefined ? { description: input.description ?? null } : {}),
       ...(input.websiteUrl !== undefined ? { websiteUrl: input.websiteUrl ?? null } : {}),
       ...(input.countryCode !== undefined ? { countryCode: input.countryCode?.toUpperCase() ?? null } : {}),

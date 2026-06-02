@@ -1,10 +1,12 @@
-import type { InventoryItemType, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryItemType, InventoryTranslationDto, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+import { findInventoryCategoryOption, getAlternateInventoryLanguage } from '@hellowhen/shared';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebDate } from '../../lib/webFormat';
 
 export type InventoryKind = 'need' | 'offer';
 export type InventoryItem = NeedDto | OfferDto;
+export type InventoryTranslationFormValues = { languageCode: DiscoveryLanguage; title: string; description: string };
 
 export type InventoryI18n = {
   t?: (key: string, values?: TranslationValues) => string;
@@ -19,6 +21,8 @@ function tr(i18n: InventoryI18n | undefined, key: string, fallback: string, valu
 export type InventoryFormValues = {
   title: string;
   description: string;
+  defaultLanguage: DiscoveryLanguage;
+  translations: InventoryTranslationFormValues[];
   status: string;
   itemType: InventoryItemType;
   category: string;
@@ -34,6 +38,8 @@ export type InventoryFormValues = {
 export const emptyInventoryFormValues: InventoryFormValues = {
   title: '',
   description: '',
+  defaultLanguage: 'en',
+  translations: [],
   status: 'active',
   itemType: 'service',
   category: '',
@@ -82,6 +88,50 @@ export function modeLabel(mode?: string | null, i18n?: InventoryI18n) {
   return null;
 }
 
+
+export function inventoryLanguageLabel(languageCode?: string | null, i18n?: InventoryI18n) {
+  if (languageCode === 'fr') return tr(i18n, 'inventory.languages.fr', 'French');
+  return tr(i18n, 'inventory.languages.en', 'English');
+}
+
+export function getEditableTranslationLanguage(defaultLanguage: DiscoveryLanguage) {
+  return getAlternateInventoryLanguage(defaultLanguage) as DiscoveryLanguage;
+}
+
+function translationToFormValue(translation: InventoryTranslationDto): InventoryTranslationFormValues {
+  return {
+    languageCode: translation.languageCode,
+    title: translation.title ?? '',
+    description: translation.description ?? '',
+  };
+}
+
+export function getInventoryTranslationDraft(values: InventoryFormValues, languageCode: DiscoveryLanguage): InventoryTranslationFormValues {
+  return values.translations.find((translation) => translation.languageCode === languageCode) ?? { languageCode, title: '', description: '' };
+}
+
+export function setInventoryTranslationDraft(values: InventoryFormValues, draft: InventoryTranslationFormValues): InventoryFormValues {
+  const translations = values.translations.filter((translation) => translation.languageCode !== draft.languageCode);
+  return { ...values, translations: [...translations, draft] };
+}
+
+export function normalizeInventoryTranslationsForPayload(values: InventoryFormValues) {
+  return values.translations
+    .filter((translation) => translation.languageCode !== values.defaultLanguage)
+    .filter((translation) => translation.title.trim() || translation.description.trim())
+    .map((translation) => ({
+      languageCode: translation.languageCode,
+      title: translation.title.trim(),
+      description: translation.description.trim(),
+    }));
+}
+
+export function inventoryCategoryLabel(category?: string | null, i18n?: InventoryI18n) {
+  const option = findInventoryCategoryOption(category);
+  if (!option) return category?.trim() ?? '';
+  return tr(i18n, option.labelKey, option.value);
+}
+
 export function inventoryStatusLabel(status?: string | null, i18n?: InventoryI18n) {
   if (!status) return tr(i18n, 'inventory.labels.notSpecified', 'Not specified');
   return tr(i18n, `inventory.statuses.${status}`, status.replace(/_/g, ' '));
@@ -93,7 +143,7 @@ export function sideClassName(kind: InventoryKind) {
 
 export function getInventoryMetadata(item: InventoryItem, i18n?: InventoryI18n) {
   const timing = isNeed(item) ? item.timing : item.availability;
-  return [itemTypeLabel(item.itemType, i18n), item.category, timing, modeLabel(item.mode, i18n), item.locationLabel]
+  return [itemTypeLabel(item.itemType, i18n), inventoryCategoryLabel(item.category, i18n), timing, modeLabel(item.mode, i18n), item.locationLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }
@@ -109,6 +159,8 @@ export function inventoryToFormValues(item?: InventoryItem | null): InventoryFor
   return {
     title: item.title ?? '',
     description: item.description ?? '',
+    defaultLanguage: item.defaultLanguage ?? 'en',
+    translations: (item.translations ?? []).map(translationToFormValue),
     status: item.status ?? 'active',
     itemType: item.itemType ?? 'service',
     category: item.category ?? '',
