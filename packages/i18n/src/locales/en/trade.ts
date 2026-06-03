@@ -720,6 +720,7 @@ export const trade = {
     shareOpened: 'Share options opened.',
     linkCopied: 'Link copied.',
     couldNotCopyLink: 'Could not copy this link. Copy it from your browser address bar.',
+    couldNotShareNative: 'Could not open sharing. Try again from the trade detail page.',
     reportProblem: 'Report problem',
   },
   actions: {

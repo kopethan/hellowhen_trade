@@ -26,6 +26,7 @@ export type MobileIconName =
   | 'refresh'
   | 'search'
   | 'send'
+  | 'share'
   | 'settings'
   | 'trade'
   | 'wallet'
@@ -90,6 +91,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Circle cx={10} cy={10} r={5} stroke={color} strokeWidth={2} fill="none" /><Line x1={14.4142} y1={14} x2={20} y2={19.5858} stroke={color} strokeWidth={2} strokeLinecap="round" /></>;
     case 'send':
       return <><Path d="M4 11.5L20 4L16 20L12 13L4 11.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M12 13L20 4" strokeWidth={1.8} {...strokeProps} /></>;
+    case 'share':
+      return <><Rect x={5} y={9} width={14} height={11} rx={1} stroke={color} strokeWidth={2} fill="none" /><Rect x={10} y={8} width={4} height={2} fill="none" /><Path d="M12 3V15" strokeWidth={1.5} {...strokeProps} /><Path d="M12 3L15 6" strokeWidth={1.5} {...strokeProps} /><Path d="M9 6L12 3" strokeWidth={1.5} {...strokeProps} /></>;
     case 'settings':
       return <><Path d="M4.01074 12.75C3.74279 12.2859 3.74279 11.7141 4.01074 11.25L7.35547 5.45605C7.62335 4.99207 8.11855 4.7062 8.6543 4.70605L15.3457 4.70605C15.8814 4.7062 16.3766 4.99207 16.6445 5.45605L19.9893 11.25C20.2237 11.6561 20.253 12.1446 20.0771 12.5713L19.9893 12.75L16.6445 18.5439C16.3766 19.0079 15.8814 19.2938 15.3457 19.2939L8.6543 19.2939C8.11855 19.2938 7.62335 19.0079 7.35547 18.5439L4.01074 12.75Z" stroke={color} strokeWidth={1.3} fill="none" /><Circle cx={12} cy={12} r={2.5} stroke={color} strokeWidth={1.3} fill="none" /></>;
     case 'trade':
