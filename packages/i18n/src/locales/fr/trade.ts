@@ -714,6 +714,12 @@ export const trade = {
     sendReport: 'Envoyer le signalement',
     markDelivered: 'Marquer comme livré',
     cancelTrade: 'Annuler l’échange',
+    shareTrade: 'Partager',
+    sharing: 'Partage…',
+    shareText: 'Voir cet échange public Hellowhen Trade : {{title}}',
+    shareOpened: 'Options de partage ouvertes.',
+    linkCopied: 'Lien copié.',
+    couldNotCopyLink: 'Impossible de copier ce lien. Copiez-le depuis la barre d’adresse de votre navigateur.',
     reportProblem: 'Signaler un problème',
   },
   actions: {

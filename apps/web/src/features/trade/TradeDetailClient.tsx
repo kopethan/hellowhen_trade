@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { ReportContentButton } from '../../components/ReportContentButton';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
+import { buildPublicTradeUrl, copyTextToClipboard } from '../../lib/publicUrls';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
@@ -137,6 +138,8 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   const [reportMessage, setReportMessage] = useState('');
   const [confirmCompletionOpen, setConfirmCompletionOpen] = useState(false);
   const [deleteTradeOpen, setDeleteTradeOpen] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
 
   async function loadLiveTrade() {
     setLoading(true);
@@ -263,6 +266,36 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
     }
   }
 
+  async function shareTrade() {
+    const url = buildPublicTradeUrl(currentTrade.id);
+    const title = currentTrade.title || headline;
+    const text = t('trade.detail.shareText', { title });
+    const shareData = { title, text, url };
+    const webNavigator = typeof navigator !== 'undefined' ? navigator as Navigator & { share?: (data: typeof shareData) => Promise<void> } : null;
+
+    setShareLoading(true);
+    setShareNotice(null);
+
+    try {
+      if (webNavigator?.share) {
+        await webNavigator.share(shareData);
+        setShareNotice(t('trade.detail.shareOpened'));
+        return;
+      }
+
+      const copied = await copyTextToClipboard(url);
+      setShareNotice(copied ? t('trade.detail.linkCopied') : t('trade.detail.couldNotCopyLink'));
+    } catch (cause) {
+      const aborted = typeof DOMException !== 'undefined' && cause instanceof DOMException && cause.name === 'AbortError';
+      if (!aborted) {
+        const copied = await copyTextToClipboard(url);
+        setShareNotice(copied ? t('trade.detail.linkCopied') : t('trade.detail.couldNotCopyLink'));
+      }
+    } finally {
+      setShareLoading(false);
+    }
+  }
+
   const needSide = getNeedSide(currentTrade, i18n);
   const offerSide = getOfferSide(currentTrade, i18n);
   const exchange = getExchangeLabel(currentTrade, i18n);
@@ -275,10 +308,16 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   return (
     <article className="trade-detail-page">
       <section className="trade-hero-section">
-        <div className="status-row">
-          <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {getStatusLabel(currentTrade.status, i18n)}</span>
-          <span className="semantic-badge trade">{exchange}</span>
-          {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
+        <div className="trade-detail-hero-top">
+          <div className="status-row">
+            <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {getStatusLabel(currentTrade.status, i18n)}</span>
+            <span className="semantic-badge trade">{exchange}</span>
+            {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
+          </div>
+          <button type="button" className="button secondary trade-share-button" onClick={() => void shareTrade()} disabled={shareLoading}>
+            <WebIcon name="share" size={16} decorative />
+            {shareLoading ? t('trade.detail.sharing') : t('trade.detail.shareTrade')}
+          </button>
         </div>
         <h2>{headline}</h2>
         <p>{currentTrade.description}</p>
@@ -294,6 +333,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           />
           <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt, i18n)}</span>
         </div>
+        {shareNotice ? <p className="trade-share-notice" role="status" aria-live="polite">{shareNotice}</p> : null}
         {!isOwner ? <ReportContentButton targetType="trade" targetId={currentTrade.id} labelKey="report.trade" helperKey="report.helper.trade" buttonClassName="button secondary danger-text" /> : null}
       </section>
 

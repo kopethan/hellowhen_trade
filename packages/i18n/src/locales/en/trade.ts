@@ -714,6 +714,12 @@ export const trade = {
     sendReport: 'Send report',
     markDelivered: 'Mark delivered',
     cancelTrade: 'Cancel trade',
+    shareTrade: 'Share',
+    sharing: 'Sharing...',
+    shareText: 'See this public Hellowhen Trade: {{title}}',
+    shareOpened: 'Share options opened.',
+    linkCopied: 'Link copied.',
+    couldNotCopyLink: 'Could not copy this link. Copy it from your browser address bar.',
     reportProblem: 'Report problem',
   },
   actions: {

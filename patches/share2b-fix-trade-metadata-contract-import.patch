@@ -1,0 +1,13 @@
+diff --git a/apps/web/src/lib/tradeMetadata.ts b/apps/web/src/lib/tradeMetadata.ts
+index 61f85f4..f4c345c 100644
+--- a/apps/web/src/lib/tradeMetadata.ts
++++ b/apps/web/src/lib/tradeMetadata.ts
+@@ -1,6 +1,6 @@
+ import type { Metadata } from 'next';
+-import type { MediaAssetDto, TradeDto } from '@hellowhen/contracts';
+-import { tradeSchema } from '@hellowhen/contracts';
++import type { MediaAssetDto } from '@hellowhen/contracts/src/media';
++import { tradeSchema, type TradeDto } from '@hellowhen/contracts/src/trade';
+ import { isWebDemoDataEnabled } from './demoMode';
+ import { mockTrades } from './mockData';
+ import { getSeoUrl, publicPageMetadata, seoSiteName } from './seo';

@@ -11,7 +11,7 @@ function trimTrailingSlash(value: string) {
 }
 
 export function getSeoSiteUrl() {
-  const rawValue = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_WEB_APP_URL ?? process.env.WEB_APP_URL ?? fallbackSiteUrl;
+  const rawValue = process.env.NEXT_PUBLIC_WEB_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXT_PUBLIC_WEB_APP_URL ?? process.env.WEB_APP_URL ?? fallbackSiteUrl;
   try {
     const url = new URL(rawValue);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return fallbackSiteUrl;

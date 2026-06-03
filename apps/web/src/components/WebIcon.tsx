@@ -19,6 +19,7 @@ export type WebIconName =
   | 'report-flag'
   | 'search'
   | 'settings'
+  | 'share'
   | 'trade'
   | 'warning';
 

@@ -518,6 +518,9 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .trade-detail-page { display: grid; gap: 0; margin: -4px -4px 0; }
 .trade-hero-section, .trade-social-section { display: grid; gap: 12px; padding: 20px 4px; border-bottom: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent); }
 .trade-hero-section { padding-top: 8px; }
+.trade-detail-hero-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.trade-share-button { flex: 0 0 auto; min-height: 36px; padding: 0 12px; font-size: 12px; }
+.trade-share-notice { justify-self: start; margin: 0; border: 1px solid var(--success-border); border-radius: 999px; background: var(--success-bg); color: var(--success-text); padding: 8px 12px; font-size: 12px; font-weight: 900; }
 .trade-hero-section h2 { margin: 2px 0 0; font-size: 29px; line-height: 1.03; letter-spacing: -0.055em; }
 .trade-hero-section p { margin-bottom: 0; }
 .trade-detail-owner-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 0; }
