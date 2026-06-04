@@ -7,9 +7,19 @@ export const account = {
   addBalanceTitle: 'Ajouter du solde',
   addBalanceBody: 'Gérez le solde d’échange lorsque cette fonctionnalité planifiée est activée.',
   headerBody: 'Profil, paramètres et assistance sont regroupés ici.',
+  sections: {
+    activity: 'Activité',
+    settings: 'Paramètres et sécurité',
+    future: 'Outils futurs',
+  },
+  quickActions: {
+    editProfile: 'Modifier',
+    notifications: 'Boîte',
+    support: 'Assistance',
+  },
   signedOut: {
     title: 'Connectez-vous pour ouvrir votre compte',
-    body: 'Profil, paramètres, portefeuille et assistance sont disponibles après connexion.',
+    body: 'Profil, paramètres, boîte de réception et assistance sont disponibles après connexion.',
   },
   addHandle: 'Ajouter un identifiant',
   addHandleOnProfile: 'Ajoutez un identifiant sur votre profil.',
@@ -345,9 +355,16 @@ export const account = {
     read: 'Lu',
     unread: 'Non lu',
     loadError: 'Impossible de charger les notifications.',
+    safeTitle: 'Mise à jour du compte',
+    safeBody: 'Ouvrez cette notification pour consulter la mise à jour en sécurité.
     markError: 'Impossible de mettre à jour les notifications.',
     privacyTitle: 'Boîte de réception privée',
     privacyBody: 'Les notifications montrent seulement les mises à jour de compte. Le texte des messages privés, notes admin, e-mails et détails de signalement ne sont pas affichés dans les aperçus.',
+    privacyShort: 'Le texte des messages privés, notes admin, e-mails et détails de signalement reste hors des aperçus.',
+    sections: {
+      today: 'Aujourd’hui',
+      yesterday: 'Hier',
+    },
     filters: {
       all: 'Tout',
       unread: 'Non lues',

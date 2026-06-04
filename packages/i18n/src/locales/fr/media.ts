@@ -4,6 +4,7 @@ export const media = {
   },
   states: {
     uploading: 'Importation…',
+    uploadingImage: 'Importation de l’image {{current}} sur {{total}}…',
   },
   empty: {
     noImagesYet: 'Aucune image pour le moment',
@@ -12,5 +13,7 @@ export const media = {
   errors: {
     removedAfterReport: 'Cette image a été retirée après un signalement de contenu.',
     couldNotLoad: 'L’image n’a pas pu être chargée.',
+    uploadFailed: 'L’importation de l’image a échoué. Vérifiez votre connexion puis réessayez.',
+    uploadFailedAt: 'L’image {{current}} sur {{total}} n’a pas pu être importée. {{reason}}',
   },
 } as const;

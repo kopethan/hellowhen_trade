@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { DiscoveryLanguage, TradeExchangeMode } from '@hellowhen/contracts';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
-import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
@@ -13,7 +13,7 @@ import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
 import { AddTranslationButton, buildManualTranslation, CategoryPicker, InventoryTextField, ManualTranslationFields, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
-import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { OfferItem } from './types';
 
@@ -33,7 +33,28 @@ export function CreateOfferScreen({ route, navigation }: Props) {
   const [locationLabel, setLocationLabel] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [attemptedSubmit, setAttemptedSubmit] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const hasDraft = useMemo(() => Boolean(
+    title.trim() ||
+    description.trim() ||
+    translationTitle.trim() ||
+    translationDescription.trim() ||
+    category.trim() ||
+    locationLabel.trim() ||
+    images.length > 0,
+  ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
+
+  useUnsavedChangesWarning({
+    navigation,
+    enabled: hasDraft && !submitting,
+    title: t('inventory.form.unsavedTitle'),
+    body: t('inventory.form.unsavedBody'),
+    stayLabel: t('common.actions.cancel'),
+    discardLabel: t('inventory.form.discardDraft'),
+  });
 
   function validateForm() {
     const cleanTitle = title.trim();
@@ -48,7 +69,13 @@ export function CreateOfferScreen({ route, navigation }: Props) {
     return null;
   }
 
+  const titleError = attemptedSubmit && title.trim().length < INVENTORY_TITLE_MIN_LENGTH ? t('validation.offerTitleTooShort') : null;
+  const descriptionError = attemptedSubmit && description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH ? t('validation.offerDescriptionTooShort') : null;
+  const uploadProgressBody = formatUploadProgress(uploadProgress, t);
+
   async function handleCreate() {
+    if (submitting) return;
+    setAttemptedSubmit(true);
     const cleanTitle = title.trim();
     const cleanDescription = description.trim();
     const validationError = validateForm();
@@ -58,10 +85,11 @@ export function CreateOfferScreen({ route, navigation }: Props) {
     }
 
     setSubmitting(true);
+    setUploadProgress(null);
     setError(null);
 
     try {
-      const mediaIds = await uploadSelectedImages(images);
+      const mediaIds = await uploadSelectedImages(images, { onProgress: setUploadProgress });
       const response = await api.offers.create({
         title: cleanTitle,
         description: cleanDescription,
@@ -105,8 +133,9 @@ export function CreateOfferScreen({ route, navigation }: Props) {
 
       navigation.goBack();
     } catch (caughtError) {
-      setError(getFriendlyApiErrorMessage(caughtError));
+      setError(getFriendlyUploadErrorMessage(caughtError, t));
     } finally {
+      setUploadProgress(null);
       setSubmitting(false);
     }
   }
@@ -122,11 +151,12 @@ export function CreateOfferScreen({ route, navigation }: Props) {
         </View>
 
         {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotSave')} body={error} /> : null}
+        {submitting && uploadProgressBody ? <InfoNotice tone="info" title={t('inventory.form.uploadProgressTitle')} body={uploadProgressBody} /> : null}
 
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.offerQuestion')}</AppText>
-          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleOfferExample')} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={submitting} />
-          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={t('inventory.form.titleOfferExample')} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={submitting} error={titleError} />
+          <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} error={descriptionError} />
         </AppCard>
 
         <AppCard>
@@ -171,7 +201,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
 
         <View style={styles.actions}>
           <Pressable disabled={submitting} onPress={handleCreate} style={({ pressed }) => [styles.primaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
-            <AppText style={styles.primaryButtonText}>{submitting ? t('common.states.saving') : t('inventory.actions.saveOffer')}</AppText>
+            <AppText style={styles.primaryButtonText}>{submitting ? (uploadProgress ? t('common.states.uploading') : t('common.states.saving')) : t('inventory.actions.saveOffer')}</AppText>
           </Pressable>
           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, submitting && styles.disabled, pressed && styles.pressed]}>
             <AppText style={styles.secondaryButtonText}>{t('common.actions.cancel')}</AppText>

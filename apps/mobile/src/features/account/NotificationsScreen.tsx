@@ -1,12 +1,12 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InAppNotificationType, NotificationDto } from '@hellowhen/contracts';
-import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
+import { DetailEmptyState } from '../../components/detail';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
@@ -23,6 +23,12 @@ type NotificationMetadata = {
   status?: unknown;
   statusLabel?: unknown;
 } | null | undefined;
+
+type NotificationGroup = {
+  key: string;
+  label: string;
+  notifications: NotificationDto[];
+};
 
 function normalizeNotifications(payload: unknown) {
   if (!payload || typeof payload !== 'object') return { notifications: [] as NotificationDto[], unreadCount: 0 };
@@ -60,10 +66,10 @@ function statusLabelFromNotification(notification: NotificationDto, t: (key: str
   return t('account.notifications.statuses.updated');
 }
 
-function notificationTitle(type: InAppNotificationType, fallback: string, t: (key: string) => string) {
+function notificationTitle(type: InAppNotificationType, t: (key: string) => string) {
   const key = `account.notifications.types.${type}`;
   const localized = t(key);
-  return localized === key ? fallback : localized;
+  return localized === key ? t('account.notifications.safeTitle') : localized;
 }
 
 function notificationBody(notification: NotificationDto, t: (key: string, values?: Record<string, string>) => string) {
@@ -73,7 +79,7 @@ function notificationBody(notification: NotificationDto, t: (key: string, values
     ticketSubject: ticketSubjectFromNotification(notification),
     statusLabel: statusLabelFromNotification(notification, t),
   });
-  return localized === key ? notification.body : localized;
+  return localized === key ? t('account.notifications.safeBody') : localized;
 }
 
 function notificationTone(type: InAppNotificationType) {
@@ -85,10 +91,54 @@ function notificationTone(type: InAppNotificationType) {
   return 'proposal' as const;
 }
 
-function formatNotificationTime(value: string) {
+function notificationIcon(notification: NotificationDto) {
+  if (notification.supportTicketId) return 'help' as const;
+  if (notification.proposalId) return 'proposal' as const;
+  if (notification.tradeId) return 'trade' as const;
+  return 'bell' as const;
+}
+
+function parseNotificationDate(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatNotificationClock(value: string) {
+  const date = parseNotificationDate(value);
+  if (!date) return '';
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+function sectionKeyForDate(date: Date) {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+function isSameLocalDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function notificationSectionLabel(date: Date, t: (key: string) => string) {
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (isSameLocalDay(date, today)) return t('account.notifications.sections.today');
+  if (isSameLocalDay(date, yesterday)) return t('account.notifications.sections.yesterday');
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function groupNotifications(notifications: NotificationDto[], t: (key: string) => string): NotificationGroup[] {
+  const groups: NotificationGroup[] = [];
+  notifications.forEach((notification) => {
+    const date = parseNotificationDate(notification.createdAt) ?? new Date(0);
+    const key = sectionKeyForDate(date);
+    let group = groups.find((item) => item.key === key);
+    if (!group) {
+      group = { key, label: notificationSectionLabel(date, t), notifications: [] };
+      groups.push(group);
+    }
+    group.notifications.push(notification);
+  });
+  return groups;
 }
 
 export function NotificationsScreen({ navigation }: Props) {
@@ -100,19 +150,25 @@ export function NotificationsScreen({ navigation }: Props) {
   const [markingAll, setMarkingAll] = useState(false);
   const [filter, setFilter] = useState<NotificationFilter>('all');
   const [error, setError] = useState<string | null>(null);
+  const loadRequestIdRef = useRef(0);
+  const markingNotificationIdsRef = useRef(new Set<string>());
 
   const loadNotifications = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setLoading(true);
     setError(null);
     try {
       const response = await api.notifications.mine({ take: 80, unreadOnly: false });
+      if (requestId !== loadRequestIdRef.current) return;
       const normalized = normalizeNotifications(response);
       setNotifications(normalized.notifications);
       setUnreadCount(normalized.unreadCount);
     } catch (caughtError) {
+      if (requestId !== loadRequestIdRef.current) return;
       setError(getFriendlyApiErrorMessage(caughtError, t('account.notifications.loadError')));
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestIdRef.current) setLoading(false);
     }
   }, [t]);
 
@@ -123,17 +179,21 @@ export function NotificationsScreen({ navigation }: Props) {
     return notifications;
   }, [filter, notifications]);
 
+  const groupedNotifications = useMemo(() => groupNotifications(filteredNotifications, t), [filteredNotifications, t]);
   const unreadLabel = useMemo(() => t('account.notifications.unreadCount', { count: unreadCount }), [t, unreadCount]);
   const totalLabel = useMemo(() => t('account.notifications.totalCount', { count: notifications.length }), [t, notifications.length]);
 
   async function markRead(notification: NotificationDto) {
-    if (notification.readAt) return;
+    if (notification.readAt || markingNotificationIdsRef.current.has(notification.id)) return;
+    markingNotificationIdsRef.current.add(notification.id);
     try {
       await api.notifications.markRead(notification.id);
       setNotifications((items) => items.map((item) => item.id === notification.id ? { ...item, readAt: item.readAt ?? new Date().toISOString() } : item));
       setUnreadCount((count) => Math.max(0, count - 1));
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError, t('account.notifications.markError')));
+    } finally {
+      markingNotificationIdsRef.current.delete(notification.id);
     }
   }
 
@@ -182,55 +242,48 @@ export function NotificationsScreen({ navigation }: Props) {
           <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.notifications.body')}</AppText>
         </View>
 
-        <View style={styles.filterRow}>
-          <NotificationFilterPill label={t('account.notifications.filters.all')} active={filter === 'all'} count={notifications.length} onPress={() => setFilter('all')} />
-          <NotificationFilterPill label={t('account.notifications.filters.unread')} active={filter === 'unread'} count={unreadCount} onPress={() => setFilter('unread')} />
+        <View style={styles.topControls}>
+          <View style={styles.filterRow}>
+            <NotificationFilterPill label={t('account.notifications.filters.all')} active={filter === 'all'} count={notifications.length} onPress={() => setFilter('all')} />
+            <NotificationFilterPill label={t('account.notifications.filters.unread')} active={filter === 'unread'} count={unreadCount} onPress={() => setFilter('unread')} />
+          </View>
+          {unreadCount > 0 ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={t('account.notifications.markAllRead')} onPress={() => { void markAllRead(); }} disabled={markingAll} style={({ pressed }) => [styles.markAllButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, (pressed || markingAll) && styles.pressed]}>
+              {markingAll ? <ActivityIndicator color={theme.color.text} /> : <AppText style={[styles.markAllButtonText, { color: theme.color.text }]}>{t('account.notifications.markAllRead')}</AppText>}
+            </Pressable>
+          ) : null}
         </View>
 
-        {error ? <InfoNotice tone="danger" title={t('account.notifications.loadError')} body={error} /> : null}
+        <View style={[styles.privacyStrip, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <MobileIcon name="warning" size={15} color={theme.color.muted} />
+          <AppText style={[styles.privacyText, { color: theme.color.muted }]}>{t('account.notifications.privacyShort')}</AppText>
+        </View>
 
-        {unreadCount > 0 ? (
-          <Pressable accessibilityRole="button" onPress={() => { void markAllRead(); }} disabled={markingAll} style={({ pressed }) => [styles.markAllButton, { backgroundColor: theme.color.text }, (pressed || markingAll) && styles.pressed]}>
-            {markingAll ? <ActivityIndicator color={theme.color.background} /> : <AppText style={[styles.markAllButtonText, { color: theme.color.background }]}>{t('account.notifications.markAllRead')}</AppText>}
-          </Pressable>
-        ) : null}
-
-        <InfoNotice tone="info" title={t('account.notifications.privacyTitle')} body={t('account.notifications.privacyBody')} />
+        {error && notifications.length > 0 ? <InfoNotice tone="danger" title={t('account.notifications.loadError')} body={error} /> : null}
 
         {loading && notifications.length === 0 ? (
-          <AppCard style={styles.loadingCard}>
+          <View style={[styles.loadingState, { borderColor: theme.color.border }]}>
             <ActivityIndicator color={theme.color.text} />
             <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t('account.notifications.loading')}</AppText>
-          </AppCard>
+          </View>
         ) : null}
 
         {!loading && filteredNotifications.length === 0 ? (
-          <AppCard style={styles.emptyCard}>
-            <MobileIcon name="bell" size={30} color={theme.color.text} />
-            <AppText style={styles.emptyTitle}>{emptyTitle}</AppText>
-            <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody}</AppText>
-          </AppCard>
-        ) : filteredNotifications.map((notification) => {
-          const unread = !notification.readAt;
-          const tone = notificationTone(notification.type);
-          const semantic = theme.semantic[tone];
-          return (
-            <Pressable key={notification.id} accessibilityRole="button" onPress={() => openNotification(notification)} style={({ pressed }) => [styles.notificationCard, { backgroundColor: unread ? semantic.softBg : theme.color.surface, borderColor: unread ? semantic.border : theme.color.border }, pressed && styles.pressed]}>
-              <View style={[styles.notificationIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>
-                <MobileIcon name={notification.supportTicketId ? 'help' : notification.tradeId ? 'trade' : 'bell'} size={18} color={semantic.text} />
-              </View>
-              <View style={styles.notificationCopy}>
-                <View style={styles.notificationMetaRow}>
-                  <SemanticBadge label={unread ? t('account.notifications.unread') : t('account.notifications.read')} tone={unread ? tone : 'instruction'} size="sm" />
-                  <AppText style={[styles.notificationTime, { color: theme.color.muted }]}>{formatNotificationTime(notification.createdAt)}</AppText>
-                </View>
-                <AppText style={styles.notificationTitle}>{notificationTitle(notification.type, notification.title, t)}</AppText>
-                <AppText style={[styles.notificationBody, { color: theme.color.muted }]}>{notificationBody(notification, t)}</AppText>
-              </View>
-              <MobileIcon name="chevron-right" size={22} color={theme.color.muted} />
-            </Pressable>
-          );
-        })}
+          <DetailEmptyState
+            icon={error ? 'warning' : 'bell'}
+            title={error ? t('account.notifications.loadError') : emptyTitle}
+            body={error ?? emptyBody}
+            actionLabel={error ? t('common.actions.tryAgain') : undefined}
+            onAction={error ? () => { void loadNotifications(); } : undefined}
+          />
+        ) : groupedNotifications.map((section) => (
+          <View key={section.key} style={styles.notificationSection}>
+            <AppText style={[styles.sectionTitle, { color: theme.color.muted }]}>{section.label}</AppText>
+            <View style={[styles.notificationList, { borderTopColor: theme.color.border, borderBottomColor: theme.color.border }]}>
+              {section.notifications.map((notification, index) => <NotificationRow key={notification.id} notification={notification} first={index === 0} onPress={() => openNotification(notification)} />)}
+            </View>
+          </View>
+        ))}
       </ScrollView>
     </AppFixedHeaderScreen>
   );
@@ -239,11 +292,43 @@ export function NotificationsScreen({ navigation }: Props) {
 function NotificationFilterPill({ label, active, count, onPress }: { label: string; active: boolean; count: number; onPress: () => void }) {
   const theme = useThemeTokens();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.filterPill, { backgroundColor: active ? theme.color.text : theme.color.surface, borderColor: active ? theme.color.text : theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label} · ${count}`} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filterPill, { backgroundColor: active ? theme.color.text : theme.color.surface, borderColor: active ? theme.color.text : theme.color.border }, pressed && styles.pressed]}>
       <AppText style={[styles.filterPillText, { color: active ? theme.color.background : theme.color.text }]}>{label}</AppText>
       <View style={[styles.filterPillCount, { backgroundColor: active ? theme.color.background : theme.color.subtleSurface }]}>
         <AppText style={[styles.filterPillCountText, { color: active ? theme.color.text : theme.color.muted }]}>{count}</AppText>
       </View>
+    </Pressable>
+  );
+}
+
+function NotificationRow({ notification, first, onPress }: { notification: NotificationDto; first?: boolean; onPress: () => void }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  const unread = !notification.readAt;
+  const tone = notificationTone(notification.type);
+  const semantic = theme.semantic[tone];
+
+  const title = notificationTitle(notification.type, t);
+  const body = notificationBody(notification, t);
+  const accessibilityLabel = [title, unread ? t('account.notifications.unread') : t('account.notifications.read'), formatNotificationClock(notification.createdAt)].filter(Boolean).join(' · ');
+
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} accessibilityHint={t('account.notifications.open')} onPress={onPress} style={({ pressed }) => [styles.notificationRow, !first && { borderTopColor: theme.color.border, borderTopWidth: StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
+      <View style={[styles.notificationIcon, { backgroundColor: unread ? semantic.softBg : theme.color.subtleSurface, borderColor: unread ? semantic.border : theme.color.border }]}>
+        <MobileIcon name={notificationIcon(notification)} size={18} color={unread ? semantic.text : theme.color.muted} />
+      </View>
+      <View style={styles.notificationCopy}>
+        <View style={styles.notificationTopRow}>
+          <AppText style={styles.notificationTitle}>{title}</AppText>
+          {unread ? <View style={[styles.unreadDot, { backgroundColor: semantic.text }]} /> : null}
+        </View>
+        <AppText style={[styles.notificationBody, { color: theme.color.muted }]}>{body}</AppText>
+        <View style={styles.notificationMetaRow}>
+          <AppText style={[styles.notificationTime, { color: theme.color.muted }]}>{formatNotificationClock(notification.createdAt)}</AppText>
+          <SemanticBadge label={unread ? t('account.notifications.unread') : t('account.notifications.read')} tone={unread ? tone : 'instruction'} size="sm" />
+        </View>
+      </View>
+      <MobileIcon name="chevron-right" size={21} color={theme.color.muted} />
     </Pressable>
   );
 }
@@ -254,23 +339,29 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.9 },
   subtitle: { lineHeight: 20, fontWeight: '600' },
+  topControls: { gap: 10 },
   filterRow: { flexDirection: 'row', gap: 10 },
   filterPill: { flex: 1, minHeight: 44, borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   filterPillText: { fontWeight: '900' },
   filterPillCount: { minWidth: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
   filterPillCountText: { fontSize: 12, fontWeight: '900' },
-  markAllButton: { borderRadius: 18, paddingVertical: 13, alignItems: 'center', minHeight: 48, justifyContent: 'center' },
+  markAllButton: { alignSelf: 'flex-end', minHeight: 40, borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
   markAllButtonText: { fontWeight: '900' },
-  loadingCard: { alignItems: 'center', gap: 10, paddingVertical: 24 },
-  emptyCard: { alignItems: 'center', gap: 10, paddingVertical: 28 },
-  emptyTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center' },
+  privacyStrip: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  privacyText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  loadingState: { minHeight: 116, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   emptyBody: { fontWeight: '700', lineHeight: 20, textAlign: 'center' },
-  notificationCard: { minHeight: 102, borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  notificationSection: { gap: 8 },
+  sectionTitle: { fontSize: 12, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
+  notificationList: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
+  notificationRow: { minHeight: 94, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 12 },
   notificationIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   notificationCopy: { flex: 1, gap: 5 },
+  notificationTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  notificationTitle: { flex: 1, fontSize: 17, fontWeight: '900' },
+  unreadDot: { width: 9, height: 9, borderRadius: 5 },
+  notificationBody: { lineHeight: 19, fontWeight: '700' },
   notificationMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
   notificationTime: { fontSize: 12, fontWeight: '800' },
-  notificationTitle: { fontSize: 17, fontWeight: '900' },
-  notificationBody: { lineHeight: 19, fontWeight: '700' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
 });

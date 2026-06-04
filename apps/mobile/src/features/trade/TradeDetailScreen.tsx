@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Pressable, RefreshControl, ScrollView, Share, StyleSheet, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -85,6 +85,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
   const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | 'share' | null>(null);
+  const loadingTradeRef = useRef(false);
 
 
   useEffect(() => {
@@ -127,6 +128,8 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   const createdLabel = formatDate(trade.createdAt, language);
 
   const loadTrade = useCallback(async () => {
+    if (loadingTradeRef.current) return;
+    loadingTradeRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -147,7 +150,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));
       setTrade((current) => current.id === params.tradeId ? current : fallback(params));
-    } finally { setLoading(false); }
+    } finally { loadingTradeRef.current = false; setLoading(false); }
   }, [auth.isAuthenticated, params]);
 
   useFocusEffect(useCallback(() => { void loadTrade(); }, [loadTrade]));
@@ -187,6 +190,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   }, [auth.user, auth.user?.id, role, t, trade.deliverySubmittedById, trade.status]);
 
   const shareTrade = useCallback(async () => {
+    if (actionLoading) return;
     const title = detailTitle(trade, t);
     const url = buildPublicTradeUrl(trade.id);
     const text = t('trade.detail.shareText', { title });
@@ -207,9 +211,10 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     } finally {
       setActionLoading(null);
     }
-  }, [t, trade]);
+  }, [actionLoading, t, trade]);
 
   const updateStatus = useCallback(async (status: TradeActionStatus) => {
+    if (actionLoading) return;
     const runStatusUpdate = async (nextStatus: TradeActionStatus) => {
       setActionLoading(nextStatus); setError(null); setMessage(null);
       try {
@@ -228,9 +233,10 @@ export function TradeDetailScreen({ route, navigation }: Props) {
       return;
     }
     await runStatusUpdate(status);
-  }, [loadTrade, t, trade.id, trade.title]);
+  }, [actionLoading, loadTrade, t, trade.id, trade.title]);
 
   const createProposal = useCallback(async () => {
+    if (creatingProposal) return;
     if (!auth.isAuthenticated) { navigation.navigate('Login'); return; }
     const trimmed = proposalDraft.trim();
     if (trimmed.length < 3) return;
@@ -252,7 +258,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
       if (body?.proposal) setProposals((current) => upsertProposal(current, body.proposal!));
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotSendProposal')));
     } finally { setCreatingProposal(false); }
-  }, [auth.isAuthenticated, loadTrade, navigation, proposalDraft, requiredSide, selectedProposalNeed, selectedProposalOffer, t, trade.id]);
+  }, [auth.isAuthenticated, creatingProposal, loadTrade, navigation, proposalDraft, requiredSide, selectedProposalNeed, selectedProposalOffer, t, trade.id]);
 
 
   const detailInfoRows = [

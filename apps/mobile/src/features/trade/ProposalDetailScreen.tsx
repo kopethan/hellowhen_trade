@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProposalActionStatus } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
@@ -12,6 +13,7 @@ import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
 import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+import { ConversationComposerBar, DetailEmptyState, DetailMetadataChips, DetailSection } from '../../components/detail';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
@@ -119,6 +121,7 @@ function firstNonDeletedMessages(messages: ProposalMessageItem[], proposal: Trad
 export function ProposalDetailScreen({ route, navigation }: Props) {
   const auth = useAuth();
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const { t, language } = useTranslation();
   const [proposal, setProposal] = useState<TradeProposalItem | null>(null);
   const [messages, setMessages] = useState<ProposalMessageItem[]>([]);
@@ -145,6 +148,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
+  const loadRequestIdRef = useRef(0);
 
   const loadMessages = useCallback(async () => {
     const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
@@ -152,19 +156,23 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }, [route.params.proposalId]);
 
   const loadProposal = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setLoading(true);
     setError(null);
     try {
       const result = await api.proposals.get(route.params.proposalId) as ProposalResponse;
+      if (requestId !== loadRequestIdRef.current) return;
       setProposal(result.proposal);
       setPackageNeedId(route.params.selectedProposalNeedId ?? result.proposal.proposedNeedId ?? result.proposal.proposedNeed?.id ?? '');
       setPackageOfferId(route.params.selectedProposalOfferId ?? result.proposal.proposedOfferId ?? result.proposal.proposedOffer?.id ?? '');
       setMessages(result.proposal.messages ?? []);
       try { await loadMessages(); } catch { /* keep proposal-attached messages if the standalone list fails */ }
     } catch (caughtError) {
+      if (requestId !== loadRequestIdRef.current) return;
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotLoadProposal')));
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestIdRef.current) setLoading(false);
     }
   }, [loadMessages, route.params.proposalId, route.params.selectedProposalNeedId, route.params.selectedProposalOfferId, t]);
 
@@ -242,6 +250,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function sendMessage() {
+    if (actionLoading) return;
     const trimmed = body.trim();
     if (!trimmed) return;
     setActionLoading('send');
@@ -260,6 +269,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function updateStatus(status: ProposalActionStatus) {
+    if (actionLoading) return;
     setActionLoading(status);
     setError(null);
     setNotice(null);
@@ -305,7 +315,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function saveProposalPackage() {
-    if (!proposal) return;
+    if (!proposal || actionLoading) return;
     setActionLoading('proposal-package');
     setError(null);
     setPackageError(null);
@@ -332,11 +342,10 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     setProposalNoteDraft(proposal.messageDeletedAt ? '' : proposal.message ?? '');
     setProposalNoteError(null);
     setEditingProposalNote(true);
-    setDetailsOpen(true);
   }
 
   async function saveProposalNote() {
-    if (!proposal) return;
+    if (!proposal || actionLoading) return;
     const trimmed = proposalNoteDraft.trim();
     if (trimmed.length < 3) {
       setProposalNoteError(t('trade.proposals.messageTooShort'));
@@ -365,6 +374,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function deleteProposalNote() {
+    if (actionLoading) return;
     setActionLoading('delete-proposal-note');
     setError(null);
     setNotice(null);
@@ -390,6 +400,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function saveMessageEdit(messageId: string) {
+    if (actionLoading) return;
     const trimmed = messageDraft.trim();
     if (!trimmed) {
       setMessageEditError(t('trade.proposals.messageEditRequired'));
@@ -428,6 +439,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function deletePrivateMessage(messageId: string) {
+    if (actionLoading) return;
     setActionLoading('message-delete');
     setError(null);
     setNotice(null);
@@ -444,7 +456,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   }
 
   async function cancelAcceptedTrade() {
-    if (!proposal?.trade?.id) return;
+    if (!proposal?.trade?.id || actionLoading) return;
     const reason = cancelReason.trim();
     setCancelError(null);
     if (reason.length < 3) {
@@ -535,16 +547,12 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
 
   const actionSheetConfig = getActionSheetConfig();
 
-  const headerTitle = proposal
-    ? isApplicant
-      ? proposal.trade?.owner?.profile?.displayName || proposal.trade?.owner?.profile?.handle || t('trade.labels.owner')
-      : proposal.applicant?.profile?.displayName || proposal.applicant?.profile?.handle || t('trade.proposals.tradeProposal')
-    : t('trade.proposals.tradeProposal');
+  const headerTitle = scrolledCompact && proposal ? `${t('trade.proposals.proposalThread')} · ${formatStatus(proposal.status, t)}` : t('trade.proposals.proposalThread');
 
   return (
     <AppScreen style={styles.screen}>
       <AppHeader
-        title={scrolledCompact && proposal ? `${headerTitle} · ${formatStatus(proposal.status, t)}` : headerTitle}
+        title={headerTitle}
         onBack={() => navigation.goBack()}
         rightSlot={proposal ? <HeaderDetailsButton onPress={() => setDetailsOpen(true)} label={t('trade.proposals.showProposalItemDetails')} /> : null}
       />
@@ -553,7 +561,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
         <ScrollView contentContainerStyle={styles.loadingContent} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}>
           <View style={[styles.loadingCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
             <SemanticBadge label={t('trade.proposals.tradeProposal')} tone="proposal" />
-            {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingProposal')}</AppText>}
+            {error ? <DetailEmptyState icon="warning" title={t('trade.detail.tradeError')} body={error} actionLabel={t('common.actions.tryAgain')} onAction={() => { void loadProposal(); }} /> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingProposal')}</AppText>}
           </View>
         </ScrollView>
       ) : (
@@ -569,24 +577,52 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             }}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}
           >
-            <ProposalTopSummary
-              proposal={proposal}
-              statusHint={statusHint}
-              isOwner={Boolean(isOwner)}
-              isApplicant={Boolean(isApplicant)}
-              tradeCancelled={tradeCancelled}
-              onDetails={() => setDetailsOpen(true)}
-              t={t}
-            />
+            <ThreadTradeStrip proposal={proposal} onOpenTradeDetail={() => {
+              if (!proposal.trade?.id) return;
+              navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+            }} t={t} />
+
+            <ProposalStatusBlock proposal={proposal} statusHint={statusHint} tradeCancelled={tradeCancelled} t={t} />
 
             {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
             {notice ? <InfoNotice tone="success" title={t('trade.proposals.proposalUpdated')} body={notice} /> : null}
             {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
 
-            <SystemEvent label={statusHint} />
-            <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
+            <ProposalPackageThreadBlock
+              proposal={proposal}
+              canEditProposalContent={canEditProposalContent}
+              onDetails={() => setDetailsOpen(true)}
+              t={t}
+            />
 
-            {visibleMessages.length === 0 ? <EmptyChatHint label={t('trade.proposals.noMessages')} /> : visibleMessages.map((message) => (
+            <ProposalActionCenter
+              proposal={proposal}
+              canCancelAcceptedTrade={canCancelAcceptedTrade}
+              isOwner={Boolean(isOwner)}
+              isApplicant={Boolean(isApplicant)}
+              isProvider={Boolean(isProvider)}
+              cancelTradeOpen={cancelTradeOpen}
+              cancelReason={cancelReason}
+              cancelError={cancelError}
+              actionLoading={actionLoading}
+              onAccept={() => confirmStatus('accepted')}
+              onDecline={() => confirmStatus('declined')}
+              onWithdraw={() => confirmStatus('withdrawn')}
+              onOpenCancelTrade={() => setCancelTradeOpen(true)}
+              onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
+              onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
+              onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
+              onOpenTradeDetail={() => {
+                if (!proposal.trade?.id) return;
+                navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+              }}
+              t={t}
+            />
+
+            <DetailSection title={t('trade.proposals.privateProposalConversation')} description={t('trade.proposals.proposalConversationPrivateBody')} compact>
+              <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
+
+              {visibleMessages.length === 0 ? <DetailEmptyState icon="proposal" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
               <PrivateMessageBubble
                 key={message.id}
                 message={message}
@@ -604,24 +640,22 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
                 t={t}
               />
             ))}
+            </DetailSection>
           </ScrollView>
 
           {canMessage ? (
-            <View style={[styles.composerBar, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }]}>
-              <TextInput
-                value={body}
-                onChangeText={setBody}
-                multiline
-                placeholder={t('trade.proposals.replyPrivately')}
-                placeholderTextColor={theme.color.muted}
-                style={[styles.chatInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
-              />
-              <Pressable accessibilityRole="button" disabled={Boolean(actionLoading) || body.trim().length === 0} onPress={() => { void sendMessage(); }} style={({ pressed }) => [styles.sendButton, { backgroundColor: theme.color.text }, (Boolean(actionLoading) || body.trim().length === 0) && styles.disabled, pressed && styles.pressed]}>
-                <AppText style={[styles.sendButtonText, { color: theme.color.background }]}>{actionLoading === 'send' ? t('trade.proposals.sending') : t('trade.proposals.send')}</AppText>
-              </Pressable>
-            </View>
+            <ConversationComposerBar
+              value={body}
+              onChangeText={setBody}
+              onSend={() => { void sendMessage(); }}
+              placeholder={t('trade.proposals.replyPrivately')}
+              sendLabel={actionLoading === 'send' ? t('trade.proposals.sending') : t('trade.proposals.send')}
+              disabled={Boolean(actionLoading)}
+              sending={actionLoading === 'send'}
+              style={{ paddingBottom: Math.max(10, insets.bottom + 8) }}
+            />
           ) : (
-            <View style={[styles.closedBar, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+            <View style={[styles.closedBar, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border, marginBottom: Math.max(10, insets.bottom + 8) }]}>
               <AppText style={[styles.closedText, { color: theme.color.muted }]}>{tradeCancelled ? t('trade.proposals.cancelledConversationClosed') : t('trade.proposals.closedConversation')}</AppText>
             </View>
           )}
@@ -687,10 +721,116 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   );
 }
 
+function ThreadTradeStrip({ proposal, onOpenTradeDetail, t }: { proposal: TradeProposalItem; onOpenTradeDetail: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const trade = proposal.trade;
+  const needTitle = trade?.need?.title || t('trade.labels.need');
+  const offerTitle = trade?.offer?.title || t('trade.labels.offer');
+  const title = trade?.title || `${needTitle} ↔ ${offerTitle}`;
+  const hasTrade = Boolean(trade?.id);
+
+  return (
+    <Pressable
+      accessibilityRole={hasTrade ? 'button' : undefined}
+      accessibilityLabel={hasTrade ? `${t('trade.proposals.openTradeDetail')}: ${title}` : undefined}
+      accessibilityState={{ disabled: !hasTrade }}
+      disabled={!hasTrade}
+      onPress={onOpenTradeDetail}
+      style={({ pressed }) => [styles.threadTradeStrip, { borderBottomColor: theme.color.border }, pressed && hasTrade && styles.pressed]}
+    >
+      <View style={styles.threadTradeIconRow}>
+        <View style={[styles.threadTradeIcon, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <MobileIcon name="trade" size={18} color={theme.color.text} decorative />
+        </View>
+        <View style={styles.threadTradeCopy}>
+          <AppText style={[styles.threadEyebrow, { color: theme.color.muted }]}>{t('trade.proposals.tradeSummary')}</AppText>
+          <AppText style={styles.threadTradeTitle} numberOfLines={2}>{title}</AppText>
+          <AppText style={[styles.threadTradeMeta, { color: theme.color.muted }]} numberOfLines={1}>{needTitle} ↔ {offerTitle}</AppText>
+        </View>
+      </View>
+      <View style={styles.threadTradeStatusRow}>
+        <StatusBadge status={proposal.status} label={formatStatus(proposal.status, t)} />
+        {trade ? <SemanticBadge label={formatStatus(trade.status, t)} tone="proposal" size="sm" /> : null}
+        {hasTrade ? <MobileIcon name="chevron-right" size={18} color={theme.color.muted} decorative /> : null}
+      </View>
+    </Pressable>
+  );
+}
+
+function ProposalStatusBlock({ proposal, statusHint, tradeCancelled, t }: { proposal: TradeProposalItem; statusHint: string; tradeCancelled: boolean; t: TFunction }) {
+  const theme = useThemeTokens();
+  return (
+    <DetailSection title={t('trade.proposals.proposalStatus')} compact withTopBorder={false}>
+      <View style={styles.statusBlockCopy}>
+        <DetailMetadataChips
+          compact
+          chips={[
+            { label: formatStatus(proposal.status, t), tone: proposal.status === 'accepted' ? 'success' : proposal.status === 'pending' ? 'proposal' : proposal.status === 'declined' || proposal.status === 'withdrawn' ? 'danger' : 'neutral', icon: proposal.status === 'accepted' ? 'proposal-accepted' : proposal.status === 'declined' || proposal.status === 'withdrawn' ? 'proposal-declined' : 'proposal' },
+            proposal.trade ? { label: formatStatus(proposal.trade.status, t), tone: tradeCancelled ? 'warning' : 'neutral', icon: tradeCancelled ? 'warning' : 'trade' } : null,
+          ]}
+        />
+        <AppText style={[styles.statusHintText, { color: theme.color.text }]}>{statusHint}</AppText>
+      </View>
+    </DetailSection>
+  );
+}
+
+function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetails, t }: { proposal: TradeProposalItem; canEditProposalContent: boolean; onDetails: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const sideItems = proposalSideItems(proposal);
+  const actionLabel = canEditProposalContent ? t('trade.proposals.manageProposal') : t('trade.proposals.showProposalItemDetails');
+
+  return (
+    <DetailSection
+      title={t('trade.proposals.proposalPackage')}
+      description={sideItems.length > 0 ? proposalPackageTitle(proposal, t) : t('trade.proposals.noAttachedItem')}
+      compact
+      rightSlot={
+        <Pressable accessibilityRole="button" accessibilityLabel={actionLabel} onPress={onDetails} style={({ pressed }) => [styles.inlineDetailsButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+          <AppText style={[styles.inlineDetailsText, { color: theme.color.text }]}>{actionLabel}</AppText>
+        </Pressable>
+      }
+    >
+      {sideItems.length === 0 ? (
+        <View style={[styles.inlinePackageEmpty, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <MobileIcon name="proposal" size={18} color={theme.color.muted} decorative />
+          <AppText style={[styles.inlinePackageEmptyText, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>
+        </View>
+      ) : (
+        <View style={styles.inlinePackageList}>
+          {sideItems.map(({ kind, item }) => <ProposalSideInlineItem key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
+        </View>
+      )}
+    </DetailSection>
+  );
+}
+
+function ProposalSideInlineItem({ kind, item, t }: { kind: ProposalSideKind; item: ProposalSideItem; t: TFunction }) {
+  const theme = useThemeTokens();
+  const color = theme.semantic[kind];
+  const mediaCount = item.media?.length ?? 0;
+  return (
+    <View style={[styles.inlineSideItem, { borderTopColor: theme.color.border }]}>
+      <View style={[styles.inlineSideIcon, { backgroundColor: color.softBg, borderColor: color.border }]}>
+        <MobileIcon name={kind} size={18} color={color.text} decorative />
+      </View>
+      <View style={styles.inlineSideCopy}>
+        <View style={styles.inlineSideHeader}>
+          <SemanticBadge label={kind === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')} tone={kind} size="sm" />
+          {mediaCount > 0 ? <SemanticBadge label={`${mediaCount} ${t('trade.labels.images')}`} tone={kind} size="sm" /> : null}
+        </View>
+        <AppText style={styles.inlineSideTitle} numberOfLines={2}>{item.title}</AppText>
+        <AppText style={[styles.inlineSideMeta, { color: color.text }]} numberOfLines={1}>{proposalSideMeta(kind, item, t)}</AppText>
+        <AppText style={[styles.inlineSideDescription, { color: theme.color.muted }]} numberOfLines={3}>{proposalSideDescription(item, t)}</AppText>
+      </View>
+    </View>
+  );
+}
+
 function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () => void }) {
   const theme = useThemeTokens();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.headerDetailsButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={({ pressed }) => [styles.headerDetailsButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <AppText style={styles.headerDetailsText}>{label}</AppText>
     </Pressable>
   );
@@ -766,7 +906,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
       <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
-          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+          {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
         {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={Boolean(actionLoading)} muted /></View></View> : proposal.messageDeletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(proposal.messageDeletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{proposal.message}</AppText>{proposal.messageEditedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, language, t)}</AppText> : null}</>}
       </Pressable>
@@ -781,7 +921,7 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
       <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
-          {canEdit && !editing ? <Pressable accessibilityRole="button" onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+          {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
         {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelEdit} disabled={Boolean(actionLoading)} muted /></View></View> : message.deletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(message.deletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{message.body}</AppText>{message.editedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(message.editCount, message.editedAt, language, t)}</AppText> : null}</>}
       </Pressable>
@@ -979,20 +1119,43 @@ function CancelTradeForm({ reason, error, loading, onChangeReason, onCancel, onS
 
 function SmallActionButton({ label, onPress, disabled, danger, muted }: { label: string; onPress: () => void; disabled?: boolean; danger?: boolean; muted?: boolean }) {
   const theme = useThemeTokens();
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.smallButton, { backgroundColor: danger ? '#FEE2E2' : muted ? theme.color.surface : theme.color.text, borderColor: danger ? '#FCA5A5' : theme.color.border }, disabled && styles.disabled, pressed && !disabled && styles.pressed]}><AppText style={[styles.smallButtonText, { color: danger ? '#991B1B' : muted ? theme.color.text : theme.color.background }]}>{label}</AppText></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.smallButton, { backgroundColor: danger ? '#FEE2E2' : muted ? theme.color.surface : theme.color.text, borderColor: danger ? '#FCA5A5' : theme.color.border }, disabled && styles.disabled, pressed && !disabled && styles.pressed]}><AppText style={[styles.smallButtonText, { color: danger ? '#991B1B' : muted ? theme.color.text : theme.color.background }]}>{label}</AppText></Pressable>;
 }
 
 function ProposalActionButton({ label, variant, disabled, onPress }: { label: string; variant: 'primary' | 'danger'; disabled?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' ? styles.primaryButton : styles.dangerButton, disabled && styles.disabled, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionText, variant === 'primary' ? styles.primaryText : styles.dangerText]}>{label}</AppText></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, variant === 'primary' ? styles.primaryButton : styles.dangerButton, disabled && styles.disabled, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionText, variant === 'primary' ? styles.primaryText : styles.dangerText]}>{label}</AppText></Pressable>;
 }
 
 const styles = StyleSheet.create({
   screen: { paddingBottom: 0 },
   chatRoot: { flex: 1, minHeight: 0 },
   chatScroll: { flex: 1 },
-  chatContent: { paddingTop: 14, paddingBottom: 20, gap: 12 },
+  chatContent: { paddingTop: 14, paddingBottom: 24, gap: 14 },
   loadingContent: { paddingTop: 18, paddingBottom: 28 },
   loadingCard: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 12 },
+  threadTradeStrip: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+  threadTradeIconRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  threadTradeIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  threadTradeCopy: { flex: 1, minWidth: 0, gap: 4 },
+  threadEyebrow: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textTransform: 'uppercase' },
+  threadTradeTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.35 },
+  threadTradeMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  threadTradeStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 54 },
+  statusBlockCopy: { gap: 10 },
+  statusHintText: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
+  inlineDetailsButton: { minHeight: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11 },
+  inlineDetailsText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  inlinePackageList: { gap: 0 },
+  inlinePackageEmpty: { borderRadius: 18, borderWidth: 1, minHeight: 58, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  inlinePackageEmptyText: { flex: 1, lineHeight: 19, fontWeight: '800' },
+  inlineSideItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 13, borderTopWidth: StyleSheet.hairlineWidth },
+  inlineSideIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  inlineSideCopy: { flex: 1, minWidth: 0, gap: 5 },
+  inlineSideHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  inlineSideTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900', letterSpacing: -0.2 },
+  inlineSideMeta: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  inlineSideDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  inlineEmptyState: { borderStyle: 'dashed' },
   headerDetailsButton: { minHeight: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   headerDetailsText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
   topSummary: { borderRadius: 26, borderWidth: 1, padding: 16, gap: 12 },

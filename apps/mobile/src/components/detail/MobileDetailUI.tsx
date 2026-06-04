@@ -256,7 +256,14 @@ export function DetailImageGrid({ images, maxVisible = 4, onPressImage, style, i
         );
         if (!onPressImage) return <View key={image.id} style={tileStyle}>{content}</View>;
         return (
-          <Pressable key={image.id} accessibilityRole="imagebutton" onPress={() => onPressImage(image, index)} style={({ pressed }) => [tileStyle, pressed && styles.pressed]}>
+          <Pressable
+            key={image.id}
+            accessibilityRole="imagebutton"
+            accessibilityLabel={image.accessibilityLabel ?? `Open image ${index + 1}`}
+            hitSlop={8}
+            onPress={() => onPressImage(image, index)}
+            style={({ pressed }) => [tileStyle, pressed && styles.pressed]}
+          >
             {content}
           </Pressable>
         );
@@ -281,6 +288,8 @@ export function DetailBottomActionBar({ primary, secondary = [], helper, style }
           <Pressable
             key={action.label}
             accessibilityRole="button"
+            accessibilityLabel={action.label}
+            accessibilityState={{ disabled: Boolean(action.disabled) }}
             disabled={action.disabled}
             onPress={action.onPress}
             style={({ pressed }) => [styles.secondaryAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, action.disabled && styles.disabled]}
@@ -292,6 +301,8 @@ export function DetailBottomActionBar({ primary, secondary = [], helper, style }
         {primary ? (
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={primary.label}
+            accessibilityState={{ disabled: Boolean(primary.disabled || primary.loading), busy: Boolean(primary.loading) }}
             disabled={primary.disabled || primary.loading}
             onPress={primary.onPress}
             style={({ pressed }) => [styles.primaryAction, { backgroundColor: primaryBackground }, pressed && styles.pressed, (primary.disabled || primary.loading) && styles.disabled]}
@@ -315,7 +326,7 @@ export function DetailEmptyState({ icon = 'trade', title, body, actionLabel, onA
       <AppText style={styles.emptyTitle}>{title}</AppText>
       {body ? <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText> : null}
       {actionLabel && onAction ? (
-        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.emptyAction, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={actionLabel} onPress={onAction} style={({ pressed }) => [styles.emptyAction, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
           <AppText style={[styles.emptyActionText, { color: theme.color.inverseText }]}>{actionLabel}</AppText>
         </Pressable>
       ) : null}
@@ -350,6 +361,7 @@ export function ConversationComposerBar({ value, placeholder, onChangeText, onSe
   return (
     <View style={[styles.composerWrap, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }, style]}>
       <TextInput
+        accessibilityLabel={placeholder}
         editable={!disabled && !sending}
         multiline
         onChangeText={onChangeText}
@@ -361,6 +373,8 @@ export function ConversationComposerBar({ value, placeholder, onChangeText, onSe
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={sendLabel}
+        accessibilityState={{ disabled: !canSend, busy: Boolean(sending) }}
+        hitSlop={8}
         disabled={!canSend}
         onPress={onSend}
         style={({ pressed }) => [styles.composerSend, { backgroundColor: canSend ? theme.color.text : theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed, !canSend && styles.disabled]}

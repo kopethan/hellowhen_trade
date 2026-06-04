@@ -1,6 +1,9 @@
 export const API_CONNECTION_ERROR_MESSAGE =
   'Could not connect to Hellowhen. Check your connection and try again.';
 
+export const API_TIMEOUT_ERROR_MESSAGE =
+  'The request took too long. Check your connection and try again.';
+
 type ApiLikeError = {
   code?: string;
   status?: number;
@@ -22,6 +25,14 @@ function toApiLikeError(error: unknown): ApiLikeError {
 export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something went wrong. Please try again.') {
   const apiError = toApiLikeError(error);
   const message = apiError.message ?? '';
+
+  if (
+    apiError.code === 'HELLOWHEN_API_TIMEOUT_ERROR' ||
+    message.includes('timed out') ||
+    message.includes('timeout')
+  ) {
+    return API_TIMEOUT_ERROR_MESSAGE;
+  }
 
   if (
     apiError.code === 'HELLOWHEN_API_CONNECTION_ERROR' ||
@@ -67,6 +78,10 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   if (apiError.body?.error === 'support_ticket_closed') return apiError.body.message ?? 'This support ticket is closed.';
   if (apiError.body?.error === 'unsupported_user_status') return apiError.body.message ?? 'You can only reopen or close your own support ticket.';
 
+
+  if (apiError.status && apiError.status >= 500) {
+    return 'Hellowhen is having trouble right now. Try again in a moment.';
+  }
 
   if (apiError.status === 401) {
     return 'Please log in again to continue.';

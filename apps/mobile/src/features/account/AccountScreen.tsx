@@ -1,26 +1,27 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { AuthUser, WalletDto, LedgerEntryDto } from '@hellowhen/contracts';
+import type { AuthUser, LedgerEntryDto, WalletDto } from '@hellowhen/contracts';
 import { formatMoney } from '@hellowhen/shared';
 import type { SemanticColorName } from '@hellowhen/theme';
-import { AppCard } from '../../components/AppCard';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
-import { InfoNotice, MoneyPill, SemanticBadge } from '../../components/SemanticUI';
+import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
-import { useAuth } from '../../providers/AuthProvider';
-import { useThemeTokens } from '../../providers/ThemeProvider';
-import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useAuth } from '../../providers/AuthProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
+import { useThemeTokens } from '../../providers/ThemeProvider';
+import { DetailInfoList, DetailSection } from '../../components/detail';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
 type AccountRoute = 'AccountProfile' | 'Notifications' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountGroupKey = 'activity' | 'settings' | 'future';
 
 type AccountAction = {
   titleKey: string;
@@ -29,19 +30,20 @@ type AccountAction = {
   tone: SemanticColorName;
   route: AccountRoute;
   icon: MobileIconName;
+  group: AccountGroupKey;
 };
 
 const accountActions: AccountAction[] = [
-  { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile' },
-  { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell' },
-  ...(betaFeatures.proSubscriptionFeatures.proAccountsVisible ? [{ titleKey: 'account.items.plans.title', descriptionKey: 'account.items.plans.bodyNative', badgeKey: 'account.items.plans.badge', tone: 'success' as SemanticColorName, route: 'ProPlans' as AccountRoute, icon: 'profile' as MobileIconName }] : []),
-  ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName }] : []),
-  ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
-  ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName }] : []),
-  { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings' },
-  { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning' },
-  { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help' },
-  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning' },
+  { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile', group: 'activity' },
+  { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell', group: 'activity' },
+  { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+  { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
+  { titleKey: 'account.items.legal.title', descriptionKey: 'account.items.legal.bodyNative', badgeKey: 'account.items.legal.badge', tone: 'warning', route: 'LegalPolicy', icon: 'warning', group: 'settings' },
+  { titleKey: 'account.items.delete.title', descriptionKey: 'account.items.delete.bodyNative', badgeKey: 'account.items.delete.badge', tone: 'warning', route: 'AccountDeletion', icon: 'warning', group: 'settings' },
+  ...(betaFeatures.proSubscriptionFeatures.proAccountsVisible ? [{ titleKey: 'account.items.plans.title', descriptionKey: 'account.items.plans.bodyNative', badgeKey: 'account.items.plans.badge', tone: 'success' as SemanticColorName, route: 'ProPlans' as AccountRoute, icon: 'profile' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+  ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+  ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
+  ...(betaFeatures.payoutsVisible ? [{ titleKey: 'account.items.payouts.title', descriptionKey: 'account.items.payouts.bodyNative', badgeKey: 'account.items.payouts.badge', tone: 'success' as SemanticColorName, route: 'Payouts' as AccountRoute, icon: 'payout' as MobileIconName, group: 'future' as AccountGroupKey }] : []),
 ];
 
 function formatLedgerType(type: string) {
@@ -73,6 +75,14 @@ function getDisplayName(user: AuthUser | null) {
 function getAvatarUri(user: AuthUser | null) {
   const url = user?.profile?.avatarUrl;
   return url ? resolveMediaUrl(url) : null;
+}
+
+function groupActions(actions: AccountAction[]) {
+  return {
+    activity: actions.filter((action) => action.group === 'activity'),
+    settings: actions.filter((action) => action.group === 'settings'),
+    future: actions.filter((action) => action.group === 'future'),
+  };
 }
 
 export function AccountScreen() {
@@ -119,8 +129,8 @@ export function AccountScreen() {
   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandle');
   const avatarUri = getAvatarUri(auth.user);
   const currency = wallet?.currency ?? 'eur';
-  const total = wallet ? wallet.availableBalanceCents + wallet.heldBalanceCents + wallet.pendingPayoutCents : 0;
   const recentEntries = wallet?.entries?.filter((entry) => entry.amountCents !== 0 && entry.type !== 'starting_demo_credits').slice(0, 3) ?? [];
+  const groupedActions = useMemo(() => groupActions(accountActions), []);
 
   function navigate(route: AccountRoute) {
     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
@@ -136,99 +146,128 @@ export function AccountScreen() {
     else navigation.navigate('BuyCredits');
   }
 
-  const header = <View style={styles.header}><View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View><AppText style={styles.title}>{t('account.title')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText></View>;
+  const header = (
+    <View style={styles.header}>
+      <View style={styles.headerBadgeRow}><SemanticBadge label={t('common.states.beta')} tone="instruction" /></View>
+      <AppText style={styles.title}>{t('account.title')}</AppText>
+      <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.headerBody')}</AppText>
+    </View>
+  );
 
   return (
     <AppFixedHeaderScreen header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); }} />}>
-        <AppCard>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); }} />}
+      >
+        <View style={[styles.profilePanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={styles.profileHero}>
-            <View style={styles.avatar}>
+            <View style={[styles.avatar, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
               ) : (
-                <AppText style={styles.avatarText}>{displayName.slice(0, 1).toUpperCase()}</AppText>
+                <AppText style={[styles.avatarText, { color: theme.semantic.proposal.text }]}>{displayName.slice(0, 1).toUpperCase()}</AppText>
               )}
             </View>
             <View style={styles.profileCopy}>
               <AppText style={styles.profileName}>{displayName}</AppText>
-              <AppText style={[styles.profileMeta, { color: theme.semantic.proposal.bg }]}>{handle}</AppText>
+              <AppText style={[styles.profileMeta, { color: theme.semantic.proposal.text }]}>{handle}</AppText>
               <AppText style={[styles.profileEmail, { color: theme.color.muted }]}>{auth.user?.email ?? t('common.states.signedIn')}</AppText>
             </View>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => navigate('AccountProfile')} style={({ pressed }) => [styles.fullWidthButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-            <AppText style={[styles.fullWidthButtonText, { color: theme.color.background }]}>{t('account.editProfile')}</AppText>
-          </Pressable>
-        </AppCard>
-
-        {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? <AppCard>
-          <View style={styles.sectionHeaderRow}>
-            <View style={styles.sectionCopy}>
-              <AppText style={styles.sectionTitle}>{t('account.wallet.title')}</AppText>
-              <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.wallet.body')}</AppText>
-            </View>
-            <MoneyPill amountCents={total} currency={currency} label={t('account.total')} />
+          <View style={styles.quickActions}>
+            <AccountQuickAction icon="profile" label={t('account.quickActions.editProfile')} onPress={() => navigate('AccountProfile')} tone="info" />
+            <AccountQuickAction icon="bell" label={t('account.quickActions.notifications')} count={notificationUnreadCount} onPress={() => navigate('Notifications')} tone="proposal" />
+            <AccountQuickAction icon="help" label={t('account.quickActions.support')} onPress={() => navigate('SupportCenter')} tone="success" />
           </View>
-
-          {wallet ? (
-            <View style={styles.walletGrid}>
-              <WalletMetric label={t('account.wallet.available')} value={wallet.availableBalanceCents} currency={currency} tone="credits" />
-              <WalletMetric label={t('account.wallet.held')} value={wallet.heldBalanceCents} currency={currency} tone="time" />
-              <WalletMetric label={t('account.wallet.earnings')} value={wallet.pendingPayoutCents} currency={currency} tone="success" />
-            </View>
-          ) : null}
-
-          <View style={styles.inlineActions}>
-            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.semantic.proposal.bg }, pressed && styles.pressed]}>
-              <AppText style={styles.inlinePrimaryText}>{t('common.actions.openWallet')}</AppText>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>{t('common.actions.add')}</AppText>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={() => navigate('Payouts')} style={({ pressed }) => [styles.inlineSecondary, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>{t('common.actions.payout')}</AppText>
-            </Pressable>
-          </View>
-
-          {walletError ? <InfoNotice tone="warning" title={t('account.walletUnavailable')} body={walletError} /> : null}
-        </AppCard> : null}
-
-        {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? <AppCard>
-          <View style={styles.sectionHeaderRow}>
-            <AppText style={styles.sectionTitle}>{t('account.wallet.recentActivity')}</AppText>
-            <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.textButton, { backgroundColor: theme.color.subtleSurface }, pressed && styles.pressed]}>
-              <AppText style={[styles.textButtonText, { color: theme.color.text }]}>{t('common.actions.viewAll')}</AppText>
-            </Pressable>
-          </View>
-          {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.noWalletActivity')}</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
-        </AppCard> : null}
-
-        <View style={styles.menuList}>
-          {accountActions.map((action) => <AccountActionRow key={action.route} action={action} unreadCount={action.route === 'Notifications' ? notificationUnreadCount : 0} onPress={() => navigate(action.route)} />)}
         </View>
 
-        <Pressable accessibilityRole="button" onPress={() => { void auth.logout(); }} style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
-          <AppText style={styles.logoutButtonText}>{t('common.actions.logout')}</AppText>
+        {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
+          <DetailSection title={t('account.wallet.title')} description={t('account.wallet.body')} compact={false}>
+            {wallet ? (
+              <DetailInfoList rows={[
+                { label: t('account.wallet.available'), value: formatMoney(wallet.availableBalanceCents, currency), tone: 'credits' },
+                { label: t('account.wallet.held'), value: formatMoney(wallet.heldBalanceCents, currency), tone: 'time' },
+                { label: t('account.wallet.earnings'), value: formatMoney(wallet.pendingPayoutCents, currency), tone: 'success' },
+              ]} />
+            ) : null}
+            <View style={styles.inlineActions}>
+              <Pressable accessibilityRole="button" onPress={() => navigate('Wallet')} style={({ pressed }) => [styles.inlinePrimary, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+                <AppText style={[styles.inlinePrimaryText, { color: theme.color.background }]}>{t('common.actions.openWallet')}</AppText>
+              </Pressable>
+              {betaFeatures.walletVisible ? (
+                <Pressable accessibilityRole="button" onPress={() => navigate('BuyCredits')} style={({ pressed }) => [styles.inlineSecondary, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+                  <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>{t('common.actions.add')}</AppText>
+                </Pressable>
+              ) : null}
+              {betaFeatures.payoutsVisible ? (
+                <Pressable accessibilityRole="button" onPress={() => navigate('Payouts')} style={({ pressed }) => [styles.inlineSecondary, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+                  <AppText style={[styles.inlineSecondaryText, { color: theme.color.text }]}>{t('common.actions.payout')}</AppText>
+                </Pressable>
+              ) : null}
+            </View>
+            {walletError ? <InfoNotice tone="warning" title={t('account.walletUnavailable')} body={walletError} /> : null}
+          </DetailSection>
+        ) : null}
+
+        {(betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (
+          <DetailSection title={t('account.wallet.recentActivity')} compact>
+            {recentEntries.length === 0 ? <AppText style={[styles.cardText, { color: theme.color.muted }]}>{t('account.noWalletActivity')}</AppText> : recentEntries.map((entry) => <LedgerRow key={entry.id} entry={entry} />)}
+          </DetailSection>
+        ) : null}
+
+        <AccountActionGroup title={t('account.sections.activity')} actions={groupedActions.activity} unreadCount={notificationUnreadCount} onNavigate={navigate} />
+        <AccountActionGroup title={t('account.sections.settings')} actions={groupedActions.settings} unreadCount={notificationUnreadCount} onNavigate={navigate} />
+        {groupedActions.future.length > 0 ? <AccountActionGroup title={t('account.sections.future')} actions={groupedActions.future} unreadCount={notificationUnreadCount} onNavigate={navigate} /> : null}
+
+        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.logout')} onPress={() => { void auth.logout(); }} style={({ pressed }) => [styles.logoutButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
+          <AppText style={[styles.logoutButtonText, { color: theme.semantic.danger.text }]}>{t('common.actions.logout')}</AppText>
         </Pressable>
       </ScrollView>
     </AppFixedHeaderScreen>
   );
 }
 
-function AccountActionRow({ action, unreadCount, onPress }: { action: AccountAction; unreadCount?: number; onPress: () => void }) {
+function AccountQuickAction({ icon, label, count, onPress, tone }: { icon: MobileIconName; label: string; count?: number; onPress: () => void; tone: SemanticColorName }) {
+  const theme = useThemeTokens();
+  const semantic = theme.semantic[tone];
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={count && count > 0 ? `${label} · ${count}` : label} onPress={onPress} style={({ pressed }) => [styles.quickAction, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={[styles.quickIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>
+        <MobileIcon name={icon} size={17} color={semantic.text} />
+        {count && count > 0 ? <View style={[styles.quickDot, { backgroundColor: theme.semantic.proposal.bg }]}><AppText style={styles.quickDotText}>{Math.min(count, 99)}</AppText></View> : null}
+      </View>
+      <AppText style={styles.quickLabel} numberOfLines={1}>{label}</AppText>
+    </Pressable>
+  );
+}
+
+function AccountActionGroup({ title, actions, unreadCount, onNavigate }: { title: string; actions: AccountAction[]; unreadCount: number; onNavigate: (route: AccountRoute) => void }) {
+  if (actions.length === 0) return null;
+  return (
+    <DetailSection title={title} compact>
+      <View style={styles.menuList}>
+        {actions.map((action, index) => <AccountActionRow key={action.route} action={action} unreadCount={action.route === 'Notifications' ? unreadCount : 0} last={index === actions.length - 1} onPress={() => onNavigate(action.route)} />)}
+      </View>
+    </DetailSection>
+  );
+}
+
+function AccountActionRow({ action, unreadCount, last, onPress }: { action: AccountAction; unreadCount?: number; last?: boolean; onPress: () => void }) {
   const theme = useThemeTokens();
   const tone = theme.semantic[action.tone];
   const { t } = useTranslation();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.actionRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={unreadCount && unreadCount > 0 ? `${t(action.titleKey)} · ${unreadCount}` : t(action.titleKey)} onPress={onPress} style={({ pressed }) => [styles.actionRow, !last && { borderBottomColor: theme.color.border, borderBottomWidth: StyleSheet.hairlineWidth }, pressed && styles.pressed]}>
       <View style={styles.actionContent}>
         <View style={[styles.actionIcon, { backgroundColor: tone.softBg, borderColor: tone.border }]}>
-          <MobileIcon name={action.icon} size={19} color={tone.text} />
+          <MobileIcon name={action.icon} size={18} color={tone.text} />
         </View>
         <View style={styles.actionTextWrap}>
           <View style={styles.actionTitleRow}>
             <AppText style={styles.actionTitle}>{t(action.titleKey)}</AppText>
-            <SemanticBadge label={unreadCount && unreadCount > 0 ? String(unreadCount) : t(action.badgeKey)} tone={action.tone} size="sm" />
+            {unreadCount && unreadCount > 0 ? <SemanticBadge label={String(unreadCount)} tone={action.tone} size="sm" /> : null}
           </View>
           <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{t(action.descriptionKey)}</AppText>
         </View>
@@ -238,17 +277,6 @@ function AccountActionRow({ action, unreadCount, onPress }: { action: AccountAct
   );
 }
 
-function WalletMetric({ label, value, currency, tone }: { label: string; value: number; currency: string; tone: SemanticColorName }) {
-  const theme = useThemeTokens();
-  return (
-    <View style={[styles.metricBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-      <SemanticBadge label={label} tone={tone} size="sm" />
-      <AppText style={styles.metricValue}>{formatMoney(value, currency)}</AppText>
-    </View>
-  );
-}
-
-
 function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
   const theme = useThemeTokens();
   return (
@@ -257,55 +285,51 @@ function LedgerRow({ entry }: { entry: LedgerEntryDto }) {
         <SemanticBadge label={formatLedgerType(entry.type)} tone={ledgerTone(entry.type, entry.amountCents || entry.amount)} size="sm" />
         <AppText style={[styles.ledgerDescription, { color: theme.color.muted }]}>{entry.description ?? entry.balanceType}</AppText>
       </View>
-      <AppText style={[styles.ledgerAmount, (entry.amountCents || entry.amount) < 0 && styles.ledgerAmountNegative]}>{entryAmount(entry)}</AppText>
+      <AppText style={[styles.ledgerAmount, { color: (entry.amountCents || entry.amount) < 0 ? theme.semantic.danger.text : theme.semantic.success.text }]}>{entryAmount(entry)}</AppText>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { paddingBottom: 34, gap: 14 },
+  content: { paddingBottom: 34, gap: 12 },
   header: { gap: 8 },
   headerBadgeRow: { flexDirection: 'row', alignItems: 'center' },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   subtitle: { lineHeight: 20, fontWeight: '600' },
+  profilePanel: { borderRadius: 28, borderWidth: 1, padding: 16, gap: 15 },
   profileHero: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#CCFBF1', borderWidth: 1, borderColor: '#5EEAD4', alignItems: 'center', justifyContent: 'center' },
-  avatarImage: { width: '100%', height: '100%', borderRadius: 32 },
-  avatarText: { color: '#0F766E', fontSize: 24, fontWeight: '900' },
-  profileCopy: { flex: 1 },
-  profileName: { fontSize: 22, fontWeight: '900', letterSpacing: -0.3 },
+  avatar: { width: 66, height: 66, borderRadius: 33, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 33 },
+  avatarText: { fontSize: 25, fontWeight: '900' },
+  profileCopy: { flex: 1, minWidth: 0 },
+  profileName: { fontSize: 23, fontWeight: '900', letterSpacing: -0.35 },
   profileMeta: { marginTop: 3, fontWeight: '900' },
   profileEmail: { marginTop: 3, fontWeight: '600' },
-  fullWidthButton: { borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
-  fullWidthButtonText: { fontWeight: '900' },
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  sectionCopy: { flex: 1, gap: 4 },
-  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.35 },
+  quickActions: { flexDirection: 'row', gap: 9 },
+  quickAction: { flex: 1, minHeight: 74, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, gap: 7 },
+  quickIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  quickDot: { position: 'absolute', top: -5, right: -9, minWidth: 19, height: 19, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+  quickDotText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
+  quickLabel: { fontSize: 12, lineHeight: 15, fontWeight: '900', textAlign: 'center' },
   cardText: { lineHeight: 20, fontWeight: '600' },
-  walletGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  metricBox: { width: '47%', borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
-  metricValue: { fontSize: 18, fontWeight: '900' },
   inlineActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  inlinePrimary: { flex: 1, borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
-  inlinePrimaryText: { color: '#FFFFFF', fontWeight: '900' },
-  inlineSecondary: { flex: 1, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
+  inlinePrimary: { flex: 1, minWidth: 130, borderRadius: 16, paddingVertical: 13, alignItems: 'center' },
+  inlinePrimaryText: { fontWeight: '900' },
+  inlineSecondary: { flex: 1, minWidth: 96, borderRadius: 16, borderWidth: 1, paddingVertical: 13, alignItems: 'center' },
   inlineSecondaryText: { fontWeight: '900' },
-  textButton: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 },
-  textButtonText: { color: '#334155', fontWeight: '900' },
+  menuList: { borderRadius: 20, overflow: 'hidden' },
+  actionRow: { minHeight: 72, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  actionIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  actionTextWrap: { flex: 1, gap: 3 },
+  actionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  actionTitle: { fontSize: 17, fontWeight: '900' },
+  actionDescription: { lineHeight: 19, fontWeight: '600' },
   ledgerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTopWidth: 1, paddingTop: 10 },
   ledgerCopy: { flex: 1, gap: 6 },
   ledgerDescription: { fontSize: 12, fontWeight: '700' },
-  ledgerAmount: { color: '#047857', fontSize: 18, fontWeight: '900' },
-  ledgerAmountNegative: { color: '#B91C1C' },
-  menuList: { gap: 10 },
-  actionRow: { minHeight: 88, borderRadius: 22, borderWidth: 1, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  actionContent: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 13 },
-  actionIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  actionTextWrap: { flex: 1, gap: 4 },
-  actionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  actionTitle: { fontSize: 18, fontWeight: '900' },
-  actionDescription: { lineHeight: 19, fontWeight: '600' },
-  logoutButton: { marginTop: 4, borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 14, alignItems: 'center' },
-  logoutButtonText: { color: '#991B1B', fontWeight: '900' },
+  ledgerAmount: { fontSize: 18, fontWeight: '900' },
+  logoutButton: { marginTop: 4, borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' },
+  logoutButtonText: { fontWeight: '900' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
 });

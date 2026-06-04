@@ -1,0 +1,912 @@
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index 5e7699b..6684a4b 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -1,17 +1,41 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+-import { Alert, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import {
++  Alert,
++  RefreshControl,
++  ScrollView,
++  StyleSheet,
++  View,
++} from 'react-native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+-import { AppCard } from '../../components/AppCard';
++import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+-import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+-import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
++import {
++  DetailBottomActionBar,
++  DetailEmptyState,
++  DetailHero,
++  DetailImageGrid,
++  DetailInfoList,
++  DetailMetadataChips,
++  DetailSection,
++} from '../../components/detail';
++import { InfoNotice, StatusBadge } from '../../components/SemanticUI';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { ImagePickerField } from './components/ImagePickerField';
+-import { AddTranslationButton, buildManualTranslation, CategoryPicker, categoryLabel, getEditableTranslationLanguage, itemTypeLabel, ManualTranslationFields, OriginalLanguageSummary } from './components/InventoryFormFields';
++import {
++  AddTranslationButton,
++  buildManualTranslation,
++  CategoryPicker,
++  categoryLabel,
++  getEditableTranslationLanguage,
++  itemTypeLabel,
++  ManualTranslationFields,
++  OriginalLanguageSummary,
++} from './components/InventoryFormFields';
+ import {
+   DangerButton,
+   ExistingMediaManager,
+@@ -21,19 +45,87 @@ import {
+   modeLabel,
+   normalizeMode,
+   optionalText,
+-  PrimaryButton,
+-  SecondaryButton,
+   type InventoryMode,
+ } from './components/InventoryDetailFields';
+ import { uploadSelectedImages, type SelectedLocalImage } from './mediaUpload';
+-import type { DiscoveryLanguage, InventoryItemType } from '@hellowhen/contracts';
+-import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
++import { resolveMediaUrl } from './mediaUrls';
++import type {
++  DiscoveryLanguage,
++  InventoryItemType,
++} from '@hellowhen/contracts';
++import {
++  INVENTORY_DESCRIPTION_MAX_LENGTH,
++  INVENTORY_DESCRIPTION_MIN_LENGTH,
++  INVENTORY_TITLE_MAX_LENGTH,
++  INVENTORY_TITLE_MIN_LENGTH,
++} from '@hellowhen/contracts/src/inventoryLimits';
+ import { formatLocalizedDate } from '@hellowhen/i18n';
+ import type { NeedItem, OfferItem } from './types';
+ 
+ type InventoryKind = 'need' | 'offer';
+ type InventoryItem = (NeedItem | OfferItem) & Record<string, unknown>;
+-type InventoryResponse = { need?: NeedItem; offer?: OfferItem; archived?: boolean };
++type InventoryResponse = {
++  need?: NeedItem;
++  offer?: OfferItem;
++  archived?: boolean;
++};
++type TFunction = (
++  key: string,
++  values?: Record<string, string | number | boolean | null | undefined>,
++) => string;
++
++function statusLabel(status: string | null | undefined, t: TFunction) {
++  const key = `inventory.statuses.${status ?? ''}`;
++  const translated = t(key);
++  if (!status || translated === key)
++    return status ?? t('common.states.unknown');
++  return translated;
++}
++
++function statusTone(
++  status: string | null | undefined,
++): 'success' | 'warning' | 'danger' | 'time' | 'muted' {
++  if (status === 'active' || status === 'fulfilled' || status === 'accepted')
++    return 'success';
++  if (status === 'draft') return 'warning';
++  if (status === 'expired') return 'time';
++  if (status === 'closed') return 'muted';
++  return 'muted';
++}
++
++function activeDetailImages(item: InventoryItem | null) {
++  return (item?.media ?? [])
++    .filter((media) => media.status === 'active')
++    .map((media) => ({ id: media.id, uri: resolveMediaUrl(media.url) }));
++}
++
++function detailChips({
++  itemType,
++  category,
++  timingOrAvailability,
++  mode,
++  locationLabel,
++  t,
++  tone,
++}: {
++  itemType: InventoryItemType;
++  category: string;
++  timingOrAvailability: string;
++  mode: InventoryMode;
++  locationLabel: string;
++  t: TFunction;
++  tone: 'need' | 'offer';
++}) {
++  return [
++    itemTypeLabel(itemType, t),
++    categoryLabel(category, t),
++    timingOrAvailability,
++    modeLabel(mode, t),
++    locationLabel,
++  ]
++    .filter(Boolean)
++    .map((label) => ({ label, tone }));
++}
+ 
+ export function InventoryDetailScreen({
+   kind,
+@@ -46,11 +138,13 @@ export function InventoryDetailScreen({
+   fallbackTitle?: string;
+   navigation: NativeStackNavigationProp<RootStackParamList>;
+ }) {
++  const theme = useThemeTokens();
+   const { t, language } = useTranslation();
+   const [item, setItem] = useState<InventoryItem | null>(null);
+   const [title, setTitle] = useState('');
+   const [description, setDescription] = useState('');
+-  const [defaultLanguage, setDefaultLanguage] = useState<DiscoveryLanguage>(language);
++  const [defaultLanguage, setDefaultLanguage] =
++    useState<DiscoveryLanguage>(language);
+   const [translationTitle, setTranslationTitle] = useState('');
+   const [translationDescription, setTranslationDescription] = useState('');
+   const [translationEnabled, setTranslationEnabled] = useState(false);
+@@ -66,41 +160,80 @@ export function InventoryDetailScreen({
+   const [error, setError] = useState<string | null>(null);
+ 
+   const isNeed = kind === 'need';
+-  const label = isNeed ? t('inventory.labels.need') : t('inventory.labels.offer');
+-  const labelLower = isNeed ? t('inventory.labels.need').toLowerCase() : t('inventory.labels.offer').toLowerCase();
+-  const labelsLower = isNeed ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
++  const label = isNeed
++    ? t('inventory.labels.need')
++    : t('inventory.labels.offer');
++  const labelLower = isNeed
++    ? t('inventory.labels.need').toLowerCase()
++    : t('inventory.labels.offer').toLowerCase();
++  const labelsLower = isNeed
++    ? t('inventory.labels.needs').toLowerCase()
++    : t('inventory.labels.offers').toLowerCase();
+   const tone = isNeed ? 'need' : 'offer';
+-  const titlePlaceholder = isNeed ? t('inventory.form.titleNeedExample') : t('inventory.form.titleOfferExample');
+-  const locationPlaceholder = isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder');
++  const titlePlaceholder = isNeed
++    ? t('inventory.form.titleNeedExample')
++    : t('inventory.form.titleOfferExample');
++  const locationPlaceholder = isNeed
++    ? t('inventory.form.locationNeedPlaceholder')
++    : t('inventory.form.locationOfferPlaceholder');
+ 
+-  const hydrateForm = useCallback((nextItem: InventoryItem) => {
+-    setItem(nextItem);
+-    setTitle(nextItem.title ?? '');
+-    setDescription(nextItem.description ?? '');
+-    const nextDefaultLanguage = (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
+-    const nextTranslationLanguage = getEditableTranslationLanguage(nextDefaultLanguage);
+-    const nextTranslation = Array.isArray(nextItem.translations) ? nextItem.translations.find((translation) => translation?.languageCode === nextTranslationLanguage) : null;
+-    setDefaultLanguage(nextDefaultLanguage);
+-    const nextTranslationTitle = typeof nextTranslation?.title === 'string' ? nextTranslation.title : '';
+-    const nextTranslationDescription = typeof nextTranslation?.description === 'string' ? nextTranslation.description : '';
+-    setTranslationTitle(nextTranslationTitle);
+-    setTranslationDescription(nextTranslationDescription);
+-    setTranslationEnabled(Boolean(nextTranslationTitle.trim() || nextTranslationDescription.trim()));
+-    setItemType((nextItem.itemType as InventoryItemType | undefined) ?? 'service');
+-    setCategory(getOptionalString(nextItem, 'category'));
+-    setTimingOrAvailability(isNeed ? getOptionalString(nextItem, 'timing') : getOptionalString(nextItem, 'availability'));
+-    setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
+-    setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
+-    setNewImages([]);
+-  }, [isNeed, language]);
++  const hydrateForm = useCallback(
++    (nextItem: InventoryItem) => {
++      setItem(nextItem);
++      setTitle(nextItem.title ?? '');
++      setDescription(nextItem.description ?? '');
++      const nextDefaultLanguage =
++        (nextItem.defaultLanguage as DiscoveryLanguage | undefined) ?? language;
++      const nextTranslationLanguage =
++        getEditableTranslationLanguage(nextDefaultLanguage);
++      const nextTranslation = Array.isArray(nextItem.translations)
++        ? nextItem.translations.find(
++            (translation) =>
++              translation?.languageCode === nextTranslationLanguage,
++          )
++        : null;
++      setDefaultLanguage(nextDefaultLanguage);
++      const nextTranslationTitle =
++        typeof nextTranslation?.title === 'string' ? nextTranslation.title : '';
++      const nextTranslationDescription =
++        typeof nextTranslation?.description === 'string'
++          ? nextTranslation.description
++          : '';
++      setTranslationTitle(nextTranslationTitle);
++      setTranslationDescription(nextTranslationDescription);
++      setTranslationEnabled(
++        Boolean(
++          nextTranslationTitle.trim() || nextTranslationDescription.trim(),
++        ),
++      );
++      setItemType(
++        (nextItem.itemType as InventoryItemType | undefined) ?? 'service',
++      );
++      setCategory(getOptionalString(nextItem, 'category'));
++      setTimingOrAvailability(
++        isNeed
++          ? getOptionalString(nextItem, 'timing')
++          : getOptionalString(nextItem, 'availability'),
++      );
++      setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
++      setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
++      setNewImages([]);
++    },
++    [isNeed, language],
++  );
+ 
+   const loadItem = useCallback(async () => {
+     setLoading(true);
+     setError(null);
+     try {
+-      const result = isNeed ? await api.needs.get(itemId) as InventoryResponse : await api.offers.get(itemId) as InventoryResponse;
+-      const nextItem = (isNeed ? result.need : result.offer) as InventoryItem | undefined;
+-      if (!nextItem) throw new Error(t('inventory.errors.apiMissingItem', { item: label }));
++      const result = isNeed
++        ? ((await api.needs.get(itemId)) as InventoryResponse)
++        : ((await api.offers.get(itemId)) as InventoryResponse);
++      const nextItem = (isNeed ? result.need : result.offer) as
++        | InventoryItem
++        | undefined;
++      if (!nextItem)
++        throw new Error(t('inventory.errors.apiMissingItem', { item: label }));
+       hydrateForm(nextItem);
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+@@ -109,34 +242,59 @@ export function InventoryDetailScreen({
+     }
+   }, [hydrateForm, isNeed, itemId, label, t]);
+ 
+-  useEffect(() => { void loadItem(); }, [loadItem]);
++  useEffect(() => {
++    void loadItem();
++  }, [loadItem]);
+ 
+   async function saveItem(nextStatus?: string) {
+     if (title.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
+-      setError(isNeed ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'));
++      setError(
++        isNeed
++          ? t('validation.needTitleTooShort')
++          : t('validation.offerTitleTooShort'),
++      );
+       return;
+     }
+     if (title.trim().length > INVENTORY_TITLE_MAX_LENGTH) {
+-      setError(t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH }));
++      setError(
++        t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH }),
++      );
+       return;
+     }
+     if (description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) {
+-      setError(isNeed ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort'));
++      setError(
++        isNeed
++          ? t('validation.needDescriptionTooShort')
++          : t('validation.offerDescriptionTooShort'),
++      );
+       return;
+     }
+     if (description.trim().length > INVENTORY_DESCRIPTION_MAX_LENGTH) {
+-      setError(t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH }));
++      setError(
++        t('validation.descriptionTooLong', {
++          max: INVENTORY_DESCRIPTION_MAX_LENGTH,
++        }),
++      );
+       return;
+     }
+-    if ((translationTitle.trim() && !translationDescription.trim()) || (!translationTitle.trim() && translationDescription.trim())) {
++    if (
++      (translationTitle.trim() && !translationDescription.trim()) ||
++      (!translationTitle.trim() && translationDescription.trim())
++    ) {
+       setError(t('inventory.errors.translationIncomplete'));
+       return;
+     }
+-    if (translationTitle.trim() && translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH) {
++    if (
++      translationTitle.trim() &&
++      translationTitle.trim().length < INVENTORY_TITLE_MIN_LENGTH
++    ) {
+       setError(t('inventory.errors.translationTitleTooShort'));
+       return;
+     }
+-    if (translationDescription.trim() && translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH) {
++    if (
++      translationDescription.trim() &&
++      translationDescription.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH
++    ) {
+       setError(t('inventory.errors.translationDescriptionTooShort'));
+       return;
+     }
+@@ -149,15 +307,25 @@ export function InventoryDetailScreen({
+         title: title.trim(),
+         description: description.trim(),
+         defaultLanguage,
+-        translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
++        translations: translationEnabled
++          ? buildManualTranslation(
++              defaultLanguage,
++              translationTitle,
++              translationDescription,
++            )
++          : [],
+         category: optionalText(category),
+         mode,
+         locationLabel: optionalText(locationLabel),
+         status: nextStatus ?? item?.status ?? 'draft',
+         mediaIds,
+       } as never;
+-      const result = isNeed ? await api.needs.update(itemId, payload) as InventoryResponse : await api.offers.update(itemId, payload) as InventoryResponse;
+-      const nextItem = (isNeed ? result.need : result.offer) as InventoryItem | undefined;
++      const result = isNeed
++        ? ((await api.needs.update(itemId, payload)) as InventoryResponse)
++        : ((await api.offers.update(itemId, payload)) as InventoryResponse);
++      const nextItem = (isNeed ? result.need : result.offer) as
++        | InventoryItem
++        | undefined;
+       if (nextItem) hydrateForm(nextItem);
+       setEditing(false);
+     } catch (caughtError) {
+@@ -181,19 +349,36 @@ export function InventoryDetailScreen({
+   }
+ 
+   function confirmDelete() {
+-    Alert.alert(t('inventory.delete.deleteTitle', { item: labelLower }), t('inventory.delete.deleteNativeBody', { item: label, items: labelsLower }), [
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-      { text: t('inventory.actions.delete'), style: 'destructive', onPress: () => { void deleteItem(); } },
+-    ]);
++    Alert.alert(
++      t('inventory.delete.deleteTitle', { item: labelLower }),
++      t('inventory.delete.deleteNativeBody', {
++        item: label,
++        items: labelsLower,
++      }),
++      [
++        { text: t('common.actions.cancel'), style: 'cancel' },
++        {
++          text: t('inventory.actions.delete'),
++          style: 'destructive',
++          onPress: () => {
++            void deleteItem();
++          },
++        },
++      ],
++    );
+   }
+ 
+   async function deleteItem() {
+     setSaving(true);
+     setError(null);
+     try {
+-      const result = isNeed ? await api.needs.remove(itemId) as InventoryResponse | undefined : await api.offers.remove(itemId) as InventoryResponse | undefined;
++      const result = isNeed
++        ? ((await api.needs.remove(itemId)) as InventoryResponse | undefined)
++        : ((await api.offers.remove(itemId)) as InventoryResponse | undefined);
+       if (result?.archived) {
+-        const archived = (isNeed ? result.need : result.offer) as InventoryItem | undefined;
++        const archived = (isNeed ? result.need : result.offer) as
++          | InventoryItem
++          | undefined;
+         if (archived) hydrateForm(archived);
+         setEditing(false);
+         setError(t('inventory.errors.archivedInstead', { item: labelLower }));
+@@ -207,111 +392,423 @@ export function InventoryDetailScreen({
+     }
+   }
+ 
+-  const updatedAt = formatLocalizedDate(typeof item?.updatedAt === 'string' ? item.updatedAt : null, language, '');
++  function useInTrade() {
++    const selectedTradeSide = isNeed
++      ? { side: 'need' as const, kind: 'need' as const, id: itemId }
++      : { side: 'offer' as const, kind: 'offer' as const, id: itemId };
++    navigation.navigate('CreateTrade', { selectedTradeSide });
++  }
+ 
+-  const meta = useMemo(
+-    () => [itemTypeLabel(itemType, t), categoryLabel(category, t), timingOrAvailability, modeLabel(mode, t), locationLabel].filter(Boolean).join(' · '),
+-    [category, itemType, locationLabel, mode, t, timingOrAvailability],
++  const updatedAt = formatLocalizedDate(
++    typeof item?.updatedAt === 'string' ? item.updatedAt : null,
++    language,
++    '',
++  );
++  const detailImages = useMemo(() => activeDetailImages(item), [item]);
++  const chips = useMemo(
++    () =>
++      detailChips({
++        itemType,
++        category,
++        timingOrAvailability,
++        mode,
++        locationLabel,
++        t,
++        tone,
++      }),
++    [category, itemType, locationLabel, mode, t, timingOrAvailability, tone],
+   );
++  const status = typeof item?.status === 'string' ? item.status : 'draft';
++  const isActive = status === 'active';
++  const detailInfoRows = [
++    {
++      label: t('inventory.labels.status'),
++      value: statusLabel(status, t),
++      tone: statusTone(status),
++    },
++    {
++      label: t('inventory.labels.type'),
++      value: itemTypeLabel(itemType, t),
++      tone,
++    },
++    {
++      label: t('inventory.labels.category'),
++      value: categoryLabel(category, t) || t('inventory.labels.notSpecified'),
++      tone: 'muted' as const,
++    },
++    {
++      label: isNeed
++        ? t('inventory.labels.timing')
++        : t('inventory.labels.availability'),
++      value: timingOrAvailability || t('inventory.labels.notSpecified'),
++      tone: 'time' as const,
++    },
++    {
++      label: t('inventory.labels.mode'),
++      value: modeLabel(mode, t),
++      tone: 'proposal' as const,
++    },
++    {
++      label: t('inventory.labels.location'),
++      value: locationLabel || t('inventory.labels.notSpecified'),
++      tone: 'muted' as const,
++    },
++    {
++      label: t('inventory.labels.updated'),
++      value: updatedAt || t('inventory.labels.notSpecified'),
++      tone: 'muted' as const,
++    },
++  ];
+ 
+   return (
+-    <AppScreen>
++    <AppFixedHeaderScreen
++      header={
++        <AppHeader
++          title={
++            editing
++              ? isNeed
++                ? t('inventory.actions.editNeed')
++                : t('inventory.actions.editOffer')
++              : label
++          }
++          onBack={() => navigation.goBack()}
++        />
++      }
++    >
+       <ScrollView
+         contentContainerStyle={styles.content}
+         showsVerticalScrollIndicator={false}
+-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadItem(); }} />}
++        keyboardShouldPersistTaps="handled"
++        refreshControl={
++          <RefreshControl
++            refreshing={loading}
++            onRefresh={() => {
++              void loadItem();
++            }}
++          />
++        }
+       >
+-        <AppHeader title={editing ? (isNeed ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')) : label} onBack={() => navigation.goBack()} />
+-        <View style={styles.headerRow}>
+-          <View style={styles.headerCopy}>
+-            <SemanticBadge label={label} tone={tone} />
+-            <AppText style={styles.title}>{item?.title ?? fallbackTitle ?? label}</AppText>
+-          </View>
+-        </View>
+-
+         {error ? <InfoNotice tone="warning" body={error} /> : null}
+-        {!item && !loading ? <InfoNotice tone="danger" title={t('inventory.errors.unavailable', { item: label })} body={t('inventory.errors.notFoundTitle', { item: labelLower })} /> : null}
++
++        {!item && loading ? (
++          <DetailEmptyState
++            icon={tone}
++            title={t('common.states.loading')}
++            body={fallbackTitle ?? label}
++            style={styles.stateBlock}
++          />
++        ) : null}
++
++        {!item && !loading ? (
++          <DetailEmptyState
++            icon={tone}
++            title={t('inventory.errors.unavailable', { item: label })}
++            body={t('inventory.errors.notFoundTitle', { item: labelLower })}
++            actionLabel={t('common.actions.tryAgain')}
++            onAction={() => {
++              void loadItem();
++            }}
++            style={styles.stateBlock}
++          />
++        ) : null}
+ 
+         {item ? (
+           <>
+-            <AppCard>
+-              <View style={styles.statusRow}>
+-                <StatusBadge status={item.status} size="sm" />
+-                <AppText style={styles.updatedText}>{updatedAt ? `${t('inventory.labels.updated')} ${updatedAt}` : t('inventory.labels.updated')}</AppText>
+-              </View>
++            <DetailHero
++              eyebrow={`${label} · ${statusLabel(status, t)}`}
++              title={editing ? title || item.title : item.title}
++              subtitle={!editing ? item.description : undefined}
++              meta={
++                updatedAt
++                  ? `${t('inventory.labels.updated')} ${updatedAt}`
++                  : undefined
++              }
++            >
++              <DetailMetadataChips
++                compact
++                chips={[
++                  { label: statusLabel(status, t), tone: statusTone(status) },
++                  ...chips,
++                ]}
++              />
++            </DetailHero>
++
++            {editing ? (
++              <>
++                <DetailSection
++                  eyebrow={label}
++                  title={
++                    isNeed
++                      ? t('inventory.form.needQuestion')
++                      : t('inventory.form.offerQuestion')
++                  }
++                  description={t('inventory.form.describeThis', {
++                    item: labelLower,
++                  })}
++                >
++                  <View style={styles.form}>
++                    <InventoryTextField
++                      label={t('inventory.labels.title')}
++                      value={title}
++                      onChangeText={setTitle}
++                      placeholder={titlePlaceholder}
++                      maxLength={INVENTORY_TITLE_MAX_LENGTH}
++                      disabled={saving}
++                    />
++                    <InventoryTextField
++                      label={t('inventory.labels.description')}
++                      value={description}
++                      onChangeText={setDescription}
++                      placeholder={t('inventory.form.describeThis', {
++                        item: labelLower,
++                      })}
++                      maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                      multiline
++                      disabled={saving}
++                    />
++                  </View>
++                </DetailSection>
++
++                <DetailSection
++                  eyebrow={t('inventory.form.languageTitle')}
++                  title={t('inventory.labels.manualTranslation')}
++                  description={t('inventory.form.languageBody')}
++                >
++                  <View style={styles.form}>
++                    <OriginalLanguageSummary languageCode={defaultLanguage} />
++                    {translationEnabled ? (
++                      <ManualTranslationFields
++                        defaultLanguage={defaultLanguage}
++                        title={translationTitle}
++                        description={translationDescription}
++                        onChangeTitle={setTranslationTitle}
++                        onChangeDescription={setTranslationDescription}
++                        onRemove={() => {
++                          setTranslationEnabled(false);
++                          setTranslationTitle('');
++                          setTranslationDescription('');
++                        }}
++                        titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++                        descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                        disabled={saving}
++                      />
++                    ) : (
++                      <AddTranslationButton
++                        defaultLanguage={defaultLanguage}
++                        onAdd={() => setTranslationEnabled(true)}
++                        disabled={saving}
++                      />
++                    )}
++                  </View>
++                </DetailSection>
+ 
+-              {editing ? (
+-                <View style={styles.form}>
+-                  <InventoryTextField label={t('inventory.labels.title')} value={title} onChangeText={setTitle} placeholder={titlePlaceholder} maxLength={INVENTORY_TITLE_MAX_LENGTH} disabled={saving} />
+-                  <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.describeThis', { item: labelLower })} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={saving} />
+-                  <OriginalLanguageSummary languageCode={defaultLanguage} />
+-                  {translationEnabled ? (
+-                    <ManualTranslationFields
+-                      defaultLanguage={defaultLanguage}
+-                      title={translationTitle}
+-                      description={translationDescription}
+-                      onChangeTitle={setTranslationTitle}
+-                      onChangeDescription={setTranslationDescription}
+-                      onRemove={() => { setTranslationEnabled(false); setTranslationTitle(''); setTranslationDescription(''); }}
+-                      titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
+-                      descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                <DetailSection
++                  eyebrow={t('inventory.labels.details')}
++                  title={t('inventory.form.simplifiedDetailsTitle')}
++                  description={t('inventory.form.simplifiedDetailsBody')}
++                >
++                  <View style={styles.form}>
++                    <CategoryPicker
++                      value={category}
++                      onChange={setCategory}
+                       disabled={saving}
+                     />
++                    <InventoryModePicker
++                      value={mode}
++                      onChange={setMode}
++                      disabled={saving}
++                    />
++                    <InventoryTextField
++                      label={t('inventory.labels.location')}
++                      value={locationLabel}
++                      onChangeText={setLocationLabel}
++                      placeholder={locationPlaceholder}
++                      disabled={saving}
++                    />
++                  </View>
++                </DetailSection>
++
++                <DetailSection
++                  eyebrow={t('inventory.labels.images')}
++                  title={
++                    isNeed
++                      ? t('inventory.form.needImageSection')
++                      : t('inventory.form.offerImageSection')
++                  }
++                  description={
++                    isNeed
++                      ? t('inventory.form.needImageHint')
++                      : t('inventory.form.offerImageHint')
++                  }
++                >
++                  <ExistingMediaManager
++                    media={item.media}
++                    disabled={saving}
++                    onRemove={removeImage}
++                  />
++                  <ImagePickerField
++                    images={newImages}
++                    onChange={setNewImages}
++                    disabled={saving}
++                  />
++                </DetailSection>
++
++                <DetailBottomActionBar
++                  primary={{
++                    label: saving
++                      ? t('common.states.saving')
++                      : t('inventory.actions.saveChanges'),
++                    loading: saving,
++                    disabled: saving,
++                    onPress: () => {
++                      void saveItem();
++                    },
++                  }}
++                  secondary={[
++                    {
++                      label: t('common.actions.cancel'),
++                      disabled: saving,
++                      onPress: () => {
++                        hydrateForm(item);
++                        setEditing(false);
++                      },
++                    },
++                  ]}
++                  style={styles.inlineActionBar}
++                />
++              </>
++            ) : (
++              <>
++                <DetailSection
++                  eyebrow={label}
++                  title={
++                    isNeed
++                      ? t('inventory.side.need')
++                      : t('inventory.side.offer')
++                  }
++                  description={item.description}
++                >
++                  <DetailMetadataChips compact chips={chips} />
++                </DetailSection>
++
++                <DetailSection
++                  eyebrow={t('inventory.labels.images')}
++                  title={
++                    isNeed
++                      ? t('inventory.labels.referenceImages')
++                      : t('inventory.labels.sampleImages')
++                  }
++                >
++                  {detailImages.length > 0 ? (
++                    <DetailImageGrid images={detailImages} />
+                   ) : (
+-                    <AddTranslationButton defaultLanguage={defaultLanguage} onAdd={() => setTranslationEnabled(true)} disabled={saving} />
++                    <DetailEmptyState
++                      icon={tone}
++                      title={t('inventory.labels.noImages')}
++                      body={t('inventory.empty.noImagesYetBody')}
++                      style={styles.imageEmptyState}
++                    />
+                   )}
+-                  <CategoryPicker value={category} onChange={setCategory} disabled={saving} />
+-                  <InventoryModePicker value={mode} onChange={setMode} disabled={saving} />
+-                  <InventoryTextField label={t('inventory.labels.location')} value={locationLabel} onChangeText={setLocationLabel} placeholder={locationPlaceholder} disabled={saving} />
+-                </View>
+-              ) : (
+-                <View style={styles.readOnly}>
+-                  <AppText style={styles.readTitle} numberOfLines={2}>{item.title}</AppText>
+-                  <AppText style={styles.readDescription}>{item.description}</AppText>
+-                  {meta ? <AppText style={styles.metaText} numberOfLines={1}>{meta}</AppText> : null}
+-                </View>
+-              )}
+-            </AppCard>
++                </DetailSection>
++
++                <DetailSection
++                  eyebrow={t('inventory.labels.details')}
++                  title={t('inventory.labels.information')}
++                >
++                  <DetailInfoList rows={detailInfoRows} />
++                  <View style={styles.statusInlineRow}>
++                    <StatusBadge status={status} size="sm" />
++                    <AppText
++                      style={[
++                        styles.statusInlineText,
++                        { color: theme.color.muted },
++                      ]}
++                    >
++                      {updatedAt
++                        ? `${t('inventory.labels.updated')} ${updatedAt}`
++                        : t('inventory.labels.updated')}
++                    </AppText>
++                  </View>
++                </DetailSection>
+ 
+-            <AppCard>
+-              <AppText style={styles.sectionTitle}>{t('inventory.labels.images')}</AppText>
+-              <ExistingMediaManager media={item.media} disabled={saving} onRemove={removeImage} />
+-              {editing ? <ImagePickerField images={newImages} onChange={setNewImages} disabled={saving} /> : null}
+-            </AppCard>
++                <DetailBottomActionBar
++                  primary={{
++                    label: t('inventory.actions.useInTrade'),
++                    disabled: !isActive || saving,
++                    onPress: useInTrade,
++                  }}
++                  secondary={[
++                    {
++                      label: isNeed
++                        ? t('inventory.actions.editNeed')
++                        : t('inventory.actions.editOffer'),
++                      disabled: saving,
++                      icon: 'edit',
++                      onPress: () => setEditing(true),
++                    },
++                    item.status !== 'active'
++                      ? {
++                          label: t('inventory.actions.markActive'),
++                          disabled: saving,
++                          onPress: () => {
++                            void saveItem('active');
++                          },
++                        }
++                      : {
++                          label: isNeed
++                            ? t('inventory.actions.closeNeed')
++                            : t('inventory.actions.closeOffer'),
++                          disabled: saving,
++                          onPress: () => {
++                            void saveItem('closed');
++                          },
++                        },
++                  ]}
++                  helper={
++                    !isActive
++                      ? t('inventory.delete.lockedBody', { item: labelLower })
++                      : undefined
++                  }
++                  style={styles.inlineActionBar}
++                />
++              </>
++            )}
+ 
+-            <View style={styles.actions}>
+-              {editing ? (
+-                <PrimaryButton label={saving ? t('common.states.saving') : t('inventory.actions.saveChanges')} disabled={saving} onPress={() => { void saveItem(); }} />
+-              ) : (
+-                <PrimaryButton label={isNeed ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')} disabled={saving} onPress={() => setEditing(true)} />
+-              )}
+-              {editing ? <SecondaryButton label={t('common.actions.cancel')} disabled={saving} onPress={() => { hydrateForm(item); setEditing(false); }} /> : null}
+-              {item.status !== 'active' ? (
+-                <SecondaryButton label={t('inventory.actions.markActive')} disabled={saving} onPress={() => { void saveItem('active'); }} />
+-              ) : (
+-                <SecondaryButton label={isNeed ? t('inventory.actions.closeNeed') : t('inventory.actions.closeOffer')} disabled={saving} onPress={() => { void saveItem('closed'); }} />
+-              )}
+-              <DangerButton label={isNeed ? t('inventory.actions.deleteNeed') : t('inventory.actions.deleteOffer')} disabled={saving} onPress={confirmDelete} />
+-            </View>
++            <DetailSection
++              compact
++              eyebrow={t('inventory.actions.delete')}
++              title={
++                isNeed
++                  ? t('inventory.actions.deleteNeed')
++                  : t('inventory.actions.deleteOffer')
++              }
++              description={t('inventory.delete.normalBody', {
++                item: labelLower,
++              })}
++            >
++              <DangerButton
++                label={
++                  isNeed
++                    ? t('inventory.actions.deleteNeed')
++                    : t('inventory.actions.deleteOffer')
++                }
++                disabled={saving}
++                onPress={confirmDelete}
++              />
++            </DetailSection>
+           </>
+         ) : null}
+       </ScrollView>
+-    </AppScreen>
++    </AppFixedHeaderScreen>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+-  content: { paddingBottom: 32, gap: 14 },
+-  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+-  headerCopy: { flex: 1, gap: 8 },
+-  title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.8 },
+-  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+-  updatedText: { color: '#64748B', fontSize: 12, fontWeight: '800' },
++  content: { paddingBottom: 44, gap: 2 },
+   form: { gap: 14 },
+-  readOnly: { gap: 9 },
+-  readTitle: { color: '#0F172A', fontSize: 24, fontWeight: '900', letterSpacing: -0.4 },
+-  readDescription: { color: '#475569', lineHeight: 21, fontWeight: '600' },
+-  metaText: { color: '#64748B', fontWeight: '800' },
+-  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
+-  actions: { gap: 10 },
++  imageEmptyState: { marginTop: 0 },
++  inlineActionBar: { marginTop: 4, paddingHorizontal: 0 },
++  stateBlock: { marginTop: 24 },
++  statusInlineRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
++  statusInlineText: { flex: 1, fontSize: 12, fontWeight: '800' },
+ });

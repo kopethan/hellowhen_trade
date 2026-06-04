@@ -4,6 +4,7 @@ export const media = {
   },
   states: {
     uploading: 'Uploading...',
+    uploadingImage: 'Uploading image {{current}} of {{total}}...',
   },
   empty: {
     noImagesYet: 'No images yet',
@@ -12,5 +13,7 @@ export const media = {
   errors: {
     removedAfterReport: 'This image was removed after a content report.',
     couldNotLoad: 'The image could not be loaded.',
+    uploadFailed: 'The image upload failed. Check your connection and try again.',
+    uploadFailedAt: 'Image {{current}} of {{total}} could not upload. {{reason}}',
   },
 } as const;

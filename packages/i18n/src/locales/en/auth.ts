@@ -106,6 +106,8 @@ export const auth = {
     resetPassword: 'Reset password',
     resetting: 'Resetting...',
     backToLogin: 'Back to login',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
   },
   reset: {
     requested: 'If that email exists, we sent a password reset link.',

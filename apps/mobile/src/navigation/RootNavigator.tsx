@@ -88,7 +88,7 @@ function AuthRequiredNotice({ title, body }: { title?: string; body?: string }) 
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const displayTitle = title ?? 'Login required';
-  const displayBody = body ?? 'Sign in to continue with your saved needs, offers, proposals, wallet, and account settings.';
+  const displayBody = body ?? 'Sign in to continue with your saved needs, offers, proposals, and account settings.';
 
   return (
     <AppScreen>
@@ -121,7 +121,7 @@ function withAuth<P extends object>(Component: React.ComponentType<P>, title?: s
 
 const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'Login to manage needs', 'The public feed is open. Sign in to create, edit, and manage your own needs.');
 const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers', 'The public feed is open. Sign in to create, edit, and manage your own offers.');
-const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access profile, settings, wallet, support, and beta account tools.');
+const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access your profile, settings, support, and account tools.');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);

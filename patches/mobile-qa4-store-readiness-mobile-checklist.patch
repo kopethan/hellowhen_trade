@@ -1,0 +1,435 @@
+diff --git a/apps/mobile/app.json b/apps/mobile/app.json
+index cd49914..f5f292f 100644
+--- a/apps/mobile/app.json
++++ b/apps/mobile/app.json
+@@ -16,7 +16,13 @@
+     ],
+     "ios": {
+       "supportsTablet": true,
+-      "bundleIdentifier": "com.hellowhen.app"
++      "bundleIdentifier": "com.hellowhen.app",
++      "config": {
++        "usesNonExemptEncryption": false
++      },
++      "infoPlist": {
++        "NSPhotoLibraryUsageDescription": "Hellowhen lets you choose photos for your profile, needs, offers, trade references, reports, and support screenshots."
++      }
+     },
+     "android": {
+       "adaptiveIcon": {
+diff --git a/docs/launch/mobile-launch-smoke-test.md b/docs/launch/mobile-launch-smoke-test.md
+index 72c6211..ebbfe66 100644
+--- a/docs/launch/mobile-launch-smoke-test.md
++++ b/docs/launch/mobile-launch-smoke-test.md
+@@ -11,6 +11,7 @@ This checklist is the final mobile launch smoke pass after:
+ 7. `MOBILE-QA1 — Mobile reliability and network/error polish`
+ 8. `MOBILE-QA2 — Mobile form validation and upload polish`
+ 9. `MOBILE-QA3 — Mobile privacy/accessibility smoke fixes`
++10. `MOBILE-QA4 — Store-readiness mobile checklist`
+ 
+ The goal is not to add new product scope. The goal is to confirm the first-launch mobile app still behaves as a focused 18+ Need / Offer / Trade exchange with private proposal conversations and no exposed money, plans, ads, push, or email-notification features.
+ 
+@@ -20,6 +21,7 @@ Run from the repository root:
+ 
+ ```powershell
+ npm run mobile:launch-smoke
++npm run mobile:store-readiness
+ ```
+ 
+ This static smoke guard checks:
+@@ -43,6 +45,7 @@ Run these after applying the full mobile UI stack:
+ 
+ ```powershell
+ npm run mobile:launch-smoke
++npm run mobile:store-readiness
+ npm run typecheck
+ npm run build
+ ```
+@@ -244,6 +247,10 @@ Stop and patch before launch if any of these happen:
+ - API errors expose raw stack traces or internal object IDs in user-facing copy.
+ - Screen readers announce unlabeled buttons such as “button” without useful context on auth, notifications, detail actions, or proposal thread screens.
+ 
++## Store-readiness follow-up
++
++Run `npm run mobile:store-readiness` and complete `docs/launch/mobile-store-readiness-checklist.md` before App Store / Google Play submission.
++
+ ## Sign-off
+ 
+ Before moving past MOBILE-UI6, record:
+@@ -255,6 +262,7 @@ Before moving past MOBILE-UI6, record:
+ - theme(s)
+ - users used for owner/applicant flows
+ - result of `npm run mobile:launch-smoke`
++- result of `npm run mobile:store-readiness`
+ - result of `npm run typecheck`
+ - result of `npm run build`
+ - known issues and whether they are launch blockers
+diff --git a/docs/launch/mobile-store-readiness-checklist.md b/docs/launch/mobile-store-readiness-checklist.md
+new file mode 100644
+index 0000000..5043440
+--- /dev/null
++++ b/docs/launch/mobile-store-readiness-checklist.md
+@@ -0,0 +1,189 @@
++# MOBILE-QA4 — Store-readiness mobile checklist
++
++Use this after `npm run mobile:launch-smoke` and before submitting any first-launch mobile build to Apple App Store review, TestFlight external testing, Google Play closed testing, or Google Play production review.
++
++First-launch scope stays strict:
++
++```txt
++No wallet, payouts, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans.
++```
++
++The app submitted to review should be described as an 18+ service/skill/need/offer exchange with public trades, private proposals, reporting, support, and moderation.
++
++## Static commands
++
++Run from the repository root:
++
++```powershell
++npm run mobile:launch-smoke
++npm run mobile:store-readiness
++npm run typecheck
++npm run build
++```
++
++Do not submit until all four pass locally.
++
++## App metadata
++
++Prepare or verify:
++
++- App name: `Hellowhen`.
++- Bundle ID: `com.hellowhen.app` or the final company-owned replacement.
++- Android package: `com.hellowhen.app` or the final company-owned replacement.
++- App icon and Android adaptive icon are production assets, not placeholders.
++- Splash image is production-ready and not a dev/test logo.
++- Version is incremented before each store upload.
++- Portrait-only behavior is intentional and has been tested.
++- App category does not imply dating, payments, gambling, job placement, crypto, teen social, or financial services.
++- Age rating is set for adults only / 18+ launch positioning.
++
++## Reviewer account
++
++Create and test a reviewer account before submission:
++
++- Email: use a real account you can receive emails for.
++- Password: temporary reviewer password, changed after review.
++- User status: normal verified user, not admin.
++- Seeded state: at least one Need, one Offer, one public Trade, one pending proposal from another test user, one support ticket, and one unread notification.
++- Reviewer notes explain how to log in, where to find Trades / Needs / Offers / Account, and that money features are intentionally disabled.
++
++Do not give reviewers an admin account unless they explicitly ask for admin review access.
++
++## Account deletion
++
++Verify in the submitted build:
++
++- Account → Settings & safety → Delete account is reachable after login.
++- The screen explains what happens to profile/content/safety/support records.
++- The user can request deletion in the app.
++- The user can cancel an active deletion request when the backend supports it.
++- The flow links to Support for privacy/account questions.
++- A public web deletion request URL exists before Google Play production submission.
++- Privacy policy explains retained data, especially safety, fraud, support, report, and audit records.
++
++## Legal and policy links
++
++Verify these are reachable in-app:
++
++- Register screen: Terms link.
++- Register screen: Privacy Policy link.
++- Settings: full legal, privacy, and safety center.
++- Support: Safety Guidelines.
++- Support: Refund & Dispute Policy.
++- Account deletion: Support link.
++
++Before public review, final URLs must also exist on the public web app for:
++
++- Terms.
++- Privacy Policy.
++- Community & Safety Guidelines.
++- Support / Contact.
++- Account deletion request.
++- Report content / safety contact, if separate.
++
++## User-generated content safety
++
++Hellowhen includes user-generated content: profiles, Needs, Offers, Trades, public discussion messages, proposal messages, reports, support tickets, and images.
++
++Verify before store submission:
++
++- Trade Detail has a report flow for non-owners.
++- Public profile has a report flow.
++- Public discussion messages have a report flow.
++- Support Center lets users contact support and attach screenshots.
++- Admin moderation queue is operational on the production backend.
++- Admin can hide/restore content, restrict/suspend users, review reports, and keep audit notes.
++- Private proposal messages are not public discovery content.
++- Notification previews do not reveal private message text, report details, or admin notes.
++
++## Data safety / privacy disclosures
++
++Prepare answers for Google Play Data safety and Apple App privacy before submission.
++
++Expected first-launch data categories to review:
++
++- Account email.
++- Display name, handle, avatar, bio, country, language, appearance, and currency preference.
++- Public content: Trades, Needs, Offers, profile content, and media.
++- Private content: proposal messages, support tickets, report details, screenshots, and admin moderation data.
++- Authentication/session data.
++- Safety/restriction/report/audit records.
++- Diagnostics if any logging or crash reporting is added later.
++
++Do not declare ads, tracking, push tokens, payment data, wallet balances, Stripe, Airwallex, payouts, or subscription data for the first launch unless a separate patch actually enables those features.
++
++## Permissions and SDKs
++
++The first mobile launch should only request photo-library access because users can choose images for profile, Needs, Offers, trade references, support screenshots, and reports.
++
++Before submission, verify:
++
++- iOS photo-library permission text is present and explains selected-photo use.
++- No camera permission is requested.
++- No microphone permission is requested.
++- No location permission is requested.
++- No contacts permission is requested.
++- No tracking permission is requested.
++- No push SDK is installed.
++- No mobile ads SDK is installed.
++- No Stripe/Airwallex/payment SDK is installed.
++
++## Store listing assets
++
++Prepare:
++
++- App icon.
++- Android adaptive icon.
++- Feature graphic for Google Play.
++- Screenshots showing: Trades feed, Trade Detail, Create Need, Create Offer, Proposal thread, Account/Safety.
++- Short description.
++- Long description.
++- Support email/URL.
++- Privacy Policy URL.
++- Account deletion URL for Google Play.
++
++Screenshot story should be:
++
++```txt
++Discover useful trades → create a Need → create an Offer → send a private proposal → manage account/support safely.
++```
++
++Avoid screenshots that show hidden wallet, payouts, Pro plans, Plans, ads, admin UI, debug screens, or mock money.
++
++## Review notes template
++
++Use a note like this and adapt it to the final test account:
++
++```txt
++Hellowhen is an 18+ service/skill/need/offer exchange.
++Money features are intentionally disabled for the first launch: no wallet, no payouts, no paid helpers, no Stripe/Airwallex, no subscriptions, no ads, no push notifications, and no email notifications.
++
++Reviewer login:
++Email: <reviewer email>
++Password: <temporary password>
++
++Suggested review path:
++1. Open Trades and view a public Trade Detail.
++2. Open Needs and Offers to see owner-managed listings.
++3. Send or review a private proposal thread using the prepared test trade.
++4. Open Account → Legal/Safety, Support, Notifications, Settings, and Delete account.
++5. Use report buttons on non-owned Trade/Profile/Public Message examples.
++```
++
++## Manual device sign-off
++
++Record before submission:
++
++- Commit SHA.
++- API environment.
++- Web URL used for share/legal/account deletion links.
++- iOS build number / Android version code.
++- Device model(s).
++- OS version(s).
++- Language(s): EN and FR.
++- Theme(s): light, dark, system.
++- Result of `npm run mobile:launch-smoke`.
++- Result of `npm run mobile:store-readiness`.
++- Result of `npm run typecheck`.
++- Result of `npm run build`.
++- Known issues and whether each one is a launch blocker.
+diff --git a/package.json b/package.json
+index 328b1be..c4ba006 100644
+--- a/package.json
++++ b/package.json
+@@ -24,7 +24,8 @@
+     "business:hidden-smoke": "node scripts/business-hidden-smoke.mjs",
+     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
+     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
+-    "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web"
++    "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
++    "mobile:store-readiness": "npm run mobile:launch-smoke && node scripts/mobile-store-readiness.mjs"
+   },
+   "devDependencies": {
+     "typescript": "^5.4.5"
+diff --git a/scripts/mobile-store-readiness.mjs b/scripts/mobile-store-readiness.mjs
+new file mode 100644
+index 0000000..a9e0e80
+--- /dev/null
++++ b/scripts/mobile-store-readiness.mjs
+@@ -0,0 +1,154 @@
++#!/usr/bin/env node
++
++import { existsSync, readFileSync, statSync } from 'node:fs';
++import path from 'node:path';
++
++const root = process.cwd();
++
++function read(relativePath) {
++  return readFileSync(path.join(root, relativePath), 'utf8');
++}
++
++function readJson(relativePath) {
++  return JSON.parse(read(relativePath));
++}
++
++function assert(condition, message) {
++  if (!condition) throw new Error(message);
++}
++
++function assertExists(relativePath, message = `${relativePath} is missing.`) {
++  assert(existsSync(path.join(root, relativePath)), message);
++}
++
++function assertNonEmptyFile(relativePath, message = `${relativePath} must exist and be non-empty.`) {
++  const absolutePath = path.join(root, relativePath);
++  assert(existsSync(absolutePath), message);
++  assert(statSync(absolutePath).size > 0, message);
++}
++
++function assertContains(file, needle, message = `${file} must contain ${needle}`) {
++  assert(read(file).includes(needle), message);
++}
++
++function assertNotContains(file, needle, message = `${file} must not contain ${needle}`) {
++  assert(!read(file).includes(needle), message);
++}
++
++function assertPackageDoesNotDependOn(packageJsonPath, blockedDependencies) {
++  const pkg = readJson(packageJsonPath);
++  const allDependencies = {
++    ...(pkg.dependencies ?? {}),
++    ...(pkg.devDependencies ?? {}),
++    ...(pkg.optionalDependencies ?? {}),
++  };
++
++  for (const dependency of blockedDependencies) {
++    assert(!(dependency in allDependencies), `${packageJsonPath} must not depend on ${dependency} before store submission approval for that feature.`);
++  }
++}
++
++function runAppMetadataChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  assert(app.name === 'Hellowhen', 'Mobile app display name must stay Hellowhen for store assets/reviewer notes.');
++  assert(app.slug === 'hellowhen', 'Expo slug must stay hellowhen.');
++  assert(/^\d+\.\d+\.\d+$/.test(app.version), 'Mobile app version must be semantic, for example 0.1.0.');
++  assert(app.orientation === 'portrait', 'Mobile app should stay portrait-only unless landscape has been tested.');
++  assert(app.userInterfaceStyle === 'automatic', 'Mobile app should keep automatic appearance support.');
++  assert(app.scheme === 'hellowhen', 'Mobile deep link scheme must stay configured.');
++
++  assert(app.icon === './assets/icon.png', 'Mobile app icon path must stay configured.');
++  assert(app.splash?.image === './assets/splash-logo.png', 'Mobile splash image path must stay configured.');
++  assert(app.android?.adaptiveIcon?.foregroundImage === './assets/adaptive-icon.png', 'Android adaptive icon foreground must stay configured.');
++  assertNonEmptyFile('apps/mobile/assets/icon.png', 'Store app icon asset is missing or empty.');
++  assertNonEmptyFile('apps/mobile/assets/adaptive-icon.png', 'Android adaptive icon asset is missing or empty.');
++  assertNonEmptyFile('apps/mobile/assets/splash-logo.png', 'Splash logo asset is missing or empty.');
++
++  assert(/^com\.hellowhen\.[a-z0-9_]+$/.test(app.ios?.bundleIdentifier ?? ''), 'iOS bundleIdentifier must be a production Hellowhen identifier.');
++  assert(/^com\.hellowhen\.[a-z0-9_]+$/.test(app.android?.package ?? ''), 'Android package must be a production Hellowhen identifier.');
++  assert(!/(example|sample|test|dev)/i.test(app.ios?.bundleIdentifier ?? ''), 'iOS bundleIdentifier must not look like a placeholder.');
++  assert(!/(example|sample|test|dev)/i.test(app.android?.package ?? ''), 'Android package must not look like a placeholder.');
++
++  assert(app.ios?.config?.usesNonExemptEncryption === false, 'iOS export compliance flag should be explicit while no custom non-exempt encryption is added.');
++  assert(typeof app.ios?.infoPlist?.NSPhotoLibraryUsageDescription === 'string' && app.ios.infoPlist.NSPhotoLibraryUsageDescription.length >= 40, 'iOS photo-library permission copy must explain why Hellowhen accesses selected photos.');
++  console.log('Mobile store metadata: PASS');
++}
++
++function runPermissionAndSdkChecks() {
++  const app = readJson('apps/mobile/app.json').expo;
++  const appConfigText = read('apps/mobile/app.json');
++  const androidPermissions = app.android?.permissions ?? [];
++  const blockedAndroidPermissions = ['CAMERA', 'RECORD_AUDIO', 'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'READ_CONTACTS', 'WRITE_CONTACTS'];
++  for (const permission of blockedAndroidPermissions) {
++    assert(!androidPermissions.includes(permission), `Android permission ${permission} must not be requested unless a reviewed store scope adds it.`);
++  }
++
++  for (const blockedInfoPlistKey of ['NSCameraUsageDescription', 'NSMicrophoneUsageDescription', 'NSLocationWhenInUseUsageDescription', 'NSContactsUsageDescription', 'NSUserTrackingUsageDescription']) {
++    assert(!appConfigText.includes(blockedInfoPlistKey), `${blockedInfoPlistKey} must not be declared before that capability/tracking scope exists.`);
++  }
++
++  assertPackageDoesNotDependOn('apps/mobile/package.json', [
++    'expo-notifications',
++    'react-native-push-notification',
++    '@react-native-firebase/messaging',
++    'react-native-google-mobile-ads',
++    'expo-ads-admob',
++    '@stripe/stripe-react-native',
++    'expo-location',
++    'expo-camera',
++    'expo-contacts',
++    'expo-tracking-transparency',
++  ]);
++  console.log('Mobile permissions / SDK scope: PASS');
++}
++
++function runAccountDeletionAndLegalChecks() {
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', "AccountDeletion: undefined", 'Account deletion route type must stay defined.');
++  assertContains('apps/mobile/src/navigation/RootNavigator.tsx', '<Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />', 'Account deletion route must stay reachable for logged-in users.');
++  assertContains('apps/mobile/src/features/account/AccountScreen.tsx', "route: 'AccountDeletion'", 'Account hub must link to account deletion.');
++  assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', 'api.account.requestDeletion', 'Account deletion screen must let users request deletion in-app.');
++  assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', 'api.account.cancelDeletionRequest', 'Account deletion screen must let users cancel a pending request when supported.');
++  assertContains('apps/mobile/src/features/account/AccountDeletionScreen.tsx', "navigation.navigate('SupportCenter')", 'Account deletion screen must link to support for privacy/account questions.');
++
++  assertContains('packages/i18n/src/legalPolicies.ts', "['terms', 'privacy', 'safety', 'refundDispute']", 'Legal policy list must include terms, privacy, safety, and refund/dispute pages.');
++  assertContains('apps/mobile/src/features/auth/LoginScreen.tsx', "navigation.navigate('LegalPolicy', { policy: 'terms' })", 'Register/login screen must link to Terms.');
++  assertContains('apps/mobile/src/features/auth/LoginScreen.tsx', "navigation.navigate('LegalPolicy', { policy: 'privacy' })", 'Register/login screen must link to Privacy Policy.');
++  assertContains('apps/mobile/src/features/settings/SettingsScreen.tsx', "navigation.navigate('LegalPolicy')", 'Settings must link to legal/privacy/safety policies.');
++  assertContains('apps/mobile/src/features/auth/LoginScreen.tsx', 'acceptedTerms', 'Register flow must require policy acceptance.');
++  assertContains('apps/mobile/src/features/auth/LoginScreen.tsx', 'ageConfirmed', 'Register flow must require 18+ confirmation.');
++  console.log('Mobile account deletion / legal links: PASS');
++}
++
++function runUgcSafetyChecks() {
++  assertContains('apps/mobile/src/components/ReportContentPanel.tsx', 'api.reports.create', 'Mobile report panel must submit reports through the reports API.');
++  assertContains('apps/mobile/src/features/trade/TradeDetailScreen.tsx', '<ReportContentPanel targetType="trade"', 'Trade detail must expose report flow to non-owners.');
++  assertContains('apps/mobile/src/features/users/PublicUserProfileScreen.tsx', '<ReportContentPanel targetType="profile"', 'Public profile must expose report flow.');
++  assertContains('apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx', '<ReportContentPanel targetType="public_message"', 'Public messages must expose report flow.');
++  assertContains('apps/mobile/src/features/account/SupportCenterScreen.tsx', 'api.support.createTicket', 'Mobile support center must let users contact support.');
++  assertContains('apps/mobile/src/features/account/SupportCenterScreen.tsx', "navigation.navigate('LegalPolicy', { policy: 'safety' })", 'Support center must link to safety guidelines.');
++  assertContains('apps/mobile/src/features/account/SupportCenterScreen.tsx', "navigation.navigate('LegalPolicy', { policy: 'refundDispute' })", 'Support center must link to dispute policy.');
++  console.log('Mobile UGC safety/support flows: PASS');
++}
++
++function runReviewerReadinessChecks() {
++  assertExists('docs/launch/mobile-launch-smoke-test.md', 'Manual mobile launch smoke checklist must exist.');
++  assertExists('docs/launch/mobile-store-readiness-checklist.md', 'Mobile store-readiness checklist must exist.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Reviewer account', 'Store checklist must include reviewer account preparation.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Account deletion', 'Store checklist must include account deletion preparation.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'User-generated content', 'Store checklist must include UGC safety preparation.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Data safety', 'Store checklist must include Google Play Data safety preparation.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'App privacy', 'Store checklist must include Apple App Privacy preparation.');
++  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans', 'Store checklist must keep hidden/future features out of first-launch review notes.');
++  console.log('Mobile reviewer readiness docs: PASS');
++}
++
++function main() {
++  runAppMetadataChecks();
++  runPermissionAndSdkChecks();
++  runAccountDeletionAndLegalChecks();
++  runUgcSafetyChecks();
++  runReviewerReadinessChecks();
++  console.log('Mobile store-readiness static checks: PASS');
++}
++
++main();

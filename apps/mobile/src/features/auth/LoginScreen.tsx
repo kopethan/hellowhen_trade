@@ -178,11 +178,11 @@ export function LoginScreen() {
 
             {!twoFactorChallenge && mode === 'register' ? (
               <View style={styles.termsBlock}>
-                <Pressable onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}>
+                <Pressable accessibilityRole="checkbox" accessibilityLabel={t('auth.terms')} accessibilityState={{ checked: acceptedTerms }} onPress={() => setAcceptedTerms((value) => !value)} style={styles.termsRow}>
                   <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, acceptedTerms && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{acceptedTerms ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
                   <AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.terms')}</AppText>
                 </Pressable>
-                <Pressable onPress={() => setAgeConfirmed((value) => !value)} style={styles.termsRow}>
+                <Pressable accessibilityRole="checkbox" accessibilityLabel={t('auth.ageConfirmation')} accessibilityState={{ checked: ageConfirmed }} onPress={() => setAgeConfirmed((value) => !value)} style={styles.termsRow}>
                   <View style={[styles.checkbox, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, ageConfirmed && { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg }]}>{ageConfirmed ? <AppText style={styles.checkboxMark}>✓</AppText> : null}</View>
                   <AppText style={[styles.termsText, { color: theme.color.muted }]}>{t('auth.ageConfirmation')}</AppText>
                 </Pressable>
@@ -210,12 +210,12 @@ export function LoginScreen() {
 
 function ModeButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   const theme = useThemeTokens();
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.modeButton, active && { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: active ? theme.color.background : theme.color.muted }]}>{label}</AppText></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.modeButton, active && { backgroundColor: theme.color.text }, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: active ? theme.color.background : theme.color.muted }]}>{label}</AppText></Pressable>;
 }
 
 function AuthInput(props: React.ComponentProps<typeof TextInput>) {
   const theme = useThemeTokens();
-  return <TextInput {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
+  return <TextInput accessibilityLabel={props.accessibilityLabel ?? props.placeholder} {...props} placeholderTextColor={theme.color.muted} style={[styles.input, { color: theme.color.text, backgroundColor: theme.color.surface, borderColor: theme.color.border }, props.style]} />;
 }
 
 function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggle }: { value: string; onChangeText: (value: string) => void; placeholder: string; showPassword: boolean; onToggle: () => void }) {
@@ -224,7 +224,7 @@ function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggl
   return (
     <View style={styles.passwordRow}>
       <AuthInput value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={!showPassword} style={styles.passwordInput} />
-      <Pressable onPress={onToggle} style={({ pressed }) => [styles.showButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+      <Pressable accessibilityRole="button" accessibilityLabel={showPassword ? t('auth.actions.hidePassword') : t('auth.actions.showPassword')} onPress={onToggle} style={({ pressed }) => [styles.showButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
         <AppText style={[styles.showButtonText, { color: theme.color.text }]}>{showPassword ? t('common.actions.hide') : t('common.actions.show')}</AppText>
       </Pressable>
     </View>
@@ -232,7 +232,7 @@ function PasswordInput({ value, onChangeText, placeholder, showPassword, onToggl
 }
 
 function AuthActionButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={styles.primaryButtonText}>{label}</AppText></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={styles.primaryButtonText}>{label}</AppText></Pressable>;
 }
 
 const styles = StyleSheet.create({

@@ -7,9 +7,19 @@ export const account = {
   addBalanceTitle: 'Add balance',
   addBalanceBody: 'Manage exchange balance when this roadmap feature is enabled.',
   headerBody: 'Profile, settings, and support live here.',
+  sections: {
+    activity: 'Activity',
+    settings: 'Settings & safety',
+    future: 'Future tools',
+  },
+  quickActions: {
+    editProfile: 'Edit',
+    notifications: 'Inbox',
+    support: 'Support',
+  },
   signedOut: {
     title: 'Login to open your account',
-    body: 'Profile, settings, wallet, and support are available after login.',
+    body: 'Profile, settings, inbox, and support are available after login.',
   },
   addHandle: 'Add a handle',
   addHandleOnProfile: 'Add a handle on your profile.',
@@ -345,9 +355,16 @@ export const account = {
     read: 'Read',
     unread: 'Unread',
     loadError: 'Could not load notifications.',
+    safeTitle: 'Account update',
+    safeBody: 'Open this notification to view the update safely.
     markError: 'Could not update notifications.',
     privacyTitle: 'Privacy-safe inbox',
     privacyBody: 'Notifications only show account-level updates. Private message text, admin notes, emails, and report details stay out of previews.',
+    privacyShort: 'Private message text, admin notes, emails, and report details stay out of previews.',
+    sections: {
+      today: 'Today',
+      yesterday: 'Yesterday',
+    },
     filters: {
       all: 'All',
       unread: 'Unread',

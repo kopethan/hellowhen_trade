@@ -84,6 +84,7 @@ export function InventoryTextField({
   multiline,
   disabled,
   maxLength,
+  error,
 }: {
   label: string;
   hint?: string;
@@ -93,6 +94,7 @@ export function InventoryTextField({
   multiline?: boolean;
   disabled?: boolean;
   maxLength?: number;
+  error?: string | null;
 }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
@@ -114,8 +116,9 @@ export function InventoryTextField({
         multiline={multiline}
         maxLength={maxLength}
         textAlignVertical={multiline ? 'top' : 'center'}
-        style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
+        style={[styles.input, { backgroundColor: theme.color.surface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }, multiline && styles.textarea]}
       />
+      {error ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{error}</AppText> : null}
     </View>
   );
 }
@@ -365,6 +368,11 @@ const styles = StyleSheet.create({
   counter: {
     fontSize: 12,
     fontWeight: '900',
+  },
+  fieldError: {
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
   },
   hint: {
     fontSize: 12,

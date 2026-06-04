@@ -106,6 +106,8 @@ export const auth = {
     resetPassword: 'Réinitialiser le mot de passe',
     resetting: 'Réinitialisation…',
     backToLogin: 'Retour à la connexion',
+    showPassword: 'Afficher le mot de passe',
+    hidePassword: 'Masquer le mot de passe',
   },
   reset: {
     requested: 'Si cette adresse e-mail existe, nous avons envoyé un lien de réinitialisation.',

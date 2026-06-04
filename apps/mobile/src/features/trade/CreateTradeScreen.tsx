@@ -10,6 +10,7 @@ import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
@@ -144,6 +145,16 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const currency = currencyFor(needSelection, offerSelection);
   const previewTrade = useMemo(() => buildPreviewTrade({ postType, needSelection, offerSelection, need: selectedNeed, offer: selectedOffer, amountCents, currency, expiryDays, t }), [amountCents, currency, expiryDays, needSelection, offerSelection, postType, selectedNeed, selectedOffer, t]);
   const previewCardCount = useMemo(() => buildTradeSquareDeckCards(previewTrade).length, [previewTrade]);
+  const hasDraft = Boolean(postType || needSelection || offerSelection || expiryDays !== 14);
+
+  useUnsavedChangesWarning({
+    navigation,
+    enabled: hasDraft && !submitting,
+    title: t('inventory.form.unsavedTitle'),
+    body: t('inventory.form.unsavedBody'),
+    stayLabel: t('common.actions.cancel'),
+    discardLabel: t('inventory.form.discardDraft'),
+  });
 
   useEffect(() => {
     const selection = route.params?.selectedTradeSide;
@@ -189,6 +200,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   }
 
   async function handlePublish() {
+    if (submitting) return;
     if (!postType) return setError(t('trade.create.validationNativeKind'));
     if (postType !== 'open_offer' && !needSelection) return setError(postType === 'open_need' ? t('trade.create.validationNativeOpenNeed') : t('trade.create.validationNativeNeed'));
     if (postType !== 'open_need' && !offerSelection) return setError(postType === 'open_offer' ? t('trade.create.validationNativeOpenOffer') : t('trade.create.validationNativeOffer'));
