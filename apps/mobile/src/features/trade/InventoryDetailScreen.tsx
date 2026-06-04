@@ -471,7 +471,7 @@ export function InventoryDetailScreen({
   );
   const status = typeof item?.status === 'string' ? item.status : 'draft';
   const isActive = status === 'active';
-  const detailInfoRows = [
+  const detailInfoRows: React.ComponentProps<typeof DetailInfoList>['rows'] = [
     {
       label: t('inventory.labels.status'),
       value: statusLabel(status, t),

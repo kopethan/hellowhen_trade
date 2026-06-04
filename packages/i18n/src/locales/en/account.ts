@@ -356,7 +356,7 @@ export const account = {
     unread: 'Unread',
     loadError: 'Could not load notifications.',
     safeTitle: 'Account update',
-    safeBody: 'Open this notification to view the update safely.
+    safeBody: 'Open this notification to view the update safely.',
     markError: 'Could not update notifications.',
     privacyTitle: 'Privacy-safe inbox',
     privacyBody: 'Notifications only show account-level updates. Private message text, admin notes, emails, and report details stay out of previews.',

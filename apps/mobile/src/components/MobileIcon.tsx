@@ -12,6 +12,7 @@ export type MobileIconName =
   | 'chevron-right'
   | 'close'
   | 'dispute'
+  | 'edit'
   | 'filter'
   | 'help'
   | 'image'
@@ -64,6 +65,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M6 6L18 18" strokeWidth={2} {...strokeProps} /><Path d="M18 6L6 18" strokeWidth={2} {...strokeProps} /></>;
     case 'dispute':
       return <><Path d="M3.5 5.75C3.5 5.06 4.06 4.5 4.75 4.5H14.25C14.94 4.5 15.5 5.06 15.5 5.75V12.25C15.5 12.94 14.94 13.5 14.25 13.5H8.65L6.65 15.25C6.22 15.63 5.55 15.32 5.55 14.75V13.5H4.75C4.06 13.5 3.5 12.94 3.5 12.25V5.75Z" strokeWidth={1.35} {...strokeProps} /><Path d="M9.5 11.75V11.25C9.5 10.56 10.06 10 10.75 10H19.25C19.94 10 20.5 10.56 20.5 11.25V17.75C20.5 18.44 19.94 19 19.25 19H18.45V20.25C18.45 20.82 17.78 21.13 17.35 20.75L15.35 19H10.75C10.06 19 9.5 18.44 9.5 17.75V16.1" strokeWidth={1.35} {...strokeProps} /><Path d="M6.5 7.5H12.5" strokeWidth={1.35} {...strokeProps} /><Path d="M6.5 10.5H11" strokeWidth={1.35} {...strokeProps} /><Path d="M15 12.5V15" strokeWidth={1.5} {...strokeProps} /><Path d="M15 17H15.01" strokeWidth={1.8} {...strokeProps} /></>;
+    case 'edit':
+      return <><Path d="M5 19H19" strokeWidth={1.8} {...strokeProps} /><Path d="M6.5 14.5L14.75 6.25C15.44 5.56 16.56 5.56 17.25 6.25C17.94 6.94 17.94 8.06 17.25 8.75L9 17L5.5 17.5L6.5 14.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M13.5 7.5L16 10" strokeWidth={1.8} {...strokeProps} /></>;
     case 'filter':
       return <><Path d="M3 3H21" strokeWidth={2} {...strokeProps} /><Path d="M15 12L21 3" strokeWidth={2} {...strokeProps} /><Path d="M14.8983 21L15 12" strokeWidth={2} {...strokeProps} /><Path d="M14.8983 21L9 20" strokeWidth={2} {...strokeProps} /><Path d="M3 3L9 12" strokeWidth={2} {...strokeProps} /><Path d="M9 12V20" strokeWidth={2} {...strokeProps} /></>;
     case 'help':

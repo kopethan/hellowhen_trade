@@ -356,7 +356,7 @@ export const account = {
     unread: 'Non lu',
     loadError: 'Impossible de charger les notifications.',
     safeTitle: 'Mise à jour du compte',
-    safeBody: 'Ouvrez cette notification pour consulter la mise à jour en sécurité.
+    safeBody: 'Ouvrez cette notification pour consulter la mise à jour en sécurité.',
     markError: 'Impossible de mettre à jour les notifications.',
     privacyTitle: 'Boîte de réception privée',
     privacyBody: 'Les notifications montrent seulement les mises à jour de compte. Le texte des messages privés, notes admin, e-mails et détails de signalement ne sont pas affichés dans les aperçus.',
