@@ -639,7 +639,7 @@ function ProposalSidePreview({
   item: NeedDto | OfferDto;
   label?: string;
   compact?: boolean;
-  i18n?: TradeI18n;
+  i18n: TradeI18n;
 }) {
   const mediaUrl = firstMediaUrl(item);
   const iconName: WebIconName = kind === "offer" ? "offer" : "need";

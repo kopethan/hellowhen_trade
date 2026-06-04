@@ -1352,7 +1352,7 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
             {sideItems.length === 0 && !proposal.cashPromise ? <InfoNotice tone="info" title={t('trade.proposals.changeProposalItem')} body={t('trade.proposals.noAttachedItem')} /> : (
               <>
                 {sideItems.map(({ kind, item }) => <ProposalSideDetailCard key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
-                {proposal.cashPromise ? <CashPromiseInlineItem cashPromise={proposal.cashPromise} t={t} /> : null}
+                {proposal.cashPromise ? <CashPromiseInlineItem amountCents={proposal.cashPromise.amountCents} currency={proposal.cashPromise.currency ?? 'eur'} side={proposal.cashPromise.side} note={proposal.cashPromise.note ?? null} t={t} /> : null}
               </>
             )}
 
@@ -1586,7 +1586,7 @@ const styles = StyleSheet.create({
   dealSummaryCard: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 9 },
   dealSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   dealSummaryTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 },
-  dealSummaryMeta: { fontSize: 13, lineHeight: 18, fontWeight: '750' },
+  dealSummaryMeta: { fontSize: 13, lineHeight: 18, fontWeight: '700' },
   dealAgreementGrid: { gap: 9 },
   dealAcceptedMessage: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 6 },
   dealAcceptedMessageLabel: { fontSize: 11, lineHeight: 15, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
@@ -1605,12 +1605,12 @@ const styles = StyleSheet.create({
   safetyChecklistItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   safetyCheck: { width: 23, height: 23, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   safetyCheckText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
-  safetyChecklistText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '750' },
+  safetyChecklistText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '700' },
   dealProgressList: { gap: 9 },
   dealProgressStep: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   dealProgressDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   dealProgressDotText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
-  dealProgressLabel: { fontSize: 14, lineHeight: 19, fontWeight: '850' },
+  dealProgressLabel: { fontSize: 14, lineHeight: 19, fontWeight: '800' },
   actionRowWrap: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   statusBlockCopy: { gap: 10 },
   statusHintText: { fontSize: 15, lineHeight: 22, fontWeight: '700' },

@@ -114,9 +114,10 @@ function runSharePlacementChecks() {
   const sharePatterns = [/\bShare\.share\b/, /\bshareTrade\b/, /name="share"/, /trade\.detail\.share/];
 
   for (const file of files) {
+    const normalizedFile = file.replace(/\\/g, '/');
     const content = read(file);
     const hasShareUi = sharePatterns.some((pattern) => pattern.test(content));
-    assert(!hasShareUi || allowedShareFiles.has(file), `Share UI/action should stay only on Trade Detail. Found share-related code in ${file}.`);
+    assert(!hasShareUi || allowedShareFiles.has(normalizedFile), `Share UI/action should stay only on Trade Detail. Found share-related code in ${file}.`);
   }
 
   assertContains('apps/mobile/src/features/trade/TradeDetailScreen.tsx', 'Share.share', 'Trade Detail must keep native share behavior.');

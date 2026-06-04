@@ -392,6 +392,11 @@ export const acceptedDealSnapshotItemSchema = z.object({
   status: z.string().optional(),
   source: z.enum(['trade', 'proposal', 'package']).optional(),
   sortOrder: z.number().int().optional(),
+  side: cashPromiseSideSchema.optional(),
+  amountCents: z.number().int().nonnegative().optional(),
+  currency: z.string().optional(),
+  note: z.string().nullable().optional(),
+  acknowledgementText: z.string().optional(),
   snapshottedAt: z.string().optional(),
 }).passthrough();
 
