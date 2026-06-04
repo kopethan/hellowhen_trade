@@ -6,7 +6,7 @@ import { WebIcon } from '../../components/WebIcon';
 import { getInventoryMetadata, mediaSrc } from '../inventory/inventoryPresentation';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
-type SideMode = 'saved' | 'money';
+type SideMode = 'saved' | 'money' | 'cash_promise';
 type Side = 'need' | 'offer';
 type Inventory = NeedDto | OfferDto;
 
@@ -21,6 +21,7 @@ type TradeSidePickerProps = {
   emptyTitle: string;
   emptyBody: string;
   moneyEnabled?: boolean;
+  cashPromiseEnabled?: boolean;
 };
 
 function InventoryPreview({ item, side }: { item: Inventory; side: Side }) {
@@ -39,7 +40,7 @@ function InventoryPreview({ item, side }: { item: Inventory; side: Side }) {
   );
 }
 
-export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, emptyTitle, emptyBody, moneyEnabled = false }: TradeSidePickerProps) {
+export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, emptyTitle, emptyBody, moneyEnabled = false, cashPromiseEnabled = false }: TradeSidePickerProps) {
   const { t } = useWebTranslation();
   const sideClass = side === 'need' ? 'need' : 'offer';
   const moneyText = side === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
@@ -52,15 +53,16 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
       <div className="trade-side-picker__header">
         <div>
           <p className="eyebrow">{label}</p>
-          <h3>{mode === 'money' ? moneyText : selected ? selected.title : chooseText}</h3>
+          <h3>{mode === 'money' ? moneyText : mode === 'cash_promise' ? t('trade.cashPromise.title') : selected ? selected.title : chooseText}</h3>
         </div>
         <span className={`semantic-badge ${sideClass}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}</span>
       </div>
 
-      {moneyEnabled ? (
+      {moneyEnabled || cashPromiseEnabled ? (
         <div className="trade-side-mode-toggle" role="group" aria-label={`${label} ${t('trade.labels.type')}`}>
           <button type="button" className={mode === 'saved' ? 'is-active' : ''} onClick={() => onModeChange('saved')}>{savedText}</button>
-          <button type="button" className={mode === 'money' ? 'is-active' : ''} onClick={() => onModeChange('money')}>{t('account.walletMoney')}</button>
+          {moneyEnabled ? <button type="button" className={mode === 'money' ? 'is-active' : ''} onClick={() => onModeChange('money')}>{t('account.walletMoney')}</button> : null}
+          {cashPromiseEnabled ? <button type="button" className={mode === 'cash_promise' ? 'is-active' : ''} onClick={() => onModeChange('cash_promise')}>{t('trade.cashPromise.title')}</button> : null}
         </div>
       ) : null}
 
@@ -68,6 +70,11 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
         <div className="trade-side-money-state">
           <strong>{moneyText}</strong>
           <span>{t('account.wallet.optionalWalletBody')}</span>
+        </div>
+      ) : mode === 'cash_promise' && cashPromiseEnabled ? (
+        <div className="trade-side-money-state trade-side-money-state--cash-promise">
+          <strong>{t('trade.cashPromise.title')}</strong>
+          <span>{t('trade.cashPromise.notProcessed')}</span>
         </div>
       ) : selected ? (
         <div className="trade-side-choice-state">

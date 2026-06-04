@@ -170,6 +170,11 @@ enum TradeProposalPackageItemRole {
   supporting
 }
 
+enum CashPromiseSide {
+  need
+  offer
+}
+
 enum TradePublicMessageStatus {
   visible
   hidden
@@ -701,6 +706,9 @@ model User {
   usageHeartbeats UsageHeartbeat[]
   apiRequestMetrics ApiRequestMetric[]
   inAppNotifications InAppNotification[]
+  acceptedDealSnapshotsAsOwner AcceptedDealSnapshot[] @relation("AcceptedDealSnapshotOwner")
+  acceptedDealSnapshotsAsApplicant AcceptedDealSnapshot[] @relation("AcceptedDealSnapshotApplicant")
+  acknowledgedCashPromises CashPromise[] @relation("CashPromiseAcknowledgedBy")
   usernameHistory UsernameHistory[] @relation("UsernameHistoryUser")
   usernameChangesApproved UsernameHistory[] @relation("UsernameHistoryChangedBy")
   reviewedContentClassifications ContentClassification[] @relation("ReviewedContentClassifications")
@@ -1236,6 +1244,8 @@ model Trade {
   proposals TradeProposal[]
   publicMessages TradePublicMessage[]
   ledgerEntries CreditLedgerEntry[]
+  acceptedDealSnapshot AcceptedDealSnapshot?
+  cashPromise CashPromise?
 
   @@index([status, isPublic, createdAt])
   @@index([postType, status, isPublic, createdAt])
@@ -1271,6 +1281,8 @@ model TradeProposal {
   proposedOffer Offer?            @relation("ProposalOffer", fields: [proposedOfferId], references: [id], onDelete: SetNull)
   messages      ProposalMessage[]
   packageItems  TradeProposalPackageItem[]
+  acceptedDealSnapshot AcceptedDealSnapshot?
+  cashPromise CashPromise?
 
   @@index([tradeId, applicantId, status])
   @@index([tradeId, status])
@@ -1298,6 +1310,55 @@ model TradeProposalPackageItem {
   @@index([proposalId, sortOrder])
   @@index([needId])
   @@index([offerId])
+}
+
+
+model AcceptedDealSnapshot {
+  id                    String   @id @default(cuid())
+  tradeId               String   @unique
+  proposalId            String   @unique
+  ownerId               String
+  applicantId           String
+  tradeSnapshotJson     Json
+  proposalSnapshotJson  Json
+  ownerGivesJson        Json
+  ownerReceivesJson     Json
+  applicantGivesJson    Json
+  applicantReceivesJson Json
+  acceptedMessage       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  trade     Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  proposal  TradeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  owner     User          @relation("AcceptedDealSnapshotOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  applicant User          @relation("AcceptedDealSnapshotApplicant", fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, createdAt])
+  @@index([applicantId, createdAt])
+  @@index([createdAt])
+}
+
+model CashPromise {
+  id                 String          @id @default(cuid())
+  tradeId            String?         @unique
+  proposalId         String?         @unique
+  side               CashPromiseSide
+  amountCents        Int
+  currency           String          @default("eur")
+  note               String?
+  acknowledgementText String
+  acknowledgedById   String
+  acknowledgedAt     DateTime
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  trade          Trade?         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  proposal       TradeProposal? @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  acknowledgedBy User          @relation("CashPromiseAcknowledgedBy", fields: [acknowledgedById], references: [id], onDelete: Cascade)
+
+  @@index([acknowledgedById, createdAt])
+  @@index([side, createdAt])
 }
 
 model ProposalMessage {

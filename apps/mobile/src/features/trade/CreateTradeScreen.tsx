@@ -4,12 +4,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { TradeExchangeMode, TradePostType } from '@hellowhen/contracts';
-import { buildGeneratedTradeDisplay, type GeneratedTradeDisplayLabels } from '@hellowhen/shared';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type TradeExchangeMode, type TradePostType } from '@hellowhen/contracts';
+import { buildGeneratedTradeDisplay, formatMoney, type GeneratedTradeDisplayLabels } from '@hellowhen/shared';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
@@ -28,8 +29,10 @@ export type TradeCreateSide = 'need' | 'offer';
 export type TradeCreateSideSelection =
   | { side: 'need'; kind: 'need'; id: string }
   | { side: 'need'; kind: 'money'; amountCents: number; currency: string }
+  | { side: 'need'; kind: 'cash_promise'; amountCents: number; currency: string; note?: string | null; acknowledgementAccepted: true; acknowledgementText?: string }
   | { side: 'offer'; kind: 'offer'; id: string }
-  | { side: 'offer'; kind: 'money'; amountCents: number; currency: string };
+  | { side: 'offer'; kind: 'money'; amountCents: number; currency: string }
+  | { side: 'offer'; kind: 'cash_promise'; amountCents: number; currency: string; note?: string | null; acknowledgementAccepted: true; acknowledgementText?: string };
 export type TradeSidePickerParams = {
   side: TradeCreateSide;
   selection?: TradeCreateSideSelection | null;
@@ -64,8 +67,18 @@ function optionalModeLabel(mode: TradeExchangeMode | null | undefined, t: TFunct
 function needMeta(need: NeedItem | null | undefined, t: TFunction) { return need ? [itemTypeLabel(need.itemType ?? 'service', t), categoryLabel(need.category, t), need.timing, optionalModeLabel(need.mode, t), need.locationLabel].filter(Boolean).join(' · ') : ''; }
 function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return offer ? [itemTypeLabel(offer.itemType ?? 'service', t), categoryLabel(offer.category, t), offer.availability, optionalModeLabel(offer.mode, t), offer.locationLabel].filter(Boolean).join(' · ') : ''; }
 function buildExpiresAt(days: number | null) { if (!days) return undefined; const expiresAt = new Date(); expiresAt.setDate(expiresAt.getDate() + days); return expiresAt.toISOString(); }
-function amountFor(_needSelection: TradeCreateSideSelection | null, _offerSelection: TradeCreateSideSelection | null) { return 0; }
-function currencyFor(_needSelection: TradeCreateSideSelection | null, _offerSelection: TradeCreateSideSelection | null) { return 'eur'; }
+function cashPromiseSelection(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) {
+  if (needSelection?.kind === 'cash_promise') return needSelection;
+  if (offerSelection?.kind === 'cash_promise') return offerSelection;
+  return null;
+}
+function hasTwoCashPromises(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return needSelection?.kind === 'cash_promise' && offerSelection?.kind === 'cash_promise'; }
+function amountFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return cashPromiseSelection(needSelection, offerSelection)?.amountCents ?? 0; }
+function currencyFor(needSelection: TradeCreateSideSelection | null, offerSelection: TradeCreateSideSelection | null) { return cashPromiseSelection(needSelection, offerSelection)?.currency ?? 'eur'; }
+function cashPromiseLabel(selection: TradeCreateSideSelection | null, t: TFunction) {
+  if (selection?.kind !== 'cash_promise') return '';
+  return `${t('trade.cashPromise.title')} · ${formatMoney(selection.amountCents, selection.currency)}`;
+}
 function postTypeLabel(postType: TradePostType | null, t: TFunction) { const option = postTypeOptions.find((item) => item.value === postType); return option ? t(option.labelKey) : t('trade.create.choosePublishType'); }
 function postTypeBody(postType: TradePostType | null, t: TFunction) { const option = postTypeOptions.find((item) => item.value === postType); return option ? t(option.bodyKey) : t('trade.create.chooseKindBody'); }
 function tradeDisplayLabels(t: TFunction): Partial<GeneratedTradeDisplayLabels> {
@@ -85,10 +98,11 @@ function tradeDisplayLabels(t: TFunction): Partial<GeneratedTradeDisplayLabels> 
 
 function buildPreviewTrade({ postType, needSelection, offerSelection, need, offer, amountCents: _amountCents, currency, expiryDays, t }: { postType: TradePostType | null; needSelection: TradeCreateSideSelection | null; offerSelection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; amountCents: number; currency: string; expiryDays: number | null; t: TFunction }): TradeDeckItem {
   const resolvedPostType = postType ?? 'need_offer';
+  const selectedCashPromise = cashPromiseSelection(needSelection, offerSelection);
   const { title, description } = buildGeneratedTradeDisplay({
     postType: resolvedPostType,
-    need,
-    offer,
+    need: needSelection?.kind === 'cash_promise' ? { moneyLabel: cashPromiseLabel(needSelection, t) } : need,
+    offer: offerSelection?.kind === 'cash_promise' ? { moneyLabel: cashPromiseLabel(offerSelection, t) } : offer,
     labels: tradeDisplayLabels(t),
   });
   const createdAt = new Date(0).toISOString();
@@ -97,8 +111,8 @@ function buildPreviewTrade({ postType, needSelection, offerSelection, need, offe
     id: 'draft-trade-preview',
     ownerId: 'preview',
     providerId: null,
-    needId: resolvedPostType === 'open_offer' ? null : need?.id ?? null,
-    offerId: resolvedPostType === 'open_need' ? null : offer?.id ?? null,
+    needId: resolvedPostType === 'open_offer' || needSelection?.kind === 'cash_promise' ? null : need?.id ?? null,
+    offerId: resolvedPostType === 'open_need' || offerSelection?.kind === 'cash_promise' ? null : offer?.id ?? null,
     title,
     description,
     creditAmount: 0,
@@ -118,8 +132,9 @@ function buildPreviewTrade({ postType, needSelection, offerSelection, need, offe
     disputedById: null,
     disputedAt: null,
     disputeTicketId: null,
-    need: resolvedPostType === 'open_offer' ? null : need,
-    offer: resolvedPostType === 'open_need' ? null : offer,
+    need: resolvedPostType === 'open_offer' || needSelection?.kind === 'cash_promise' ? null : need,
+    offer: resolvedPostType === 'open_need' || offerSelection?.kind === 'cash_promise' ? null : offer,
+    cashPromise: selectedCashPromise ? { id: 'preview-cash-promise', tradeId: 'draft-trade-preview', proposalId: null, side: selectedCashPromise.side, amountCents: selectedCashPromise.amountCents, currency: selectedCashPromise.currency, note: selectedCashPromise.note ?? null, acknowledgementText: selectedCashPromise.acknowledgementText ?? CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, acknowledgedById: 'preview', acknowledgedAt: createdAt, createdAt, updatedAt: createdAt } : null,
     media: [],
   };
 }
@@ -163,6 +178,10 @@ export function CreateTradeScreen({ route, navigation }: Props) {
       setError(t('trade.create.validationSavedSidesOnly'));
       return;
     }
+    if (selection.kind === 'cash_promise' && (!betaFeatures.cashPromiseEnabled || !betaFeatures.cashPromiseVisible)) {
+      setError(t('trade.cashPromise.hidden'));
+      return;
+    }
     if (selection.side === 'need') setNeedSelection(selection);
     else setOfferSelection(selection);
   }, [route.params?.selectedTradeSide]);
@@ -202,20 +221,26 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   async function handlePublish() {
     if (submitting) return;
     if (!postType) return setError(t('trade.create.validationNativeKind'));
+    const selectedCashPromise = cashPromiseSelection(needSelection, offerSelection);
+    if (selectedCashPromise && (!betaFeatures.cashPromiseEnabled || !betaFeatures.cashPromiseVisible)) return setError(t('trade.cashPromise.hidden'));
+    if (selectedCashPromise && postType !== 'need_offer') return setError(t('trade.cashPromise.fullTradeOnly'));
+    if (hasTwoCashPromises(needSelection, offerSelection)) return setError(t('trade.cashPromise.oneSideOnly'));
     if (postType !== 'open_offer' && !needSelection) return setError(postType === 'open_need' ? t('trade.create.validationNativeOpenNeed') : t('trade.create.validationNativeNeed'));
     if (postType !== 'open_need' && !offerSelection) return setError(postType === 'open_offer' ? t('trade.create.validationNativeOpenOffer') : t('trade.create.validationNativeOffer'));
-    if (postType !== 'open_offer' && needSelection?.kind !== 'need') return setError(t('trade.create.validationNativeSavedNeed'));
-    if (postType !== 'open_need' && offerSelection?.kind !== 'offer') return setError(t('trade.create.validationNativeSavedOffer'));
+    if (postType !== 'open_offer' && needSelection?.kind !== 'need' && needSelection?.kind !== 'cash_promise') return setError(t('trade.create.validationNativeSavedNeed'));
+    if (postType !== 'open_need' && offerSelection?.kind !== 'offer' && offerSelection?.kind !== 'cash_promise') return setError(t('trade.create.validationNativeSavedOffer'));
 
     setSubmitting(true);
     setError(null);
     try {
+      const cashPromise = selectedCashPromise ? { side: selectedCashPromise.side, amountCents: selectedCashPromise.amountCents, currency: selectedCashPromise.currency, note: selectedCashPromise.note ?? undefined, acknowledgementAccepted: true, acknowledgementText: selectedCashPromise.acknowledgementText ?? CASH_PROMISE_ACKNOWLEDGEMENT_TEXT } satisfies CashPromiseInput : undefined;
       const result = await api.trades.create({
         postType,
         needKind: 'need',
         offerKind: 'offer',
         ...(postType !== 'open_offer' && needSelection?.kind === 'need' ? { needId: needSelection.id } : {}),
         ...(postType !== 'open_need' && offerSelection?.kind === 'offer' ? { offerId: offerSelection.id } : {}),
+        ...(cashPromise ? { cashPromise } : {}),
         creditAmount: 0,
         amountCents: 0,
         currency,
@@ -288,8 +313,9 @@ function SideSelectionCard({ theme, side, title, emptyTitle, emptyBody, selectio
   const { t } = useTranslation();
   const item = need ?? offer;
   const meta = need ? needMeta(need, t) : offer ? offerMeta(offer, t) : '';
-  const isSelected = side === 'need' ? selection?.kind === 'need' : selection?.kind === 'offer';
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><View style={styles.changePill}><AppText style={[styles.changeText, { color: theme.semantic.proposal.bg }]}>{isSelected ? t('common.actions.edit') : t('inventory.labels.selected')}</AppText><MobileIcon name="chevron-right" size={17} color={theme.semantic.proposal.bg} /></View></View>{item ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer')} tone={side === 'need' ? 'need' : 'offer'} size="sm" /><AppText style={styles.selectedTitle} numberOfLines={2}>{item.title}</AppText>{meta ? <AppText style={[styles.selectedMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}<AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText></View> : <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>{emptyTitle}</AppText><AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody}</AppText></View>}</Pressable>;
+  const isCashPromise = selection?.kind === 'cash_promise';
+  const isSelected = isCashPromise || (side === 'need' ? selection?.kind === 'need' : selection?.kind === 'offer');
+  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.sideCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><View style={styles.sideHeaderRow}><AppText style={styles.sectionTitle}>{title}</AppText><View style={styles.changePill}><AppText style={[styles.changeText, { color: theme.semantic.proposal.bg }]}>{isSelected ? t('common.actions.edit') : t('inventory.labels.selected')}</AppText><MobileIcon name="chevron-right" size={17} color={theme.semantic.proposal.bg} /></View></View>{isCashPromise ? <View style={styles.selectedContent}><SemanticBadge label={t('trade.cashPromise.title')} tone="warning" size="sm" /><AppText style={styles.selectedTitle} numberOfLines={2}>{formatMoney(selection.amountCents, selection.currency)}</AppText><AppText style={[styles.selectedMeta, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.notProcessed')}</AppText>{selection.note ? <AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{selection.note}</AppText> : null}</View> : item ? <View style={styles.selectedContent}><SemanticBadge label={side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer')} tone={side === 'need' ? 'need' : 'offer'} size="sm" /><AppText style={styles.selectedTitle} numberOfLines={2}>{item.title}</AppText>{meta ? <AppText style={[styles.selectedMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}<AppText style={[styles.selectedBody, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText></View> : <View style={[styles.emptyBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.emptyTitle}>{emptyTitle}</AppText><AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{emptyBody}</AppText></View>}</Pressable>;
 }
 
 const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 14 }, header: { gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 21, fontWeight: '600' }, postTypeHeader: { gap: 6, marginBottom: 12 }, selectedPostTypeLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' }, postTypeList: { gap: 10 }, postTypeCard: { borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }, postTypeIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, postTypeCopy: { flex: 1, gap: 5 }, postTypeTitle: { fontSize: 18, fontWeight: '900', letterSpacing: -0.25 }, postTypeBody: { lineHeight: 20, fontWeight: '700' }, sideCard: { borderRadius: 28, borderWidth: 1, padding: 18, gap: 14 }, sideHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' }, changePill: { flexDirection: 'row', alignItems: 'center', gap: 2 }, changeText: { fontWeight: '900' }, selectedContent: { gap: 8 }, selectedTitle: { fontSize: 24, fontWeight: '900', letterSpacing: -0.45 }, selectedMeta: { fontSize: 13, fontWeight: '800', lineHeight: 19 }, selectedBody: { lineHeight: 20, fontWeight: '600' }, emptyBox: { borderRadius: 20, borderWidth: 1, borderStyle: 'dashed', padding: 14, gap: 5 }, emptyTitle: { fontWeight: '900' }, emptyBody: { lineHeight: 20, fontWeight: '600' }, expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, expiryButtonText: { fontWeight: '900' }, expiryCallout: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11, marginTop: 2 }, expiryCalloutIcon: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 1 }, expiryCalloutIconText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900', lineHeight: 14 }, expiryCalloutText: { flex: 1, fontSize: 13, fontWeight: '800', lineHeight: 19 }, deckPreviewCard: { paddingHorizontal: 0, overflow: 'visible' }, deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18 }, deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 }, previewHint: { fontSize: 12, fontWeight: '800', lineHeight: 18, textAlign: 'center', paddingHorizontal: 18 }, actions: { gap: 10 }, primaryButton: { borderRadius: 18, paddingVertical: 15, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });

@@ -15,7 +15,9 @@ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitt
 export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
 export const tradeProposalPackageKindSchema = z.enum(['standard', 'main_need_multi_offer', 'main_offer_multi_need']);
 export const tradeProposalPackageItemKindSchema = z.enum(['need', 'offer']);
+export const acceptedDealSnapshotItemKindSchema = z.enum(['need', 'offer', 'cash_promise']);
 export const tradeProposalPackageItemRoleSchema = z.enum(['main', 'supporting']);
+export const cashPromiseSideSchema = z.enum(['need', 'offer']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
 export const discoveryLanguageSchema = z.enum(['en', 'fr']);
@@ -59,6 +61,18 @@ const inventoryTranslationInputSchema = z.object({
   description: z.string().min(INVENTORY_DESCRIPTION_MIN_LENGTH).max(INVENTORY_DESCRIPTION_MAX_LENGTH)
 });
 const inventoryTranslationsInputSchema = z.array(inventoryTranslationInputSchema).max(4).optional();
+
+export const CASH_PROMISE_NOTE_MAX_LENGTH = 500;
+export const CASH_PROMISE_ACKNOWLEDGEMENT_TEXT = 'Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash promise.';
+
+export const cashPromiseInputSchema = z.object({
+  side: cashPromiseSideSchema,
+  amountCents: z.number().int().min(1).max(10000000),
+  currency: z.string().trim().length(3).default('eur'),
+  note: z.string().trim().max(CASH_PROMISE_NOTE_MAX_LENGTH).optional(),
+  acknowledgementAccepted: z.literal(true),
+  acknowledgementText: z.string().trim().min(20).max(500).optional(),
+});
 
 export const inventoryTranslationSchema = z.object({
   id: z.string().optional(),
@@ -104,29 +118,45 @@ export const createTradeRequestSchema = z.object({
   offerKind: tradeOfferSideKindSchema.optional().default('offer'),
   needId: z.string().min(1).optional(),
   offerId: z.string().min(1).optional(),
+  cashPromise: cashPromiseInputSchema.optional(),
   expiresAt: z.string().datetime().optional(),
   // Deprecated for the new mobile create flow. Trade deck images come from the selected Need and Offer.
   mediaIds: z.array(z.string()).max(5).optional()
 }).superRefine((value, ctx) => {
   const needIsMoney = value.needKind === 'money';
   const offerIsMoney = value.offerKind === 'money';
+  const cashPromiseSide = value.cashPromise?.side ?? null;
+  const needIsCashPromise = cashPromiseSide === 'need';
+  const offerIsCashPromise = cashPromiseSide === 'offer';
   const postType = value.postType ?? 'need_offer';
 
   if (needIsMoney && offerIsMoney) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A trade cannot request and offer wallet money at the same time.', path: ['offerKind'] });
   }
+  if (value.cashPromise && postType !== 'need_offer') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Cash Promise can only be used in full Need + Offer trades.', path: ['cashPromise'] });
+  }
+  if (value.cashPromise && (needIsMoney || offerIsMoney || value.amountCents > 0 || value.creditAmount > 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Cash Promise is separate from wallet money and cannot be combined with money fields.', path: ['cashPromise'] });
+  }
+  if (needIsCashPromise && value.needId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Do not choose a saved Need on the Cash Promise side.', path: ['needId'] });
+  }
+  if (offerIsCashPromise && value.offerId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Do not choose a saved Offer on the Cash Promise side.', path: ['offerId'] });
+  }
 
   if (postType === 'need_offer') {
-    if (!needIsMoney && !value.needId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need or select money for I need.', path: ['needId'] });
+    if (!needIsMoney && !needIsCashPromise && !value.needId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Need, select money, or select Cash Promise for I need.', path: ['needId'] });
     }
-    if (!offerIsMoney && !value.offerId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer or select money for I offer.', path: ['offerId'] });
+    if (!offerIsMoney && !offerIsCashPromise && !value.offerId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Choose a saved Offer, select money, or select Cash Promise for I offer.', path: ['offerId'] });
     }
   }
 
   if (postType === 'open_need') {
-    if (needIsMoney) {
+    if (needIsMoney || value.cashPromise) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Need posts must use one of your saved Needs.', path: ['needKind'] });
     }
     if (!value.needId) {
@@ -138,7 +168,7 @@ export const createTradeRequestSchema = z.object({
   }
 
   if (postType === 'open_offer') {
-    if (offerIsMoney) {
+    if (offerIsMoney || value.cashPromise) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Open Offer posts must use one of your saved Offers.', path: ['offerKind'] });
     }
     if (!value.offerId) {
@@ -223,8 +253,20 @@ const tradeProposalPackageRequestFieldsSchema = z.object({
 export const createTradeProposalRequestSchema = z.object({
   message: z.string().min(3).max(1200),
   proposedNeedId: z.string().min(1).optional(),
-  proposedOfferId: z.string().min(1).optional()
-}).merge(tradeProposalPackageRequestFieldsSchema);
+  proposedOfferId: z.string().min(1).optional(),
+  cashPromise: cashPromiseInputSchema.optional()
+}).merge(tradeProposalPackageRequestFieldsSchema).superRefine((value, ctx) => {
+  if (!value.cashPromise) return;
+  if ((value.packageKind && value.packageKind !== 'standard') || value.mainNeedId || value.mainOfferId || value.supportingNeedIds?.length || value.supportingOfferIds?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with proposal packages.' });
+  }
+  if (value.cashPromise.side === 'need' && value.proposedNeedId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Need on the same side.' });
+  }
+  if (value.cashPromise.side === 'offer' && value.proposedOfferId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Offer on the same side.' });
+  }
+});
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
 export const updateProposalMessageRequestSchema = z.object({
   message: z.string().trim().min(3).max(1200).optional(),
@@ -235,6 +277,7 @@ export const updateProposalMessageRequestSchema = z.object({
   mainOfferId: z.string().min(1).nullable().optional(),
   supportingNeedIds: z.array(z.string().min(1)).max(3).nullable().optional(),
   supportingOfferIds: z.array(z.string().min(1)).max(3).nullable().optional(),
+  cashPromise: cashPromiseInputSchema.nullable().optional(),
 }).refine((value) => value.message !== undefined
   || value.proposedNeedId !== undefined
   || value.proposedOfferId !== undefined
@@ -242,7 +285,8 @@ export const updateProposalMessageRequestSchema = z.object({
   || value.mainNeedId !== undefined
   || value.mainOfferId !== undefined
   || value.supportingNeedIds !== undefined
-  || value.supportingOfferIds !== undefined, {
+  || value.supportingOfferIds !== undefined
+  || value.cashPromise !== undefined, {
   message: 'Update the proposal note, proposed item, or package before saving.'
 });
 export const createProposalMessageRequestSchema = z.object({ body: z.string().min(1).max(2000) });
@@ -302,6 +346,21 @@ export const offerSchema = z.object({
   media: z.array(mediaAssetSchema).optional()
 });
 
+export const cashPromiseSchema = z.object({
+  id: z.string(),
+  tradeId: z.string().nullable().optional(),
+  proposalId: z.string().nullable().optional(),
+  side: cashPromiseSideSchema,
+  amountCents: z.number().int(),
+  currency: z.string().optional().default('eur'),
+  note: z.string().nullable().optional(),
+  acknowledgementText: z.string(),
+  acknowledgedById: z.string(),
+  acknowledgedAt: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+
 export const tradeProposalPackageItemSchema = z.object({
   id: z.string(),
   proposalId: z.string(),
@@ -314,6 +373,43 @@ export const tradeProposalPackageItemSchema = z.object({
   updatedAt: z.string().optional(),
   need: needSchema.nullable().optional(),
   offer: offerSchema.nullable().optional(),
+});
+
+export const acceptedDealSnapshotItemSchema = z.object({
+  kind: acceptedDealSnapshotItemKindSchema,
+  id: z.string(),
+  ownerId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  itemType: inventoryItemTypeSchema.optional().default('service'),
+  category: z.string().nullable().optional(),
+  timing: z.string().nullable().optional(),
+  availability: z.string().nullable().optional(),
+  mode: tradeExchangeModeSchema.nullable().optional(),
+  locationLabel: z.string().nullable().optional(),
+  includes: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  status: z.string().optional(),
+  source: z.enum(['trade', 'proposal', 'package']).optional(),
+  sortOrder: z.number().int().optional(),
+  snapshottedAt: z.string().optional(),
+}).passthrough();
+
+export const acceptedDealSnapshotSchema = z.object({
+  id: z.string(),
+  tradeId: z.string(),
+  proposalId: z.string(),
+  ownerId: z.string(),
+  applicantId: z.string(),
+  tradeSnapshotJson: z.record(z.string(), z.unknown()).optional(),
+  proposalSnapshotJson: z.record(z.string(), z.unknown()).optional(),
+  ownerGivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
+  ownerReceivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
+  applicantGivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
+  applicantReceivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
+  acceptedMessage: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
 });
 
 export const inventoryTemplateBusinessProfileSchema = z.object({
@@ -421,6 +517,7 @@ export const tradeSchema = z.object({
   escrow: tradeEscrowSchema.nullable().optional(),
   viewerInvolvement: z.enum(['owner', 'provider', 'applicant']).optional(),
   viewerProposal: tradeViewerProposalSchema.nullable().optional(),
+  cashPromise: cashPromiseSchema.nullable().optional(),
   // Deprecated. Kept for legacy trades/admin compatibility; new deck UI should use need.media and offer.media.
   media: z.array(mediaAssetSchema).optional()
 });
@@ -462,7 +559,9 @@ export const tradeProposalSchema = z.object({
   proposedNeed: needSchema.nullable().optional(),
   proposedOffer: offerSchema.nullable().optional(),
   packageItems: z.array(tradeProposalPackageItemSchema).optional(),
-  messages: z.array(proposalMessageSchema).optional()
+  messages: z.array(proposalMessageSchema).optional(),
+  acceptedDealSnapshot: acceptedDealSnapshotSchema.nullable().optional(),
+  cashPromise: cashPromiseSchema.nullable().optional()
 });
 
 export type NeedDto = z.infer<typeof needSchema>;
@@ -479,6 +578,11 @@ export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
 export type TradeProposalPackageKind = z.infer<typeof tradeProposalPackageKindSchema>;
 export type TradeProposalPackageItemKind = z.infer<typeof tradeProposalPackageItemKindSchema>;
 export type TradeProposalPackageItemRole = z.infer<typeof tradeProposalPackageItemRoleSchema>;
+export type CashPromiseSide = z.infer<typeof cashPromiseSideSchema>;
+export type CashPromiseDto = z.infer<typeof cashPromiseSchema>;
+export type CashPromiseInput = z.infer<typeof cashPromiseInputSchema>;
+export type AcceptedDealSnapshotItemDto = z.infer<typeof acceptedDealSnapshotItemSchema>;
+export type AcceptedDealSnapshotDto = z.infer<typeof acceptedDealSnapshotSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
 export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;

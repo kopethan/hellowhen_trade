@@ -25,7 +25,8 @@
     "mobile:launch-smoke": "node scripts/mobile-launch-smoke.mjs",
     "build:packages": "npm run build -w @hellowhen/contracts && npm run build -w @hellowhen/api-client && npm run build -w @hellowhen/i18n && npm run build -w @hellowhen/shared && npm run build -w @hellowhen/theme && npm run build -w @hellowhen/trade-domain && npm run build -w @hellowhen/ui",
     "build:apps": "npm run build -w @hellowhen/api && npm run build -w @hellowhen/web",
-    "mobile:store-readiness": "npm run mobile:launch-smoke && node scripts/mobile-store-readiness.mjs"
+    "mobile:store-readiness": "npm run mobile:launch-smoke && node scripts/mobile-store-readiness.mjs && npm run cash-promise:safety-smoke",
+    "cash-promise:safety-smoke": "node scripts/cash-promise-safety-smoke.mjs"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

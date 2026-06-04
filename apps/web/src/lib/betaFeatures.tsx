@@ -57,6 +57,8 @@ export const betaFeatures = {
   payoutsVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_PAYOUTS_VISIBLE),
   moneyTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_MONEY_TRADES_ENABLED),
   cashTradesEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_TRADES_ENABLED),
+  cashPromiseEnabled: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_PROMISE_ENABLED),
+  cashPromiseVisible: moneyFeaturesVisible && enabled(process.env.NEXT_PUBLIC_CASH_PROMISE_VISIBLE),
   businessAccountsEnabled,
   businessAccountsVisible: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE),
   businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),

@@ -5,7 +5,7 @@ Use this after `npm run mobile:launch-smoke` and before submitting any first-lau
 First-launch scope stays strict:
 
 ```txt
-No wallet, payouts, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans.
+No wallet, payouts, Cash Promise, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans.
 ```
 
 The app submitted to review should be described as an 18+ service/skill/need/offer exchange with public trades, private proposals, reporting, support, and moderation.
@@ -21,7 +21,7 @@ npm run typecheck
 npm run build
 ```
 
-Do not submit until all four pass locally.
+Do not submit until all four pass locally. `npm run mobile:store-readiness` also runs the Cash Promise store/safety checklist guard.
 
 ## App metadata
 
@@ -127,6 +127,7 @@ Before submission, verify:
 - No push SDK is installed.
 - No mobile ads SDK is installed.
 - No Stripe/Airwallex/payment SDK is installed.
+- Cash Promise store/safety checklist passes and Cash Promise remains hidden for first launch.
 
 ## Store listing assets
 
@@ -148,7 +149,7 @@ Screenshot story should be:
 Discover useful trades → create a Need → create an Offer → send a private proposal → manage account/support safely.
 ```
 
-Avoid screenshots that show hidden wallet, payouts, Pro plans, Plans, ads, admin UI, debug screens, or mock money.
+Avoid screenshots that show hidden wallet, payouts, Cash Promise, Pro plans, Plans, ads, admin UI, debug screens, or mock money.
 
 ## Review notes template
 

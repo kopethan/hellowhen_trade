@@ -87,8 +87,23 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
   }
 
   if (targetType === 'proposal') {
-    const proposal = await prisma.tradeProposal.findUnique({ where: { id: targetId }, include: { applicant: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true } } } });
-    return proposal ? { type: targetType, id: proposal.id, label: proposal.trade?.title ?? 'Proposal', ownerId: proposal.applicantId, owner: proposal.applicant, status: proposal.status, url: proposal.tradeId ? `/trades/${proposal.tradeId}` : null } : null;
+    const proposal = await prisma.tradeProposal.findUnique({
+      where: { id: targetId },
+      include: { applicant: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true, providerId: true, status: true } } },
+    });
+    if (!proposal) return null;
+    const isAcceptedDeal = proposal.status === 'accepted';
+    const tradeStatus = proposal.trade?.status ?? null;
+    return {
+      type: targetType,
+      id: proposal.id,
+      label: `${isAcceptedDeal ? 'Accepted deal' : 'Proposal'}: ${proposal.trade?.title ?? 'Proposal'}`,
+      ownerId: proposal.applicantId,
+      owner: proposal.applicant,
+      status: tradeStatus ? `${proposal.status} · ${tradeStatus}` : proposal.status,
+      isPublic: false,
+      url: proposal.tradeId ? `/trades/${proposal.tradeId}/proposals/${proposal.id}` : null,
+    };
   }
 
   if (targetType === 'message') {
@@ -245,7 +260,12 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
 }
 
 export async function hydrateReports<T extends ReportRecord>(reports: T[]) {
-  const targets = await Promise.all(reports.map((report) => findReportTarget(report.targetType, report.targetId)));
+  const targets = await Promise.all(reports.map(async (report) => {
+    const target = await findReportTarget(report.targetType, report.targetId);
+    if (!target || report.targetType !== 'proposal' || !report.targetOwnerId || target.ownerId === report.targetOwnerId) return target;
+    const counterparty = await prisma.user.findUnique({ where: { id: report.targetOwnerId }, select: reportUserSelect });
+    return { ...target, ownerId: report.targetOwnerId, owner: counterparty ?? target.owner };
+  }));
   return reports.map((report, index) => ({ ...report, target: targets[index] ?? null }));
 }
 

@@ -1,0 +1,567 @@
+diff --git a/apps/api/src/modules/proposals/proposals.routes.ts b/apps/api/src/modules/proposals/proposals.routes.ts
+index 8155184..49aa80f 100644
+--- a/apps/api/src/modules/proposals/proposals.routes.ts
++++ b/apps/api/src/modules/proposals/proposals.routes.ts
+@@ -1,13 +1,13 @@
+ import { Router, type Response } from 'express';
+-import { createProposalMessageRequestSchema, updateProposalMessageRequestSchema, updateProposalPrivateMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
++import { createDealProblemReportRequestSchema, createProposalMessageRequestSchema, updateProposalMessageRequestSchema, updateProposalPrivateMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+-import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
++import { holdOwnerCreditsForProposal, proposalInclude, tradeInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from './proposalPackages.js';
+-import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn } from '../notifications/notifications.service.js';
++import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
+ 
+ export const proposalsRoutes = Router();
+ proposalsRoutes.use(requireAuth);
+@@ -28,6 +28,47 @@ function conversationLocked(proposal: { status: string; trade: { status: string
+   return proposal.status !== 'pending' || ['cancelled', 'closed'].includes(proposal.trade.status);
+ }
+ 
++
++function participantRoleForDealProblem(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) {
++  if (actorId === proposal.trade.ownerId) return 'owner';
++  if (actorId === proposal.applicantId) return 'applicant';
++  if (actorId === proposal.trade.providerId) return 'provider';
++  return 'participant';
++}
++
++function truncateReportDetails(value: string) {
++  const trimmed = value.trim();
++  return trimmed.length <= 2000 ? trimmed : `${trimmed.slice(0, 1997)}…`;
++}
++
++function buildDealProblemReportDetails(input: {
++  details: string;
++  reporterRole: string;
++  tradeId: string;
++  tradeTitle: string;
++  tradeStatus: string;
++  proposalId: string;
++  proposalStatus: string;
++  counterpartyId: string | null;
++}) {
++  return truncateReportDetails([
++    'Accepted deal problem report',
++    '',
++    `Reporter role: ${input.reporterRole}`,
++    input.counterpartyId ? `Counterparty user ID: ${input.counterpartyId}` : null,
++    `Trade: ${input.tradeTitle}`,
++    `Trade ID: ${input.tradeId}`,
++    `Trade status when reported: ${input.tradeStatus}`,
++    `Proposal ID: ${input.proposalId}`,
++    `Proposal status: ${input.proposalStatus}`,
++    '',
++    'Problem summary:',
++    input.details.trim(),
++    '',
++    'Context: created from the private Deal workspace. Keep evidence and important details in the proposal conversation.',
++  ].filter(Boolean).join('\n'));
++}
++
+ async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; trade: { postType?: string | null } }) {
+   const requiredSide = proposalSideRequirement(proposal.trade.postType);
+   const nextNeedProvided = Object.prototype.hasOwnProperty.call(input, 'proposedNeedId');
+@@ -79,6 +120,67 @@ proposalsRoutes.get('/:proposalId', asyncRoute(async (req, res) => {
+   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+   res.json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
+ }));
++
++proposalsRoutes.post('/:proposalId/problem-report', requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = createDealProblemReportRequestSchema.parse(req.body ?? {});
++  const actorId = req.user!.id;
++  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: proposalInclude });
++  if (!proposal) return res.status(404).json({ error: 'not_found' });
++  if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
++  if (proposal.status !== 'accepted') return res.status(409).json({ error: 'proposal_not_accepted', message: 'Only accepted proposals can be reported from the Deal workspace.' });
++  if (!['in_progress', 'submitted', 'disputed'].includes(proposal.trade.status)) return res.status(409).json({ error: 'deal_not_reportable', message: 'This deal is not open for problem reporting.' });
++  if (await usersHaveBlockBetween(actorId, otherProposalMemberId(proposal, actorId))) return res.status(403).json({ error: 'user_blocked', message: 'This conversation is not available because one member has blocked the other.' });
++
++  const counterpartyId = otherProposalMemberId(proposal, actorId);
++  const reporterRole = participantRoleForDealProblem(proposal, actorId);
++  const details = buildDealProblemReportDetails({
++    details: input.details,
++    reporterRole,
++    tradeId: proposal.tradeId,
++    tradeTitle: proposal.trade.title,
++    tradeStatus: proposal.trade.status,
++    proposalId: proposal.id,
++    proposalStatus: proposal.status,
++    counterpartyId,
++  });
++  const now = new Date();
++
++  const result = await prisma.$transaction(async (tx: any) => {
++    const existingReport = await tx.report.findFirst({
++      where: { reporterId: actorId, targetType: 'proposal', targetId: proposal.id, status: { in: ['pending', 'reviewing'] } },
++      include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
++    });
++    const report = existingReport
++      ? await tx.report.update({
++        where: { id: existingReport.id },
++        data: { reason: input.reason, details, targetOwnerId: counterpartyId },
++        include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
++      })
++      : await tx.report.create({
++        data: { reporterId: actorId, targetType: 'proposal', targetId: proposal.id, targetOwnerId: counterpartyId, reason: input.reason, details },
++        include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
++      });
++
++    const trade = proposal.trade.status === 'disputed'
++      ? proposal.trade
++      : await tx.trade.update({ where: { id: proposal.tradeId }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: now }, include: tradeInclude });
++    const updatedProposal = await tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
++    return { report, proposal: updatedProposal, trade, duplicate: Boolean(existingReport) };
++  });
++
++  try {
++    await notifyTradeStatusUpdated(prisma, { recipientIds: [proposal.trade.ownerId, proposal.trade.providerId], actorId, tradeId: proposal.tradeId, tradeTitle: proposal.trade.title, status: 'disputed', proposalId: proposal.id });
++  } catch {
++    // Internal notifications should not block problem reports.
++  }
++
++  return res.status(result.duplicate ? 200 : 201).json({
++    report: result.report,
++    duplicate: result.duplicate,
++    proposal: (await withProposalTradeMedia([result.proposal], 'owner'))[0],
++    trade: await withOneTradeDeckMedia(result.trade, 'owner'),
++  });
++}));
+ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updateProposalStatusRequestSchema.parse(req.body);
+   const actorId = req.user!.id;
+diff --git a/apps/api/src/modules/reports/reports.routes.ts b/apps/api/src/modules/reports/reports.routes.ts
+index 4aa73eb..7c0786f 100644
+--- a/apps/api/src/modules/reports/reports.routes.ts
++++ b/apps/api/src/modules/reports/reports.routes.ts
+@@ -87,8 +87,23 @@ export async function findReportTarget(targetType: ReportTargetType, targetId: s
+   }
+ 
+   if (targetType === 'proposal') {
+-    const proposal = await prisma.tradeProposal.findUnique({ where: { id: targetId }, include: { applicant: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true } } } });
+-    return proposal ? { type: targetType, id: proposal.id, label: proposal.trade?.title ?? 'Proposal', ownerId: proposal.applicantId, owner: proposal.applicant, status: proposal.status, url: proposal.tradeId ? `/trades/${proposal.tradeId}` : null } : null;
++    const proposal = await prisma.tradeProposal.findUnique({
++      where: { id: targetId },
++      include: { applicant: { select: reportUserSelect }, trade: { select: { id: true, title: true, ownerId: true, providerId: true, status: true } } },
++    });
++    if (!proposal) return null;
++    const isAcceptedDeal = proposal.status === 'accepted';
++    const tradeStatus = proposal.trade?.status ?? null;
++    return {
++      type: targetType,
++      id: proposal.id,
++      label: `${isAcceptedDeal ? 'Accepted deal' : 'Proposal'}: ${proposal.trade?.title ?? 'Proposal'}`,
++      ownerId: proposal.applicantId,
++      owner: proposal.applicant,
++      status: tradeStatus ? `${proposal.status} · ${tradeStatus}` : proposal.status,
++      isPublic: false,
++      url: proposal.tradeId ? `/trades/${proposal.tradeId}/proposals/${proposal.id}` : null,
++    };
+   }
+ 
+   if (targetType === 'message') {
+@@ -245,7 +260,12 @@ async function canReportTarget(actorId: string, target: ReportTargetSummary): Pr
+ }
+ 
+ export async function hydrateReports<T extends ReportRecord>(reports: T[]) {
+-  const targets = await Promise.all(reports.map((report) => findReportTarget(report.targetType, report.targetId)));
++  const targets = await Promise.all(reports.map(async (report) => {
++    const target = await findReportTarget(report.targetType, report.targetId);
++    if (!target || report.targetType !== 'proposal' || !report.targetOwnerId || target.ownerId === report.targetOwnerId) return target;
++    const counterparty = await prisma.user.findUnique({ where: { id: report.targetOwnerId }, select: reportUserSelect });
++    return { ...target, ownerId: report.targetOwnerId, owner: counterparty ?? target.owner };
++  }));
+   return reports.map((report, index) => ({ ...report, target: targets[index] ?? null }));
+ }
+ 
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index d9fb36d..dd92779 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -24,6 +24,7 @@ import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProp
+ type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
+ type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
+ type TradeStatusResponse = { trade?: TradeDeckItem };
++type DealProblemReportResponse = { proposal?: TradeProposalItem; trade?: TradeDeckItem; duplicate?: boolean };
+ type MessagesResponse = { messages: ProposalMessageItem[] };
+ type MessageMutationResponse = { message?: ProposalMessageItem; proposal?: TradeProposalItem };
+ type NeedsResponse = { needs: NeedItem[] };
+@@ -33,7 +34,7 @@ type ProposalSideKind = 'need' | 'offer';
+ type RequiredProposalSide = ProposalSideKind | null;
+ type ProposalSideItem = NeedItem | OfferItem;
+ type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
+-type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | null;
++type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | 'deal-report' | null;
+ type ProposalActionSheet =
+   | { type: 'status'; status: ProposalActionStatus }
+   | { type: 'message-options'; message: ProposalMessageItem }
+@@ -221,6 +222,9 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const [cancelTradeOpen, setCancelTradeOpen] = useState(false);
+   const [cancelReason, setCancelReason] = useState('');
+   const [cancelError, setCancelError] = useState<string | null>(null);
++  const [problemReportOpen, setProblemReportOpen] = useState(false);
++  const [problemSummary, setProblemSummary] = useState('');
++  const [problemError, setProblemError] = useState<string | null>(null);
+   const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
+   const loadRequestIdRef = useRef(0);
+ 
+@@ -549,6 +553,33 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     }
+   }
+ 
++  async function submitDealProblemReport() {
++    if (!proposal || actionLoading) return;
++    const details = problemSummary.trim();
++    setProblemError(null);
++    if (details.length < 3) {
++      setProblemError(t('trade.deal.problemReportSummaryRequired'));
++      return;
++    }
++    setActionLoading('deal-report');
++    setError(null);
++    setNotice(null);
++    try {
++      const result = await api.proposals.reportProblem(proposal.id, { reason: 'other', details }) as DealProblemReportResponse;
++      if (result.proposal) setProposal(result.proposal);
++      else if (result.trade) setProposal((current) => current ? { ...current, trade: result.trade } : current);
++      setProblemReportOpen(false);
++      setProblemSummary('');
++      setProblemError(null);
++      setNotice(result.duplicate ? t('trade.deal.problemReportUpdated') : t('trade.deal.problemReportSent'));
++      await refreshConversation();
++    } catch (caughtError) {
++      setProblemError(getFriendlyApiErrorMessage(caughtError, t('trade.deal.problemReportCouldNotSend')));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
+   async function cancelAcceptedTrade() {
+     if (!proposal?.trade?.id || actionLoading) return;
+     const reason = cancelReason.trim();
+@@ -696,7 +727,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+                 actionLoading={actionLoading}
+                 onMarkSubmitted={() => { void updateAcceptedTradeStatus('submitted'); }}
+                 onConfirmCompleted={() => { void updateAcceptedTradeStatus('completed'); }}
+-                onReportProblem={() => { void updateAcceptedTradeStatus('disputed'); }}
++                onReportProblem={() => setProblemReportOpen(true)}
+                 onOpenCancelTrade={() => setCancelTradeOpen(true)}
+                 onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
+                 onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
+@@ -780,6 +811,18 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+             </View>
+           )}
+ 
++
++          <ProblemReportSheet
++            visible={problemReportOpen}
++            summary={problemSummary}
++            error={problemError}
++            loading={actionLoading === 'deal-report'}
++            onChangeSummary={(text) => { setProblemSummary(text); if (problemError) setProblemError(null); }}
++            onCancel={() => { if (actionLoading) return; setProblemReportOpen(false); setProblemSummary(''); setProblemError(null); }}
++            onSubmit={() => { void submitDealProblemReport(); }}
++            t={t}
++          />
++
+           <ProposalDetailsSheet
+             visible={detailsOpen}
+             proposal={proposal}
+@@ -949,7 +992,7 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+         <View style={styles.actionRowWrap}>
+           {canMarkSubmitted ? <SmallActionButton label={actionLoading === 'submitted' ? t('common.states.working') : t('trade.detail.markDelivered')} onPress={onMarkSubmitted} disabled={Boolean(actionLoading)} /> : null}
+           {canConfirmCompleted ? <SmallActionButton label={actionLoading === 'completed' ? t('common.states.working') : t('trade.detail.confirmCompleted')} onPress={onConfirmCompleted} disabled={Boolean(actionLoading)} /> : null}
+-          {canReportProblem ? <SmallActionButton label={actionLoading === 'disputed' ? t('common.states.working') : t('trade.detail.reportProblem')} onPress={onReportProblem} disabled={Boolean(actionLoading)} danger /> : null}
++          {canReportProblem ? <SmallActionButton label={actionLoading === 'deal-report' ? t('common.states.working') : t('trade.detail.reportProblem')} onPress={onReportProblem} disabled={Boolean(actionLoading)} danger /> : null}
+           {canCancelAcceptedTrade ? cancelTradeOpen ? null : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
+         </View>
+         {cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : null}
+@@ -1344,6 +1387,46 @@ function DetailRow({ label, value }: { label: string; value: string }) {
+   return <View style={[styles.detailRow, { borderBottomColor: theme.color.border }]}><AppText style={[styles.detailLabel, { color: theme.color.muted }]}>{label}</AppText><AppText style={styles.detailValue}>{value}</AppText></View>;
+ }
+ 
++
++function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary, onCancel, onSubmit, t }: { visible: boolean; summary: string; error: string | null; loading: boolean; onChangeSummary: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
++  const theme = useThemeTokens();
++  return (
++    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
++      <View style={styles.modalRoot}>
++        <Pressable style={styles.modalBackdrop} onPress={onCancel} />
++        <View style={[styles.problemSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++          <View style={styles.sheetHandle} />
++          <View style={styles.problemSheetHeader}>
++            <View style={[styles.problemSheetIcon, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
++              <MobileIcon name="warning" size={22} color={theme.semantic.danger.text} decorative />
++            </View>
++            <View style={styles.problemSheetCopy}>
++              <SemanticBadge label={t('trade.deal.problemReportBadge')} tone="danger" size="sm" />
++              <AppText style={styles.problemSheetTitle}>{t('trade.deal.problemReportTitle')}</AppText>
++              <AppText style={[styles.problemSheetBody, { color: theme.color.muted }]}>{t('trade.deal.problemReportBody')}</AppText>
++            </View>
++          </View>
++          <InfoNotice tone="warning" title={t('trade.deal.problemReportEvidenceTitle')} body={t('trade.deal.problemReportEvidenceBody')} />
++          <TextInput
++            value={summary}
++            onChangeText={onChangeSummary}
++            multiline
++            textAlignVertical="top"
++            placeholder={t('trade.deal.problemReportPlaceholder')}
++            placeholderTextColor={theme.color.muted}
++            style={[styles.problemTextArea, { backgroundColor: theme.color.subtleSurface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
++          />
++          {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
++          <View style={styles.inlineActions}>
++            <SmallActionButton label={loading ? t('common.states.working') : t('trade.deal.problemReportSubmit')} onPress={onSubmit} disabled={loading} danger />
++            <SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={loading} muted />
++          </View>
++        </View>
++      </View>
++    </Modal>
++  );
++}
++
+ function CancelTradeForm({ reason, error, loading, onChangeReason, onCancel, onSubmit, t }: { reason: string; error: string | null; loading: boolean; onChangeReason: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
+   const theme = useThemeTokens();
+   return <View style={[styles.cancelBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.cancelTitle}>{t('trade.proposals.cancelAcceptedTradeTitle')}</AppText><AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.cancelAcceptedTradeBody')}</AppText><TextInput value={reason} onChangeText={onChangeReason} multiline placeholder={t('trade.proposals.cancelReasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={loading ? t('trade.proposals.cancellingTrade') : t('trade.proposals.cancelAcceptedTradeAction')} onPress={onSubmit} disabled={loading} danger /><SmallActionButton label={t('trade.proposals.keepAcceptedTrade')} onPress={onCancel} disabled={loading} muted /></View></View>;
+@@ -1498,6 +1581,13 @@ const styles = StyleSheet.create({
+   actionText: { fontWeight: '900' },
+   primaryText: { color: '#FFFFFF' },
+   dangerText: { color: '#991B1B' },
++  problemSheet: { borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, borderBottomWidth: 0, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 24, gap: 14 },
++  problemSheetHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
++  problemSheetIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  problemSheetCopy: { flex: 1, gap: 6 },
++  problemSheetTitle: { fontSize: 22, lineHeight: 27, fontWeight: '900', letterSpacing: -0.35 },
++  problemSheetBody: { lineHeight: 20, fontWeight: '700' },
++  problemTextArea: { minHeight: 128, borderRadius: 18, borderWidth: 1, padding: 13, fontSize: 16, lineHeight: 22, fontWeight: '600' },
+   cancelBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 10 },
+   cancelTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900' },
+   muted: { lineHeight: 20, fontWeight: '700' },
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 359656b..a2562c7 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -25,6 +25,7 @@ const MESSAGE_REFRESH_INTERVAL_MS = 3000;
+ 
+ type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
+ type TradeStatusResponse = { trade?: TradeDto };
++type DealProblemReportResponse = { proposal?: TradeProposalDto; trade?: TradeDto; duplicate?: boolean };
+ type ProposalMessageResponse = {
+   message?: ProposalMessageDto;
+   proposal?: TradeProposalDto;
+@@ -507,7 +508,7 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+         <div className="proposal-card__actions proposal-detail-actions">
+           {canMarkSubmitted ? <button type="button" onClick={onMarkSubmitted} disabled={Boolean(actionLoading)}>{actionLoading === "submitted" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.markDelivered", "Mark delivered")}</button> : null}
+           {canConfirmCompleted ? <button type="button" onClick={onConfirmCompleted} disabled={Boolean(actionLoading)}>{actionLoading === "completed" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.confirmCompleted", "Confirm completed")}</button> : null}
+-          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={onReportProblem} disabled={Boolean(actionLoading)}>{actionLoading === "disputed" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.reportProblem", "Report problem")}</button> : null}
++          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={onReportProblem} disabled={Boolean(actionLoading)}>{actionLoading === "deal-report" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.reportProblem", "Report problem")}</button> : null}
+           {canCancelAcceptedTrade ? <button type="button" className="secondary danger-text" onClick={onOpenCancel} disabled={Boolean(actionLoading)}>{tr(i18n, "trade.proposals.cancelAcceptedTrade", "Cancel accepted trade")}</button> : null}
+         </div>
+       </div>
+@@ -637,6 +638,9 @@ export function ProposalConversationClient({
+   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+   const [cancelReason, setCancelReason] = useState("");
+   const [cancelError, setCancelError] = useState<string | null>(null);
++  const [problemReportOpen, setProblemReportOpen] = useState(false);
++  const [problemSummary, setProblemSummary] = useState("");
++  const [problemError, setProblemError] = useState<string | null>(null);
+   const [editingProposal, setEditingProposal] = useState(false);
+   const [proposalDraft, setProposalDraft] = useState("");
+   const [proposalEditError, setProposalEditError] = useState<string | null>(null);
+@@ -880,6 +884,34 @@ export function ProposalConversationClient({
+     }
+   }
+ 
++  async function submitDealProblemReport(event: FormEvent<HTMLFormElement>) {
++    event.preventDefault();
++    if (!proposal) return;
++    const details = problemSummary.trim();
++    setProblemError(null);
++    if (details.length < 3) {
++      setProblemError(t("trade.deal.problemReportSummaryRequired"));
++      return;
++    }
++    setActionLoading("deal-report");
++    setNotice(null);
++    try {
++      const response = await api.proposals.reportProblem(proposal.id, { reason: "other", details }) as DealProblemReportResponse;
++      if (response.proposal) setProposal(response.proposal);
++      else if (response.trade) setProposal((current) => current ? { ...current, trade: response.trade } : current);
++      setProblemReportOpen(false);
++      setProblemSummary("");
++      setProblemError(null);
++      setNotice(response.duplicate ? t("trade.deal.problemReportUpdated") : t("trade.deal.problemReportSent"));
++      await loadProposal({ quiet: true });
++      await loadMessages({ quiet: true });
++    } catch {
++      setProblemError(t("trade.deal.problemReportCouldNotSend"));
++    } finally {
++      setActionLoading(null);
++    }
++  }
++
+   async function cancelAcceptedTrade(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     if (!proposal?.trade) return;
+@@ -1270,6 +1302,58 @@ export function ProposalConversationClient({
+         </div>
+       ) : null}
+ 
++
++      {problemReportOpen ? (
++        <div
++          className="proposal-confirm-modal"
++          role="dialog"
++          aria-modal="true"
++          aria-labelledby="deal-problem-report-title"
++        >
++          <form className="proposal-confirm-modal__panel" onSubmit={submitDealProblemReport}>
++            <span className="semantic-badge danger">
++              <WebIcon name="warning" size={14} decorative /> {t("trade.deal.problemReportBadge")}
++            </span>
++            <h2 id="deal-problem-report-title">{t("trade.deal.problemReportTitle")}</h2>
++            <p>{t("trade.deal.problemReportBody")}</p>
++            <p className="notice-box warning"><strong>{t("trade.deal.problemReportEvidenceTitle")}</strong><br />{t("trade.deal.problemReportEvidenceBody")}</p>
++            <label className="field-label">
++              {t("trade.deal.problemReportSummaryLabel")}
++              <textarea
++                value={problemSummary}
++                onChange={(event) => {
++                  setProblemSummary(event.target.value);
++                  if (problemError) setProblemError(null);
++                }}
++                placeholder={t("trade.deal.problemReportPlaceholder")}
++                rows={4}
++                aria-invalid={Boolean(problemError)}
++                aria-describedby={problemError ? "deal-problem-report-error" : undefined}
++              />
++            </label>
++            {problemError ? <p id="deal-problem-report-error" className="field-error" role="alert">{problemError}</p> : null}
++            <div className="proposal-confirm-modal__actions">
++              <button
++                type="button"
++                className="secondary"
++                onClick={() => {
++                  if (actionLoading) return;
++                  setProblemReportOpen(false);
++                  setProblemSummary("");
++                  setProblemError(null);
++                }}
++                disabled={Boolean(actionLoading)}
++              >
++                {t("common.actions.cancel")}
++              </button>
++              <button type="submit" className="danger" disabled={Boolean(actionLoading)}>
++                {actionLoading === "deal-report" ? t("common.states.working") : t("trade.deal.problemReportSubmit")}
++              </button>
++            </div>
++          </form>
++        </div>
++      ) : null}
++
+       {deleteConfirmTarget ? (
+         <div
+           className="proposal-confirm-modal"
+@@ -1366,7 +1450,7 @@ export function ProposalConversationClient({
+             actionLoading={actionLoading}
+             onMarkSubmitted={() => void updateAcceptedTradeStatus("submitted")}
+             onConfirmCompleted={() => void updateAcceptedTradeStatus("completed")}
+-            onReportProblem={() => void updateAcceptedTradeStatus("disputed")}
++            onReportProblem={() => setProblemReportOpen(true)}
+             onOpenCancel={() => setCancelConfirmOpen(true)}
+             i18n={i18n}
+           />
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index d896376..8999290 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -73,7 +73,7 @@ export function createApiClient(options: ApiClientOptions) {
+     usage: { heartbeat: (body: UsageHeartbeatRequest) => requestJson<void>(options, '/usage/heartbeat', { method: 'POST', body: JSON.stringify(body) }) },
+ 
+     trades: { feed: (query?: Record<string, unknown>) => requestJson(options, `/trades/feed${buildQueryString(query)}`), get: (tradeId: string) => requestJson(options, `/trades/${tradeId}`), create: (body: CreateTradeRequest) => requestJson(options, '/trades', { method: 'POST', body: JSON.stringify(body) }), updateStatus: (tradeId: string, body: UpdateTradeStatusRequest) => requestJson(options, `/trades/${tradeId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), close: (tradeId: string) => requestJson(options, `/trades/${tradeId}/close`, { method: 'POST' }), renew: (tradeId: string, body?: RenewTradeRequest) => requestJson(options, `/trades/${tradeId}/renew`, { method: 'POST', body: JSON.stringify(body ?? {}) }), remove: (tradeId: string) => requestJson(options, `/trades/${tradeId}`, { method: 'DELETE' }), mine: (query?: Record<string, unknown>) => requestJson(options, `/trades/mine${buildQueryString(query)}`), proposals: (tradeId: string) => requestJson(options, `/trades/${tradeId}/proposals`), createProposal: (tradeId: string, body: CreateTradeProposalRequest) => requestJson(options, `/trades/${tradeId}/proposals`, { method: 'POST', body: JSON.stringify(body) }), publicMessages: (tradeId: string, query?: Record<string, unknown>) => requestJson(options, `/trades/${tradeId}/public-messages${buildQueryString(query)}`), sendPublicMessage: (tradeId: string, body: CreateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages`, { method: 'POST', body: JSON.stringify(body) }), updatePublicMessage: (tradeId: string, messageId: string, body: UpdateTradePublicMessageRequest) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePublicMessage: (tradeId: string, messageId: string) => requestJson(options, `/trades/${tradeId}/public-messages/${messageId}`, { method: 'DELETE' }) },
+-    proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }) },
++    proposals: { mine: () => requestJson(options, '/proposals/mine'), get: (proposalId: string) => requestJson(options, `/proposals/${proposalId}`), updateStatus: (proposalId: string, body: UpdateProposalStatusRequest) => requestJson(options, `/proposals/${proposalId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), updateMessage: (proposalId: string, body: UpdateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'PATCH', body: JSON.stringify(body) }), deleteMessage: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/message`, { method: 'DELETE' }), messages: (proposalId: string) => requestJson(options, `/proposals/${proposalId}/messages`), sendMessage: (proposalId: string, body: CreateProposalMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages`, { method: 'POST', body: JSON.stringify(body) }), updatePrivateMessage: (proposalId: string, messageId: string, body: UpdateProposalPrivateMessageRequest) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'PATCH', body: JSON.stringify(body) }), deletePrivateMessage: (proposalId: string, messageId: string) => requestJson(options, `/proposals/${proposalId}/messages/${messageId}`, { method: 'DELETE' }), reportProblem: (proposalId: string, body: CreateDealProblemReportRequest) => requestJson(options, `/proposals/${proposalId}/problem-report`, { method: 'POST', body: JSON.stringify(body) }) },
+     notifications: { mine: (query?: ListNotificationsQuery) => requestJson<NotificationsResponse>(options, `/notifications/mine${buildQueryString(query as Record<string, unknown> | undefined)}`), unreadCount: () => requestJson<NotificationUnreadCountResponse>(options, '/notifications/unread-count'), markRead: (notificationId: string) => requestJson<NotificationResponse>(options, `/notifications/${notificationId}/read`, { method: 'PATCH' }), markAllRead: () => requestJson<MarkAllNotificationsReadResponse>(options, '/notifications/mark-all-read', { method: 'PATCH' }) },
+     media: { uploadImage: (formData: FormData) => requestFormData(options, '/media/image', formData), remove: (mediaId: string) => requestJson(options, `/media/${mediaId}`, { method: 'DELETE' }) },
+     admin: { overview: () => requestJson<AdminOverviewResponse>(options, '/admin/overview'), reports: (query = '') => requestJson(options, `/admin/reports${query}`), updateReportAction: (reportId: string, body: AdminReportActionRequest) => requestJson(options, `/admin/reports/${reportId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), usage: () => requestJson(options, '/admin/usage'), moneySafety: () => requestJson(options, '/admin/money-safety'), businessProfiles: (query?: string) => requestJson(options, `/admin/business-profiles${query ?? ''}`), updateBusinessProfileAction: (businessProfileId: string, body: AdminBusinessProfileActionRequest) => requestJson(options, `/admin/business-profiles/${businessProfileId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessSponsoredPlacements: (query?: string) => requestJson(options, `/admin/business-sponsored-placements${query ?? ''}`), updateBusinessSponsoredPlacementAction: (placementId: string, body: AdminBusinessSponsoredPlacementActionRequest) => requestJson(options, `/admin/business-sponsored-placements/${placementId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessCampaigns: (query?: string) => requestJson(options, `/admin/business-campaigns${query ?? ''}`), updateBusinessCampaignAction: (campaignId: string, body: AdminBusinessCampaignActionRequest) => requestJson(options, `/admin/business-campaigns/${campaignId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), businessBudgets: (query?: string) => requestJson(options, `/admin/business-budgets${query ?? ''}`), updateBusinessBudgetAction: (budgetId: string, body: AdminBusinessBudgetActionRequest) => requestJson(options, `/admin/business-budgets/${budgetId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), updateLibraryTemplateAction: (templateId: string, body: { action: 'approve' | 'reject' | 'hide' | 'restore'; note?: string }) => requestJson(options, `/admin/library/${templateId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), media: (status?: string) => requestJson(options, `/admin/media${status ? `?status=${encodeURIComponent(status)}` : ''}`), updateMediaStatus: (mediaId: string, body: UpdateMediaStatusRequest) => requestJson(options, `/admin/media/${mediaId}/status`, { method: 'PATCH', body: JSON.stringify(body) }), creditPurchases: (status?: string) => requestJson(options, `/admin/credits/purchases${status ? `?status=${encodeURIComponent(status)}` : ''}`), supportTickets: (query = '') => requestJson(options, `/admin/support/tickets${query}`), supportTicket: (ticketId: string) => requestJson(options, `/admin/support/tickets/${ticketId}`), updateSupportTicket: (ticketId: string, body: AdminUpdateSupportTicketRequest) => requestJson(options, `/admin/support/tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(body) }), sendSupportMessage: (ticketId: string, body: AdminCreateSupportMessageRequest) => requestJson(options, `/admin/support/tickets/${ticketId}/messages`, { method: 'POST', body: JSON.stringify(body) }), users: () => requestJson(options, '/admin/users'), updateUserTrustTier: (userId: string, body: AdminUpdateTrustTierRequest) => requestJson(options, `/admin/users/${userId}/trust-tier`, { method: 'PATCH', body: JSON.stringify(body) }), payouts: (query?: string) => requestJson(options, `/admin/payouts${query ?? ''}`), payoutDetails: (payoutId: string) => requestJson(options, `/admin/payouts/${payoutId}`), updatePayoutAction: (payoutId: string, body: AdminPayoutActionRequest) => requestJson(options, `/admin/payouts/${payoutId}/action`, { method: 'PATCH', body: JSON.stringify(body) }), syncProviderPayout: (payoutId: string, body?: { scaToken?: string }) => requestJson(options, `/admin/payouts/${payoutId}/provider-sync`, { method: 'POST', body: JSON.stringify(body ?? {}) }), tradeDisputes: () => requestJson(options, '/admin/trades/disputes'), resolveTradeDispute: (tradeId: string, body: AdminTradeDisputeActionRequest) => requestJson(options, `/admin/trades/${tradeId}/dispute`, { method: 'PATCH', body: JSON.stringify(body) }), stripeConnectAccounts: () => requestJson(options, '/admin/stripe/connect-accounts'), stripeEvents: () => requestJson(options, '/admin/stripe/events'), moneyProviderAccounts: () => requestJson(options, '/admin/money/provider-accounts'), moneyProviderEvents: () => requestJson(options, '/admin/money/provider-events'), moneyProviderBalances: () => requestJson(options, '/admin/money/provider-balances'), moneyProviderTransactions: () => requestJson(options, '/admin/money/provider-transactions'), syncMoneyProviderBalances: (accountId: string, body?: MoneyProviderWalletBalancesSyncRequest) => requestJson(options, `/admin/money/provider-accounts/${accountId}/sync-balances`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
+diff --git a/packages/contracts/src/reports.ts b/packages/contracts/src/reports.ts
+index 74d1b70..80958cc 100644
+--- a/packages/contracts/src/reports.ts
++++ b/packages/contracts/src/reports.ts
+@@ -29,6 +29,11 @@ export const createReportRequestSchema = z.object({
+   details: z.string().trim().min(3).max(2000).optional(),
+ });
+ 
++export const createDealProblemReportRequestSchema = z.object({
++  reason: reportReasonSchema.optional().default('other'),
++  details: z.string().trim().min(3).max(2000),
++});
++
+ export const reportTargetSummarySchema = z.object({
+   type: reportTargetTypeSchema,
+   id: z.string(),
+@@ -87,6 +92,7 @@ export type ReportTargetType = z.infer<typeof reportTargetTypeSchema>;
+ export type ReportReason = z.infer<typeof reportReasonSchema>;
+ export type ReportStatus = z.infer<typeof reportStatusSchema>;
+ export type CreateReportRequest = z.infer<typeof createReportRequestSchema>;
++export type CreateDealProblemReportRequest = z.infer<typeof createDealProblemReportRequestSchema>;
+ export type CreateReportResponse = z.infer<typeof createReportResponseSchema>;
+ export type ReportDto = z.infer<typeof reportSchema>;
+ export type AdminReportsResponse = z.infer<typeof adminReportsResponseSchema>;
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index f0cbfb4..fe988e6 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -767,6 +767,18 @@ export const trade = {
+     cancelledTitle: 'Deal cancelled',
+     safeActionsTitle: 'Safe actions',
+     safeActionsBody: 'Actions are shown only when your role and the current status allow them.',
++    problemReportBadge: 'Problem report',
++    problemReportTitle: 'Report a deal problem',
++    problemReportBody: 'Tell us what happened. This creates a private report for admin review and marks the deal as problem reported.',
++    problemReportEvidenceTitle: 'Keep evidence in this chat',
++    problemReportEvidenceBody: 'Do not delete important messages. Add delivery details, timing, screenshots, or agreements in the private conversation when helpful.',
++    problemReportSummaryLabel: 'Problem summary',
++    problemReportPlaceholder: 'Explain what went wrong, what you expected, and what you want support to review.',
++    problemReportSummaryRequired: 'Add a short problem summary before sending the report.',
++    problemReportSubmit: 'Send problem report',
++    problemReportSent: 'Problem report sent. The deal is now marked as problem reported.',
++    problemReportUpdated: 'Your existing problem report was updated. The deal is marked as problem reported.',
++    problemReportCouldNotSend: 'Could not send this problem report. Please try again.',
+   },
+   actions: {
+     backToTrades: 'Back to trades',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 808de8b..8614829 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -767,6 +767,18 @@ export const trade = {
+     cancelledTitle: 'Accord annulé',
+     safeActionsTitle: 'Actions sûres',
+     safeActionsBody: 'Les actions s’affichent seulement lorsque votre rôle et le statut actuel les autorisent.',
++    problemReportBadge: 'Signalement',
++    problemReportTitle: 'Signaler un problème d’accord',
++    problemReportBody: 'Expliquez ce qui s’est passé. Cela crée un signalement privé pour l’admin et marque l’accord comme problème signalé.',
++    problemReportEvidenceTitle: 'Gardez les preuves dans ce chat',
++    problemReportEvidenceBody: 'Ne supprimez pas les messages importants. Ajoutez les détails de livraison, délais, captures ou accords dans la conversation privée si utile.',
++    problemReportSummaryLabel: 'Résumé du problème',
++    problemReportPlaceholder: 'Expliquez ce qui s’est mal passé, ce que vous attendiez et ce que l’assistance doit examiner.',
++    problemReportSummaryRequired: 'Ajoutez un court résumé du problème avant d’envoyer le signalement.',
++    problemReportSubmit: 'Envoyer le signalement',
++    problemReportSent: 'Signalement envoyé. L’accord est maintenant marqué comme problème signalé.',
++    problemReportUpdated: 'Votre signalement existant a été mis à jour. L’accord est marqué comme problème signalé.',
++    problemReportCouldNotSend: 'Impossible d’envoyer ce signalement. Veuillez réessayer.',
+   },
+   actions: {
+     backToTrades: 'Retour aux échanges',

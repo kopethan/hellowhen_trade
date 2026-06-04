@@ -138,7 +138,7 @@ function runReviewerReadinessChecks() {
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'User-generated content', 'Store checklist must include UGC safety preparation.');
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'Data safety', 'Store checklist must include Google Play Data safety preparation.');
   assertContains('docs/launch/mobile-store-readiness-checklist.md', 'App privacy', 'Store checklist must include Apple App Privacy preparation.');
-  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans', 'Store checklist must keep hidden/future features out of first-launch review notes.');
+  assertContains('docs/launch/mobile-store-readiness-checklist.md', 'No wallet, payouts, Cash Promise, paid helpers, Stripe, Airwallex, ads, push, email notifications, or Plans', 'Store checklist must keep hidden/future features out of first-launch review notes.');
   console.log('Mobile reviewer readiness docs: PASS');
 }
 

@@ -1,13 +1,14 @@
 import { Router, type Response } from 'express';
-import { createProposalMessageRequestSchema, updateProposalMessageRequestSchema, updateProposalPrivateMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
+import { createDealProblemReportRequestSchema, createProposalMessageRequestSchema, updateProposalMessageRequestSchema, updateProposalPrivateMessageRequestSchema, updateProposalStatusRequestSchema } from '@hellowhen/contracts';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
-import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
+import { holdOwnerCreditsForProposal, proposalInclude, tradeInclude, withOneTradeDeckMedia, withProposalTradeMedia } from '../trades/trades.routes.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from './proposalPackages.js';
-import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn } from '../notifications/notifications.service.js';
+import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
+import { validateCashPromiseInput } from '../cash-promise/cashPromise.js';
 
 export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
@@ -28,17 +29,65 @@ function conversationLocked(proposal: { status: string; trade: { status: string 
   return proposal.status !== 'pending' || ['cancelled', 'closed'].includes(proposal.trade.status);
 }
 
-async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; trade: { postType?: string | null } }) {
+
+function participantRoleForDealProblem(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) {
+  if (actorId === proposal.trade.ownerId) return 'owner';
+  if (actorId === proposal.applicantId) return 'applicant';
+  if (actorId === proposal.trade.providerId) return 'provider';
+  return 'participant';
+}
+
+function truncateReportDetails(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length <= 2000 ? trimmed : `${trimmed.slice(0, 1997)}…`;
+}
+
+function buildDealProblemReportDetails(input: {
+  details: string;
+  reporterRole: string;
+  tradeId: string;
+  tradeTitle: string;
+  tradeStatus: string;
+  proposalId: string;
+  proposalStatus: string;
+  counterpartyId: string | null;
+}) {
+  return truncateReportDetails([
+    'Accepted deal problem report',
+    '',
+    `Reporter role: ${input.reporterRole}`,
+    input.counterpartyId ? `Counterparty user ID: ${input.counterpartyId}` : null,
+    `Trade: ${input.tradeTitle}`,
+    `Trade ID: ${input.tradeId}`,
+    `Trade status when reported: ${input.tradeStatus}`,
+    `Proposal ID: ${input.proposalId}`,
+    `Proposal status: ${input.proposalStatus}`,
+    '',
+    'Problem summary:',
+    input.details.trim(),
+    '',
+    'Context: created from the private Deal workspace. Keep evidence and important details in the proposal conversation.',
+  ].filter(Boolean).join('\n'));
+}
+
+async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; cashPromise?: { side: 'need' | 'offer' } | null; trade: { postType?: string | null } }, cashPromiseSide?: 'need' | 'offer' | null) {
   const requiredSide = proposalSideRequirement(proposal.trade.postType);
   const nextNeedProvided = Object.prototype.hasOwnProperty.call(input, 'proposedNeedId');
   const nextOfferProvided = Object.prototype.hasOwnProperty.call(input, 'proposedOfferId');
   const nextNeedId = nextNeedProvided ? input.proposedNeedId ?? null : proposal.proposedNeedId ?? null;
   const nextOfferId = nextOfferProvided ? input.proposedOfferId ?? null : proposal.proposedOfferId ?? null;
 
-  if (requiredSide === 'offer' && !nextOfferId) {
+  const effectiveCashPromiseSide = cashPromiseSide ?? proposal.cashPromise?.side ?? null;
+  if (effectiveCashPromiseSide === 'offer' && nextOfferId) {
+    throw Object.assign(new Error('cash_promise_side_conflict'), { code: 'CASH_PROMISE_SIDE_CONFLICT' });
+  }
+  if (effectiveCashPromiseSide === 'need' && nextNeedId) {
+    throw Object.assign(new Error('cash_promise_side_conflict'), { code: 'CASH_PROMISE_SIDE_CONFLICT' });
+  }
+  if (requiredSide === 'offer' && !nextOfferId && effectiveCashPromiseSide !== 'offer') {
     throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_OFFER_REQUIRED' });
   }
-  if (requiredSide === 'need' && !nextNeedId) {
+  if (requiredSide === 'need' && !nextNeedId && effectiveCashPromiseSide !== 'need') {
     throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_NEED_REQUIRED' });
   }
 
@@ -64,6 +113,7 @@ function proposalSideErrorResponse(res: Response, error: unknown) {
   if (code === 'PROPOSAL_NEED_REQUIRED') return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
   if (code === 'INVALID_PROPOSAL_OFFER') return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
   if (code === 'INVALID_PROPOSAL_NEED') return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
+  if (code === 'CASH_PROMISE_SIDE_CONFLICT') return res.status(400).json({ error: 'cash_promise_side_conflict', message: 'Cash Promise cannot be combined with a proposed Need or Offer on the same side.' });
   return null;
 }
 
@@ -78,6 +128,67 @@ proposalsRoutes.get('/:proposalId', asyncRoute(async (req, res) => {
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
   res.json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
+}));
+
+proposalsRoutes.post('/:proposalId/problem-report', requireActiveAccount, asyncRoute(async (req, res) => {
+  const input = createDealProblemReportRequestSchema.parse(req.body ?? {});
+  const actorId = req.user!.id;
+  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: proposalInclude });
+  if (!proposal) return res.status(404).json({ error: 'not_found' });
+  if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
+  if (proposal.status !== 'accepted') return res.status(409).json({ error: 'proposal_not_accepted', message: 'Only accepted proposals can be reported from the Deal workspace.' });
+  if (!['in_progress', 'submitted', 'disputed'].includes(proposal.trade.status)) return res.status(409).json({ error: 'deal_not_reportable', message: 'This deal is not open for problem reporting.' });
+  if (await usersHaveBlockBetween(actorId, otherProposalMemberId(proposal, actorId))) return res.status(403).json({ error: 'user_blocked', message: 'This conversation is not available because one member has blocked the other.' });
+
+  const counterpartyId = otherProposalMemberId(proposal, actorId);
+  const reporterRole = participantRoleForDealProblem(proposal, actorId);
+  const details = buildDealProblemReportDetails({
+    details: input.details,
+    reporterRole,
+    tradeId: proposal.tradeId,
+    tradeTitle: proposal.trade.title,
+    tradeStatus: proposal.trade.status,
+    proposalId: proposal.id,
+    proposalStatus: proposal.status,
+    counterpartyId,
+  });
+  const now = new Date();
+
+  const result = await prisma.$transaction(async (tx: any) => {
+    const existingReport = await tx.report.findFirst({
+      where: { reporterId: actorId, targetType: 'proposal', targetId: proposal.id, status: { in: ['pending', 'reviewing'] } },
+      include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
+    });
+    const report = existingReport
+      ? await tx.report.update({
+        where: { id: existingReport.id },
+        data: { reason: input.reason, details, targetOwnerId: counterpartyId },
+        include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
+      })
+      : await tx.report.create({
+        data: { reporterId: actorId, targetType: 'proposal', targetId: proposal.id, targetOwnerId: counterpartyId, reason: input.reason, details },
+        include: { reporter: { select: publicUserPreviewSelect }, reviewer: { select: publicUserPreviewSelect } },
+      });
+
+    const trade = proposal.trade.status === 'disputed'
+      ? proposal.trade
+      : await tx.trade.update({ where: { id: proposal.tradeId }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: now }, include: tradeInclude });
+    const updatedProposal = await tx.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+    return { report, proposal: updatedProposal, trade, duplicate: Boolean(existingReport) };
+  });
+
+  try {
+    await notifyTradeStatusUpdated(prisma, { recipientIds: [proposal.trade.ownerId, proposal.trade.providerId], actorId, tradeId: proposal.tradeId, tradeTitle: proposal.trade.title, status: 'disputed', proposalId: proposal.id });
+  } catch {
+    // Internal notifications should not block problem reports.
+  }
+
+  return res.status(result.duplicate ? 200 : 201).json({
+    report: result.report,
+    duplicate: result.duplicate,
+    proposal: (await withProposalTradeMedia([result.proposal], 'owner'))[0],
+    trade: await withOneTradeDeckMedia(result.trade, 'owner'),
+  });
 }));
 proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateProposalStatusRequestSchema.parse(req.body);
@@ -136,12 +247,21 @@ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(as
 proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateProposalMessageRequestSchema.parse(req.body);
   const actorId = req.user!.id;
-  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
+  const cashPromiseProvided = Object.prototype.hasOwnProperty.call(input, 'cashPromise');
+  const cashPromiseDecision = validateCashPromiseInput(input.cashPromise ?? undefined, cashPromiseProvided, { allowProposal: true });
+  if (cashPromiseDecision && !cashPromiseDecision.ok) {
+    return res.status(cashPromiseDecision.statusCode).json(cashPromiseDecision.body);
+  }
+  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true, cashPromise: true } });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
   if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
 
   const packageInput = hasProposalPackageInput(input);
+  const nextCashPromise = cashPromiseDecision?.ok ? cashPromiseDecision.cashPromise : null;
+  if (packageInput && nextCashPromise) {
+    return res.status(400).json({ error: 'cash_promise_package_conflict', message: 'Cash Promise cannot be combined with proposal packages.' });
+  }
   let nextSide: { proposedNeedId: string | null; proposedOfferId: string | null };
   let packageKind: 'standard' | 'main_need_multi_offer' | 'main_offer_multi_need' = proposal.packageKind ?? 'standard';
   let packageItems: ReturnType<typeof toProposalPackageItemCreateManyRows> | null = null;
@@ -153,7 +273,7 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
       packageKind = resolvedPackage.packageKind;
       packageItems = toProposalPackageItemCreateManyRows(proposal.id, resolvedPackage.items);
     } else {
-      nextSide = await resolveProposalSideUpdate(input, proposal);
+      nextSide = await resolveProposalSideUpdate(input, proposal, nextCashPromise?.side);
     }
   } catch (error) {
     const response = proposalSideErrorResponse(res, error);
@@ -172,7 +292,8 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
   const messageChanged = typeof input.message === 'string' && input.message !== proposal.message;
   const sideChanged = nextSide.proposedNeedId !== proposal.proposedNeedId || nextSide.proposedOfferId !== proposal.proposedOfferId;
   const packageChanged = packageInput;
-  if (!messageChanged && !sideChanged && !packageChanged && !proposal.messageDeletedAt) {
+  const cashPromiseChanged = Boolean(nextCashPromise);
+  if (!messageChanged && !sideChanged && !packageChanged && !cashPromiseChanged && !proposal.messageDeletedAt) {
     const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
     return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
   }
@@ -180,8 +301,8 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
   const now = new Date();
   const updated = await prisma.$transaction(async (tx) => {
     const data: any = {
-      proposedNeedId: nextSide.proposedNeedId,
-      proposedOfferId: nextSide.proposedOfferId,
+      proposedNeedId: nextCashPromise?.side === 'need' ? null : nextSide.proposedNeedId,
+      proposedOfferId: nextCashPromise?.side === 'offer' ? null : nextSide.proposedOfferId,
       packageKind,
     };
     if (typeof input.message === 'string') {
@@ -191,6 +312,21 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
       data.messageDeletedAt = null;
     }
     await tx.tradeProposal.update({ where: { id: proposal.id }, data });
+    if (nextCashPromise) {
+      await tx.cashPromise.deleteMany({ where: { proposalId: proposal.id } });
+      await tx.cashPromise.create({
+        data: {
+          proposalId: proposal.id,
+          side: nextCashPromise.side,
+          amountCents: nextCashPromise.amountCents,
+          currency: nextCashPromise.currency,
+          note: nextCashPromise.note,
+          acknowledgementText: nextCashPromise.acknowledgementText,
+          acknowledgedById: actorId,
+          acknowledgedAt: now,
+        },
+      });
+    }
     if (packageItems) {
       await tx.tradeProposalPackageItem.deleteMany({ where: { proposalId: proposal.id } });
       if (packageItems.length) await tx.tradeProposalPackageItem.createMany({ data: packageItems });

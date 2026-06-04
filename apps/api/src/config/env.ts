@@ -142,6 +142,9 @@ export const env = {
   payoutsVisible: (process.env.PAYOUTS_VISIBLE ?? 'false').toLowerCase() === 'true',
   moneyTradesEnabled: (process.env.MONEY_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
   cashTradesEnabled: (process.env.CASH_TRADES_ENABLED ?? 'false').toLowerCase() === 'true',
+  cashPromiseEnabled: enabled(process.env.CASH_PROMISE_ENABLED),
+  cashPromiseVisible: enabled(process.env.CASH_PROMISE_VISIBLE),
+  cashPromiseMaxAmountCents: Number(process.env.CASH_PROMISE_MAX_AMOUNT_CENTS ?? 100000),
   businessAccountsEnabled: enabled(process.env.BUSINESS_ACCOUNTS_ENABLED),
   businessAccountsVisible: enabled(process.env.BUSINESS_ACCOUNTS_VISIBLE),
   businessSponsoredContentEnabled: enabled(process.env.BUSINESS_SPONSORED_CONTENT_ENABLED),
@@ -318,13 +321,19 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || publicFlagEnabled('NEXT_PUBLIC_PAYOUTS_VISIBLE')
     || publicFlagEnabled('NEXT_PUBLIC_MONEY_TRADES_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_CASH_TRADES_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_CASH_PROMISE_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_CASH_PROMISE_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_MONEY_FEATURES_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_WALLET_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_PAYOUTS_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_MONEY_TRADES_ENABLED')
-    || publicFlagEnabled('EXPO_PUBLIC_CASH_TRADES_ENABLED');
+    || publicFlagEnabled('EXPO_PUBLIC_CASH_TRADES_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_CASH_PROMISE_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_CASH_PROMISE_VISIBLE')
+    || env.cashPromiseEnabled
+    || env.cashPromiseVisible;
   if (moneyUiEnabled || env.moneyLaunchMode !== 'disabled' || env.moneyProductionEnabled) {
-    errors.push('Money, wallet, payout, cash-trade, and money-trade flags must stay disabled/hidden for first launch.');
+    errors.push('Money, wallet, payout, cash-trade, Cash Promise, and money-trade flags must stay disabled/hidden for first launch.');
   }
 
   const businessRuntimeEnabled = env.businessAccountsEnabled
@@ -487,7 +496,7 @@ export function validateProductionEnv() {
   const googleClientIdsConfigured = Boolean(env.googleWebClientId || env.googleIosClientId || env.googleAndroidClientId);
   if (env.googleSignInEnabled && !googleClientIdsConfigured) errors.push('GOOGLE_SIGN_IN_ENABLED=true requires at least one Google OAuth client ID.');
   if (!env.googleSignInEnabled && googleClientIdsConfigured) errors.push('Google OAuth client IDs are configured while GOOGLE_SIGN_IN_ENABLED=false. Keep Google sign-in disabled for first launch or explicitly enable it later.');
-  const moneyConfigured = env.moneyProvider !== 'none' || env.moneyFeaturesVisible || env.walletVisible || env.payoutsVisible || env.moneyTradesEnabled || env.cashTradesEnabled;
+  const moneyConfigured = env.moneyProvider !== 'none' || env.moneyFeaturesVisible || env.walletVisible || env.payoutsVisible || env.moneyTradesEnabled || env.cashTradesEnabled || env.cashPromiseEnabled || env.cashPromiseVisible;
   if (moneyConfigured && !env.moneyProductionEnabled) {
     errors.push('Money/wallet/payout features must stay disabled in production unless MONEY_PRODUCTION_ENABLED=true is explicitly set for a separate money launch.');
   }

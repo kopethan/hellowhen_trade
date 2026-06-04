@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { TradePostType, TradeStatus } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type TradePostType, type TradeStatus } from '@hellowhen/contracts';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -18,6 +18,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserIdentityPressable } from '../users/UserIdentityPressable';
 import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
+import type { TradeCreateSideSelection } from './CreateTradeScreen';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TradePrivateProposals'>;
 type TradeResponse = { trade: TradeDeckItem };
@@ -47,6 +48,7 @@ function isNeedAvailable(need: NeedItem) { return need.status === 'active'; }
 function isOfferAvailable(offer: OfferItem) { return offer.status === 'active'; }
 function upsertProposal(proposals: TradeProposalItem[], next: TradeProposalItem) { return proposals.some((proposal) => proposal.id === next.id) ? proposals.map((proposal) => proposal.id === next.id ? { ...proposal, ...next } : proposal) : [next, ...proposals]; }
 function formatStatus(status: string, t: TFunction) { const label = t(`trade.statuses.${status}`); return label === `trade.statuses.${status}` ? status.replace(/_/g, ' ') : label; }
+function formatMoney(amountCents: number, currency = 'eur') { return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`; }
 
 export function TradePrivateProposalsScreen({ route, navigation }: Props) {
   const auth = useAuth();
@@ -59,6 +61,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
   const [proposalOffers, setProposalOffers] = useState<OfferItem[]>([]);
   const [selectedProposalNeedId, setSelectedProposalNeedId] = useState(route.params.selectedProposalNeedId ?? '');
   const [selectedProposalOfferId, setSelectedProposalOfferId] = useState(route.params.selectedProposalOfferId ?? '');
+  const [selectedCashPromise, setSelectedCashPromise] = useState<TradeCreateSideSelection | null>(route.params.selectedProposalSide?.kind === 'cash_promise' ? route.params.selectedProposalSide : null);
   const [packagePrototypeEnabled, setPackagePrototypeEnabled] = useState(false);
   const [supportingProposalNeedIds, setSupportingProposalNeedIds] = useState<string[]>([]);
   const [supportingProposalOfferIds, setSupportingProposalOfferIds] = useState<string[]>([]);
@@ -81,8 +84,14 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
     if (appliedBundledSelection) return;
     const selection = route.params.selectedProposalSide;
     if (!selection || selection.kind === 'money') return;
-    if (selection.kind === 'need') setSelectedProposalNeedId(selection.id);
-    if (selection.kind === 'offer') setSelectedProposalOfferId(selection.id);
+    if (selection.kind === 'cash_promise') {
+      setSelectedCashPromise(selection);
+      if (selection.side === 'need') setSelectedProposalNeedId('');
+      if (selection.side === 'offer') setSelectedProposalOfferId('');
+      return;
+    }
+    if (selection.kind === 'need') { setSelectedProposalNeedId(selection.id); setSelectedCashPromise((current) => current?.side === 'need' ? null : current); }
+    if (selection.kind === 'offer') { setSelectedProposalOfferId(selection.id); setSelectedCashPromise((current) => current?.side === 'offer' ? null : current); }
   }, [route.params.selectedProposalNeedId, route.params.selectedProposalOfferId, route.params.selectedProposalSide]);
 
   const loadTrade = useCallback(async () => {
@@ -149,8 +158,9 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
     const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
     if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
     if (packagePrototypeActive && requiredSide === 'need' && supportingProposalNeedIds.length === 0) { setError('Choose at least one supporting Need for the Pro package.'); return; }
-    if (!packagePrototypeActive && requiredSide === 'offer' && !selectedProposalOffer) { setError(t('trade.proposals.chooseOfferFirst')); return; }
-    if (!packagePrototypeActive && requiredSide === 'need' && !selectedProposalNeed) { setError(t('trade.proposals.chooseNeedFirst')); return; }
+    const cashPromiseSide = selectedCashPromise?.kind === 'cash_promise' ? selectedCashPromise.side : null;
+    if (!packagePrototypeActive && requiredSide === 'offer' && !selectedProposalOffer && cashPromiseSide !== 'offer') { setError(t('trade.proposals.chooseOfferFirst')); return; }
+    if (!packagePrototypeActive && requiredSide === 'need' && !selectedProposalNeed && cashPromiseSide !== 'need') { setError(t('trade.proposals.chooseNeedFirst')); return; }
     setCreatingProposal(true);
     setError(null);
     setMessage(null);
@@ -168,11 +178,13 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
             proposedNeedId: supportingProposalNeedIds[0],
           }
           : null;
+      const cashPromise = selectedCashPromise?.kind === 'cash_promise' ? { side: selectedCashPromise.side, amountCents: selectedCashPromise.amountCents, currency: selectedCashPromise.currency, note: selectedCashPromise.note ?? undefined, acknowledgementAccepted: true as const, acknowledgementText: selectedCashPromise.acknowledgementText ?? CASH_PROMISE_ACKNOWLEDGEMENT_TEXT } satisfies CashPromiseInput : undefined;
       const result = await api.trades.createProposal(trade.id, {
         message: trimmed,
         ...(packagePayload ?? {
-          ...(selectedProposalOffer ? { proposedOfferId: selectedProposalOffer.id } : {}),
-          ...(selectedProposalNeed ? { proposedNeedId: selectedProposalNeed.id } : {}),
+          ...(selectedProposalOffer && selectedCashPromise?.side !== 'offer' ? { proposedOfferId: selectedProposalOffer.id } : {}),
+          ...(selectedProposalNeed && selectedCashPromise?.side !== 'need' ? { proposedNeedId: selectedProposalNeed.id } : {}),
+          ...(cashPromise ? { cashPromise } : {}),
         }),
       }) as ProposalResponse;
       setProposals((current) => upsertProposal(current, result.proposal));
@@ -180,6 +192,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
       setPackagePrototypeEnabled(false);
       setSupportingProposalNeedIds([]);
       setSupportingProposalOfferIds([]);
+      setSelectedCashPromise(null);
       setMessage(t('trade.proposals.proposalSentNative'));
       navigation.navigate('ProposalDetail', { proposalId: result.proposal.id });
     } catch (caughtError) {
@@ -196,11 +209,13 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
 
   const openPicker = useCallback((side: 'need' | 'offer') => {
     const selected = side === 'need' ? selectedProposalNeed : selectedProposalOffer;
-    const selection = selected
-      ? side === 'need'
-        ? { side: 'need' as const, kind: 'need' as const, id: selected.id }
-        : { side: 'offer' as const, kind: 'offer' as const, id: selected.id }
-      : null;
+    const selection = selectedCashPromise?.side === side
+      ? selectedCashPromise
+      : selected
+        ? side === 'need'
+          ? { side: 'need' as const, kind: 'need' as const, id: selected.id }
+          : { side: 'offer' as const, kind: 'offer' as const, id: selected.id }
+        : null;
 
     navigation.navigate('TradeSidePicker', {
       side,
@@ -211,7 +226,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
       proposalNeedId: selectedProposalNeedId,
       proposalOfferId: selectedProposalOfferId,
     });
-  }, [navigation, selectedProposalNeed, selectedProposalNeedId, selectedProposalOffer, selectedProposalOfferId, t, trade]);
+  }, [navigation, selectedCashPromise, selectedProposalNeed, selectedProposalNeedId, selectedProposalOffer, selectedProposalOfferId, t, trade]);
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title={t('trade.threadSplit.privateTitle')} onBack={() => navigation.goBack()} />}>
@@ -238,6 +253,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
             offers={activeProposalOffers}
             selectedNeed={selectedProposalNeed}
             selectedOffer={selectedProposalOffer}
+            selectedCashPromise={selectedCashPromise?.kind === 'cash_promise' ? selectedCashPromise : null}
             packagePrototypeEnabled={packagePrototypeEnabled}
             supportingNeedIds={supportingProposalNeedIds}
             supportingOfferIds={supportingProposalOfferIds}
@@ -283,16 +299,30 @@ function ProposalListCard({ proposal, currentUserId, theme, t, onOpen }: { propo
 
 function ProposalSideSummary({ proposal, theme, t }: { proposal: TradeProposalItem; theme: ThemeTokens; t: TFunction }) {
   const entries = [proposal.proposedOffer ? { kind: 'offer' as const, item: proposal.proposedOffer as OfferItem, label: t('trade.labels.proposedOffer') } : null, proposal.proposedNeed ? { kind: 'need' as const, item: proposal.proposedNeed as NeedItem, label: t('trade.labels.proposedNeed') } : null].filter(Boolean) as Array<{ kind: 'need' | 'offer'; item: NeedItem | OfferItem; label: string }>;
-  if (entries.length === 0) return null;
-  return <View style={styles.sideSummaryStack}>{entries.map((entry) => <InventoryPreviewCard key={`${entry.kind}-${entry.item.id}`} item={entry.item} kind={entry.kind} label={entry.label} theme={theme} t={t} compact />)}</View>;
+  if (entries.length === 0 && !proposal.cashPromise) return null;
+  return <View style={styles.sideSummaryStack}>
+    {entries.map((entry) => <InventoryPreviewCard key={`${entry.kind}-${entry.item.id}`} item={entry.item} kind={entry.kind} label={entry.label} theme={theme} t={t} compact />)}
+    {proposal.cashPromise ? <CashPromiseProposalSummary amountCents={proposal.cashPromise.amountCents} currency={proposal.cashPromise.currency ?? 'eur'} side={proposal.cashPromise.side} note={proposal.cashPromise.note ?? null} theme={theme} t={t} /> : null}
+  </View>;
 }
 
-function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, packagePrototypeEnabled, supportingNeedIds, supportingOfferIds, onPackagePrototypeEnabledChange, onSupportingNeedIdsChange, onSupportingOfferIdsChange, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; packagePrototypeEnabled: boolean; supportingNeedIds: string[]; supportingOfferIds: string[]; onPackagePrototypeEnabledChange: (enabled: boolean) => void; onSupportingNeedIdsChange: (ids: string[]) => void; onSupportingOfferIdsChange: (ids: string[]) => void; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
-  const missingInventory = (requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0);
+function CashPromiseProposalSummary({ amountCents, currency, side, note, theme, t }: { amountCents: number; currency: string; side: 'need' | 'offer'; note?: string | null; theme: ThemeTokens; t: TFunction }) {
+  return <View style={[styles.cashPromiseSummary, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
+    <SemanticBadge label={side === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')} tone="warning" size="sm" />
+    <AppText style={[styles.cashPromiseSummaryTitle, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.title')} · {formatMoney(amountCents, currency)}</AppText>
+    <AppText style={[styles.cashPromiseSummaryBody, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.notProcessed')}</AppText>
+    {note ? <AppText style={[styles.cashPromiseSummaryBody, { color: theme.semantic.warning.text }]}>{note}</AppText> : null}
+  </View>;
+}
+
+function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, packagePrototypeEnabled, supportingNeedIds, supportingOfferIds, onPackagePrototypeEnabledChange, onSupportingNeedIdsChange, onSupportingOfferIdsChange, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; packagePrototypeEnabled: boolean; supportingNeedIds: string[]; supportingOfferIds: string[]; onPackagePrototypeEnabledChange: (enabled: boolean) => void; onSupportingNeedIdsChange: (ids: string[]) => void; onSupportingOfferIdsChange: (ids: string[]) => void; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
+  const cashPromiseSide = selectedCashPromise?.side ?? null;
+  const cashPromiseSatisfiesRequired = Boolean(requiredSide && cashPromiseSide === requiredSide);
+  const missingInventory = !cashPromiseSatisfiesRequired && ((requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0));
   const packagePrototypeVisible = betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
   const packagePrototypeActive = packagePrototypeEnabled && packagePrototypeVisible;
   const packageMissingSelection = packagePrototypeActive && ((requiredSide === 'offer' && supportingOfferIds.length === 0) || (requiredSide === 'need' && supportingNeedIds.length === 0));
-  const standardMissingSelection = !packagePrototypeActive && ((requiredSide === 'offer' && !selectedOffer) || (requiredSide === 'need' && !selectedNeed));
+  const standardMissingSelection = !packagePrototypeActive && ((requiredSide === 'offer' && !selectedOffer && cashPromiseSide !== 'offer') || (requiredSide === 'need' && !selectedNeed && cashPromiseSide !== 'need'));
   const disabled = loading || value.trim().length < 3 || packageMissingSelection || standardMissingSelection || missingInventory;
   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : proposalActionTitle(trade, t);
@@ -302,13 +332,13 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
       {requiredSide === 'need' ? (
         <>
-          <InventoryPickerShortcut kind="need" title={t('trade.proposals.chooseNeedToPropose')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedFirst')} onChoose={onChooseNeed} theme={theme} t={t} />
-          <InventoryPickerShortcut kind="offer" title={t('trade.proposals.attachOfferToProposal')} count={offers.length} item={selectedOffer} emptyText={t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
+          <InventoryPickerShortcut kind="need" title={t('trade.proposals.chooseNeedToPropose')} count={needs.length} item={cashPromiseSide === 'need' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as NeedItem : selectedNeed} emptyText={t('trade.proposals.createNeedFirst')} onChoose={onChooseNeed} theme={theme} t={t} />
+          <InventoryPickerShortcut kind="offer" title={t('trade.proposals.attachOfferToProposal')} count={offers.length} item={cashPromiseSide === 'offer' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as OfferItem : selectedOffer} emptyText={t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
         </>
       ) : (
         <>
-          <InventoryPickerShortcut kind="offer" title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} count={offers.length} item={selectedOffer} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
-          <InventoryPickerShortcut kind="need" title={t('trade.proposals.attachNeedToProposal')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedOptional')} onChoose={onChooseNeed} theme={theme} t={t} />
+          <InventoryPickerShortcut kind="offer" title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} count={offers.length} item={cashPromiseSide === 'offer' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as OfferItem : selectedOffer} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
+          <InventoryPickerShortcut kind="need" title={t('trade.proposals.attachNeedToProposal')} count={needs.length} item={cashPromiseSide === 'need' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as NeedItem : selectedNeed} emptyText={t('trade.proposals.createNeedOptional')} onChoose={onChooseNeed} theme={theme} t={t} />
         </>
       )}
       <NativeProTradePackagePrototype

@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { MediaAssetDto, TradeActionStatus, TradePostType, TradeStatus } from '@hellowhen/contracts';
 import type { ThemeTokens } from '@hellowhen/theme';
 import { formatLocalizedDate, formatLocalizedTimeUntil, type SupportedLanguage } from '@hellowhen/i18n';
+import { formatMoney } from '@hellowhen/shared';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { buildPublicTradeUrl } from '../../lib/publicUrls';
@@ -45,13 +46,15 @@ function requiredProposalSide(trade: TradeDeckItem): RequiredProposalSide { cons
 function postTypeLabel(trade: TradeDeckItem, t: TFunction) { const postType = tradePostType(trade); if (postType === 'open_need') return t('trade.postTypes.openNeed'); if (postType === 'open_offer') return t('trade.postTypes.openOffer'); return t('trade.postTypes.needOffer'); }
 function proposalActionTitle(trade: TradeDeckItem, t: TFunction) { const side = requiredProposalSide(trade); if (side === 'offer') return t('trade.proposals.proposeOffer'); if (side === 'need') return t('trade.proposals.proposeNeed'); return t('trade.proposals.askToTrade'); }
 function proposalHelper(trade: TradeDeckItem, t: TFunction) { const side = requiredProposalSide(trade); if (side === 'offer') return t('trade.proposals.helperNativeOffer'); if (side === 'need') return t('trade.proposals.helperNativeNeed'); return t('trade.proposals.helperNativeTrade'); }
-function needTitle(trade: TradeDeckItem, t: TFunction) { return trade.need?.title || trade.title || t('trade.labels.needDetails'); }
-function offerTitle(trade: TradeDeckItem, t: TFunction) { return trade.offer?.title || t('trade.labels.offerDetails'); }
+function cashPromiseSide(trade: TradeDeckItem) { return trade.cashPromise?.side ?? null; }
+function cashPromiseAmountLabel(trade: TradeDeckItem) { return trade.cashPromise ? formatMoney(trade.cashPromise.amountCents, trade.cashPromise.currency ?? 'eur') : ''; }
+function needTitle(trade: TradeDeckItem, t: TFunction) { return cashPromiseSide(trade) === 'need' ? t('trade.cashPromise.title') : trade.need?.title || trade.title || t('trade.labels.needDetails'); }
+function offerTitle(trade: TradeDeckItem, t: TFunction) { return cashPromiseSide(trade) === 'offer' ? t('trade.cashPromise.title') : trade.offer?.title || t('trade.labels.offerDetails'); }
 function detailTitle(trade: TradeDeckItem, t: TFunction) { const postType = tradePostType(trade); if (postType === 'open_need') return needTitle(trade, t); if (postType === 'open_offer') return offerTitle(trade, t); return compactList([needTitle(trade, t), offerTitle(trade, t)]).replace(' · ', ' ↔ '); }
-function needDescription(trade: TradeDeckItem) { return trade.need?.description ?? trade.description; }
-function offerDescription(trade: TradeDeckItem) { return trade.offer?.description ?? ''; }
-function needMeta(need: NeedItem | null | undefined, t: TFunction) { return compactList([need?.category, need?.timing, modeLabel(need?.mode, t), need?.locationLabel]) || t('trade.detail.needDetailsFallback'); }
-function offerMeta(offer: OfferItem | null | undefined, t: TFunction) { return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode, t), offer?.locationLabel]) || t('trade.detail.offerDetailsFallback'); }
+function needDescription(trade: TradeDeckItem, t?: TFunction) { if (cashPromiseSide(trade) === 'need') return trade.cashPromise?.note || t?.('trade.cashPromise.outsideAppBody') || ''; return trade.need?.description ?? trade.description; }
+function offerDescription(trade: TradeDeckItem, t?: TFunction) { if (cashPromiseSide(trade) === 'offer') return trade.cashPromise?.note || t?.('trade.cashPromise.outsideAppBody') || ''; return trade.offer?.description ?? ''; }
+function needMeta(need: NeedItem | null | undefined, t: TFunction, trade?: TradeDeckItem) { if (trade && cashPromiseSide(trade) === 'need') return compactList([cashPromiseAmountLabel(trade), t('trade.cashPromise.notProcessed')]); return compactList([need?.category, need?.timing, modeLabel(need?.mode, t), need?.locationLabel]) || t('trade.detail.needDetailsFallback'); }
+function offerMeta(offer: OfferItem | null | undefined, t: TFunction, trade?: TradeDeckItem) { if (trade && cashPromiseSide(trade) === 'offer') return compactList([cashPromiseAmountLabel(trade), t('trade.cashPromise.notProcessed')]); return compactList([offer?.includes?.[0], offer?.availability, modeLabel(offer?.mode, t), offer?.locationLabel]) || t('trade.detail.offerDetailsFallback'); }
 function exchangeLabel(trade: TradeDeckItem, t: TFunction) { const postType = tradePostType(trade); if (postType === 'open_need') return trade.offer ? t('trade.postTypes.openNeedMatched') : t('trade.postTypes.openForOffers'); if (postType === 'open_offer') return trade.need ? t('trade.postTypes.openOfferMatched') : t('trade.postTypes.openForNeeds'); return t('trade.postTypes.needOfferExchange'); }
 function expiryLabel(expiresAt: string | null | undefined, t: TFunction, language: SupportedLanguage) { return formatLocalizedTimeUntil(expiresAt, language, { noValue: t('trade.expiry.noExpirySet'), expired: t('trade.expiry.expired'), fallback: (count, unit) => unit === 'hour' ? t('trade.expiry.hoursLeft', { count }) : t('trade.expiry.daysLeft', { count }) }); }
 function statusTone(status: TradeStatus): 'success' | 'warning' | 'danger' | 'info' | 'time' | 'muted' | 'instruction' { if (status === 'active' || status === 'completed') return 'success'; if (status === 'submitted') return 'info'; if (status === 'in_progress' || status === 'funded') return 'instruction'; if (status === 'disputed' || status === 'cancelled') return 'danger'; if (status === 'expired') return 'time'; if (status === 'draft') return 'warning'; return 'muted'; }
@@ -302,8 +305,8 @@ export function TradeDetailScreen({ route, navigation }: Props) {
         {role !== 'owner' ? <ReportContentPanel targetType="trade" targetId={trade.id} labelKey="report.trade" helperKey="report.helper.trade" /> : null}
       </DetailHero>
 
-      {trade.need ? <TradeSideSection tone="need" eyebrow={t('trade.labels.iNeed')} title={needTitle(trade, t)} description={needDescription(trade)} chips={detailChipList(needMeta(trade.need, t))} images={activeDetailImages(trade.need?.media)} emptyImageLabel={t('trade.labels.noNeedImages')} /> : null}
-      {trade.offer ? <TradeSideSection tone="offer" eyebrow={t('trade.labels.iOffer')} title={offerTitle(trade, t)} description={offerDescription(trade)} chips={detailChipList(offerMeta(trade.offer, t))} images={activeDetailImages(trade.offer?.media)} emptyImageLabel={t('trade.labels.noOfferImages')} /> : null}
+      {trade.need || cashPromiseSide(trade) === 'need' ? <TradeSideSection tone="need" eyebrow={t('trade.labels.iNeed')} title={needTitle(trade, t)} description={needDescription(trade, t)} chips={detailChipList(needMeta(trade.need, t, trade))} images={activeDetailImages(trade.need?.media)} emptyImageLabel={t('trade.labels.noNeedImages')} /> : null}
+      {trade.offer || cashPromiseSide(trade) === 'offer' ? <TradeSideSection tone="offer" eyebrow={t('trade.labels.iOffer')} title={offerTitle(trade, t)} description={offerDescription(trade, t)} chips={detailChipList(offerMeta(trade.offer, t, trade))} images={activeDetailImages(trade.offer?.media)} emptyImageLabel={t('trade.labels.noOfferImages')} /> : null}
       {requiredSide === 'offer' ? <OpenSideInvite title={t('trade.proposals.openForOffers')} body={t('trade.proposals.openForOffersBody')} tone="offer" /> : null}
       {requiredSide === 'need' ? <OpenSideInvite title={t('trade.proposals.openForNeeds')} body={t('trade.proposals.openForNeedsBody')} tone="need" /> : null}
 

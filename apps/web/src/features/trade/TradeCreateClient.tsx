@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { CreateTradeRequest, NeedDto, OfferDto, TradeDto, TradeNeedSideKind, TradeOfferSideKind, TradePostType, WalletLimitsDto } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CreateTradeRequest, type NeedDto, type OfferDto, type TradeDto, type TradeNeedSideKind, type TradeOfferSideKind, type TradePostType, type WalletLimitsDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { buildGeneratedTradeDisplay, type GeneratedTradeDisplayLabels } from '@hellowhen/shared';
 import { MobilePage, PageIntro } from '../../components/MobilePage';
@@ -25,7 +25,7 @@ type DuplicateTradeSummary = Pick<TradeDto, 'id' | 'status' | 'title'> & { postT
 type DuplicateTradeConflict = DuplicateTradeSummary & { message: string };
 type InventoryLoadState = 'idle' | 'loading' | 'live' | 'demo';
 
-type SideMode = 'saved' | 'money';
+type SideMode = 'saved' | 'money' | 'cash_promise';
 type PublishMode = TradePostType | '';
 
 type TradeCreateValues = {
@@ -36,6 +36,10 @@ type TradeCreateValues = {
   offerId: string;
   amount: string;
   currency: SupportedCurrency;
+  cashPromiseAmount: string;
+  cashPromiseCurrency: SupportedCurrency;
+  cashPromiseNote: string;
+  cashPromiseAcknowledged: boolean;
   expiresAt: string;
 };
 
@@ -152,15 +156,20 @@ function moneySideLabel(amountCents: number, currency: SupportedCurrency) {
   return formatWebMoney(amountCents, currency);
 }
 
-function buildWebGeneratedTradeDisplay(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[], amountCents: number, t: Translator) {
+function cashPromiseSideLabel(amountCents: number, currency: SupportedCurrency, t: Translator) {
+  return `${t('trade.cashPromise.title')} · ${formatWebMoney(amountCents, currency)}`;
+}
+
+function buildWebGeneratedTradeDisplay(values: TradeCreateValues, needs: NeedDto[], offers: OfferDto[], amountCents: number, cashPromiseAmountCents: number, t: Translator) {
   const need = findNeed(needs, values.needId);
   const offer = findOffer(offers, values.offerId);
   const moneyLabel = moneySideLabel(Number.isFinite(amountCents) ? amountCents : 0, values.currency);
+  const cashLabel = cashPromiseSideLabel(Number.isFinite(cashPromiseAmountCents) ? cashPromiseAmountCents : 0, values.cashPromiseCurrency, t);
 
   return buildGeneratedTradeDisplay({
     postType: values.postType || 'need_offer',
-    need: values.needMode === 'money' ? { moneyLabel } : need,
-    offer: values.offerMode === 'money' ? { moneyLabel } : offer,
+    need: values.needMode === 'cash_promise' ? { moneyLabel: cashLabel } : values.needMode === 'money' ? { moneyLabel } : need,
+    offer: values.offerMode === 'cash_promise' ? { moneyLabel: cashLabel } : values.offerMode === 'money' ? { moneyLabel } : offer,
     labels: tradeDisplayLabels(t),
   });
 }
@@ -255,6 +264,7 @@ function buildPreviewTrade(input: {
   offer: OfferDto | null;
   amountCents: number;
   currency: SupportedCurrency;
+  cashPromise?: { side: 'need' | 'offer'; amountCents: number; currency: string; note?: string | null } | null;
   expiresAt: string | null;
 }): TradeDto {
   const now = new Date().toISOString();
@@ -270,6 +280,7 @@ function buildPreviewTrade(input: {
     creditAmount: 0,
     amountCents: input.amountCents,
     currency: input.currency,
+    cashPromise: input.cashPromise ? { id: 'preview-cash-promise', tradeId: 'preview-trade', proposalId: null, side: input.cashPromise.side, amountCents: input.cashPromise.amountCents, currency: input.cashPromise.currency, note: input.cashPromise.note ?? null, acknowledgementText: CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, acknowledgedById: input.ownerId ?? 'preview-owner', acknowledgedAt: now, createdAt: now, updatedAt: now } : null,
     status: 'active',
     isPublic: true,
     createdAt: now,
@@ -304,6 +315,10 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     offerId: routeOfferId,
     amount: '',
     currency: preferredCurrency,
+    cashPromiseAmount: '',
+    cashPromiseCurrency: preferredCurrency,
+    cashPromiseNote: '',
+    cashPromiseAcknowledged: false,
     expiresAt: '',
   });
   const [saving, setSaving] = useState(false);
@@ -314,8 +329,20 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
 
 
   useEffect(() => {
-    if (betaFeatures.moneyTradesEnabled) return;
-    setValues((current) => current.needMode === 'saved' && current.offerMode === 'saved' ? current : { ...current, needMode: 'saved', offerMode: 'saved', amount: '' });
+    setValues((current) => {
+      const moneyUnavailable = !betaFeatures.moneyTradesEnabled && (current.needMode === 'money' || current.offerMode === 'money');
+      const cashPromiseUnavailable = (!betaFeatures.cashPromiseEnabled || !betaFeatures.cashPromiseVisible) && (current.needMode === 'cash_promise' || current.offerMode === 'cash_promise');
+      if (!moneyUnavailable && !cashPromiseUnavailable) return current;
+      return {
+        ...current,
+        needMode: current.needMode === 'money' || current.needMode === 'cash_promise' ? 'saved' : current.needMode,
+        offerMode: current.offerMode === 'money' || current.offerMode === 'cash_promise' ? 'saved' : current.offerMode,
+        amount: moneyUnavailable ? '' : current.amount,
+        cashPromiseAmount: cashPromiseUnavailable ? '' : current.cashPromiseAmount,
+        cashPromiseNote: cashPromiseUnavailable ? '' : current.cashPromiseNote,
+        cashPromiseAcknowledged: cashPromiseUnavailable ? false : current.cashPromiseAcknowledged,
+      };
+    });
   }, []);
 
   useEffect(() => {
@@ -334,6 +361,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         needMode: nextPostType === 'need_offer' ? current.needMode : 'saved',
         offerMode: nextPostType === 'need_offer' ? current.offerMode : 'saved',
         amount: nextPostType === 'need_offer' ? current.amount : '',
+        cashPromiseAmount: nextPostType === 'need_offer' ? current.cashPromiseAmount : '',
+        cashPromiseNote: nextPostType === 'need_offer' ? current.cashPromiseNote : '',
+        cashPromiseAcknowledged: nextPostType === 'need_offer' ? current.cashPromiseAcknowledged : false,
         needId: nextNeedId,
         offerId: nextOfferId,
       };
@@ -389,6 +419,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const selectedNeed = values.needMode === 'saved' ? findNeed(selectableNeeds, values.needId) : null;
   const selectedOffer = values.offerMode === 'saved' ? findOffer(selectableOffers, values.offerId) : null;
   const amountCents = parseMoneyToCents(values.amount);
+  const cashPromiseAmountCents = parseMoneyToCents(values.cashPromiseAmount);
   const duplicateTrade = values.postType === 'need_offer' && values.needMode === 'saved' && values.offerMode === 'saved'
     ? findDuplicateTradePair(trades, selectedNeed?.id, selectedOffer?.id)
     : values.postType === 'open_need'
@@ -398,8 +429,10 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
         : null;
   const visibleDuplicateTrade: DuplicateTradeConflict | DuplicateTradeSummary | null = duplicateTrade ?? duplicateConflict;
   const usesMoney = values.postType === 'need_offer' && (values.needMode === 'money' || values.offerMode === 'money');
+  const usesCashPromise = values.postType === 'need_offer' && (values.needMode === 'cash_promise' || values.offerMode === 'cash_promise');
   const blocksMoneyMoney = values.postType === 'need_offer' && values.needMode === 'money' && values.offerMode === 'money';
-  const generatedDisplay = values.postType && Number.isFinite(amountCents) ? buildWebGeneratedTradeDisplay(values, selectableNeeds, selectableOffers, amountCents || 0, t) : { title: '', description: '' };
+  const blocksCashPromiseBothSides = values.postType === 'need_offer' && values.needMode === 'cash_promise' && values.offerMode === 'cash_promise';
+  const generatedDisplay = values.postType && Number.isFinite(amountCents) && Number.isFinite(cashPromiseAmountCents) ? buildWebGeneratedTradeDisplay(values, selectableNeeds, selectableOffers, amountCents || 0, cashPromiseAmountCents || 0, t) : { title: '', description: '' };
   const autoTitle = generatedDisplay.title;
   const autoDescription = generatedDisplay.description;
 
@@ -427,9 +460,13 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     if (!auth.isAuthenticated) return t('trade.create.validationSignedOut');
     if (!values.postType) return t('trade.create.choosePublishType');
     if (usesMoney && !betaFeatures.moneyTradesEnabled) return t('trade.create.validationSavedSidesOnly');
+    if (usesCashPromise && (!betaFeatures.cashPromiseEnabled || !betaFeatures.cashPromiseVisible)) return t('trade.cashPromise.hidden');
     if (blocksMoneyMoney) return t('trade.create.validationSavedSidesOnly');
+    if (blocksCashPromiseBothSides) return t('trade.cashPromise.oneSideOnly');
     if ((values.postType === 'need_offer' || values.postType === 'open_need') && values.needMode === 'saved' && !selectedNeed) return values.postType === 'open_need' ? t('trade.create.validationOpenNeed') : t('trade.create.validationNeed');
     if ((values.postType === 'need_offer' || values.postType === 'open_offer') && values.offerMode === 'saved' && !selectedOffer) return values.postType === 'open_offer' ? t('trade.create.validationOpenOffer') : t('trade.create.validationOffer');
+    if (usesCashPromise && (!Number.isFinite(cashPromiseAmountCents) || cashPromiseAmountCents < 100)) return t('trade.cashPromise.validationAmount');
+    if (usesCashPromise && !values.cashPromiseAcknowledged) return t('trade.cashPromise.validationAcknowledgement');
     if (visibleDuplicateTrade) return `${duplicateTradeMessage(visibleDuplicateTrade, t)} ${t('trade.create.duplicateResolution')}`;
     if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return t('trade.create.validationMoneyMinimum');
     if (usesMoney && limits && !limits.moneyTradesEnabled) return t('trade.create.validationMoneyDisabled');
@@ -450,11 +487,12 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       postType,
       needKind: (postType === 'need_offer' && betaFeatures.moneyTradesEnabled && values.needMode === 'money' ? 'money' : 'need') as TradeNeedSideKind,
       offerKind: (postType === 'need_offer' && betaFeatures.moneyTradesEnabled && values.offerMode === 'money' ? 'money' : 'offer') as TradeOfferSideKind,
-      needId: postType !== 'open_offer' && (values.needMode === 'saved' || !betaFeatures.moneyTradesEnabled) ? selectedNeed?.id : undefined,
-      offerId: postType !== 'open_need' && (values.offerMode === 'saved' || !betaFeatures.moneyTradesEnabled) ? selectedOffer?.id : undefined,
+      needId: postType !== 'open_offer' && values.needMode === 'saved' ? selectedNeed?.id : undefined,
+      offerId: postType !== 'open_need' && values.offerMode === 'saved' ? selectedOffer?.id : undefined,
       creditAmount: 0,
       amountCents: postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney ? amountCents : 0,
       currency: values.currency,
+      ...(usesCashPromise ? { cashPromise: { side: values.needMode === 'cash_promise' ? 'need' as const : 'offer' as const, amountCents: cashPromiseAmountCents, currency: values.cashPromiseCurrency, note: values.cashPromiseNote.trim() || undefined, acknowledgementAccepted: true as const, acknowledgementText: CASH_PROMISE_ACKNOWLEDGEMENT_TEXT } } : {}),
       expiresAt: toIsoDate(values.expiresAt),
     };
 
@@ -479,9 +517,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     }
   }
 
-  const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : null;
+  const amountPreview = usesMoney && Number.isFinite(amountCents) && amountCents > 0 ? formatWebMoney(amountCents, values.currency) : usesCashPromise && Number.isFinite(cashPromiseAmountCents) && cashPromiseAmountCents > 0 ? formatWebMoney(cashPromiseAmountCents, values.cashPromiseCurrency) : null;
   const hasRequiredSides = values.postType === 'need_offer'
-    ? (values.needMode === 'money' || Boolean(selectedNeed)) && (values.offerMode === 'money' || Boolean(selectedOffer))
+    ? (values.needMode === 'money' || values.needMode === 'cash_promise' || Boolean(selectedNeed)) && (values.offerMode === 'money' || values.offerMode === 'cash_promise' || Boolean(selectedOffer))
     : values.postType === 'open_need'
       ? Boolean(selectedNeed)
       : values.postType === 'open_offer'
@@ -491,21 +529,22 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const selectedOpenNeedReady = values.postType === 'open_need' && Boolean(selectedNeed);
   const selectedOpenOfferReady = values.postType === 'open_offer' && Boolean(selectedOffer);
   const inventoryCheckingPair = (selectedPairReady || selectedOpenNeedReady || selectedOpenOfferReady) && loadState === 'loading';
-  const canSubmit = auth.isAuthenticated && Boolean(values.postType) && hasRequiredSides && !visibleDuplicateTrade && !blocksMoneyMoney && !(usesMoney && !betaFeatures.moneyTradesEnabled);
+  const canSubmit = auth.isAuthenticated && Boolean(values.postType) && hasRequiredSides && !visibleDuplicateTrade && !blocksMoneyMoney && !blocksCashPromiseBothSides && !(usesMoney && !betaFeatures.moneyTradesEnabled) && !(usesCashPromise && (!betaFeatures.cashPromiseEnabled || !betaFeatures.cashPromiseVisible));
   const previewTrade = useMemo(() => {
-    if (!values.postType || !hasRequiredSides || blocksMoneyMoney || (usesMoney && !betaFeatures.moneyTradesEnabled)) return null;
+    if (!values.postType || !hasRequiredSides || blocksMoneyMoney || blocksCashPromiseBothSides || (usesMoney && !betaFeatures.moneyTradesEnabled) || (usesCashPromise && (!betaFeatures.cashPromiseEnabled || !betaFeatures.cashPromiseVisible))) return null;
     return buildPreviewTrade({
       ownerId: auth.user?.id,
       postType: values.postType,
       title: autoTitle,
       description: autoDescription || t('trade.create.previewNeedOffer'),
-      need: values.postType !== 'open_offer' && values.needMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_offer' ? null : selectedNeed,
-      offer: values.postType !== 'open_need' && values.offerMode === 'money' && betaFeatures.moneyTradesEnabled ? null : values.postType === 'open_need' ? null : selectedOffer,
+      need: values.postType !== 'open_offer' && (values.needMode === 'money' || values.needMode === 'cash_promise') ? null : values.postType === 'open_offer' ? null : selectedNeed,
+      offer: values.postType !== 'open_need' && (values.offerMode === 'money' || values.offerMode === 'cash_promise') ? null : values.postType === 'open_need' ? null : selectedOffer,
       amountCents: values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled && usesMoney && Number.isFinite(amountCents) ? amountCents : 0,
       currency: values.currency,
+      cashPromise: usesCashPromise ? { side: values.needMode === 'cash_promise' ? 'need' : 'offer', amountCents: cashPromiseAmountCents, currency: values.cashPromiseCurrency, note: values.cashPromiseNote.trim() || null } : null,
       expiresAt: toIsoDate(values.expiresAt) ?? null,
     });
-  }, [amountCents, auth.user?.id, autoDescription, autoTitle, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesMoney, values.currency, values.expiresAt, values.needMode, values.offerMode, values.postType]);
+  }, [amountCents, cashPromiseAmountCents, auth.user?.id, autoDescription, autoTitle, blocksCashPromiseBothSides, blocksMoneyMoney, hasRequiredSides, selectedNeed, selectedOffer, usesCashPromise, usesMoney, values.cashPromiseCurrency, values.cashPromiseNote, values.currency, values.expiresAt, values.needMode, values.offerMode, values.postType]);
 
   const chooseNeedHref = createSideChooseHref('need', values);
   const chooseOfferHref = createSideChooseHref('offer', values);
@@ -540,7 +579,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       <form className="trade-create-form" onSubmit={handleSubmit}>
         <div className="trade-create-status-row">
           <span className="semantic-badge trade">{showPostTypeStep ? t('trade.create.choosePublishType') : postTypeLabel(values.postType, t)}</span>
-          {betaFeatures.moneyTradesEnabled && amountPreview ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
+          {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
         </div>
 
         {showPostTypeStep ? (
@@ -584,6 +623,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
                   emptyTitle={t('inventory.empty.createFirstNeed')}
                   emptyBody={t('inventory.empty.needBody')}
                   moneyEnabled={values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled}
+                  cashPromiseEnabled={values.postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible}
                 />
               ) : null}
               {values.postType !== 'open_need' ? (
@@ -598,6 +638,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
                   emptyTitle={t('inventory.empty.createFirstOffer')}
                   emptyBody={t('inventory.empty.offerBody')}
                   moneyEnabled={values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled}
+                  cashPromiseEnabled={values.postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible}
                 />
               ) : null}
               {values.postType === 'open_need' ? (
@@ -619,6 +660,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
 
         {blocksMoneyMoney ? (
           <p className="form-message form-message--error">{t('trade.create.validationSavedSidesOnly')}</p>
+        ) : null}
+        {blocksCashPromiseBothSides ? (
+          <p className="form-message form-message--error">{t('trade.cashPromise.oneSideOnly')}</p>
         ) : null}
 
         {visibleDuplicateTrade ? (
@@ -671,6 +715,38 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
                 </select>
               </label>
             </div>
+          </section>
+        ) : null}
+
+        {usesCashPromise && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible ? (
+          <section className="mobile-card trade-money-panel trade-cash-promise-panel">
+            <div>
+              <p className="eyebrow">{t('trade.cashPromise.title')}</p>
+              <h3>{values.needMode === 'cash_promise' ? t('trade.labels.iNeed') : t('trade.labels.iOffer')}</h3>
+              <p>{t('trade.cashPromise.outsideAppBody')}</p>
+            </div>
+            <div className="trade-money-panel__grid">
+              <label className="field-label">
+                {t('account.addMoney.amount')}
+                <input inputMode="decimal" value={values.cashPromiseAmount} onChange={(event) => updateValue('cashPromiseAmount', event.target.value)} placeholder={moneyInputFromCents(2500, values.cashPromiseCurrency)} />
+              </label>
+              <label className="field-label">
+                {t('account.addMoney.currency')}
+                <select value={values.cashPromiseCurrency} onChange={(event) => updateValue('cashPromiseCurrency', getPreferredCurrency(event.target.value))}>
+                  <option value="eur">EUR</option>
+                  <option value="usd">USD</option>
+                  <option value="gbp">GBP</option>
+                </select>
+              </label>
+            </div>
+            <label className="field-label">
+              {t('trade.cashPromise.note')} · {t('inventory.labels.optional')}
+              <textarea value={values.cashPromiseNote} onChange={(event) => updateValue('cashPromiseNote', event.target.value)} maxLength={500} placeholder={t('trade.cashPromise.notePlaceholder')} />
+            </label>
+            <label className="trade-cash-promise-ack">
+              <input type="checkbox" checked={values.cashPromiseAcknowledged} onChange={(event) => updateValue('cashPromiseAcknowledged', event.target.checked)} />
+              <span>{CASH_PROMISE_ACKNOWLEDGEMENT_TEXT}</span>
+            </label>
           </section>
         ) : null}
 

@@ -1,0 +1,1058 @@
+diff --git a/apps/api/src/modules/cash-promise/cashPromise.ts b/apps/api/src/modules/cash-promise/cashPromise.ts
+index ac87f35..2b49b2f 100644
+--- a/apps/api/src/modules/cash-promise/cashPromise.ts
++++ b/apps/api/src/modules/cash-promise/cashPromise.ts
+@@ -12,7 +12,11 @@ export function isCashPromiseConfiguredEnabled() {
+   return env.cashPromiseEnabled && env.cashPromiseVisible && env.moneyFeaturesVisible;
+ }
+ 
+-export function validateCashPromiseInput(cashPromise: CashPromiseInput | null | undefined, provided = Boolean(cashPromise), options: { allowTradeCreate?: boolean } = {}) {
++export function validateCashPromiseInput(
++  cashPromise: CashPromiseInput | null | undefined,
++  provided = Boolean(cashPromise),
++  options: { allowTradeCreate?: boolean; allowProposal?: boolean } = {},
++) {
+   if (!provided) return null;
+   if (!cashPromise) {
+     return {
+@@ -39,7 +43,7 @@ export function validateCashPromiseInput(cashPromise: CashPromiseInput | null |
+     };
+   }
+ 
+-  if (options.allowTradeCreate) {
++  if (options.allowTradeCreate || options.allowProposal) {
+     return {
+       ok: true as const,
+       cashPromise: {
+@@ -51,13 +55,12 @@ export function validateCashPromiseInput(cashPromise: CashPromiseInput | null |
+     };
+   }
+ 
+-  // Proposal/deal Cash Promise flows stay blocked until CASH3 wires them explicitly.
+   return {
+     ok: false as const,
+     statusCode: 501,
+     body: {
+       error: 'cash_promise_foundation_only',
+-      message: 'Cash Promise foundation is present but proposal/deal flows are not enabled yet.',
++      message: 'Cash Promise foundation is present but this flow is not enabled yet.',
+       acknowledgementText: cashPromise.acknowledgementText?.trim() || CASH_PROMISE_ACKNOWLEDGEMENT_TEXT,
+     },
+   };
+diff --git a/apps/api/src/modules/proposals/dealSnapshots.ts b/apps/api/src/modules/proposals/dealSnapshots.ts
+index bb49317..8904c27 100644
+--- a/apps/api/src/modules/proposals/dealSnapshots.ts
++++ b/apps/api/src/modules/proposals/dealSnapshots.ts
+@@ -1,7 +1,7 @@
+-import type { Need, Offer, Prisma } from '@prisma/client';
++import type { CashPromise, Need, Offer, Prisma } from '@prisma/client';
+ 
+ type SnapshotSource = 'trade' | 'proposal' | 'package';
+-type SnapshotKind = 'need' | 'offer';
++type SnapshotKind = 'need' | 'offer' | 'cash_promise';
+ type SnapshotItem = {
+   kind: SnapshotKind;
+   id: string;
+@@ -18,6 +18,11 @@ type SnapshotItem = {
+   tags: string[];
+   status: string;
+   source: SnapshotSource;
++  side?: 'need' | 'offer';
++  amountCents?: number;
++  currency?: string;
++  note?: string | null;
++  acknowledgementText?: string;
+   sortOrder?: number;
+   snapshottedAt: string;
+ };
+@@ -67,18 +72,44 @@ function snapshotOffer(offer: Offer, source: SnapshotSource, snapshottedAt: stri
+   };
+ }
+ 
++function snapshotCashPromise(cashPromise: CashPromise, ownerId: string, applicantId: string, snapshottedAt: string): SnapshotItem {
++  const giverId = cashPromise.side === 'offer' ? applicantId : ownerId;
++  return {
++    kind: 'cash_promise',
++    id: cashPromise.id,
++    ownerId: giverId,
++    title: 'Cash promise',
++    description: cashPromise.note ?? '',
++    itemType: 'other',
++    category: 'Cash promise',
++    mode: null,
++    locationLabel: null,
++    tags: [],
++    status: 'accepted',
++    source: 'proposal',
++    side: cashPromise.side,
++    amountCents: cashPromise.amountCents,
++    currency: cashPromise.currency,
++    note: cashPromise.note,
++    acknowledgementText: cashPromise.acknowledgementText,
++    snapshottedAt,
++  };
++}
++
+ function pushUnique(items: SnapshotItem[], item: SnapshotItem | null | undefined) {
+   if (!item) return;
+   if (items.some((existing) => existing.kind === item.kind && existing.id === item.id)) return;
+   items.push(item);
+ }
+ 
+-function agreementBuckets(input: { ownerId: string; applicantId: string; needs: SnapshotItem[]; offers: SnapshotItem[] }) {
++function agreementBuckets(input: { ownerId: string; applicantId: string; needs: SnapshotItem[]; offers: SnapshotItem[]; cashPromises: SnapshotItem[] }) {
++  const cashGivenByOwner = input.cashPromises.filter((cash) => cash.ownerId === input.ownerId);
++  const cashGivenByApplicant = input.cashPromises.filter((cash) => cash.ownerId === input.applicantId);
+   return {
+-    ownerGives: input.offers.filter((offer) => offer.ownerId === input.ownerId),
+-    ownerReceives: input.needs.filter((need) => need.ownerId === input.ownerId),
+-    applicantGives: input.offers.filter((offer) => offer.ownerId === input.applicantId),
+-    applicantReceives: input.needs.filter((need) => need.ownerId === input.applicantId),
++    ownerGives: [...input.offers.filter((offer) => offer.ownerId === input.ownerId), ...cashGivenByOwner],
++    ownerReceives: [...input.needs.filter((need) => need.ownerId === input.ownerId), ...cashGivenByApplicant],
++    applicantGives: [...input.offers.filter((offer) => offer.ownerId === input.applicantId), ...cashGivenByApplicant],
++    applicantReceives: [...input.needs.filter((need) => need.ownerId === input.applicantId), ...cashGivenByOwner],
+   };
+ }
+ 
+@@ -91,6 +122,7 @@ export async function createAcceptedDealSnapshot(tx: Prisma.TransactionClient, p
+       proposedNeed: true,
+       proposedOffer: true,
+       packageItems: { include: { need: true, offer: true }, orderBy: { sortOrder: 'asc' } },
++      cashPromise: true,
+     },
+   });
+   if (!proposal) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
+@@ -99,6 +131,7 @@ export async function createAcceptedDealSnapshot(tx: Prisma.TransactionClient, p
+   const applicantId = proposal.applicantId;
+   const needs: SnapshotItem[] = [];
+   const offers: SnapshotItem[] = [];
++  const cashPromises: SnapshotItem[] = [];
+ 
+   pushUnique(needs, proposal.trade.need ? snapshotNeed(proposal.trade.need, 'trade', snapshottedAt) : null);
+   pushUnique(offers, proposal.trade.offer ? snapshotOffer(proposal.trade.offer, 'trade', snapshottedAt) : null);
+@@ -109,8 +142,9 @@ export async function createAcceptedDealSnapshot(tx: Prisma.TransactionClient, p
+     if (item.need) pushUnique(needs, snapshotNeed(item.need, 'package', snapshottedAt, item.sortOrder));
+     if (item.offer) pushUnique(offers, snapshotOffer(item.offer, 'package', snapshottedAt, item.sortOrder));
+   }
++  if (proposal.cashPromise) pushUnique(cashPromises, snapshotCashPromise(proposal.cashPromise, ownerId, applicantId, snapshottedAt));
+ 
+-  const buckets = agreementBuckets({ ownerId, applicantId, needs, offers });
++  const buckets = agreementBuckets({ ownerId, applicantId, needs, offers, cashPromises });
+   const tradeSnapshot = {
+     id: proposal.trade.id,
+     ownerId,
+@@ -133,6 +167,7 @@ export async function createAcceptedDealSnapshot(tx: Prisma.TransactionClient, p
+     applicantId,
+     proposedNeedId: proposal.proposedNeedId,
+     proposedOfferId: proposal.proposedOfferId,
++    cashPromiseId: proposal.cashPromise?.id ?? null,
+     packageKind: proposal.packageKind,
+     message: proposal.message,
+     messageDeletedAt: proposal.messageDeletedAt?.toISOString() ?? null,
+diff --git a/apps/api/src/modules/proposals/proposals.routes.ts b/apps/api/src/modules/proposals/proposals.routes.ts
+index a3a29f6..53aacf5 100644
+--- a/apps/api/src/modules/proposals/proposals.routes.ts
++++ b/apps/api/src/modules/proposals/proposals.routes.ts
+@@ -70,17 +70,24 @@ function buildDealProblemReportDetails(input: {
+   ].filter(Boolean).join('\n'));
+ }
+ 
+-async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; trade: { postType?: string | null } }) {
++async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; cashPromise?: { side: 'need' | 'offer' } | null; trade: { postType?: string | null } }, cashPromiseSide?: 'need' | 'offer' | null) {
+   const requiredSide = proposalSideRequirement(proposal.trade.postType);
+   const nextNeedProvided = Object.prototype.hasOwnProperty.call(input, 'proposedNeedId');
+   const nextOfferProvided = Object.prototype.hasOwnProperty.call(input, 'proposedOfferId');
+   const nextNeedId = nextNeedProvided ? input.proposedNeedId ?? null : proposal.proposedNeedId ?? null;
+   const nextOfferId = nextOfferProvided ? input.proposedOfferId ?? null : proposal.proposedOfferId ?? null;
+ 
+-  if (requiredSide === 'offer' && !nextOfferId) {
++  const effectiveCashPromiseSide = cashPromiseSide ?? proposal.cashPromise?.side ?? null;
++  if (effectiveCashPromiseSide === 'offer' && nextOfferId) {
++    throw Object.assign(new Error('cash_promise_side_conflict'), { code: 'CASH_PROMISE_SIDE_CONFLICT' });
++  }
++  if (effectiveCashPromiseSide === 'need' && nextNeedId) {
++    throw Object.assign(new Error('cash_promise_side_conflict'), { code: 'CASH_PROMISE_SIDE_CONFLICT' });
++  }
++  if (requiredSide === 'offer' && !nextOfferId && effectiveCashPromiseSide !== 'offer') {
+     throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_OFFER_REQUIRED' });
+   }
+-  if (requiredSide === 'need' && !nextNeedId) {
++  if (requiredSide === 'need' && !nextNeedId && effectiveCashPromiseSide !== 'need') {
+     throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_NEED_REQUIRED' });
+   }
+ 
+@@ -106,6 +113,7 @@ function proposalSideErrorResponse(res: Response, error: unknown) {
+   if (code === 'PROPOSAL_NEED_REQUIRED') return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
+   if (code === 'INVALID_PROPOSAL_OFFER') return res.status(400).json({ error: 'invalid_proposal_offer', message: 'Choose an active Offer from your account.' });
+   if (code === 'INVALID_PROPOSAL_NEED') return res.status(400).json({ error: 'invalid_proposal_need', message: 'Choose an active Need from your account.' });
++  if (code === 'CASH_PROMISE_SIDE_CONFLICT') return res.status(400).json({ error: 'cash_promise_side_conflict', message: 'Cash Promise cannot be combined with a proposed Need or Offer on the same side.' });
+   return null;
+ }
+ 
+@@ -239,16 +247,21 @@ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(as
+ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updateProposalMessageRequestSchema.parse(req.body);
+   const actorId = req.user!.id;
+-  const cashPromiseDecision = validateCashPromiseInput(input.cashPromise ?? undefined, Object.prototype.hasOwnProperty.call(input, 'cashPromise'));
++  const cashPromiseProvided = Object.prototype.hasOwnProperty.call(input, 'cashPromise');
++  const cashPromiseDecision = validateCashPromiseInput(input.cashPromise ?? undefined, cashPromiseProvided, { allowProposal: true });
+   if (cashPromiseDecision && !cashPromiseDecision.ok) {
+     return res.status(cashPromiseDecision.statusCode).json(cashPromiseDecision.body);
+   }
+-  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
++  const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true, cashPromise: true } });
+   if (!proposal) return res.status(404).json({ error: 'not_found' });
+   if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
+   if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
+ 
+   const packageInput = hasProposalPackageInput(input);
++  const nextCashPromise = cashPromiseDecision?.ok ? cashPromiseDecision.cashPromise : null;
++  if (packageInput && nextCashPromise) {
++    return res.status(400).json({ error: 'cash_promise_package_conflict', message: 'Cash Promise cannot be combined with proposal packages.' });
++  }
+   let nextSide: { proposedNeedId: string | null; proposedOfferId: string | null };
+   let packageKind: 'standard' | 'main_need_multi_offer' | 'main_offer_multi_need' = proposal.packageKind ?? 'standard';
+   let packageItems: ReturnType<typeof toProposalPackageItemCreateManyRows> | null = null;
+@@ -260,7 +273,7 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
+       packageKind = resolvedPackage.packageKind;
+       packageItems = toProposalPackageItemCreateManyRows(proposal.id, resolvedPackage.items);
+     } else {
+-      nextSide = await resolveProposalSideUpdate(input, proposal);
++      nextSide = await resolveProposalSideUpdate(input, proposal, nextCashPromise?.side);
+     }
+   } catch (error) {
+     const response = proposalSideErrorResponse(res, error);
+@@ -279,7 +292,8 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
+   const messageChanged = typeof input.message === 'string' && input.message !== proposal.message;
+   const sideChanged = nextSide.proposedNeedId !== proposal.proposedNeedId || nextSide.proposedOfferId !== proposal.proposedOfferId;
+   const packageChanged = packageInput;
+-  if (!messageChanged && !sideChanged && !packageChanged && !proposal.messageDeletedAt) {
++  const cashPromiseChanged = Boolean(nextCashPromise);
++  if (!messageChanged && !sideChanged && !packageChanged && !cashPromiseChanged && !proposal.messageDeletedAt) {
+     const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+     return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
+   }
+@@ -287,8 +301,8 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
+   const now = new Date();
+   const updated = await prisma.$transaction(async (tx) => {
+     const data: any = {
+-      proposedNeedId: nextSide.proposedNeedId,
+-      proposedOfferId: nextSide.proposedOfferId,
++      proposedNeedId: nextCashPromise?.side === 'need' ? null : nextSide.proposedNeedId,
++      proposedOfferId: nextCashPromise?.side === 'offer' ? null : nextSide.proposedOfferId,
+       packageKind,
+     };
+     if (typeof input.message === 'string') {
+@@ -298,6 +312,21 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
+       data.messageDeletedAt = null;
+     }
+     await tx.tradeProposal.update({ where: { id: proposal.id }, data });
++    if (nextCashPromise) {
++      await tx.cashPromise.deleteMany({ where: { proposalId: proposal.id } });
++      await tx.cashPromise.create({
++        data: {
++          proposalId: proposal.id,
++          side: nextCashPromise.side,
++          amountCents: nextCashPromise.amountCents,
++          currency: nextCashPromise.currency,
++          note: nextCashPromise.note,
++          acknowledgementText: nextCashPromise.acknowledgementText,
++          acknowledgedById: actorId,
++          acknowledgedAt: now,
++        },
++      });
++    }
+     if (packageItems) {
+       await tx.tradeProposalPackageItem.deleteMany({ where: { proposalId: proposal.id } });
+       if (packageItems.length) await tx.tradeProposalPackageItem.createMany({ data: packageItems });
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 56be53d..023618c 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -602,12 +602,12 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
+       mirrorInput.current = { buyerId, sellerId, amountCents, currency, moneySide };
+     }
+ 
+-    const proposal = await tx.tradeProposal.findUnique({ where: { id: proposalId }, select: { id: true, applicantId: true, proposedNeedId: true, proposedOfferId: true } });
++    const proposal = await tx.tradeProposal.findUnique({ where: { id: proposalId }, select: { id: true, applicantId: true, proposedNeedId: true, proposedOfferId: true, cashPromise: true } });
+     if (!proposal || proposal.applicantId !== applicantId) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
+ 
+     const acceptedSideUpdate: { needId?: string; offerId?: string } = {};
+-    if (trade.postType === 'open_need' && !proposal.proposedOfferId) throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+-    if (trade.postType === 'open_offer' && !proposal.proposedNeedId) throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
++    if (trade.postType === 'open_need' && !proposal.proposedOfferId && proposal.cashPromise?.side !== 'offer') throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
++    if (trade.postType === 'open_offer' && !proposal.proposedNeedId && proposal.cashPromise?.side !== 'need') throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
+ 
+     if (proposal.proposedOfferId) {
+       const proposedOffer = await tx.offer.findFirst({ where: { id: proposal.proposedOfferId, ownerId: applicantId } });
+@@ -1009,7 +1009,7 @@ tradesRoutes.get('/:tradeId/proposals', requireAuth, asyncRoute(async (req, res)
+ }));
+ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createTradeProposalRequestSchema.parse(req.body);
+-  const cashPromiseDecision = validateCashPromiseInput(input.cashPromise);
++  const cashPromiseDecision = validateCashPromiseInput(input.cashPromise, Boolean(input.cashPromise), { allowProposal: true });
+   if (cashPromiseDecision && !cashPromiseDecision.ok) {
+     return res.status(cashPromiseDecision.statusCode).json(cashPromiseDecision.body);
+   }
+@@ -1022,6 +1022,11 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
+ 
+   const requiredSide = proposalSideRequirement(trade.postType);
+   const packageInput = hasProposalPackageInput(input);
++  const proposalCashPromise = cashPromiseDecision?.ok ? cashPromiseDecision.cashPromise : null;
++  const cashPromiseSide = proposalCashPromise?.side ?? null;
++  if (packageInput && proposalCashPromise) {
++    return res.status(400).json({ error: 'cash_promise_package_conflict', message: 'Cash Promise cannot be combined with proposal packages.' });
++  }
+   let proposedNeedId: string | null = null;
+   let proposedOfferId: string | null = null;
+   let packageKind: 'standard' | 'main_need_multi_offer' | 'main_offer_multi_need' = 'standard';
+@@ -1048,11 +1053,17 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
+       throw error;
+     }
+   } else {
+-    if (requiredSide === 'offer' && !input.proposedOfferId) {
+-      return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers to propose for this Open Need.' });
++    if (requiredSide === 'offer' && !input.proposedOfferId && cashPromiseSide !== 'offer') {
++      return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers or a Cash Promise to propose for this Open Need.' });
++    }
++    if (requiredSide === 'need' && !input.proposedNeedId && cashPromiseSide !== 'need') {
++      return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs or a Cash Promise to propose for this Open Offer.' });
+     }
+-    if (requiredSide === 'need' && !input.proposedNeedId) {
+-      return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs to propose for this Open Offer.' });
++    if (cashPromiseSide === 'offer' && input.proposedOfferId) {
++      return res.status(400).json({ error: 'cash_promise_side_conflict', message: 'Cash Promise cannot be combined with a proposed Offer on the same side.' });
++    }
++    if (cashPromiseSide === 'need' && input.proposedNeedId) {
++      return res.status(400).json({ error: 'cash_promise_side_conflict', message: 'Cash Promise cannot be combined with a proposed Need on the same side.' });
+     }
+ 
+     if (input.proposedOfferId) {
+@@ -1075,7 +1086,29 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
+   if (existingActiveProposal?.status === 'pending') return res.status(409).json({ error: 'proposal_already_exists', message: 'You already have a pending proposal for this trade.', proposal: existingActiveProposal });
+   if (existingActiveProposal?.status === 'accepted') return res.status(409).json({ error: 'proposal_already_accepted', message: 'Your proposal was already accepted.', proposal: existingActiveProposal });
+   const proposal = await prisma.$transaction(async (tx) => {
+-    const proposalRecord = await tx.tradeProposal.create({ data: { tradeId: trade.id, applicantId: actorId, message: input.message, proposedNeedId, proposedOfferId, packageKind } });
++    const proposalRecord = await tx.tradeProposal.create({
++      data: {
++        tradeId: trade.id,
++        applicantId: actorId,
++        message: input.message,
++        proposedNeedId,
++        proposedOfferId,
++        packageKind,
++        ...(proposalCashPromise ? {
++          cashPromise: {
++            create: {
++              side: proposalCashPromise.side,
++              amountCents: proposalCashPromise.amountCents,
++              currency: proposalCashPromise.currency,
++              note: proposalCashPromise.note,
++              acknowledgementText: proposalCashPromise.acknowledgementText,
++              acknowledgedById: actorId,
++              acknowledgedAt: new Date(),
++            },
++          },
++        } : {}),
++      },
++    });
+     if (packageItems.length) {
+       await tx.tradeProposalPackageItem.createMany({ data: packageItems.map((item) => ({ ...item, proposalId: proposalRecord.id })) });
+     }
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index dd92779..0281a64 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -105,6 +105,7 @@ function proposalPackageTitle(proposal: TradeProposalItem, t: TFunction) {
+   if (proposal.proposedNeed && proposal.proposedOffer) return t('trade.proposals.needOfferProposal');
+   if (proposal.proposedNeed) return t('trade.proposals.needProposal');
+   if (proposal.proposedOffer) return t('trade.proposals.offerProposal');
++  if (proposal.cashPromise) return t('trade.cashPromise.title');
+   return t('trade.proposals.tradeRequest');
+ }
+ 
+@@ -128,11 +129,45 @@ function uniqueInventoryItems(items: Array<ProposalSideItem | null | undefined>)
+ }
+ 
+ function isAcceptedDealSnapshotItem(item: DealAgreementItem): item is AcceptedDealSnapshotItemDto {
+-  return 'kind' in item && (item.kind === 'need' || item.kind === 'offer');
++  return 'kind' in item && (item.kind === 'need' || item.kind === 'offer' || item.kind === 'cash_promise');
++}
++
++function formatMoneyAmount(amountCents?: number, currency = 'eur') {
++  return `${currency.toUpperCase()} ${((amountCents ?? 0) / 100).toFixed(2)}`;
++}
++
++function liveCashPromiseItem(proposal: TradeProposalItem, ownerId: string | null): AcceptedDealSnapshotItemDto | null {
++  const cashPromise = proposal.cashPromise;
++  if (!cashPromise) return null;
++  const giverId = cashPromise.side === 'offer' ? proposal.applicantId : ownerId;
++  if (!giverId) return null;
++  return {
++    kind: 'cash_promise',
++    id: cashPromise.id,
++    ownerId: giverId,
++    title: 'Cash promise',
++    description: cashPromise.note ?? '',
++    itemType: 'other',
++    category: 'Cash promise',
++    mode: null,
++    locationLabel: null,
++    tags: [],
++    status: 'accepted',
++    source: 'proposal',
++    side: cashPromise.side,
++    amountCents: cashPromise.amountCents,
++    currency: cashPromise.currency ?? 'eur',
++    note: cashPromise.note ?? null,
++    acknowledgementText: cashPromise.acknowledgementText,
++    snapshottedAt: cashPromise.createdAt,
++  };
+ }
+ 
+ function dealAgreementMeta(item: DealAgreementItem, fallbackKind: ProposalSideKind, t: TFunction) {
+   if (isAcceptedDealSnapshotItem(item)) {
++    if (item.kind === 'cash_promise') {
++      return compactList([formatMoneyAmount(item.amountCents, item.currency), t('trade.cashPromise.notProcessed')]);
++    }
+     const mode = modeLabel(item.mode, t);
+     if (item.kind === 'need') {
+       return compactList([item.category, item.timing, mode, item.locationLabel]) || item.itemType || t('trade.labels.needDetails');
+@@ -161,12 +196,15 @@ function acceptedDealAgreement(proposal: TradeProposalItem) {
+   const applicantId = proposal.applicantId;
+   const needs = uniqueInventoryItems([trade?.need as NeedItem | undefined, proposal.proposedNeed as NeedItem | undefined]) as NeedItem[];
+   const offers = uniqueInventoryItems([trade?.offer as OfferItem | undefined, proposal.proposedOffer as OfferItem | undefined]) as OfferItem[];
++  const cashPromise = liveCashPromiseItem(proposal, ownerId);
++  const ownerGivesCash = cashPromise && cashPromise.ownerId === ownerId ? [cashPromise] : [];
++  const applicantGivesCash = cashPromise && cashPromise.ownerId === applicantId ? [cashPromise] : [];
+ 
+   return {
+-    ownerGives: offers.filter((offer) => offer.ownerId === ownerId),
+-    ownerReceives: needs.filter((need) => need.ownerId === ownerId),
+-    applicantGives: offers.filter((offer) => offer.ownerId === applicantId),
+-    applicantReceives: needs.filter((need) => need.ownerId === applicantId),
++    ownerGives: [...offers.filter((offer) => offer.ownerId === ownerId), ...ownerGivesCash],
++    ownerReceives: [...needs.filter((need) => need.ownerId === ownerId), ...applicantGivesCash],
++    applicantGives: [...offers.filter((offer) => offer.ownerId === applicantId), ...applicantGivesCash],
++    applicantReceives: [...needs.filter((need) => need.ownerId === applicantId), ...ownerGivesCash],
+     acceptedMessage: proposal.messageDeletedAt ? null : proposal.message,
+     snapshotCreatedAt: null,
+     fromSnapshot: false,
+@@ -1009,7 +1047,7 @@ function DealAgreementColumn({ label, items, emptyLabel, tone, t }: { label: str
+       <SemanticBadge label={label} tone={tone} size="sm" />
+       {items.length ? items.map((item) => (
+         <View key={`${isAcceptedDealSnapshotItem(item) ? item.kind : tone}-${item.id}`} style={styles.dealAgreementItem}>
+-          <AppText style={styles.dealAgreementTitle} numberOfLines={2}>{item.title}</AppText>
++          <AppText style={styles.dealAgreementTitle} numberOfLines={2}>{isAcceptedDealSnapshotItem(item) && item.kind === 'cash_promise' ? t('trade.cashPromise.title') : item.title}</AppText>
+           <AppText style={[styles.dealAgreementMeta, { color: color.text }]} numberOfLines={1}>{dealAgreementMeta(item, tone, t)}</AppText>
+         </View>
+       )) : <AppText style={[styles.dealAgreementEmpty, { color: theme.color.muted }]}>{emptyLabel}</AppText>}
+@@ -1053,12 +1091,13 @@ function ProposalStatusBlock({ proposal, statusHint, tradeCancelled, t }: { prop
+ function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetails, t }: { proposal: TradeProposalItem; canEditProposalContent: boolean; onDetails: () => void; t: TFunction }) {
+   const theme = useThemeTokens();
+   const sideItems = proposalSideItems(proposal);
++  const hasCashPromise = Boolean(proposal.cashPromise);
+   const actionLabel = canEditProposalContent ? t('trade.proposals.manageProposal') : t('trade.proposals.showProposalItemDetails');
+ 
+   return (
+     <DetailSection
+       title={t('trade.proposals.proposalPackage')}
+-      description={sideItems.length > 0 ? proposalPackageTitle(proposal, t) : t('trade.proposals.noAttachedItem')}
++      description={sideItems.length > 0 || hasCashPromise ? proposalPackageTitle(proposal, t) : t('trade.proposals.noAttachedItem')}
+       compact
+       rightSlot={
+         <Pressable accessibilityRole="button" accessibilityLabel={actionLabel} onPress={onDetails} style={({ pressed }) => [styles.inlineDetailsButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+@@ -1066,7 +1105,7 @@ function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetail
+         </Pressable>
+       }
+     >
+-      {sideItems.length === 0 ? (
++      {sideItems.length === 0 && !hasCashPromise ? (
+         <View style={[styles.inlinePackageEmpty, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+           <MobileIcon name="proposal" size={18} color={theme.color.muted} decorative />
+           <AppText style={[styles.inlinePackageEmptyText, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>
+@@ -1074,6 +1113,7 @@ function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetail
+       ) : (
+         <View style={styles.inlinePackageList}>
+           {sideItems.map(({ kind, item }) => <ProposalSideInlineItem key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
++          {proposal.cashPromise ? <CashPromiseInlineItem amountCents={proposal.cashPromise.amountCents} currency={proposal.cashPromise.currency ?? 'eur'} side={proposal.cashPromise.side} note={proposal.cashPromise.note ?? null} t={t} /> : null}
+         </View>
+       )}
+     </DetailSection>
+@@ -1102,6 +1142,27 @@ function ProposalSideInlineItem({ kind, item, t }: { kind: ProposalSideKind; ite
+   );
+ }
+ 
++function CashPromiseInlineItem({ amountCents, currency, side, note, t }: { amountCents: number; currency: string; side: 'need' | 'offer'; note?: string | null; t: TFunction }) {
++  const theme = useThemeTokens();
++  const tone = side === 'need' ? theme.semantic.need : theme.semantic.offer;
++  return (
++    <View style={[styles.inlineSideItem, { borderTopColor: theme.color.border }]}>
++      <View style={[styles.inlineSideIcon, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
++        <MobileIcon name="proposal" size={18} color={theme.semantic.warning.text} decorative />
++      </View>
++      <View style={styles.inlineSideCopy}>
++        <View style={styles.inlineSideHeader}>
++          <SemanticBadge label={side === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')} tone={side} size="sm" />
++          <SemanticBadge label={t('trade.cashPromise.notProcessed')} tone="warning" size="sm" />
++        </View>
++        <AppText style={styles.inlineSideTitle} numberOfLines={2}>{t('trade.cashPromise.title')} · {formatMoneyAmount(amountCents, currency)}</AppText>
++        <AppText style={[styles.inlineSideMeta, { color: tone.text }]} numberOfLines={1}>{t('trade.cashPromise.outsideAppTitle')}</AppText>
++        {note ? <AppText style={[styles.inlineSideDescription, { color: theme.color.muted }]} numberOfLines={3}>{note}</AppText> : null}
++      </View>
++    </View>
++  );
++}
++
+ function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () => void }) {
+   const theme = useThemeTokens();
+   return (
+@@ -1134,7 +1195,7 @@ function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeC
+       </View>
+       <AppText style={styles.summaryTitle} numberOfLines={2}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
+       {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${formatStatus(proposal.trade.status, t)} ${t('trade.labels.trade').toLowerCase()}`} /> : <AppText style={[styles.summaryMeta, { color: theme.color.muted }]}>{t('trade.labels.serviceForService')} {t('trade.labels.trade').toLowerCase()}</AppText>) : null}
+-      {sides.length > 0 ? <View style={styles.summarySides}>{sides.map(({ kind, item }) => <CompactSidePill key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}</View> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>}
++      {sides.length > 0 || proposal.cashPromise ? <View style={styles.summarySides}>{sides.map(({ kind, item }) => <CompactSidePill key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}{proposal.cashPromise ? <CompactCashPromisePill proposal={proposal} t={t} /> : null}</View> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>}
+       <View style={[styles.summaryActionHint, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+         <AppText style={[styles.summaryHint, { color: theme.color.muted }]}>{statusHint}</AppText>
+         <Pressable accessibilityRole="button" onPress={onDetails} style={({ pressed }) => [styles.summaryActionButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+@@ -1204,6 +1265,13 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
+   );
+ }
+ 
++function CompactCashPromisePill({ proposal, t }: { proposal: TradeProposalItem; t: TFunction }) {
++  const theme = useThemeTokens();
++  const cashPromise = proposal.cashPromise;
++  if (!cashPromise) return null;
++  return <View style={[styles.compactSidePill, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}><SemanticBadge label={t('trade.cashPromise.notProcessed')} tone="warning" size="sm" /><AppText style={[styles.compactSideTitle, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.title')} · {formatMoneyAmount(cashPromise.amountCents, cashPromise.currency ?? 'eur')}</AppText></View>;
++}
++
+ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, language, onClose, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onOpenTradeDetail, t }: { visible: boolean; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; language: SupportedLanguage; onClose: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onOpenTradeDetail: () => void; t: TFunction }) {
+   const theme = useThemeTokens();
+   const sideItems = proposalSideItems(proposal);
+@@ -1228,7 +1296,12 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
+               {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
+             </View>
+ 
+-            {sideItems.length === 0 ? <InfoNotice tone="info" title={t('trade.proposals.changeProposalItem')} body={t('trade.proposals.noAttachedItem')} /> : sideItems.map(({ kind, item }) => <ProposalSideDetailCard key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
++            {sideItems.length === 0 && !proposal.cashPromise ? <InfoNotice tone="info" title={t('trade.proposals.changeProposalItem')} body={t('trade.proposals.noAttachedItem')} /> : (
++              <>
++                {sideItems.map(({ kind, item }) => <ProposalSideDetailCard key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
++                {proposal.cashPromise ? <CashPromiseInlineItem cashPromise={proposal.cashPromise} t={t} /> : null}
++              </>
++            )}
+ 
+             {canEditProposalContent ? <ProposalPackageEditor requiredSide={requiredPackageSide} need={selectedPackageNeed} offer={selectedPackageOffer} loading={packageLoading} error={packageError} changed={packageChanged} saving={actionLoading === 'proposal-package'} onChooseNeed={onChooseNeed} onChooseOffer={onChooseOffer} onClearNeed={onClearNeed} onClearOffer={onClearOffer} onSave={onSavePackage} t={t} /> : null}
+ 
+diff --git a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+index a94fa2b..dd9df06 100644
+--- a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { TradePostType, TradeStatus } from '@hellowhen/contracts';
++import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type TradePostType, type TradeStatus } from '@hellowhen/contracts';
+ import type { ThemeTokens } from '@hellowhen/theme';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+@@ -18,6 +18,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { UserIdentityPressable } from '../users/UserIdentityPressable';
+ import type { NeedItem, OfferItem, TradeDeckItem, TradeProposalItem } from './types';
++import type { TradeCreateSideSelection } from './CreateTradeScreen';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'TradePrivateProposals'>;
+ type TradeResponse = { trade: TradeDeckItem };
+@@ -47,6 +48,7 @@ function isNeedAvailable(need: NeedItem) { return need.status === 'active'; }
+ function isOfferAvailable(offer: OfferItem) { return offer.status === 'active'; }
+ function upsertProposal(proposals: TradeProposalItem[], next: TradeProposalItem) { return proposals.some((proposal) => proposal.id === next.id) ? proposals.map((proposal) => proposal.id === next.id ? { ...proposal, ...next } : proposal) : [next, ...proposals]; }
+ function formatStatus(status: string, t: TFunction) { const label = t(`trade.statuses.${status}`); return label === `trade.statuses.${status}` ? status.replace(/_/g, ' ') : label; }
++function formatMoney(amountCents: number, currency = 'eur') { return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`; }
+ 
+ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+   const auth = useAuth();
+@@ -59,6 +61,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+   const [proposalOffers, setProposalOffers] = useState<OfferItem[]>([]);
+   const [selectedProposalNeedId, setSelectedProposalNeedId] = useState(route.params.selectedProposalNeedId ?? '');
+   const [selectedProposalOfferId, setSelectedProposalOfferId] = useState(route.params.selectedProposalOfferId ?? '');
++  const [selectedCashPromise, setSelectedCashPromise] = useState<TradeCreateSideSelection | null>(route.params.selectedProposalSide?.kind === 'cash_promise' ? route.params.selectedProposalSide : null);
+   const [packagePrototypeEnabled, setPackagePrototypeEnabled] = useState(false);
+   const [supportingProposalNeedIds, setSupportingProposalNeedIds] = useState<string[]>([]);
+   const [supportingProposalOfferIds, setSupportingProposalOfferIds] = useState<string[]>([]);
+@@ -81,8 +84,14 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+     if (appliedBundledSelection) return;
+     const selection = route.params.selectedProposalSide;
+     if (!selection || selection.kind === 'money') return;
+-    if (selection.kind === 'need') setSelectedProposalNeedId(selection.id);
+-    if (selection.kind === 'offer') setSelectedProposalOfferId(selection.id);
++    if (selection.kind === 'cash_promise') {
++      setSelectedCashPromise(selection);
++      if (selection.side === 'need') setSelectedProposalNeedId('');
++      if (selection.side === 'offer') setSelectedProposalOfferId('');
++      return;
++    }
++    if (selection.kind === 'need') { setSelectedProposalNeedId(selection.id); setSelectedCashPromise((current) => current?.side === 'need' ? null : current); }
++    if (selection.kind === 'offer') { setSelectedProposalOfferId(selection.id); setSelectedCashPromise((current) => current?.side === 'offer' ? null : current); }
+   }, [route.params.selectedProposalNeedId, route.params.selectedProposalOfferId, route.params.selectedProposalSide]);
+ 
+   const loadTrade = useCallback(async () => {
+@@ -149,8 +158,9 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+     const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
+     if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
+     if (packagePrototypeActive && requiredSide === 'need' && supportingProposalNeedIds.length === 0) { setError('Choose at least one supporting Need for the Pro package.'); return; }
+-    if (!packagePrototypeActive && requiredSide === 'offer' && !selectedProposalOffer) { setError(t('trade.proposals.chooseOfferFirst')); return; }
+-    if (!packagePrototypeActive && requiredSide === 'need' && !selectedProposalNeed) { setError(t('trade.proposals.chooseNeedFirst')); return; }
++    const cashPromiseSide = selectedCashPromise?.kind === 'cash_promise' ? selectedCashPromise.side : null;
++    if (!packagePrototypeActive && requiredSide === 'offer' && !selectedProposalOffer && cashPromiseSide !== 'offer') { setError(t('trade.proposals.chooseOfferFirst')); return; }
++    if (!packagePrototypeActive && requiredSide === 'need' && !selectedProposalNeed && cashPromiseSide !== 'need') { setError(t('trade.proposals.chooseNeedFirst')); return; }
+     setCreatingProposal(true);
+     setError(null);
+     setMessage(null);
+@@ -168,11 +178,13 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+             proposedNeedId: supportingProposalNeedIds[0],
+           }
+           : null;
++      const cashPromise = selectedCashPromise?.kind === 'cash_promise' ? { side: selectedCashPromise.side, amountCents: selectedCashPromise.amountCents, currency: selectedCashPromise.currency, note: selectedCashPromise.note ?? undefined, acknowledgementAccepted: true as const, acknowledgementText: selectedCashPromise.acknowledgementText ?? CASH_PROMISE_ACKNOWLEDGEMENT_TEXT } satisfies CashPromiseInput : undefined;
+       const result = await api.trades.createProposal(trade.id, {
+         message: trimmed,
+         ...(packagePayload ?? {
+-          ...(selectedProposalOffer ? { proposedOfferId: selectedProposalOffer.id } : {}),
+-          ...(selectedProposalNeed ? { proposedNeedId: selectedProposalNeed.id } : {}),
++          ...(selectedProposalOffer && selectedCashPromise?.side !== 'offer' ? { proposedOfferId: selectedProposalOffer.id } : {}),
++          ...(selectedProposalNeed && selectedCashPromise?.side !== 'need' ? { proposedNeedId: selectedProposalNeed.id } : {}),
++          ...(cashPromise ? { cashPromise } : {}),
+         }),
+       }) as ProposalResponse;
+       setProposals((current) => upsertProposal(current, result.proposal));
+@@ -180,6 +192,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+       setPackagePrototypeEnabled(false);
+       setSupportingProposalNeedIds([]);
+       setSupportingProposalOfferIds([]);
++      setSelectedCashPromise(null);
+       setMessage(t('trade.proposals.proposalSentNative'));
+       navigation.navigate('ProposalDetail', { proposalId: result.proposal.id });
+     } catch (caughtError) {
+@@ -196,11 +209,13 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+ 
+   const openPicker = useCallback((side: 'need' | 'offer') => {
+     const selected = side === 'need' ? selectedProposalNeed : selectedProposalOffer;
+-    const selection = selected
+-      ? side === 'need'
+-        ? { side: 'need' as const, kind: 'need' as const, id: selected.id }
+-        : { side: 'offer' as const, kind: 'offer' as const, id: selected.id }
+-      : null;
++    const selection = selectedCashPromise?.side === side
++      ? selectedCashPromise
++      : selected
++        ? side === 'need'
++          ? { side: 'need' as const, kind: 'need' as const, id: selected.id }
++          : { side: 'offer' as const, kind: 'offer' as const, id: selected.id }
++        : null;
+ 
+     navigation.navigate('TradeSidePicker', {
+       side,
+@@ -211,7 +226,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+       proposalNeedId: selectedProposalNeedId,
+       proposalOfferId: selectedProposalOfferId,
+     });
+-  }, [navigation, selectedProposalNeed, selectedProposalNeedId, selectedProposalOffer, selectedProposalOfferId, t, trade]);
++  }, [navigation, selectedCashPromise, selectedProposalNeed, selectedProposalNeedId, selectedProposalOffer, selectedProposalOfferId, t, trade]);
+ 
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={t('trade.threadSplit.privateTitle')} onBack={() => navigation.goBack()} />}>
+@@ -238,6 +253,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
+             offers={activeProposalOffers}
+             selectedNeed={selectedProposalNeed}
+             selectedOffer={selectedProposalOffer}
++            selectedCashPromise={selectedCashPromise?.kind === 'cash_promise' ? selectedCashPromise : null}
+             packagePrototypeEnabled={packagePrototypeEnabled}
+             supportingNeedIds={supportingProposalNeedIds}
+             supportingOfferIds={supportingProposalOfferIds}
+@@ -283,16 +299,30 @@ function ProposalListCard({ proposal, currentUserId, theme, t, onOpen }: { propo
+ 
+ function ProposalSideSummary({ proposal, theme, t }: { proposal: TradeProposalItem; theme: ThemeTokens; t: TFunction }) {
+   const entries = [proposal.proposedOffer ? { kind: 'offer' as const, item: proposal.proposedOffer as OfferItem, label: t('trade.labels.proposedOffer') } : null, proposal.proposedNeed ? { kind: 'need' as const, item: proposal.proposedNeed as NeedItem, label: t('trade.labels.proposedNeed') } : null].filter(Boolean) as Array<{ kind: 'need' | 'offer'; item: NeedItem | OfferItem; label: string }>;
+-  if (entries.length === 0) return null;
+-  return <View style={styles.sideSummaryStack}>{entries.map((entry) => <InventoryPreviewCard key={`${entry.kind}-${entry.item.id}`} item={entry.item} kind={entry.kind} label={entry.label} theme={theme} t={t} compact />)}</View>;
++  if (entries.length === 0 && !proposal.cashPromise) return null;
++  return <View style={styles.sideSummaryStack}>
++    {entries.map((entry) => <InventoryPreviewCard key={`${entry.kind}-${entry.item.id}`} item={entry.item} kind={entry.kind} label={entry.label} theme={theme} t={t} compact />)}
++    {proposal.cashPromise ? <CashPromiseProposalSummary amountCents={proposal.cashPromise.amountCents} currency={proposal.cashPromise.currency ?? 'eur'} side={proposal.cashPromise.side} note={proposal.cashPromise.note ?? null} theme={theme} t={t} /> : null}
++  </View>;
++}
++
++function CashPromiseProposalSummary({ amountCents, currency, side, note, theme, t }: { amountCents: number; currency: string; side: 'need' | 'offer'; note?: string | null; theme: ThemeTokens; t: TFunction }) {
++  return <View style={[styles.cashPromiseSummary, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
++    <SemanticBadge label={side === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')} tone="warning" size="sm" />
++    <AppText style={[styles.cashPromiseSummaryTitle, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.title')} · {formatMoney(amountCents, currency)}</AppText>
++    <AppText style={[styles.cashPromiseSummaryBody, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.notProcessed')}</AppText>
++    {note ? <AppText style={[styles.cashPromiseSummaryBody, { color: theme.semantic.warning.text }]}>{note}</AppText> : null}
++  </View>;
+ }
+ 
+-function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, packagePrototypeEnabled, supportingNeedIds, supportingOfferIds, onPackagePrototypeEnabledChange, onSupportingNeedIdsChange, onSupportingOfferIdsChange, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; packagePrototypeEnabled: boolean; supportingNeedIds: string[]; supportingOfferIds: string[]; onPackagePrototypeEnabledChange: (enabled: boolean) => void; onSupportingNeedIdsChange: (ids: string[]) => void; onSupportingOfferIdsChange: (ids: string[]) => void; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
+-  const missingInventory = (requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0);
++function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, packagePrototypeEnabled, supportingNeedIds, supportingOfferIds, onPackagePrototypeEnabledChange, onSupportingNeedIdsChange, onSupportingOfferIdsChange, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; packagePrototypeEnabled: boolean; supportingNeedIds: string[]; supportingOfferIds: string[]; onPackagePrototypeEnabledChange: (enabled: boolean) => void; onSupportingNeedIdsChange: (ids: string[]) => void; onSupportingOfferIdsChange: (ids: string[]) => void; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
++  const cashPromiseSide = selectedCashPromise?.side ?? null;
++  const cashPromiseSatisfiesRequired = Boolean(requiredSide && cashPromiseSide === requiredSide);
++  const missingInventory = !cashPromiseSatisfiesRequired && ((requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0));
+   const packagePrototypeVisible = betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
+   const packagePrototypeActive = packagePrototypeEnabled && packagePrototypeVisible;
+   const packageMissingSelection = packagePrototypeActive && ((requiredSide === 'offer' && supportingOfferIds.length === 0) || (requiredSide === 'need' && supportingNeedIds.length === 0));
+-  const standardMissingSelection = !packagePrototypeActive && ((requiredSide === 'offer' && !selectedOffer) || (requiredSide === 'need' && !selectedNeed));
++  const standardMissingSelection = !packagePrototypeActive && ((requiredSide === 'offer' && !selectedOffer && cashPromiseSide !== 'offer') || (requiredSide === 'need' && !selectedNeed && cashPromiseSide !== 'need'));
+   const disabled = loading || value.trim().length < 3 || packageMissingSelection || standardMissingSelection || missingInventory;
+   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
+   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : proposalActionTitle(trade, t);
+@@ -302,13 +332,13 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
+       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
+       {requiredSide === 'need' ? (
+         <>
+-          <InventoryPickerShortcut kind="need" title={t('trade.proposals.chooseNeedToPropose')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedFirst')} onChoose={onChooseNeed} theme={theme} t={t} />
+-          <InventoryPickerShortcut kind="offer" title={t('trade.proposals.attachOfferToProposal')} count={offers.length} item={selectedOffer} emptyText={t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
++          <InventoryPickerShortcut kind="need" title={t('trade.proposals.chooseNeedToPropose')} count={needs.length} item={cashPromiseSide === 'need' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as NeedItem : selectedNeed} emptyText={t('trade.proposals.createNeedFirst')} onChoose={onChooseNeed} theme={theme} t={t} />
++          <InventoryPickerShortcut kind="offer" title={t('trade.proposals.attachOfferToProposal')} count={offers.length} item={cashPromiseSide === 'offer' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as OfferItem : selectedOffer} emptyText={t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
+         </>
+       ) : (
+         <>
+-          <InventoryPickerShortcut kind="offer" title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} count={offers.length} item={selectedOffer} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
+-          <InventoryPickerShortcut kind="need" title={t('trade.proposals.attachNeedToProposal')} count={needs.length} item={selectedNeed} emptyText={t('trade.proposals.createNeedOptional')} onChoose={onChooseNeed} theme={theme} t={t} />
++          <InventoryPickerShortcut kind="offer" title={requiredSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')} count={offers.length} item={cashPromiseSide === 'offer' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as OfferItem : selectedOffer} emptyText={requiredSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')} onChoose={onChooseOffer} theme={theme} t={t} />
++          <InventoryPickerShortcut kind="need" title={t('trade.proposals.attachNeedToProposal')} count={needs.length} item={cashPromiseSide === 'need' ? { id: 'cash-promise', title: t('trade.cashPromise.title'), description: `${formatMoney(selectedCashPromise?.amountCents ?? 0, selectedCashPromise?.currency ?? 'eur')} · ${t('trade.cashPromise.notProcessed')}`, status: 'active' } as NeedItem : selectedNeed} emptyText={t('trade.proposals.createNeedOptional')} onChoose={onChooseNeed} theme={theme} t={t} />
+         </>
+       )}
+       <NativeProTradePackagePrototype
+diff --git a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+index 66dc093..7dcebcb 100644
+--- a/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeSidePickerScreen.tsx
+@@ -102,7 +102,8 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
+   const title = sourceMode === 'mine' ? t('trade.sidePicker.chooseMineTitle', { items: pluralLowerLabel }) : sourceMode === 'starter' ? t('trade.sidePicker.chooseStarterTitle', { item: lowerLabel }) : sourceMode === 'cashPromise' ? t('trade.cashPromise.title') : t('trade.sidePicker.chooseSourceTitle', { item: lowerLabel });
+   const activeLoading = sourceMode === 'starter' ? templateLoading : loading;
+   const hasSavedItems = side === 'need' ? usableNeeds.length > 0 : usableOffers.length > 0;
+-  const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible && (route.params.returnTo ?? 'createTrade') === 'createTrade' && route.params.postType === 'need_offer';
++  const returnTarget = route.params.returnTo ?? 'createTrade';
++  const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible && ((returnTarget === 'createTrade' && route.params.postType === 'need_offer') || returnTarget === 'tradeProposal' || returnTarget === 'proposalDetail');
+ 
+   const filteredNeeds = useMemo(() => {
+     const needle = query.trim().toLowerCase();
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index a2562c7..3bc6f7c 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -14,7 +14,7 @@ import type {
+ import { useEffect, useMemo, useRef, useState } from "react";
+ import { WebIcon, type WebIconName } from "../../components/WebIcon";
+ import { api } from "../../lib/api";
+-import { formatWebDateTime } from "../../lib/webFormat";
++import { formatWebDateTime, formatWebMoney } from "../../lib/webFormat";
+ import { useWebAuth } from "../../providers/WebAuthProvider";
+ import { useWebTranslation } from "../../providers/WebI18nProvider";
+ import { UserIdentityLink } from "../users/UserIdentityLink";
+@@ -354,11 +354,41 @@ function uniqueDealItems<T extends DealInventoryItem>(items: Array<T | null | un
+ }
+ 
+ function isAcceptedDealSnapshotItem(item: DealAgreementItem): item is AcceptedDealSnapshotItemDto {
+-  return "kind" in item && (item.kind === "need" || item.kind === "offer");
++  return "kind" in item && (item.kind === "need" || item.kind === "offer" || item.kind === "cash_promise");
++}
++
++function liveCashPromiseItem(proposal: TradeProposalDto, ownerId: string | null): AcceptedDealSnapshotItemDto | null {
++  const cashPromise = proposal.cashPromise;
++  if (!cashPromise) return null;
++  const giverId = cashPromise.side === "offer" ? proposal.applicantId : ownerId;
++  if (!giverId) return null;
++  return {
++    kind: "cash_promise",
++    id: cashPromise.id,
++    ownerId: giverId,
++    title: "Cash promise",
++    description: cashPromise.note ?? "",
++    itemType: "other",
++    category: "Cash promise",
++    mode: null,
++    locationLabel: null,
++    tags: [],
++    status: "accepted",
++    source: "proposal",
++    side: cashPromise.side,
++    amountCents: cashPromise.amountCents,
++    currency: cashPromise.currency ?? "eur",
++    note: cashPromise.note ?? null,
++    acknowledgementText: cashPromise.acknowledgementText,
++    snapshottedAt: cashPromise.createdAt,
++  };
+ }
+ 
+ function dealAgreementMeta(item: DealAgreementItem, fallbackKind: "need" | "offer", i18n: TradeI18n) {
+   if (isAcceptedDealSnapshotItem(item)) {
++    if (item.kind === "cash_promise") {
++      return [formatWebMoney(item.amountCents ?? 0, item.currency ?? "eur", i18n.language), tr(i18n, "trade.cashPromise.notProcessed", "Not processed by Hellowhen")].filter(Boolean).join(" · ");
++    }
+     const mode = formatMode(item.mode, i18n);
+     if (item.kind === "need") {
+       return [item.category, mode, item.timing, item.locationLabel].filter(Boolean).join(" · ") || item.itemType || tr(i18n, "trade.labels.needDetails", "Need details");
+@@ -385,12 +415,15 @@ function acceptedDealAgreement(proposal: TradeProposalDto) {
+   const applicantId = proposal.applicantId;
+   const needs = uniqueDealItems([proposal.trade?.need, proposal.proposedNeed]);
+   const offers = uniqueDealItems([proposal.trade?.offer, proposal.proposedOffer]);
++  const cashPromise = liveCashPromiseItem(proposal, ownerId);
++  const ownerGivesCash = cashPromise && cashPromise.ownerId === ownerId ? [cashPromise] : [];
++  const applicantGivesCash = cashPromise && cashPromise.ownerId === applicantId ? [cashPromise] : [];
+ 
+   return {
+-    ownerGives: offers.filter((offer) => offer.ownerId === ownerId),
+-    ownerReceives: needs.filter((need) => need.ownerId === ownerId),
+-    applicantGives: offers.filter((offer) => offer.ownerId === applicantId),
+-    applicantReceives: needs.filter((need) => need.ownerId === applicantId),
++    ownerGives: [...offers.filter((offer) => offer.ownerId === ownerId), ...ownerGivesCash],
++    ownerReceives: [...needs.filter((need) => need.ownerId === ownerId), ...applicantGivesCash],
++    applicantGives: [...offers.filter((offer) => offer.ownerId === applicantId), ...applicantGivesCash],
++    applicantReceives: [...needs.filter((need) => need.ownerId === applicantId), ...ownerGivesCash],
+     acceptedMessage: proposal.messageDeletedAt ? null : proposal.message,
+     fromSnapshot: false,
+   };
+@@ -412,7 +445,7 @@ function DealAgreementBucket({ label, items, kind, i18n }: { label: string; item
+       {items.length ? (
+         items.map((item) => (
+           <div key={`${isAcceptedDealSnapshotItem(item) ? item.kind : kind}-${item.id}`} className="deal-agreement-bucket__item">
+-            <strong>{item.title}</strong>
++            <strong>{isAcceptedDealSnapshotItem(item) && item.kind === "cash_promise" ? tr(i18n, "trade.cashPromise.title", "Cash promise") : item.title}</strong>
+             <p>{dealAgreementMeta(item, kind, i18n)}</p>
+           </div>
+         ))
+@@ -603,7 +636,7 @@ function ProposalSidePreview({
+               ? (i18n?.t?.("trade.labels.proposedOffer") ?? "Proposed Offer")
+               : (i18n?.t?.("trade.labels.proposedNeed") ?? "Proposed Need"))}
+         </span>
+-        <strong>{item.title}</strong>
++        <strong>{isAcceptedDealSnapshotItem(item) && item.kind === "cash_promise" ? tr(i18n, "trade.cashPromise.title", "Cash promise") : item.title}</strong>
+         <p>{item.description}</p>
+         <em>{sideMeta(item, i18n)}</em>
+       </div>
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index c34ba08..65b2019 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -3,10 +3,11 @@
+ import Link from 'next/link';
+ import { useSearchParams } from 'next/navigation';
+ import type { FormEvent } from 'react';
+-import type { NeedDto, OfferDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
++import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type NeedDto, type OfferDto, type TradeDto, type TradeProposalDto } from '@hellowhen/contracts';
+ import { useEffect, useMemo, useState } from 'react';
+ import { WebIcon, type WebIconName } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
++import { formatWebMoney } from '../../lib/webFormat';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { getStatusLabel, getTradePostType, getTradeProposalCopy, type TradeI18n } from './tradePresentation';
+ import { ProTradePackagePrototype } from './ProTradePackagePrototype';
+@@ -111,6 +112,12 @@ function firstMediaUrl(item: NeedDto | OfferDto) {
+   return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
+ }
+ 
++function parseProposalCashAmountCents(value: string) {
++  const amount = Number(value.trim().replace(',', '.'));
++  if (!Number.isFinite(amount)) return Number.NaN;
++  return Math.round(amount * 100);
++}
++
+ function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
+   const sideTiming = (item as NeedDto).timing ?? (item as OfferDto).availability;
+   return [item.category, item.mode, sideTiming].filter(Boolean).join(' · ') || item.itemType || i18n?.t?.('trade.labels.savedItem') || 'Saved item';
+@@ -183,7 +190,7 @@ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string;
+         showHandle={false}
+       />
+       <p className="accepted-proposal-package__body">{t('trade.proposals.acceptedProposalPackageBody')}</p>
+-      {sideItems.length ? (
++      {sideItems.length || proposal.cashPromise ? (
+         <div className="accepted-proposal-package__sides">
+           {sideItems.map((side) => (
+             <ProposalSidePreview
+@@ -194,6 +201,16 @@ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string;
+               i18n={i18n}
+             />
+           ))}
++          {proposal.cashPromise ? (
++            <div className="proposal-side-preview proposal-side-preview--compact cash-promise-preview">
++              <div className="proposal-side-preview__media"><WebIcon name="proposal" size={22} decorative /></div>
++              <div className="proposal-side-preview__body">
++                <span className="proposal-side-preview__label">{proposal.cashPromise.side === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')}</span>
++                <strong>{t('trade.cashPromise.title')} · {formatWebMoney(proposal.cashPromise.amountCents, proposal.cashPromise.currency ?? 'eur', i18n.language)}</strong>
++                <p>{t('trade.cashPromise.notProcessed')}</p>
++              </div>
++            </div>
++          ) : null}
+         </div>
+       ) : null}
+       {proposal.messageDeletedAt ? (
+@@ -228,6 +245,11 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+   const [packagePrototypeEnabled, setPackagePrototypeEnabled] = useState(false);
+   const [supportingNeedIds, setSupportingNeedIds] = useState<string[]>([]);
+   const [supportingOfferIds, setSupportingOfferIds] = useState<string[]>([]);
++  const [cashPromiseSide, setCashPromiseSide] = useState<'' | 'need' | 'offer'>('');
++  const [cashPromiseAmount, setCashPromiseAmount] = useState('');
++  const [cashPromiseCurrency, setCashPromiseCurrency] = useState('eur');
++  const [cashPromiseNote, setCashPromiseNote] = useState('');
++  const [cashPromiseAcknowledged, setCashPromiseAcknowledged] = useState(false);
+   const [sideLoading, setSideLoading] = useState(false);
+   const [proposalFormError, setProposalFormError] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+@@ -243,12 +265,17 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+   const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
+   const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
+   const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredProposalSide ?? '');
++  const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible;
++  const cashPromiseAmountCents = parseProposalCashAmountCents(cashPromiseAmount);
+   const hasPackageRequiredSide = requiredProposalSide === 'offer' ? supportingOfferIds.length > 0 : requiredProposalSide === 'need' ? supportingNeedIds.length > 0 : false;
+-  const hasRequiredSide = packagePrototypeActive ? hasPackageRequiredSide : requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
++  const hasRequiredCashSide = Boolean(requiredProposalSide && cashPromiseSide === requiredProposalSide);
++  const hasRequiredSide = packagePrototypeActive ? hasPackageRequiredSide : requiredProposalSide === 'need' ? Boolean(selectedNeed) || hasRequiredCashSide : requiredProposalSide === 'offer' ? Boolean(selectedOffer) || hasRequiredCashSide : true;
+ 
+   useEffect(() => {
+     setProposedNeedId(proposalNeedIdFromUrl);
+     setProposedOfferId(proposalOfferIdFromUrl);
++    if (proposalNeedIdFromUrl) setCashPromiseSide((current) => (current === 'need' ? '' : current));
++    if (proposalOfferIdFromUrl) setCashPromiseSide((current) => (current === 'offer' ? '' : current));
+   }, [proposalNeedIdFromUrl, proposalOfferIdFromUrl]);
+ 
+   useEffect(() => {
+@@ -332,6 +359,10 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+       setProposalFormError(requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferBeforeSending') : requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedBeforeSending') : t('trade.proposals.chooseProposalItem'));
+       return;
+     }
++    if (cashPromiseSide && (!cashPromiseAvailable || !Number.isFinite(cashPromiseAmountCents) || cashPromiseAmountCents < 100 || !cashPromiseAcknowledged)) {
++      setProposalFormError(!cashPromiseAvailable ? t('trade.cashPromise.hidden') : !cashPromiseAcknowledged ? t('trade.cashPromise.validationAcknowledgement') : t('trade.cashPromise.validationAmount'));
++      return;
++    }
+     if (!message) {
+       setProposalFormError(t('trade.proposals.messageRequired'));
+       return;
+@@ -356,11 +387,13 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+             proposedNeedId: supportingNeedIds[0],
+           }
+           : null;
++      const cashPromise = cashPromiseSide ? { side: cashPromiseSide, amountCents: cashPromiseAmountCents, currency: cashPromiseCurrency, note: cashPromiseNote.trim() || undefined, acknowledgementAccepted: true as const, acknowledgementText: CASH_PROMISE_ACKNOWLEDGEMENT_TEXT } satisfies CashPromiseInput : undefined;
+       const response = await api.trades.createProposal(trade.id, {
+         message,
+         ...(packagePayload ?? {
+-          ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed ? { proposedNeedId: selectedNeed.id } : {}),
+-          ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer ? { proposedOfferId: selectedOffer.id } : {}),
++          ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed && cashPromiseSide !== 'need' ? { proposedNeedId: selectedNeed.id } : {}),
++          ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer && cashPromiseSide !== 'offer' ? { proposedOfferId: selectedOffer.id } : {}),
++          ...(cashPromise ? { cashPromise } : {}),
+         }),
+       });
+       const proposal = normalizeProposal(response);
+@@ -370,6 +403,10 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+       setPackagePrototypeEnabled(false);
+       setSupportingNeedIds([]);
+       setSupportingOfferIds([]);
++      setCashPromiseSide('');
++      setCashPromiseAmount('');
++      setCashPromiseNote('');
++      setCashPromiseAcknowledged(false);
+       setProposalFormError(null);
+       setNotice(t('trade.proposals.proposalSent'));
+     } catch (error) {
+@@ -458,6 +495,28 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+               i18n={i18n}
+             />
+ 
++
++          {cashPromiseAvailable ? (
++            <div className="notice-box warning proposal-cash-promise-box">
++              <p className="eyebrow">{t('trade.cashPromise.title')}</p>
++              <p>{t('trade.cashPromise.outsideAppBody')}</p>
++              <div className="segmented-control" role="group" aria-label={t('trade.cashPromise.title')}>
++                <button type="button" className={cashPromiseSide === '' ? 'is-active' : ''} onClick={() => setCashPromiseSide('')}>{t('trade.cashPromise.none')}</button>
++                <button type="button" className={cashPromiseSide === 'need' ? 'is-active' : ''} onClick={() => { setCashPromiseSide('need'); setProposedNeedId(''); }}>{t('trade.labels.proposedNeed')}</button>
++                <button type="button" className={cashPromiseSide === 'offer' ? 'is-active' : ''} onClick={() => { setCashPromiseSide('offer'); setProposedOfferId(''); }}>{t('trade.labels.proposedOffer')}</button>
++              </div>
++              {cashPromiseSide ? (
++                <div className="cash-promise-fields">
++                  <label className="field-label">{t('trade.cashPromise.amount')}<input inputMode="decimal" value={cashPromiseAmount} onChange={(event) => setCashPromiseAmount(event.target.value)} placeholder="25" /></label>
++                  <label className="field-label">{t('trade.cashPromise.currency')}<select value={cashPromiseCurrency} onChange={(event) => setCashPromiseCurrency(event.target.value)}><option value="eur">EUR</option><option value="usd">USD</option><option value="gbp">GBP</option></select></label>
++                  <label className="field-label">{t('trade.cashPromise.note')}<textarea value={cashPromiseNote} onChange={(event) => setCashPromiseNote(event.target.value)} maxLength={500} placeholder={t('trade.cashPromise.notePlaceholder')} /></label>
++                  <label className="checkbox-row"><input type="checkbox" checked={cashPromiseAcknowledged} onChange={(event) => setCashPromiseAcknowledged(event.target.checked)} /> {CASH_PROMISE_ACKNOWLEDGEMENT_TEXT}</label>
++                  {Number.isFinite(cashPromiseAmountCents) && cashPromiseAmountCents > 0 ? <p>{formatWebMoney(cashPromiseAmountCents, cashPromiseCurrency)} · {t('trade.cashPromise.notProcessed')}</p> : null}
++                </div>
++              ) : null}
++            </div>
++          ) : null}
++
+           <ProTradePackagePrototype
+             requiredSide={requiredProposalSide}
+             enabled={packagePrototypeEnabled}
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 5b43223..af94623 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -15,6 +15,7 @@ export const tradeActionStatusSchema = z.enum(['active', 'in_progress', 'submitt
+ export const proposalStatusSchema = z.enum(['pending', 'accepted', 'declined', 'withdrawn']);
+ export const tradeProposalPackageKindSchema = z.enum(['standard', 'main_need_multi_offer', 'main_offer_multi_need']);
+ export const tradeProposalPackageItemKindSchema = z.enum(['need', 'offer']);
++export const acceptedDealSnapshotItemKindSchema = z.enum(['need', 'offer', 'cash_promise']);
+ export const tradeProposalPackageItemRoleSchema = z.enum(['main', 'supporting']);
+ export const cashPromiseSideSchema = z.enum(['need', 'offer']);
+ export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
+@@ -254,7 +255,18 @@ export const createTradeProposalRequestSchema = z.object({
+   proposedNeedId: z.string().min(1).optional(),
+   proposedOfferId: z.string().min(1).optional(),
+   cashPromise: cashPromiseInputSchema.optional()
+-}).merge(tradeProposalPackageRequestFieldsSchema);
++}).merge(tradeProposalPackageRequestFieldsSchema).superRefine((value, ctx) => {
++  if (!value.cashPromise) return;
++  if ((value.packageKind && value.packageKind !== 'standard') || value.mainNeedId || value.mainOfferId || value.supportingNeedIds?.length || value.supportingOfferIds?.length) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with proposal packages.' });
++  }
++  if (value.cashPromise.side === 'need' && value.proposedNeedId) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Need on the same side.' });
++  }
++  if (value.cashPromise.side === 'offer' && value.proposedOfferId) {
++    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Offer on the same side.' });
++  }
++});
+ export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
+ export const updateProposalMessageRequestSchema = z.object({
+   message: z.string().trim().min(3).max(1200).optional(),
+@@ -364,7 +376,7 @@ export const tradeProposalPackageItemSchema = z.object({
+ });
+ 
+ export const acceptedDealSnapshotItemSchema = z.object({
+-  kind: tradeProposalPackageItemKindSchema,
++  kind: acceptedDealSnapshotItemKindSchema,
+   id: z.string(),
+   ownerId: z.string(),
+   title: z.string(),
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 9b5ac8e..dbf5f88 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -545,6 +545,9 @@ export const trade = {
+     outsideAppTitle: 'Outside-app cash arrangement',
+     outsideAppBody: 'Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash.',
+     notProcessed: 'Not processed by Hellowhen',
++    amount: 'Amount',
++    currency: 'Currency',
++    none: 'No Cash Promise',
+     note: 'Short note',
+     notePlaceholder: 'Example: I can arrange this after completion.',
+     validationAmount: 'Enter a Cash Promise amount of at least 1.00.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 88fd10a..5addb26 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -545,6 +545,9 @@ export const trade = {
+     outsideAppTitle: 'Arrangement en espèces hors application',
+     outsideAppBody: 'L’argent est arrangé en dehors de Hellowhen. Hellowhen ne traite pas, ne détient pas, ne protège pas, ne rembourse pas et ne garantit pas cet argent.',
+     notProcessed: 'Non traité par Hellowhen',
++    amount: 'Montant',
++    currency: 'Devise',
++    none: 'Aucune promesse en espèces',
+     note: 'Note courte',
+     notePlaceholder: 'Exemple : je peux arranger cela après la réalisation.',
+     validationAmount: 'Saisissez une promesse en espèces d’au moins 1,00.',

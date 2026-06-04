@@ -14,7 +14,7 @@ Hellowhen Trade is a mobile-first marketplace for service, goods, and skill trad
 - contacting support;
 - requesting account deletion.
 
-Money, wallet, payouts, Stripe, Airwallex, and real-money trades must remain disabled unless a separate money-launch review explicitly enables them.
+Money, wallet, payouts, Stripe, Airwallex, real-money trades, and Cash Promise must remain disabled unless a separate money/cash-launch review explicitly enables them. Cash Promise is hidden and disabled for first launch.
 
 Google sign-in is disabled for first launch. Reviewers should use email/password registration or the prepared email/password demo account.
 
@@ -43,7 +43,7 @@ Suggested reviewer path:
 6. Open Support / Contact.
 7. Confirm the register flow includes Terms/Privacy acceptance and 18+ age confirmation.
 8. Open Account deletion request screen.
-9. Confirm wallet, payouts, and money trade features are not advertised or available in production.
+9. Confirm wallet, payouts, money trade features, and Cash Promise are not advertised or available in production.
 
 ## Safety features to mention in review notes
 
@@ -60,7 +60,7 @@ Suggested reviewer path:
 
 - No production API/web URL points to `localhost`.
 - Production `JWT_SECRET` is strong and not the development fallback.
-- Money flags stay off: `MONEY_PROVIDER=none`, `MONEY_FEATURES_VISIBLE=false`, `WALLET_VISIBLE=false`, `PAYOUTS_VISIBLE=false`, `MONEY_TRADES_ENABLED=false`.
-- Native public money flags stay off: `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`.
-- Web public money flags stay off: `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`.
+- Money flags stay off: `MONEY_PROVIDER=none`, `MONEY_FEATURES_VISIBLE=false`, `WALLET_VISIBLE=false`, `PAYOUTS_VISIBLE=false`, `MONEY_TRADES_ENABLED=false`, `CASH_PROMISE_ENABLED=false`, `CASH_PROMISE_VISIBLE=false`.
+- Native public money flags stay off: `EXPO_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `EXPO_PUBLIC_WALLET_VISIBLE=false`, `EXPO_PUBLIC_PAYOUTS_VISIBLE=false`, `EXPO_PUBLIC_MONEY_TRADES_ENABLED=false`, `EXPO_PUBLIC_CASH_PROMISE_ENABLED=false`, `EXPO_PUBLIC_CASH_PROMISE_VISIBLE=false`.
+- Web public money flags stay off: `NEXT_PUBLIC_MONEY_FEATURES_VISIBLE=false`, `NEXT_PUBLIC_WALLET_VISIBLE=false`, `NEXT_PUBLIC_PAYOUTS_VISIBLE=false`, `NEXT_PUBLIC_MONEY_TRADES_ENABLED=false`, `NEXT_PUBLIC_CASH_PROMISE_ENABLED=false`, `NEXT_PUBLIC_CASH_PROMISE_VISIBLE=false`.
 - Terms, Privacy, Community/Safety, Support, and Account Deletion pages are reachable from the app.

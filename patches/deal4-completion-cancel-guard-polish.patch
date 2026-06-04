@@ -1,0 +1,337 @@
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 0281a64..cf3a0d6 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -37,6 +37,7 @@ type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
+ type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | 'deal-report' | null;
+ type ProposalActionSheet =
+   | { type: 'status'; status: ProposalActionStatus }
++  | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
+   | { type: 'message-options'; message: ProposalMessageItem }
+   | { type: 'delete-message'; messageId: string }
+   | { type: 'proposal-note-options' }
+@@ -644,6 +645,11 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     }
+   }
+ 
++  function confirmDealStatus(status: Extract<TradeActionStatus, 'submitted' | 'completed'>) {
++    if (actionLoading) return;
++    setActionSheet({ type: 'deal-status', status });
++  }
++
+   function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
+     if (!actionSheet) return { title: '', actions: [] };
+ 
+@@ -670,6 +676,22 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       };
+     }
+ 
++    if (actionSheet.type === 'deal-status') {
++      const status = actionSheet.status;
++      if (status === 'submitted') {
++        return {
++          title: t('trade.deal.markSubmittedConfirmTitle'),
++          body: t('trade.deal.markSubmittedConfirmBody'),
++          actions: [{ key: 'mark-submitted', label: t('trade.deal.markSubmittedConfirmAction'), icon: 'proposal-accepted', tone: 'primary', disabled: Boolean(actionLoading), onPress: () => { setActionSheet(null); void updateAcceptedTradeStatus('submitted'); } }],
++        };
++      }
++      return {
++        title: t('trade.deal.confirmCompletedConfirmTitle'),
++        body: t('trade.deal.confirmCompletedConfirmBody'),
++        actions: [{ key: 'confirm-completed', label: t('trade.deal.confirmCompletedConfirmAction'), icon: 'proposal-accepted', tone: 'primary', disabled: Boolean(actionLoading), onPress: () => { setActionSheet(null); void updateAcceptedTradeStatus('completed'); } }],
++      };
++    }
++
+     if (actionSheet.type === 'message-options') {
+       const message = actionSheet.message;
+       return {
+@@ -763,8 +785,9 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+                 cancelReason={cancelReason}
+                 cancelError={cancelError}
+                 actionLoading={actionLoading}
+-                onMarkSubmitted={() => { void updateAcceptedTradeStatus('submitted'); }}
+-                onConfirmCompleted={() => { void updateAcceptedTradeStatus('completed'); }}
++                actorId={actorId}
++                onMarkSubmitted={() => confirmDealStatus('submitted')}
++                onConfirmCompleted={() => confirmDealStatus('completed')}
+                 onReportProblem={() => setProblemReportOpen(true)}
+                 onOpenCancelTrade={() => setCancelTradeOpen(true)}
+                 onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
+@@ -959,7 +982,27 @@ function ThreadTradeStrip({ proposal, onOpenTradeDetail, t }: { proposal: TradeP
+ }
+ 
+ 
+-function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted, canReportProblem, canCancelAcceptedTrade, cancelTradeOpen, cancelReason, cancelError, actionLoading, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onDetails, t }: { proposal: TradeProposalItem; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportProblem: boolean; canCancelAcceptedTrade: boolean; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onDetails: () => void; t: TFunction }) {
++
++function getDealRoleGuard(status: string | null | undefined, canMarkSubmitted: boolean, canConfirmCompleted: boolean, submittedByYou: boolean, t: TFunction) {
++  if (status === 'in_progress') {
++    return canMarkSubmitted
++      ? { label: t('trade.deal.yourNextStep'), title: t('trade.deal.submitterNextStepTitle'), body: t('trade.deal.submitterNextStepBody'), tone: 'proposal' as const }
++      : { label: t('trade.deal.waitingStep'), title: t('trade.deal.waitingSubmitterTitle'), body: t('trade.deal.waitingSubmitterBody'), tone: 'muted' as const };
++  }
++  if (status === 'submitted') {
++    return canConfirmCompleted
++      ? { label: t('trade.deal.yourNextStep'), title: t('trade.deal.reviewerNextStepTitle'), body: t('trade.deal.reviewerNextStepBody'), tone: 'proposal' as const }
++      : submittedByYou
++        ? { label: t('trade.deal.guardBlocked'), title: t('trade.deal.submitterCannotConfirmTitle'), body: t('trade.deal.submitterCannotConfirmBody'), tone: 'warning' as const }
++        : { label: t('trade.deal.waitingStep'), title: t('trade.deal.waitingReviewerTitle'), body: t('trade.deal.waitingReviewerBody'), tone: 'muted' as const };
++  }
++  if (status === 'completed') {
++    return { label: t('trade.deal.closedStep'), title: t('trade.deal.completedClosedTitle'), body: t('trade.deal.completedClosedBody'), tone: 'success' as const };
++  }
++  return null;
++}
++
++function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted, canReportProblem, canCancelAcceptedTrade, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onDetails, t }: { proposal: TradeProposalItem; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportProblem: boolean; canCancelAcceptedTrade: boolean; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onDetails: () => void; t: TFunction }) {
+   const theme = useThemeTokens();
+   const trade = proposal.trade;
+   const agreement = acceptedDealAgreement(proposal);
+@@ -974,6 +1017,8 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+         : status === 'cancelled'
+           ? t('trade.deal.cancelledStateBody')
+           : t('trade.deal.inProgressStateBody');
++  const submittedByYou = Boolean(actorId && trade?.deliverySubmittedById === actorId);
++  const roleGuard = getDealRoleGuard(status, canMarkSubmitted, canConfirmCompleted, submittedByYou, t);
+ 
+   return (
+     <View style={styles.dealStack}>
+@@ -1026,6 +1071,14 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+         {status === 'cancelled' ? <InfoNotice tone="warning" title={t('trade.deal.cancelledTitle')} body={trade?.cancelReason ? t('trade.deal.cancelledWithReason', { reason: trade.cancelReason }) : t('trade.deal.cancelledStateBody')} /> : null}
+       </DetailSection>
+ 
++      {roleGuard ? <DetailSection title={t('trade.deal.roleGuardTitle')} compact>
++        <View style={[styles.dealGuardCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++          <SemanticBadge label={roleGuard.label} tone={roleGuard.tone} size="sm" />
++          <AppText style={styles.dealGuardTitle}>{roleGuard.title}</AppText>
++          <AppText style={[styles.dealGuardBody, { color: theme.color.muted }]}>{roleGuard.body}</AppText>
++        </View>
++      </DetailSection> : null}
++
+       <DetailSection title={t('trade.deal.safeActionsTitle')} description={t('trade.deal.safeActionsBody')} compact>
+         <View style={styles.actionRowWrap}>
+           {canMarkSubmitted ? <SmallActionButton label={actionLoading === 'submitted' ? t('common.states.working') : t('trade.detail.markDelivered')} onPress={onMarkSubmitted} disabled={Boolean(actionLoading)} /> : null}
+@@ -1545,6 +1598,9 @@ const styles = StyleSheet.create({
+   dealAgreementEmpty: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   dealDetailsButton: { minHeight: 40, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+   dealDetailsText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
++  dealGuardCard: { borderRadius: 18, borderWidth: 1, padding: 13, gap: 8 },
++  dealGuardTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
++  dealGuardBody: { lineHeight: 20, fontWeight: '700' },
+   safetyChecklist: { gap: 10 },
+   safetyChecklistItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+   safetyCheck: { width: 23, height: 23, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 6e48200..b0f9db4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2745,3 +2745,19 @@ html.dark .pro-package-prototype__item.selected {
+   .notification-card { grid-template-columns: auto minmax(0, 1fr); }
+   .notification-card__actions { grid-column: 2; justify-content: flex-start; }
+ }
++
++.deal-role-guard {
++  background: color-mix(in srgb, var(--app-surface) 78%, var(--proposal-bg));
++}
++.deal-role-guard strong {
++  color: var(--app-text);
++  font-size: 15px;
++  line-height: 1.25;
++}
++.deal-role-guard p {
++  margin: 0;
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 750;
++  line-height: 1.42;
++}
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 3bc6f7c..bc614a2 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -465,7 +465,26 @@ function DealProgressStep({ label, index, state }: { label: string; index: numbe
+   );
+ }
+ 
+-function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted, canReportProblem, canCancelAcceptedTrade, actionLoading, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancel, i18n }: { proposal: TradeProposalDto; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportProblem: boolean; canCancelAcceptedTrade: boolean; actionLoading: string | null; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancel: () => void; i18n: TradeI18n }) {
++function getDealRoleGuard(status: TradeDto["status"] | null | undefined, canMarkSubmitted: boolean, canConfirmCompleted: boolean, submittedByYou: boolean, i18n: TradeI18n) {
++  if (status === "in_progress") {
++    return canMarkSubmitted
++      ? { label: tr(i18n, "trade.deal.yourNextStep", "Your next step"), title: tr(i18n, "trade.deal.submitterNextStepTitle", "Submit only when your side is ready"), body: tr(i18n, "trade.deal.submitterNextStepBody", "Use Mark submitted after you have delivered what you agreed in this chat."), tone: "proposal" }
++      : { label: tr(i18n, "trade.deal.waitingStep", "Waiting"), title: tr(i18n, "trade.deal.waitingSubmitterTitle", "Waiting for submission"), body: tr(i18n, "trade.deal.waitingSubmitterBody", "Keep details in chat while the delivering participant prepares their side."), tone: "muted" };
++  }
++  if (status === "submitted") {
++    return canConfirmCompleted
++      ? { label: tr(i18n, "trade.deal.yourNextStep", "Your next step"), title: tr(i18n, "trade.deal.reviewerNextStepTitle", "Review before confirming"), body: tr(i18n, "trade.deal.reviewerNextStepBody", "Confirm completed only after reviewing the submitted work and checking the agreement."), tone: "proposal" }
++      : submittedByYou
++        ? { label: tr(i18n, "trade.deal.guardBlocked", "Guard"), title: tr(i18n, "trade.deal.submitterCannotConfirmTitle", "You cannot confirm your own submission"), body: tr(i18n, "trade.deal.submitterCannotConfirmBody", "The other participant must review and confirm completion."), tone: "warning" }
++        : { label: tr(i18n, "trade.deal.waitingStep", "Waiting"), title: tr(i18n, "trade.deal.waitingReviewerTitle", "Waiting for confirmation"), body: tr(i18n, "trade.deal.waitingReviewerBody", "The reviewing participant should confirm only when everything is okay."), tone: "muted" };
++  }
++  if (status === "completed") {
++    return { label: tr(i18n, "trade.deal.closedStep", "Closed"), title: tr(i18n, "trade.deal.completedClosedTitle", "Deal completed"), body: tr(i18n, "trade.deal.completedClosedBody", "This deal is closed. Keep the conversation available for reference."), tone: "success" };
++  }
++  return null;
++}
++
++function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted, canReportProblem, canCancelAcceptedTrade, actionLoading, actorId, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancel, i18n }: { proposal: TradeProposalDto; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportProblem: boolean; canCancelAcceptedTrade: boolean; actionLoading: string | null; actorId: string | null; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancel: () => void; i18n: TradeI18n }) {
+   const trade = proposal.trade;
+   const status = trade?.status ?? "in_progress";
+   const agreement = acceptedDealAgreement(proposal);
+@@ -484,6 +503,8 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+     tr(i18n, "trade.deal.safetyNoSensitive", "Do not send passwords, card details, or sensitive documents."),
+     tr(i18n, "trade.deal.safetyReportSuspicious", "Report suspicious behavior before completion."),
+   ];
++  const submittedByYou = Boolean(actorId && trade?.deliverySubmittedById === actorId);
++  const roleGuard = getDealRoleGuard(status, canMarkSubmitted, canConfirmCompleted, submittedByYou, i18n);
+ 
+   return (
+     <section className="accepted-deal-workspace" aria-label={tr(i18n, "trade.deal.title", "Deal")}>
+@@ -533,6 +554,14 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+         {status === "cancelled" ? <p className="notice-box warning">{trade?.cancelReason ? tr(i18n, "trade.deal.cancelledWithReason", "Cancelled reason: {{reason}}", { reason: trade.cancelReason }) : tr(i18n, "trade.deal.cancelledStateBody", "Cancelled. This deal is closed.")}</p> : null}
+       </div>
+ 
++      {roleGuard ? (
++        <div className="deal-panel deal-role-guard">
++          <span className={`semantic-badge ${roleGuard.tone}`}>{roleGuard.label}</span>
++          <strong>{roleGuard.title}</strong>
++          <p>{roleGuard.body}</p>
++        </div>
++      ) : null}
++
+       <div className="deal-panel deal-panel--actions">
+         <div className="deal-panel__heading">
+           <span>{tr(i18n, "trade.deal.safeActionsTitle", "Safe actions")}</span>
+@@ -669,6 +698,7 @@ export function ProposalConversationClient({
+   const [replyError, setReplyError] = useState<string | null>(null);
+   const [withdrawConfirmOpen, setWithdrawConfirmOpen] = useState(false);
+   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
++  const [dealConfirmAction, setDealConfirmAction] = useState<"submitted" | "completed" | null>(null);
+   const [cancelReason, setCancelReason] = useState("");
+   const [cancelError, setCancelError] = useState<string | null>(null);
+   const [problemReportOpen, setProblemReportOpen] = useState(false);
+@@ -907,6 +937,7 @@ export function ProposalConversationClient({
+     try {
+       const response = await api.trades.updateStatus(proposal.trade.id, { status }) as TradeStatusResponse;
+       if (response.trade) setProposal((current) => current ? { ...current, trade: response.trade } : current);
++      setDealConfirmAction(null);
+       setNotice(status === "submitted" ? t("trade.detail.deliveryMarked") : status === "completed" ? t("trade.detail.tradeConfirmed") : status === "disputed" ? t("trade.detail.tradeReported") : t("trade.detail.tradeUpdated"));
+       await loadProposal({ quiet: true });
+       await loadMessages({ quiet: true });
+@@ -1275,6 +1306,38 @@ export function ProposalConversationClient({
+         </div>
+       ) : null}
+ 
++      {dealConfirmAction ? (
++        <div className="proposal-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="deal-status-confirm-title">
++          <div className="proposal-confirm-modal__panel">
++            <span className="semantic-badge proposal">
++              <WebIcon name="proposal-accepted" size={14} decorative /> {tr(i18n, "trade.deal.acceptedDeal", "Accepted deal")}
++            </span>
++            <h2 id="deal-status-confirm-title">
++              {dealConfirmAction === "submitted"
++                ? tr(i18n, "trade.deal.markSubmittedConfirmTitle", "Mark submitted?")
++                : tr(i18n, "trade.deal.confirmCompletedConfirmTitle", "Confirm completed?")}
++            </h2>
++            <p>
++              {dealConfirmAction === "submitted"
++                ? tr(i18n, "trade.deal.markSubmittedConfirmBody", "Use this only after you have delivered your side of the accepted agreement. The other participant will review it before completion.")
++                : tr(i18n, "trade.deal.confirmCompletedConfirmBody", "Confirm only after reviewing the submitted work and checking the accepted agreement. The submitter cannot confirm their own work.")}
++            </p>
++            <div className="proposal-confirm-modal__actions">
++              <button type="button" className="secondary" onClick={() => setDealConfirmAction(null)} disabled={Boolean(actionLoading)}>
++                {tr(i18n, "common.actions.cancel", "Cancel")}
++              </button>
++              <button type="button" onClick={() => void updateAcceptedTradeStatus(dealConfirmAction)} disabled={Boolean(actionLoading)}>
++                {actionLoading
++                  ? tr(i18n, "common.states.working", "Working…")
++                  : dealConfirmAction === "submitted"
++                    ? tr(i18n, "trade.deal.markSubmittedConfirmAction", "Mark submitted")
++                    : tr(i18n, "trade.deal.confirmCompletedConfirmAction", "Confirm completed")}
++              </button>
++            </div>
++          </div>
++        </div>
++      ) : null}
++
+       {cancelConfirmOpen ? (
+         <div
+           className="proposal-confirm-modal"
+@@ -1481,8 +1544,9 @@ export function ProposalConversationClient({
+             canReportProblem={canReportDealProblem}
+             canCancelAcceptedTrade={canCancelAcceptedTrade}
+             actionLoading={actionLoading}
+-            onMarkSubmitted={() => void updateAcceptedTradeStatus("submitted")}
+-            onConfirmCompleted={() => void updateAcceptedTradeStatus("completed")}
++            actorId={actorId}
++            onMarkSubmitted={() => setDealConfirmAction("submitted")}
++            onConfirmCompleted={() => setDealConfirmAction("completed")}
+             onReportProblem={() => setProblemReportOpen(true)}
+             onOpenCancel={() => setCancelConfirmOpen(true)}
+             i18n={i18n}
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index dbf5f88..1303ebe 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -787,6 +787,29 @@ export const trade = {
+     cancelledTitle: 'Deal cancelled',
+     safeActionsTitle: 'Safe actions',
+     safeActionsBody: 'Actions are shown only when your role and the current status allow them.',
++    roleGuardTitle: 'Role and completion guard',
++    yourNextStep: 'Your next step',
++    waitingStep: 'Waiting',
++    guardBlocked: 'Guard',
++    closedStep: 'Closed',
++    submitterNextStepTitle: 'Submit only when your side is ready',
++    submitterNextStepBody: 'Use Mark submitted after you have delivered what you agreed in this chat.',
++    waitingSubmitterTitle: 'Waiting for submission',
++    waitingSubmitterBody: 'Keep details in chat while the delivering participant prepares their side.',
++    reviewerNextStepTitle: 'Review before confirming',
++    reviewerNextStepBody: 'Confirm completed only after reviewing the submitted work and checking the accepted agreement.',
++    submitterCannotConfirmTitle: 'You cannot confirm your own submission',
++    submitterCannotConfirmBody: 'The other participant must review and confirm completion.',
++    waitingReviewerTitle: 'Waiting for confirmation',
++    waitingReviewerBody: 'The reviewing participant should confirm only when everything is okay.',
++    completedClosedTitle: 'Deal completed',
++    completedClosedBody: 'This deal is closed. Keep the conversation available for reference.',
++    markSubmittedConfirmTitle: 'Mark submitted?',
++    markSubmittedConfirmBody: 'Use this only after you have delivered your side of the accepted agreement. The other participant will review it before completion.',
++    markSubmittedConfirmAction: 'Mark submitted',
++    confirmCompletedConfirmTitle: 'Confirm completed?',
++    confirmCompletedConfirmBody: 'Confirm only after reviewing the submitted work and checking the accepted agreement. The submitter cannot confirm their own work.',
++    confirmCompletedConfirmAction: 'Confirm completed',
+     problemReportBadge: 'Problem report',
+     problemReportTitle: 'Report a deal problem',
+     problemReportBody: 'Tell us what happened. This creates a private report for admin review and marks the deal as problem reported.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 5addb26..c696ad7 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -787,6 +787,29 @@ export const trade = {
+     cancelledTitle: 'Accord annulé',
+     safeActionsTitle: 'Actions sûres',
+     safeActionsBody: 'Les actions s’affichent seulement lorsque votre rôle et le statut actuel les autorisent.',
++    roleGuardTitle: 'Rôle et garde de finalisation',
++    yourNextStep: 'Votre prochaine étape',
++    waitingStep: 'En attente',
++    guardBlocked: 'Garde',
++    closedStep: 'Clôturé',
++    submitterNextStepTitle: 'Soumettez seulement quand votre partie est prête',
++    submitterNextStepBody: 'Utilisez Marquer comme soumis après avoir livré ce que vous avez accepté dans ce chat.',
++    waitingSubmitterTitle: 'En attente de soumission',
++    waitingSubmitterBody: 'Gardez les détails dans le chat pendant que le participant qui livre prépare sa partie.',
++    reviewerNextStepTitle: 'Vérifiez avant de confirmer',
++    reviewerNextStepBody: 'Confirmez terminé seulement après avoir vérifié le travail soumis et l’accord accepté.',
++    submitterCannotConfirmTitle: 'Vous ne pouvez pas confirmer votre propre soumission',
++    submitterCannotConfirmBody: 'L’autre participant doit vérifier et confirmer la fin.',
++    waitingReviewerTitle: 'En attente de confirmation',
++    waitingReviewerBody: 'Le participant qui vérifie doit confirmer seulement lorsque tout est correct.',
++    completedClosedTitle: 'Accord terminé',
++    completedClosedBody: 'Cet accord est clôturé. Gardez la conversation disponible comme référence.',
++    markSubmittedConfirmTitle: 'Marquer comme soumis ?',
++    markSubmittedConfirmBody: 'Utilisez cette action seulement après avoir livré votre partie de l’accord accepté. L’autre participant la vérifiera avant la fin.',
++    markSubmittedConfirmAction: 'Marquer comme soumis',
++    confirmCompletedConfirmTitle: 'Confirmer terminé ?',
++    confirmCompletedConfirmBody: 'Confirmez seulement après avoir vérifié le travail soumis et l’accord accepté. La personne qui soumet ne peut pas confirmer son propre travail.',
++    confirmCompletedConfirmAction: 'Confirmer terminé',
+     problemReportBadge: 'Signalement',
+     problemReportTitle: 'Signaler un problème d’accord',
+     problemReportBody: 'Expliquez ce qui s’est passé. Cela crée un signalement privé pour l’admin et marque l’accord comme problème signalé.',

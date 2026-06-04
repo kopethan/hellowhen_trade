@@ -29,6 +29,11 @@ export const createReportRequestSchema = z.object({
   details: z.string().trim().min(3).max(2000).optional(),
 });
 
+export const createDealProblemReportRequestSchema = z.object({
+  reason: reportReasonSchema.optional().default('other'),
+  details: z.string().trim().min(3).max(2000),
+});
+
 export const reportTargetSummarySchema = z.object({
   type: reportTargetTypeSchema,
   id: z.string(),
@@ -87,6 +92,7 @@ export type ReportTargetType = z.infer<typeof reportTargetTypeSchema>;
 export type ReportReason = z.infer<typeof reportReasonSchema>;
 export type ReportStatus = z.infer<typeof reportStatusSchema>;
 export type CreateReportRequest = z.infer<typeof createReportRequestSchema>;
+export type CreateDealProblemReportRequest = z.infer<typeof createDealProblemReportRequestSchema>;
 export type CreateReportResponse = z.infer<typeof createReportResponseSchema>;
 export type ReportDto = z.infer<typeof reportSchema>;
 export type AdminReportsResponse = z.infer<typeof adminReportsResponseSchema>;

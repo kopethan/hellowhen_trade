@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { ProposalActionStatus } from '@hellowhen/contracts';
+import type { AcceptedDealSnapshotItemDto, ProposalActionStatus, TradeActionStatus } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -23,6 +23,8 @@ import type { NeedItem, OfferItem, ProposalMessageItem, TradeDeckItem, TradeProp
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProposalDetail'>;
 type ProposalResponse = { proposal: TradeProposalItem; trade?: TradeDeckItem };
+type TradeStatusResponse = { trade?: TradeDeckItem };
+type DealProblemReportResponse = { proposal?: TradeProposalItem; trade?: TradeDeckItem; duplicate?: boolean };
 type MessagesResponse = { messages: ProposalMessageItem[] };
 type MessageMutationResponse = { message?: ProposalMessageItem; proposal?: TradeProposalItem };
 type NeedsResponse = { needs: NeedItem[] };
@@ -31,9 +33,11 @@ type TFunction = (key: string, values?: Record<string, string | number | boolean
 type ProposalSideKind = 'need' | 'offer';
 type RequiredProposalSide = ProposalSideKind | null;
 type ProposalSideItem = NeedItem | OfferItem;
-type ActionLoading = ProposalActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | null;
+type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
+type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | 'deal-report' | null;
 type ProposalActionSheet =
   | { type: 'status'; status: ProposalActionStatus }
+  | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
   | { type: 'message-options'; message: ProposalMessageItem }
   | { type: 'delete-message'; messageId: string }
   | { type: 'proposal-note-options' }
@@ -102,6 +106,7 @@ function proposalPackageTitle(proposal: TradeProposalItem, t: TFunction) {
   if (proposal.proposedNeed && proposal.proposedOffer) return t('trade.proposals.needOfferProposal');
   if (proposal.proposedNeed) return t('trade.proposals.needProposal');
   if (proposal.proposedOffer) return t('trade.proposals.offerProposal');
+  if (proposal.cashPromise) return t('trade.cashPromise.title');
   return t('trade.proposals.tradeRequest');
 }
 
@@ -112,6 +117,115 @@ function isThreadClosed(proposal: TradeProposalItem | null) {
 
 function isTradeCancelled(proposal: TradeProposalItem | null) {
   return proposal?.trade?.status === 'cancelled';
+}
+
+
+function uniqueInventoryItems(items: Array<ProposalSideItem | null | undefined>) {
+  const seen = new Set<string>();
+  return items.filter((item): item is ProposalSideItem => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function isAcceptedDealSnapshotItem(item: DealAgreementItem): item is AcceptedDealSnapshotItemDto {
+  return 'kind' in item && (item.kind === 'need' || item.kind === 'offer' || item.kind === 'cash_promise');
+}
+
+function formatMoneyAmount(amountCents?: number, currency = 'eur') {
+  return `${currency.toUpperCase()} ${((amountCents ?? 0) / 100).toFixed(2)}`;
+}
+
+function liveCashPromiseItem(proposal: TradeProposalItem, ownerId: string | null): AcceptedDealSnapshotItemDto | null {
+  const cashPromise = proposal.cashPromise;
+  if (!cashPromise) return null;
+  const giverId = cashPromise.side === 'offer' ? proposal.applicantId : ownerId;
+  if (!giverId) return null;
+  return {
+    kind: 'cash_promise',
+    id: cashPromise.id,
+    ownerId: giverId,
+    title: 'Cash promise',
+    description: cashPromise.note ?? '',
+    itemType: 'other',
+    category: 'Cash promise',
+    mode: null,
+    locationLabel: null,
+    tags: [],
+    status: 'accepted',
+    source: 'proposal',
+    side: cashPromise.side,
+    amountCents: cashPromise.amountCents,
+    currency: cashPromise.currency ?? 'eur',
+    note: cashPromise.note ?? null,
+    acknowledgementText: cashPromise.acknowledgementText,
+    snapshottedAt: cashPromise.createdAt,
+  };
+}
+
+function dealAgreementMeta(item: DealAgreementItem, fallbackKind: ProposalSideKind, t: TFunction) {
+  if (isAcceptedDealSnapshotItem(item)) {
+    if (item.kind === 'cash_promise') {
+      return compactList([formatMoneyAmount(item.amountCents, item.currency), t('trade.cashPromise.notProcessed')]);
+    }
+    const mode = modeLabel(item.mode, t);
+    if (item.kind === 'need') {
+      return compactList([item.category, item.timing, mode, item.locationLabel]) || item.itemType || t('trade.labels.needDetails');
+    }
+    return compactList([item.category, item.includes?.[0], item.availability, mode, item.locationLabel]) || item.itemType || t('trade.labels.offerDetails');
+  }
+  return proposalSideMeta(fallbackKind, item, t);
+}
+
+function acceptedDealAgreement(proposal: TradeProposalItem) {
+  const snapshot = proposal.acceptedDealSnapshot;
+  if (snapshot) {
+    return {
+      ownerGives: snapshot.ownerGivesJson ?? [],
+      ownerReceives: snapshot.ownerReceivesJson ?? [],
+      applicantGives: snapshot.applicantGivesJson ?? [],
+      applicantReceives: snapshot.applicantReceivesJson ?? [],
+      acceptedMessage: snapshot.acceptedMessage ?? null,
+      snapshotCreatedAt: snapshot.createdAt ?? null,
+      fromSnapshot: true,
+    };
+  }
+
+  const trade = proposal.trade;
+  const ownerId = trade?.ownerId ?? null;
+  const applicantId = proposal.applicantId;
+  const needs = uniqueInventoryItems([trade?.need as NeedItem | undefined, proposal.proposedNeed as NeedItem | undefined]) as NeedItem[];
+  const offers = uniqueInventoryItems([trade?.offer as OfferItem | undefined, proposal.proposedOffer as OfferItem | undefined]) as OfferItem[];
+  const cashPromise = liveCashPromiseItem(proposal, ownerId);
+  const ownerGivesCash = cashPromise && cashPromise.ownerId === ownerId ? [cashPromise] : [];
+  const applicantGivesCash = cashPromise && cashPromise.ownerId === applicantId ? [cashPromise] : [];
+
+  return {
+    ownerGives: [...offers.filter((offer) => offer.ownerId === ownerId), ...ownerGivesCash],
+    ownerReceives: [...needs.filter((need) => need.ownerId === ownerId), ...applicantGivesCash],
+    applicantGives: [...offers.filter((offer) => offer.ownerId === applicantId), ...applicantGivesCash],
+    applicantReceives: [...needs.filter((need) => need.ownerId === applicantId), ...ownerGivesCash],
+    acceptedMessage: proposal.messageDeletedAt ? null : proposal.message,
+    snapshotCreatedAt: null,
+    fromSnapshot: false,
+  };
+}
+
+function dealStepState(tradeStatus: string | null | undefined, step: 'accepted' | 'in_progress' | 'submitted' | 'completed') {
+  if (tradeStatus === 'cancelled' || tradeStatus === 'disputed') return step === 'accepted' ? 'done' : 'pending';
+  const order = ['accepted', 'in_progress', 'submitted', 'completed'];
+  const statusIndex = tradeStatus === 'completed'
+    ? 3
+    : tradeStatus === 'submitted'
+      ? 2
+      : tradeStatus === 'in_progress'
+        ? 1
+        : 0;
+  const stepIndex = order.indexOf(step);
+  if (stepIndex < statusIndex) return 'done';
+  if (stepIndex === statusIndex) return 'current';
+  return 'pending';
 }
 
 function firstNonDeletedMessages(messages: ProposalMessageItem[], proposal: TradeProposalItem) {
@@ -147,6 +261,9 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const [cancelTradeOpen, setCancelTradeOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [problemReportOpen, setProblemReportOpen] = useState(false);
+  const [problemSummary, setProblemSummary] = useState('');
+  const [problemError, setProblemError] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
   const loadRequestIdRef = useRef(0);
 
@@ -187,6 +304,9 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const canMessage = Boolean(proposal && (isOwner || isApplicant || isProvider) && !threadClosed);
   const canEditProposalContent = Boolean(proposal && isApplicant && proposal.status === 'pending' && !tradeCancelled);
   const canEditOwnPrivateMessages = Boolean(proposal && proposal.status === 'pending' && !tradeCancelled && (isOwner || isApplicant || isProvider));
+  const canMarkSubmitted = Boolean(proposal && proposal.status === 'accepted' && proposal.trade?.status === 'in_progress' && isProvider);
+  const canConfirmCompleted = Boolean(proposal && proposal.status === 'accepted' && proposal.trade?.status === 'submitted' && (isOwner || isApplicant || isProvider) && proposal.trade?.deliverySubmittedById !== actorId);
+  const canReportDealProblem = Boolean(proposal && proposal.status === 'accepted' && ['in_progress', 'submitted'].includes(proposal.trade?.status ?? '') && (isOwner || isApplicant || isProvider));
   const canCancelAcceptedTrade = Boolean(proposal && proposal.status === 'accepted' && ['in_progress', 'submitted'].includes(proposal.trade?.status ?? '') && (isOwner || isApplicant || isProvider));
   const requiredPackageSide = requiredProposalSideForTrade(proposal?.trade);
 
@@ -455,6 +575,50 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     }
   }
 
+  async function updateAcceptedTradeStatus(status: TradeActionStatus) {
+    if (!proposal?.trade?.id || actionLoading) return;
+    setActionLoading(status);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.trades.updateStatus(proposal.trade.id, { status }) as TradeStatusResponse;
+      if (result.trade) setProposal((current) => current ? { ...current, trade: result.trade } : current);
+      setNotice(status === 'submitted' ? t('trade.detail.deliveryMarked') : status === 'completed' ? t('trade.detail.tradeConfirmed') : status === 'disputed' ? t('trade.detail.tradeReported') : t('trade.detail.tradeUpdated'));
+      await refreshConversation();
+    } catch (caughtError) {
+      setError(getFriendlyApiErrorMessage(caughtError, t('trade.detail.couldNotUpdateNative')));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function submitDealProblemReport() {
+    if (!proposal || actionLoading) return;
+    const details = problemSummary.trim();
+    setProblemError(null);
+    if (details.length < 3) {
+      setProblemError(t('trade.deal.problemReportSummaryRequired'));
+      return;
+    }
+    setActionLoading('deal-report');
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await api.proposals.reportProblem(proposal.id, { reason: 'other', details }) as DealProblemReportResponse;
+      if (result.proposal) setProposal(result.proposal);
+      else if (result.trade) setProposal((current) => current ? { ...current, trade: result.trade } : current);
+      setProblemReportOpen(false);
+      setProblemSummary('');
+      setProblemError(null);
+      setNotice(result.duplicate ? t('trade.deal.problemReportUpdated') : t('trade.deal.problemReportSent'));
+      await refreshConversation();
+    } catch (caughtError) {
+      setProblemError(getFriendlyApiErrorMessage(caughtError, t('trade.deal.problemReportCouldNotSend')));
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function cancelAcceptedTrade() {
     if (!proposal?.trade?.id || actionLoading) return;
     const reason = cancelReason.trim();
@@ -481,6 +645,11 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     }
   }
 
+  function confirmDealStatus(status: Extract<TradeActionStatus, 'submitted' | 'completed'>) {
+    if (actionLoading) return;
+    setActionSheet({ type: 'deal-status', status });
+  }
+
   function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
     if (!actionSheet) return { title: '', actions: [] };
 
@@ -504,6 +673,22 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
         title: t('trade.proposals.withdrawConfirmTitle'),
         body: t('trade.proposals.withdrawConfirmBody'),
         actions: [{ key: 'withdraw', label: t('trade.proposals.withdrawConfirmAction'), icon: 'proposal-declined', tone: 'danger', disabled: Boolean(actionLoading), onPress: () => { void updateStatus('withdrawn'); } }],
+      };
+    }
+
+    if (actionSheet.type === 'deal-status') {
+      const status = actionSheet.status;
+      if (status === 'submitted') {
+        return {
+          title: t('trade.deal.markSubmittedConfirmTitle'),
+          body: t('trade.deal.markSubmittedConfirmBody'),
+          actions: [{ key: 'mark-submitted', label: t('trade.deal.markSubmittedConfirmAction'), icon: 'proposal-accepted', tone: 'primary', disabled: Boolean(actionLoading), onPress: () => { setActionSheet(null); void updateAcceptedTradeStatus('submitted'); } }],
+        };
+      }
+      return {
+        title: t('trade.deal.confirmCompletedConfirmTitle'),
+        body: t('trade.deal.confirmCompletedConfirmBody'),
+        actions: [{ key: 'confirm-completed', label: t('trade.deal.confirmCompletedConfirmAction'), icon: 'proposal-accepted', tone: 'primary', disabled: Boolean(actionLoading), onPress: () => { setActionSheet(null); void updateAcceptedTradeStatus('completed'); } }],
       };
     }
 
@@ -547,7 +732,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
 
   const actionSheetConfig = getActionSheetConfig();
 
-  const headerTitle = scrolledCompact && proposal ? `${t('trade.proposals.proposalThread')} · ${formatStatus(proposal.status, t)}` : t('trade.proposals.proposalThread');
+  const baseHeaderTitle = proposal?.status === 'accepted' ? t('trade.deal.title') : t('trade.proposals.proposalThread');
+  const headerTitle = scrolledCompact && proposal ? `${baseHeaderTitle} · ${formatStatus(proposal.status, t)}` : baseHeaderTitle;
 
   return (
     <AppScreen style={styles.screen}>
@@ -588,36 +774,62 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             {notice ? <InfoNotice tone="success" title={t('trade.proposals.proposalUpdated')} body={notice} /> : null}
             {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
 
-            <ProposalPackageThreadBlock
-              proposal={proposal}
-              canEditProposalContent={canEditProposalContent}
-              onDetails={() => setDetailsOpen(true)}
-              t={t}
-            />
+            {proposal.status === 'accepted' ? (
+              <AcceptedDealWorkspace
+                proposal={proposal}
+                canMarkSubmitted={canMarkSubmitted}
+                canConfirmCompleted={canConfirmCompleted}
+                canReportProblem={canReportDealProblem}
+                canCancelAcceptedTrade={canCancelAcceptedTrade}
+                cancelTradeOpen={cancelTradeOpen}
+                cancelReason={cancelReason}
+                cancelError={cancelError}
+                actionLoading={actionLoading}
+                actorId={actorId}
+                onMarkSubmitted={() => confirmDealStatus('submitted')}
+                onConfirmCompleted={() => confirmDealStatus('completed')}
+                onReportProblem={() => setProblemReportOpen(true)}
+                onOpenCancelTrade={() => setCancelTradeOpen(true)}
+                onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
+                onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
+                onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
+                onDetails={() => setDetailsOpen(true)}
+                t={t}
+              />
+            ) : (
+              <>
+                <ProposalPackageThreadBlock
+                  proposal={proposal}
+                  canEditProposalContent={canEditProposalContent}
+                  onDetails={() => setDetailsOpen(true)}
+                  t={t}
+                />
 
-            <ProposalActionCenter
-              proposal={proposal}
-              canCancelAcceptedTrade={canCancelAcceptedTrade}
-              isOwner={Boolean(isOwner)}
-              isApplicant={Boolean(isApplicant)}
-              isProvider={Boolean(isProvider)}
-              cancelTradeOpen={cancelTradeOpen}
-              cancelReason={cancelReason}
-              cancelError={cancelError}
-              actionLoading={actionLoading}
-              onAccept={() => confirmStatus('accepted')}
-              onDecline={() => confirmStatus('declined')}
-              onWithdraw={() => confirmStatus('withdrawn')}
-              onOpenCancelTrade={() => setCancelTradeOpen(true)}
-              onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
-              onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
-              onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
-              onOpenTradeDetail={() => {
-                if (!proposal.trade?.id) return;
-                navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
-              }}
-              t={t}
-            />
+                <ProposalActionCenter
+                  proposal={proposal}
+                  canCancelAcceptedTrade={canCancelAcceptedTrade}
+                  isOwner={Boolean(isOwner)}
+                  isApplicant={Boolean(isApplicant)}
+                  isProvider={Boolean(isProvider)}
+                  cancelTradeOpen={cancelTradeOpen}
+                  cancelReason={cancelReason}
+                  cancelError={cancelError}
+                  actionLoading={actionLoading}
+                  onAccept={() => confirmStatus('accepted')}
+                  onDecline={() => confirmStatus('declined')}
+                  onWithdraw={() => confirmStatus('withdrawn')}
+                  onOpenCancelTrade={() => setCancelTradeOpen(true)}
+                  onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
+                  onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
+                  onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
+                  onOpenTradeDetail={() => {
+                    if (!proposal.trade?.id) return;
+                    navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+                  }}
+                  t={t}
+                />
+              </>
+            )}
 
             <DetailSection title={t('trade.proposals.privateProposalConversation')} description={t('trade.proposals.proposalConversationPrivateBody')} compact>
               <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
@@ -659,6 +871,18 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
               <AppText style={[styles.closedText, { color: theme.color.muted }]}>{tradeCancelled ? t('trade.proposals.cancelledConversationClosed') : t('trade.proposals.closedConversation')}</AppText>
             </View>
           )}
+
+
+          <ProblemReportSheet
+            visible={problemReportOpen}
+            summary={problemSummary}
+            error={problemError}
+            loading={actionLoading === 'deal-report'}
+            onChangeSummary={(text) => { setProblemSummary(text); if (problemError) setProblemError(null); }}
+            onCancel={() => { if (actionLoading) return; setProblemReportOpen(false); setProblemSummary(''); setProblemError(null); }}
+            onSubmit={() => { void submitDealProblemReport(); }}
+            t={t}
+          />
 
           <ProposalDetailsSheet
             visible={detailsOpen}
@@ -757,6 +981,148 @@ function ThreadTradeStrip({ proposal, onOpenTradeDetail, t }: { proposal: TradeP
   );
 }
 
+
+
+function getDealRoleGuard(status: string | null | undefined, canMarkSubmitted: boolean, canConfirmCompleted: boolean, submittedByYou: boolean, t: TFunction) {
+  if (status === 'in_progress') {
+    return canMarkSubmitted
+      ? { label: t('trade.deal.yourNextStep'), title: t('trade.deal.submitterNextStepTitle'), body: t('trade.deal.submitterNextStepBody'), tone: 'proposal' as const }
+      : { label: t('trade.deal.waitingStep'), title: t('trade.deal.waitingSubmitterTitle'), body: t('trade.deal.waitingSubmitterBody'), tone: 'muted' as const };
+  }
+  if (status === 'submitted') {
+    return canConfirmCompleted
+      ? { label: t('trade.deal.yourNextStep'), title: t('trade.deal.reviewerNextStepTitle'), body: t('trade.deal.reviewerNextStepBody'), tone: 'proposal' as const }
+      : submittedByYou
+        ? { label: t('trade.deal.guardBlocked'), title: t('trade.deal.submitterCannotConfirmTitle'), body: t('trade.deal.submitterCannotConfirmBody'), tone: 'warning' as const }
+        : { label: t('trade.deal.waitingStep'), title: t('trade.deal.waitingReviewerTitle'), body: t('trade.deal.waitingReviewerBody'), tone: 'muted' as const };
+  }
+  if (status === 'completed') {
+    return { label: t('trade.deal.closedStep'), title: t('trade.deal.completedClosedTitle'), body: t('trade.deal.completedClosedBody'), tone: 'success' as const };
+  }
+  return null;
+}
+
+function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted, canReportProblem, canCancelAcceptedTrade, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onDetails, t }: { proposal: TradeProposalItem; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportProblem: boolean; canCancelAcceptedTrade: boolean; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onDetails: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const trade = proposal.trade;
+  const agreement = acceptedDealAgreement(proposal);
+  const status = trade?.status ?? 'in_progress';
+  const statusTone = (status === 'completed' ? 'success' : status === 'disputed' || status === 'cancelled' ? 'warning' : 'proposal') as 'success' | 'warning' | 'proposal';
+  const stateBody = status === 'submitted'
+    ? t('trade.deal.submittedStateBody')
+    : status === 'completed'
+      ? t('trade.deal.completedStateBody')
+      : status === 'disputed'
+        ? t('trade.deal.disputedStateBody')
+        : status === 'cancelled'
+          ? t('trade.deal.cancelledStateBody')
+          : t('trade.deal.inProgressStateBody');
+  const submittedByYou = Boolean(actorId && trade?.deliverySubmittedById === actorId);
+  const roleGuard = getDealRoleGuard(status, canMarkSubmitted, canConfirmCompleted, submittedByYou, t);
+
+  return (
+    <View style={styles.dealStack}>
+      <DetailSection title={t('trade.deal.summaryTitle')} description={t('trade.deal.summaryBody')} compact withTopBorder={false}>
+        <View style={[styles.dealSummaryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <View style={styles.dealSummaryHeader}>
+            <SemanticBadge label={t('trade.deal.acceptedDeal')} tone="proposal" size="sm" />
+            <SemanticBadge label={formatStatus(status, t)} tone={statusTone} size="sm" />
+          </View>
+          <AppText style={styles.dealSummaryTitle}>{trade?.title ?? t('trade.deal.title')}</AppText>
+          <AppText style={[styles.dealSummaryMeta, { color: theme.color.muted }]}>{t('trade.deal.privateBody')}</AppText>
+        </View>
+      </DetailSection>
+
+      <DetailSection title={t('trade.deal.agreementTitle')} description={t('trade.deal.agreementBody')} compact>
+        {agreement.fromSnapshot ? <InfoNotice tone="info" title={t('trade.deal.snapshotTitle')} body={t('trade.deal.snapshotBody')} /> : null}
+        {agreement.acceptedMessage ? <View style={[styles.dealAcceptedMessage, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <AppText style={[styles.dealAcceptedMessageLabel, { color: theme.color.muted }]}>{t('trade.deal.acceptedMessage')}</AppText>
+          <AppText style={styles.dealAcceptedMessageText}>{agreement.acceptedMessage}</AppText>
+        </View> : null}
+        <View style={styles.dealAgreementGrid}>
+          <DealAgreementColumn label={t('trade.deal.ownerGives')} items={agreement.ownerGives} emptyLabel={t('trade.deal.notSet')} tone="offer" t={t} />
+          <DealAgreementColumn label={t('trade.deal.ownerReceives')} items={agreement.ownerReceives} emptyLabel={t('trade.deal.notSet')} tone="need" t={t} />
+          <DealAgreementColumn label={t('trade.deal.applicantGives')} items={agreement.applicantGives} emptyLabel={t('trade.deal.notSet')} tone="offer" t={t} />
+          <DealAgreementColumn label={t('trade.deal.applicantReceives')} items={agreement.applicantReceives} emptyLabel={t('trade.deal.notSet')} tone="need" t={t} />
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.showProposalItemDetails')} onPress={onDetails} style={({ pressed }) => [styles.dealDetailsButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+          <AppText style={[styles.dealDetailsText, { color: theme.color.text }]}>{t('trade.proposals.showProposalItemDetails')}</AppText>
+        </Pressable>
+      </DetailSection>
+
+      <DetailSection title={t('trade.deal.safetyTitle')} compact>
+        <View style={styles.safetyChecklist}>
+          {[t('trade.deal.safetyKeepChat'), t('trade.deal.safetyConfirmScope'), t('trade.deal.safetyNoSensitive'), t('trade.deal.safetyReportSuspicious')].map((item) => (
+            <View key={item} style={styles.safetyChecklistItem}>
+              <View style={[styles.safetyCheck, { backgroundColor: theme.semantic.success.softBg, borderColor: theme.semantic.success.border }]}>
+                <AppText style={[styles.safetyCheckText, { color: theme.semantic.success.text }]}>✓</AppText>
+              </View>
+              <AppText style={[styles.safetyChecklistText, { color: theme.color.text }]}>{item}</AppText>
+            </View>
+          ))}
+        </View>
+      </DetailSection>
+
+      <DetailSection title={t('trade.deal.progressTitle')} description={stateBody} compact>
+        <View style={styles.dealProgressList}>
+          {(['accepted', 'in_progress', 'submitted', 'completed'] as const).map((step, index) => <DealProgressStep key={step} step={step} index={index + 1} state={dealStepState(status, step)} t={t} />)}
+        </View>
+        {status === 'disputed' ? <InfoNotice tone="warning" title={t('trade.deal.problemReportedTitle')} body={t('trade.deal.disputedStateBody')} /> : null}
+        {status === 'cancelled' ? <InfoNotice tone="warning" title={t('trade.deal.cancelledTitle')} body={trade?.cancelReason ? t('trade.deal.cancelledWithReason', { reason: trade.cancelReason }) : t('trade.deal.cancelledStateBody')} /> : null}
+      </DetailSection>
+
+      {roleGuard ? <DetailSection title={t('trade.deal.roleGuardTitle')} compact>
+        <View style={[styles.dealGuardCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <SemanticBadge label={roleGuard.label} tone={roleGuard.tone} size="sm" />
+          <AppText style={styles.dealGuardTitle}>{roleGuard.title}</AppText>
+          <AppText style={[styles.dealGuardBody, { color: theme.color.muted }]}>{roleGuard.body}</AppText>
+        </View>
+      </DetailSection> : null}
+
+      <DetailSection title={t('trade.deal.safeActionsTitle')} description={t('trade.deal.safeActionsBody')} compact>
+        <View style={styles.actionRowWrap}>
+          {canMarkSubmitted ? <SmallActionButton label={actionLoading === 'submitted' ? t('common.states.working') : t('trade.detail.markDelivered')} onPress={onMarkSubmitted} disabled={Boolean(actionLoading)} /> : null}
+          {canConfirmCompleted ? <SmallActionButton label={actionLoading === 'completed' ? t('common.states.working') : t('trade.detail.confirmCompleted')} onPress={onConfirmCompleted} disabled={Boolean(actionLoading)} /> : null}
+          {canReportProblem ? <SmallActionButton label={actionLoading === 'deal-report' ? t('common.states.working') : t('trade.detail.reportProblem')} onPress={onReportProblem} disabled={Boolean(actionLoading)} danger /> : null}
+          {canCancelAcceptedTrade ? cancelTradeOpen ? null : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
+        </View>
+        {cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : null}
+      </DetailSection>
+    </View>
+  );
+}
+
+function DealAgreementColumn({ label, items, emptyLabel, tone, t }: { label: string; items: DealAgreementItem[]; emptyLabel: string; tone: ProposalSideKind; t: TFunction }) {
+  const theme = useThemeTokens();
+  const color = theme.semantic[tone];
+  return (
+    <View style={[styles.dealAgreementColumn, { backgroundColor: color.softBg, borderColor: color.border }]}>
+      <SemanticBadge label={label} tone={tone} size="sm" />
+      {items.length ? items.map((item) => (
+        <View key={`${isAcceptedDealSnapshotItem(item) ? item.kind : tone}-${item.id}`} style={styles.dealAgreementItem}>
+          <AppText style={styles.dealAgreementTitle} numberOfLines={2}>{isAcceptedDealSnapshotItem(item) && item.kind === 'cash_promise' ? t('trade.cashPromise.title') : item.title}</AppText>
+          <AppText style={[styles.dealAgreementMeta, { color: color.text }]} numberOfLines={1}>{dealAgreementMeta(item, tone, t)}</AppText>
+        </View>
+      )) : <AppText style={[styles.dealAgreementEmpty, { color: theme.color.muted }]}>{emptyLabel}</AppText>}
+    </View>
+  );
+}
+
+function DealProgressStep({ step, index, state, t }: { step: 'accepted' | 'in_progress' | 'submitted' | 'completed'; index: number; state: 'done' | 'current' | 'pending'; t: TFunction }) {
+  const theme = useThemeTokens();
+  const isDone = state === 'done';
+  const isCurrent = state === 'current';
+  const label = step === 'accepted' ? t('trade.deal.stepAccepted') : step === 'in_progress' ? t('trade.deal.stepInProgress') : step === 'submitted' ? t('trade.deal.stepSubmitted') : t('trade.deal.stepCompleted');
+  return (
+    <View style={styles.dealProgressStep}>
+      <View style={[styles.dealProgressDot, { backgroundColor: isDone || isCurrent ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: isDone || isCurrent ? theme.semantic.proposal.border : theme.color.border }]}>
+        <AppText style={[styles.dealProgressDotText, { color: isDone || isCurrent ? theme.semantic.proposal.text : theme.color.muted }]}>{isDone ? '✓' : index}</AppText>
+      </View>
+      <AppText style={[styles.dealProgressLabel, { color: isCurrent ? theme.color.text : theme.color.muted }]}>{label}</AppText>
+    </View>
+  );
+}
+
 function ProposalStatusBlock({ proposal, statusHint, tradeCancelled, t }: { proposal: TradeProposalItem; statusHint: string; tradeCancelled: boolean; t: TFunction }) {
   const theme = useThemeTokens();
   return (
@@ -778,12 +1144,13 @@ function ProposalStatusBlock({ proposal, statusHint, tradeCancelled, t }: { prop
 function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetails, t }: { proposal: TradeProposalItem; canEditProposalContent: boolean; onDetails: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   const sideItems = proposalSideItems(proposal);
+  const hasCashPromise = Boolean(proposal.cashPromise);
   const actionLabel = canEditProposalContent ? t('trade.proposals.manageProposal') : t('trade.proposals.showProposalItemDetails');
 
   return (
     <DetailSection
       title={t('trade.proposals.proposalPackage')}
-      description={sideItems.length > 0 ? proposalPackageTitle(proposal, t) : t('trade.proposals.noAttachedItem')}
+      description={sideItems.length > 0 || hasCashPromise ? proposalPackageTitle(proposal, t) : t('trade.proposals.noAttachedItem')}
       compact
       rightSlot={
         <Pressable accessibilityRole="button" accessibilityLabel={actionLabel} onPress={onDetails} style={({ pressed }) => [styles.inlineDetailsButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
@@ -791,7 +1158,7 @@ function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetail
         </Pressable>
       }
     >
-      {sideItems.length === 0 ? (
+      {sideItems.length === 0 && !hasCashPromise ? (
         <View style={[styles.inlinePackageEmpty, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
           <MobileIcon name="proposal" size={18} color={theme.color.muted} decorative />
           <AppText style={[styles.inlinePackageEmptyText, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>
@@ -799,6 +1166,7 @@ function ProposalPackageThreadBlock({ proposal, canEditProposalContent, onDetail
       ) : (
         <View style={styles.inlinePackageList}>
           {sideItems.map(({ kind, item }) => <ProposalSideInlineItem key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
+          {proposal.cashPromise ? <CashPromiseInlineItem amountCents={proposal.cashPromise.amountCents} currency={proposal.cashPromise.currency ?? 'eur'} side={proposal.cashPromise.side} note={proposal.cashPromise.note ?? null} t={t} /> : null}
         </View>
       )}
     </DetailSection>
@@ -822,6 +1190,27 @@ function ProposalSideInlineItem({ kind, item, t }: { kind: ProposalSideKind; ite
         <AppText style={styles.inlineSideTitle} numberOfLines={2}>{item.title}</AppText>
         <AppText style={[styles.inlineSideMeta, { color: color.text }]} numberOfLines={1}>{proposalSideMeta(kind, item, t)}</AppText>
         <AppText style={[styles.inlineSideDescription, { color: theme.color.muted }]} numberOfLines={3}>{proposalSideDescription(item, t)}</AppText>
+      </View>
+    </View>
+  );
+}
+
+function CashPromiseInlineItem({ amountCents, currency, side, note, t }: { amountCents: number; currency: string; side: 'need' | 'offer'; note?: string | null; t: TFunction }) {
+  const theme = useThemeTokens();
+  const tone = side === 'need' ? theme.semantic.need : theme.semantic.offer;
+  return (
+    <View style={[styles.inlineSideItem, { borderTopColor: theme.color.border }]}>
+      <View style={[styles.inlineSideIcon, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
+        <MobileIcon name="proposal" size={18} color={theme.semantic.warning.text} decorative />
+      </View>
+      <View style={styles.inlineSideCopy}>
+        <View style={styles.inlineSideHeader}>
+          <SemanticBadge label={side === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')} tone={side} size="sm" />
+          <SemanticBadge label={t('trade.cashPromise.notProcessed')} tone="warning" size="sm" />
+        </View>
+        <AppText style={styles.inlineSideTitle} numberOfLines={2}>{t('trade.cashPromise.title')} · {formatMoneyAmount(amountCents, currency)}</AppText>
+        <AppText style={[styles.inlineSideMeta, { color: tone.text }]} numberOfLines={1}>{t('trade.cashPromise.outsideAppTitle')}</AppText>
+        {note ? <AppText style={[styles.inlineSideDescription, { color: theme.color.muted }]} numberOfLines={3}>{note}</AppText> : null}
       </View>
     </View>
   );
@@ -859,7 +1248,7 @@ function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeC
       </View>
       <AppText style={styles.summaryTitle} numberOfLines={2}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
       {proposal.trade ? ((proposal.trade.amountCents ?? 0) > 0 ? <MoneyPill amountCents={proposal.trade.amountCents ?? 0} currency={proposal.trade.currency ?? 'eur'} label={`${formatStatus(proposal.trade.status, t)} ${t('trade.labels.trade').toLowerCase()}`} /> : <AppText style={[styles.summaryMeta, { color: theme.color.muted }]}>{t('trade.labels.serviceForService')} {t('trade.labels.trade').toLowerCase()}</AppText>) : null}
-      {sides.length > 0 ? <View style={styles.summarySides}>{sides.map(({ kind, item }) => <CompactSidePill key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}</View> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>}
+      {sides.length > 0 || proposal.cashPromise ? <View style={styles.summarySides}>{sides.map(({ kind, item }) => <CompactSidePill key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}{proposal.cashPromise ? <CompactCashPromisePill proposal={proposal} t={t} /> : null}</View> : <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.noAttachedItem')}</AppText>}
       <View style={[styles.summaryActionHint, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
         <AppText style={[styles.summaryHint, { color: theme.color.muted }]}>{statusHint}</AppText>
         <Pressable accessibilityRole="button" onPress={onDetails} style={({ pressed }) => [styles.summaryActionButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
@@ -929,6 +1318,13 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
   );
 }
 
+function CompactCashPromisePill({ proposal, t }: { proposal: TradeProposalItem; t: TFunction }) {
+  const theme = useThemeTokens();
+  const cashPromise = proposal.cashPromise;
+  if (!cashPromise) return null;
+  return <View style={[styles.compactSidePill, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}><SemanticBadge label={t('trade.cashPromise.notProcessed')} tone="warning" size="sm" /><AppText style={[styles.compactSideTitle, { color: theme.semantic.warning.text }]}>{t('trade.cashPromise.title')} · {formatMoneyAmount(cashPromise.amountCents, cashPromise.currency ?? 'eur')}</AppText></View>;
+}
+
 function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, language, onClose, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onOpenTradeDetail, t }: { visible: boolean; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; language: SupportedLanguage; onClose: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onOpenTradeDetail: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   const sideItems = proposalSideItems(proposal);
@@ -953,7 +1349,12 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
               {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
             </View>
 
-            {sideItems.length === 0 ? <InfoNotice tone="info" title={t('trade.proposals.changeProposalItem')} body={t('trade.proposals.noAttachedItem')} /> : sideItems.map(({ kind, item }) => <ProposalSideDetailCard key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
+            {sideItems.length === 0 && !proposal.cashPromise ? <InfoNotice tone="info" title={t('trade.proposals.changeProposalItem')} body={t('trade.proposals.noAttachedItem')} /> : (
+              <>
+                {sideItems.map(({ kind, item }) => <ProposalSideDetailCard key={`${kind}-${item.id}`} kind={kind} item={item} t={t} />)}
+                {proposal.cashPromise ? <CashPromiseInlineItem cashPromise={proposal.cashPromise} t={t} /> : null}
+              </>
+            )}
 
             {canEditProposalContent ? <ProposalPackageEditor requiredSide={requiredPackageSide} need={selectedPackageNeed} offer={selectedPackageOffer} loading={packageLoading} error={packageError} changed={packageChanged} saving={actionLoading === 'proposal-package'} onChooseNeed={onChooseNeed} onChooseOffer={onChooseOffer} onClearNeed={onClearNeed} onClearOffer={onClearOffer} onSave={onSavePackage} t={t} /> : null}
 
@@ -1112,6 +1513,46 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   return <View style={[styles.detailRow, { borderBottomColor: theme.color.border }]}><AppText style={[styles.detailLabel, { color: theme.color.muted }]}>{label}</AppText><AppText style={styles.detailValue}>{value}</AppText></View>;
 }
 
+
+function ProblemReportSheet({ visible, summary, error, loading, onChangeSummary, onCancel, onSubmit, t }: { visible: boolean; summary: string; error: string | null; loading: boolean; onChangeSummary: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <View style={styles.modalRoot}>
+        <Pressable style={styles.modalBackdrop} onPress={onCancel} />
+        <View style={[styles.problemSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.problemSheetHeader}>
+            <View style={[styles.problemSheetIcon, { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border }]}>
+              <MobileIcon name="warning" size={22} color={theme.semantic.danger.text} decorative />
+            </View>
+            <View style={styles.problemSheetCopy}>
+              <SemanticBadge label={t('trade.deal.problemReportBadge')} tone="danger" size="sm" />
+              <AppText style={styles.problemSheetTitle}>{t('trade.deal.problemReportTitle')}</AppText>
+              <AppText style={[styles.problemSheetBody, { color: theme.color.muted }]}>{t('trade.deal.problemReportBody')}</AppText>
+            </View>
+          </View>
+          <InfoNotice tone="warning" title={t('trade.deal.problemReportEvidenceTitle')} body={t('trade.deal.problemReportEvidenceBody')} />
+          <TextInput
+            value={summary}
+            onChangeText={onChangeSummary}
+            multiline
+            textAlignVertical="top"
+            placeholder={t('trade.deal.problemReportPlaceholder')}
+            placeholderTextColor={theme.color.muted}
+            style={[styles.problemTextArea, { backgroundColor: theme.color.subtleSurface, borderColor: error ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
+          />
+          {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
+          <View style={styles.inlineActions}>
+            <SmallActionButton label={loading ? t('common.states.working') : t('trade.deal.problemReportSubmit')} onPress={onSubmit} disabled={loading} danger />
+            <SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={loading} muted />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function CancelTradeForm({ reason, error, loading, onChangeReason, onCancel, onSubmit, t }: { reason: string; error: string | null; loading: boolean; onChangeReason: (text: string) => void; onCancel: () => void; onSubmit: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   return <View style={[styles.cancelBox, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={styles.cancelTitle}>{t('trade.proposals.cancelAcceptedTradeTitle')}</AppText><AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.cancelAcceptedTradeBody')}</AppText><TextInput value={reason} onChangeText={onChangeReason} multiline placeholder={t('trade.proposals.cancelReasonPlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={loading ? t('trade.proposals.cancellingTrade') : t('trade.proposals.cancelAcceptedTradeAction')} onPress={onSubmit} disabled={loading} danger /><SmallActionButton label={t('trade.proposals.keepAcceptedTrade')} onPress={onCancel} disabled={loading} muted /></View></View>;
@@ -1141,6 +1582,36 @@ const styles = StyleSheet.create({
   threadTradeTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.35 },
   threadTradeMeta: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
   threadTradeStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', paddingLeft: 54 },
+  dealStack: { gap: 12 },
+  dealSummaryCard: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 9 },
+  dealSummaryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  dealSummaryTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 },
+  dealSummaryMeta: { fontSize: 13, lineHeight: 18, fontWeight: '750' },
+  dealAgreementGrid: { gap: 9 },
+  dealAcceptedMessage: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 6 },
+  dealAcceptedMessageLabel: { fontSize: 11, lineHeight: 15, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
+  dealAcceptedMessageText: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  dealAgreementColumn: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
+  dealAgreementItem: { gap: 3 },
+  dealAgreementTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  dealAgreementMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  dealAgreementEmpty: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  dealDetailsButton: { minHeight: 40, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  dealDetailsText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  dealGuardCard: { borderRadius: 18, borderWidth: 1, padding: 13, gap: 8 },
+  dealGuardTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+  dealGuardBody: { lineHeight: 20, fontWeight: '700' },
+  safetyChecklist: { gap: 10 },
+  safetyChecklistItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  safetyCheck: { width: 23, height: 23, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  safetyCheckText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  safetyChecklistText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '750' },
+  dealProgressList: { gap: 9 },
+  dealProgressStep: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dealProgressDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  dealProgressDotText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  dealProgressLabel: { fontSize: 14, lineHeight: 19, fontWeight: '850' },
+  actionRowWrap: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   statusBlockCopy: { gap: 10 },
   statusHintText: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
   inlineDetailsButton: { minHeight: 32, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11 },
@@ -1239,6 +1710,13 @@ const styles = StyleSheet.create({
   actionText: { fontWeight: '900' },
   primaryText: { color: '#FFFFFF' },
   dangerText: { color: '#991B1B' },
+  problemSheet: { borderTopLeftRadius: 30, borderTopRightRadius: 30, borderWidth: 1, borderBottomWidth: 0, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 24, gap: 14 },
+  problemSheetHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  problemSheetIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  problemSheetCopy: { flex: 1, gap: 6 },
+  problemSheetTitle: { fontSize: 22, lineHeight: 27, fontWeight: '900', letterSpacing: -0.35 },
+  problemSheetBody: { lineHeight: 20, fontWeight: '700' },
+  problemTextArea: { minHeight: 128, borderRadius: 18, borderWidth: 1, padding: 13, fontSize: 16, lineHeight: 22, fontWeight: '600' },
   cancelBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 10 },
   cancelTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900' },
   muted: { lineHeight: 20, fontWeight: '700' },

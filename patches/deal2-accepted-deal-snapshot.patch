@@ -1,0 +1,604 @@
+diff --git a/apps/api/prisma/migrations/20260604170000_accepted_deal_snapshot/migration.sql b/apps/api/prisma/migrations/20260604170000_accepted_deal_snapshot/migration.sql
+new file mode 100644
+index 0000000..5ab5533
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260604170000_accepted_deal_snapshot/migration.sql
+@@ -0,0 +1,30 @@
++-- Freeze the accepted proposal package so later Need/Offer edits cannot silently change a Deal agreement.
++CREATE TABLE "AcceptedDealSnapshot" (
++    "id" TEXT NOT NULL,
++    "tradeId" TEXT NOT NULL,
++    "proposalId" TEXT NOT NULL,
++    "ownerId" TEXT NOT NULL,
++    "applicantId" TEXT NOT NULL,
++    "tradeSnapshotJson" JSONB NOT NULL,
++    "proposalSnapshotJson" JSONB NOT NULL,
++    "ownerGivesJson" JSONB NOT NULL,
++    "ownerReceivesJson" JSONB NOT NULL,
++    "applicantGivesJson" JSONB NOT NULL,
++    "applicantReceivesJson" JSONB NOT NULL,
++    "acceptedMessage" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "AcceptedDealSnapshot_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "AcceptedDealSnapshot_tradeId_key" ON "AcceptedDealSnapshot"("tradeId");
++CREATE UNIQUE INDEX "AcceptedDealSnapshot_proposalId_key" ON "AcceptedDealSnapshot"("proposalId");
++CREATE INDEX "AcceptedDealSnapshot_ownerId_createdAt_idx" ON "AcceptedDealSnapshot"("ownerId", "createdAt");
++CREATE INDEX "AcceptedDealSnapshot_applicantId_createdAt_idx" ON "AcceptedDealSnapshot"("applicantId", "createdAt");
++CREATE INDEX "AcceptedDealSnapshot_createdAt_idx" ON "AcceptedDealSnapshot"("createdAt");
++
++ALTER TABLE "AcceptedDealSnapshot" ADD CONSTRAINT "AcceptedDealSnapshot_tradeId_fkey" FOREIGN KEY ("tradeId") REFERENCES "Trade"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "AcceptedDealSnapshot" ADD CONSTRAINT "AcceptedDealSnapshot_proposalId_fkey" FOREIGN KEY ("proposalId") REFERENCES "TradeProposal"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "AcceptedDealSnapshot" ADD CONSTRAINT "AcceptedDealSnapshot_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "AcceptedDealSnapshot" ADD CONSTRAINT "AcceptedDealSnapshot_applicantId_fkey" FOREIGN KEY ("applicantId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 5536a58..341a957 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -701,6 +701,8 @@ model User {
+   usageHeartbeats UsageHeartbeat[]
+   apiRequestMetrics ApiRequestMetric[]
+   inAppNotifications InAppNotification[]
++  acceptedDealSnapshotsAsOwner AcceptedDealSnapshot[] @relation("AcceptedDealSnapshotOwner")
++  acceptedDealSnapshotsAsApplicant AcceptedDealSnapshot[] @relation("AcceptedDealSnapshotApplicant")
+   usernameHistory UsernameHistory[] @relation("UsernameHistoryUser")
+   usernameChangesApproved UsernameHistory[] @relation("UsernameHistoryChangedBy")
+   reviewedContentClassifications ContentClassification[] @relation("ReviewedContentClassifications")
+@@ -1236,6 +1238,7 @@ model Trade {
+   proposals TradeProposal[]
+   publicMessages TradePublicMessage[]
+   ledgerEntries CreditLedgerEntry[]
++  acceptedDealSnapshot AcceptedDealSnapshot?
+ 
+   @@index([status, isPublic, createdAt])
+   @@index([postType, status, isPublic, createdAt])
+@@ -1271,6 +1274,7 @@ model TradeProposal {
+   proposedOffer Offer?            @relation("ProposalOffer", fields: [proposedOfferId], references: [id], onDelete: SetNull)
+   messages      ProposalMessage[]
+   packageItems  TradeProposalPackageItem[]
++  acceptedDealSnapshot AcceptedDealSnapshot?
+ 
+   @@index([tradeId, applicantId, status])
+   @@index([tradeId, status])
+@@ -1300,6 +1304,33 @@ model TradeProposalPackageItem {
+   @@index([offerId])
+ }
+ 
++
++model AcceptedDealSnapshot {
++  id                    String   @id @default(cuid())
++  tradeId               String   @unique
++  proposalId            String   @unique
++  ownerId               String
++  applicantId           String
++  tradeSnapshotJson     Json
++  proposalSnapshotJson  Json
++  ownerGivesJson        Json
++  ownerReceivesJson     Json
++  applicantGivesJson    Json
++  applicantReceivesJson Json
++  acceptedMessage       String?
++  createdAt             DateTime @default(now())
++  updatedAt             DateTime @updatedAt
++
++  trade     Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
++  proposal  TradeProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
++  owner     User          @relation("AcceptedDealSnapshotOwner", fields: [ownerId], references: [id], onDelete: Cascade)
++  applicant User          @relation("AcceptedDealSnapshotApplicant", fields: [applicantId], references: [id], onDelete: Cascade)
++
++  @@index([ownerId, createdAt])
++  @@index([applicantId, createdAt])
++  @@index([createdAt])
++}
++
+ model ProposalMessage {
+   id         String   @id @default(cuid())
+   proposalId String
+diff --git a/apps/api/src/modules/proposals/dealSnapshots.ts b/apps/api/src/modules/proposals/dealSnapshots.ts
+new file mode 100644
+index 0000000..bb49317
+--- /dev/null
++++ b/apps/api/src/modules/proposals/dealSnapshots.ts
+@@ -0,0 +1,160 @@
++import type { Need, Offer, Prisma } from '@prisma/client';
++
++type SnapshotSource = 'trade' | 'proposal' | 'package';
++type SnapshotKind = 'need' | 'offer';
++type SnapshotItem = {
++  kind: SnapshotKind;
++  id: string;
++  ownerId: string;
++  title: string;
++  description: string;
++  itemType: string;
++  category: string | null;
++  timing?: string | null;
++  availability?: string | null;
++  mode: string | null;
++  locationLabel: string | null;
++  includes?: string[];
++  tags: string[];
++  status: string;
++  source: SnapshotSource;
++  sortOrder?: number;
++  snapshottedAt: string;
++};
++
++function jsonSafe<T>(value: T): Prisma.InputJsonValue {
++  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
++}
++
++function snapshotNeed(need: Need, source: SnapshotSource, snapshottedAt: string, sortOrder?: number): SnapshotItem {
++  return {
++    kind: 'need',
++    id: need.id,
++    ownerId: need.ownerId,
++    title: need.title,
++    description: need.description,
++    itemType: need.itemType,
++    category: need.category ?? null,
++    timing: need.timing ?? null,
++    mode: need.mode ?? null,
++    locationLabel: need.locationLabel ?? null,
++    tags: need.tags ?? [],
++    status: need.status,
++    source,
++    sortOrder,
++    snapshottedAt,
++  };
++}
++
++function snapshotOffer(offer: Offer, source: SnapshotSource, snapshottedAt: string, sortOrder?: number): SnapshotItem {
++  return {
++    kind: 'offer',
++    id: offer.id,
++    ownerId: offer.ownerId,
++    title: offer.title,
++    description: offer.description,
++    itemType: offer.itemType,
++    category: offer.category ?? null,
++    availability: offer.availability ?? null,
++    mode: offer.mode ?? null,
++    locationLabel: offer.locationLabel ?? null,
++    includes: offer.includes ?? [],
++    tags: offer.tags ?? [],
++    status: offer.status,
++    source,
++    sortOrder,
++    snapshottedAt,
++  };
++}
++
++function pushUnique(items: SnapshotItem[], item: SnapshotItem | null | undefined) {
++  if (!item) return;
++  if (items.some((existing) => existing.kind === item.kind && existing.id === item.id)) return;
++  items.push(item);
++}
++
++function agreementBuckets(input: { ownerId: string; applicantId: string; needs: SnapshotItem[]; offers: SnapshotItem[] }) {
++  return {
++    ownerGives: input.offers.filter((offer) => offer.ownerId === input.ownerId),
++    ownerReceives: input.needs.filter((need) => need.ownerId === input.ownerId),
++    applicantGives: input.offers.filter((offer) => offer.ownerId === input.applicantId),
++    applicantReceives: input.needs.filter((need) => need.ownerId === input.applicantId),
++  };
++}
++
++export async function createAcceptedDealSnapshot(tx: Prisma.TransactionClient, proposalId: string) {
++  const snapshottedAt = new Date().toISOString();
++  const proposal = await tx.tradeProposal.findUnique({
++    where: { id: proposalId },
++    include: {
++      trade: { include: { need: true, offer: true } },
++      proposedNeed: true,
++      proposedOffer: true,
++      packageItems: { include: { need: true, offer: true }, orderBy: { sortOrder: 'asc' } },
++    },
++  });
++  if (!proposal) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
++
++  const ownerId = proposal.trade.ownerId;
++  const applicantId = proposal.applicantId;
++  const needs: SnapshotItem[] = [];
++  const offers: SnapshotItem[] = [];
++
++  pushUnique(needs, proposal.trade.need ? snapshotNeed(proposal.trade.need, 'trade', snapshottedAt) : null);
++  pushUnique(offers, proposal.trade.offer ? snapshotOffer(proposal.trade.offer, 'trade', snapshottedAt) : null);
++  pushUnique(needs, proposal.proposedNeed ? snapshotNeed(proposal.proposedNeed, 'proposal', snapshottedAt) : null);
++  pushUnique(offers, proposal.proposedOffer ? snapshotOffer(proposal.proposedOffer, 'proposal', snapshottedAt) : null);
++
++  for (const item of proposal.packageItems) {
++    if (item.need) pushUnique(needs, snapshotNeed(item.need, 'package', snapshottedAt, item.sortOrder));
++    if (item.offer) pushUnique(offers, snapshotOffer(item.offer, 'package', snapshottedAt, item.sortOrder));
++  }
++
++  const buckets = agreementBuckets({ ownerId, applicantId, needs, offers });
++  const tradeSnapshot = {
++    id: proposal.trade.id,
++    ownerId,
++    providerId: applicantId,
++    needId: proposal.trade.needId,
++    offerId: proposal.trade.offerId,
++    title: proposal.trade.title,
++    description: proposal.trade.description,
++    postType: proposal.trade.postType,
++    status: 'in_progress',
++    amountCents: proposal.trade.amountCents,
++    creditAmount: proposal.trade.creditAmount,
++    currency: proposal.trade.currency,
++    createdAt: proposal.trade.createdAt.toISOString(),
++    acceptedAt: snapshottedAt,
++  };
++  const proposalSnapshot = {
++    id: proposal.id,
++    tradeId: proposal.tradeId,
++    applicantId,
++    proposedNeedId: proposal.proposedNeedId,
++    proposedOfferId: proposal.proposedOfferId,
++    packageKind: proposal.packageKind,
++    message: proposal.message,
++    messageDeletedAt: proposal.messageDeletedAt?.toISOString() ?? null,
++    createdAt: proposal.createdAt.toISOString(),
++    acceptedAt: snapshottedAt,
++  };
++
++  return tx.acceptedDealSnapshot.upsert({
++    where: { proposalId: proposal.id },
++    update: {},
++    create: {
++      tradeId: proposal.tradeId,
++      proposalId: proposal.id,
++      ownerId,
++      applicantId,
++      tradeSnapshotJson: jsonSafe(tradeSnapshot),
++      proposalSnapshotJson: jsonSafe(proposalSnapshot),
++      ownerGivesJson: jsonSafe(buckets.ownerGives),
++      ownerReceivesJson: jsonSafe(buckets.ownerReceives),
++      applicantGivesJson: jsonSafe(buckets.applicantGives),
++      applicantReceivesJson: jsonSafe(buckets.applicantReceives),
++      acceptedMessage: proposal.messageDeletedAt ? null : proposal.message,
++    },
++  });
++}
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 249972c..a947b64 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -16,6 +16,7 @@ import { publicUserPreviewSelect } from '../users/publicUser.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+ import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from '../proposals/proposalPackages.js';
+ import { notifyTradeProposalReceived, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
++import { createAcceptedDealSnapshot } from '../proposals/dealSnapshots.js';
+ 
+ export const tradesRoutes = Router();
+ export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
+@@ -27,7 +28,7 @@ const feedTradeInclude = {
+   payment: true,
+   escrow: true
+ } as const;
+-export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, packageItems: { include: { need: true, offer: true }, orderBy: { sortOrder: 'asc' as const } }, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } } } as const;
++export const proposalInclude = { applicant: { select: publicUserPreviewSelect }, trade: { include: tradeInclude }, proposedNeed: true, proposedOffer: true, packageItems: { include: { need: true, offer: true }, orderBy: { sortOrder: 'asc' as const } }, messages: { include: { sender: { select: publicUserPreviewSelect } }, orderBy: { createdAt: 'asc' as const } }, acceptedDealSnapshot: true } as const;
+ 
+ type DeckRelatedEntity = { id: string } | null | undefined;
+ type TradeWithDeckRelations = { id: string; ownerId?: string; need?: DeckRelatedEntity; offer?: DeckRelatedEntity };
+@@ -618,6 +619,7 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
+     }
+ 
+     await tx.tradeProposal.update({ where: { id: proposalId }, data: { status: 'accepted', respondedAt: new Date() } });
++    await createAcceptedDealSnapshot(tx, proposalId);
+     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, id: { not: proposalId }, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
+     return tx.trade.update({ where: { id: trade.id }, data: { ...acceptedSideUpdate, providerId: applicantId, status: 'in_progress', isPublic: false }, include: tradeInclude });
+   });
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 1bcb422..d9fb36d 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { ProposalActionStatus, TradeActionStatus } from '@hellowhen/contracts';
++import type { AcceptedDealSnapshotItemDto, ProposalActionStatus, TradeActionStatus } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+@@ -32,6 +32,7 @@ type TFunction = (key: string, values?: Record<string, string | number | boolean
+ type ProposalSideKind = 'need' | 'offer';
+ type RequiredProposalSide = ProposalSideKind | null;
+ type ProposalSideItem = NeedItem | OfferItem;
++type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
+ type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | null;
+ type ProposalActionSheet =
+   | { type: 'status'; status: ProposalActionStatus }
+@@ -125,7 +126,35 @@ function uniqueInventoryItems(items: Array<ProposalSideItem | null | undefined>)
+   });
+ }
+ 
++function isAcceptedDealSnapshotItem(item: DealAgreementItem): item is AcceptedDealSnapshotItemDto {
++  return 'kind' in item && (item.kind === 'need' || item.kind === 'offer');
++}
++
++function dealAgreementMeta(item: DealAgreementItem, fallbackKind: ProposalSideKind, t: TFunction) {
++  if (isAcceptedDealSnapshotItem(item)) {
++    const mode = modeLabel(item.mode, t);
++    if (item.kind === 'need') {
++      return compactList([item.category, item.timing, mode, item.locationLabel]) || item.itemType || t('trade.labels.needDetails');
++    }
++    return compactList([item.category, item.includes?.[0], item.availability, mode, item.locationLabel]) || item.itemType || t('trade.labels.offerDetails');
++  }
++  return proposalSideMeta(fallbackKind, item, t);
++}
++
+ function acceptedDealAgreement(proposal: TradeProposalItem) {
++  const snapshot = proposal.acceptedDealSnapshot;
++  if (snapshot) {
++    return {
++      ownerGives: snapshot.ownerGivesJson ?? [],
++      ownerReceives: snapshot.ownerReceivesJson ?? [],
++      applicantGives: snapshot.applicantGivesJson ?? [],
++      applicantReceives: snapshot.applicantReceivesJson ?? [],
++      acceptedMessage: snapshot.acceptedMessage ?? null,
++      snapshotCreatedAt: snapshot.createdAt ?? null,
++      fromSnapshot: true,
++    };
++  }
++
+   const trade = proposal.trade;
+   const ownerId = trade?.ownerId ?? null;
+   const applicantId = proposal.applicantId;
+@@ -137,6 +166,9 @@ function acceptedDealAgreement(proposal: TradeProposalItem) {
+     ownerReceives: needs.filter((need) => need.ownerId === ownerId),
+     applicantGives: offers.filter((offer) => offer.ownerId === applicantId),
+     applicantReceives: needs.filter((need) => need.ownerId === applicantId),
++    acceptedMessage: proposal.messageDeletedAt ? null : proposal.message,
++    snapshotCreatedAt: null,
++    fromSnapshot: false,
+   };
+ }
+ 
+@@ -876,6 +908,11 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+       </DetailSection>
+ 
+       <DetailSection title={t('trade.deal.agreementTitle')} description={t('trade.deal.agreementBody')} compact>
++        {agreement.fromSnapshot ? <InfoNotice tone="info" title={t('trade.deal.snapshotTitle')} body={t('trade.deal.snapshotBody')} /> : null}
++        {agreement.acceptedMessage ? <View style={[styles.dealAcceptedMessage, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++          <AppText style={[styles.dealAcceptedMessageLabel, { color: theme.color.muted }]}>{t('trade.deal.acceptedMessage')}</AppText>
++          <AppText style={styles.dealAcceptedMessageText}>{agreement.acceptedMessage}</AppText>
++        </View> : null}
+         <View style={styles.dealAgreementGrid}>
+           <DealAgreementColumn label={t('trade.deal.ownerGives')} items={agreement.ownerGives} emptyLabel={t('trade.deal.notSet')} tone="offer" t={t} />
+           <DealAgreementColumn label={t('trade.deal.ownerReceives')} items={agreement.ownerReceives} emptyLabel={t('trade.deal.notSet')} tone="need" t={t} />
+@@ -921,16 +958,16 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+   );
+ }
+ 
+-function DealAgreementColumn({ label, items, emptyLabel, tone, t }: { label: string; items: ProposalSideItem[]; emptyLabel: string; tone: ProposalSideKind; t: TFunction }) {
++function DealAgreementColumn({ label, items, emptyLabel, tone, t }: { label: string; items: DealAgreementItem[]; emptyLabel: string; tone: ProposalSideKind; t: TFunction }) {
+   const theme = useThemeTokens();
+   const color = theme.semantic[tone];
+   return (
+     <View style={[styles.dealAgreementColumn, { backgroundColor: color.softBg, borderColor: color.border }]}>
+       <SemanticBadge label={label} tone={tone} size="sm" />
+       {items.length ? items.map((item) => (
+-        <View key={item.id} style={styles.dealAgreementItem}>
++        <View key={`${isAcceptedDealSnapshotItem(item) ? item.kind : tone}-${item.id}`} style={styles.dealAgreementItem}>
+           <AppText style={styles.dealAgreementTitle} numberOfLines={2}>{item.title}</AppText>
+-          <AppText style={[styles.dealAgreementMeta, { color: color.text }]} numberOfLines={1}>{proposalSideMeta(tone, item, t)}</AppText>
++          <AppText style={[styles.dealAgreementMeta, { color: color.text }]} numberOfLines={1}>{dealAgreementMeta(item, tone, t)}</AppText>
+         </View>
+       )) : <AppText style={[styles.dealAgreementEmpty, { color: theme.color.muted }]}>{emptyLabel}</AppText>}
+     </View>
+@@ -1342,6 +1379,9 @@ const styles = StyleSheet.create({
+   dealSummaryTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 },
+   dealSummaryMeta: { fontSize: 13, lineHeight: 18, fontWeight: '750' },
+   dealAgreementGrid: { gap: 9 },
++  dealAcceptedMessage: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 6 },
++  dealAcceptedMessageLabel: { fontSize: 11, lineHeight: 15, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
++  dealAcceptedMessageText: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+   dealAgreementColumn: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
+   dealAgreementItem: { gap: 3 },
+   dealAgreementTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900' },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 187405b..ced9aa3 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -659,6 +659,9 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .deal-panel__heading span { color: var(--app-text); font-size: 15px; font-weight: 950; letter-spacing: -.01em; }
+ .deal-panel__heading p { margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 760; line-height: 1.42; }
+ .deal-agreement-grid { display: grid; gap: 8px; }
++.deal-accepted-message { display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface-soft); padding: 11px 12px; }
++.deal-accepted-message span { color: var(--app-text-muted); font-size: 10px; font-weight: 950; letter-spacing: .1em; text-transform: uppercase; }
++.deal-accepted-message p { margin: 0; color: var(--app-text); font-size: 13px; font-weight: 750; line-height: 1.45; overflow-wrap: anywhere; }
+ .deal-agreement-bucket { display: grid; gap: 6px; border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent); border-radius: 18px; padding: 10px; }
+ .deal-agreement-bucket--need { background: color-mix(in srgb, var(--need-bg) 60%, var(--app-surface)); border-color: color-mix(in srgb, var(--need-border) 58%, var(--app-border)); }
+ .deal-agreement-bucket--offer { background: color-mix(in srgb, var(--offer-bg) 58%, var(--app-surface)); border-color: color-mix(in srgb, var(--offer-border) 58%, var(--app-border)); }
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 1249189..359656b 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -3,6 +3,7 @@
+ import Link from "next/link";
+ import type { FormEvent } from "react";
+ import type {
++  AcceptedDealSnapshotItemDto,
+   NeedDto,
+   OfferDto,
+   ProposalMessageDto,
+@@ -338,6 +339,7 @@ function proposalSideItems(
+ 
+ 
+ type DealInventoryItem = NeedDto | OfferDto;
++type DealAgreementItem = DealInventoryItem | AcceptedDealSnapshotItemDto;
+ 
+ type DealStepState = "done" | "current" | "pending";
+ 
+@@ -350,7 +352,34 @@ function uniqueDealItems<T extends DealInventoryItem>(items: Array<T | null | un
+   });
+ }
+ 
++function isAcceptedDealSnapshotItem(item: DealAgreementItem): item is AcceptedDealSnapshotItemDto {
++  return "kind" in item && (item.kind === "need" || item.kind === "offer");
++}
++
++function dealAgreementMeta(item: DealAgreementItem, fallbackKind: "need" | "offer", i18n: TradeI18n) {
++  if (isAcceptedDealSnapshotItem(item)) {
++    const mode = formatMode(item.mode, i18n);
++    if (item.kind === "need") {
++      return [item.category, mode, item.timing, item.locationLabel].filter(Boolean).join(" · ") || item.itemType || tr(i18n, "trade.labels.needDetails", "Need details");
++    }
++    return [item.category, item.includes?.[0], mode, item.availability, item.locationLabel].filter(Boolean).join(" · ") || item.itemType || tr(i18n, "trade.labels.offerDetails", "Offer details");
++  }
++  return sideMeta(item, i18n);
++}
++
+ function acceptedDealAgreement(proposal: TradeProposalDto) {
++  const snapshot = proposal.acceptedDealSnapshot;
++  if (snapshot) {
++    return {
++      ownerGives: snapshot.ownerGivesJson ?? [],
++      ownerReceives: snapshot.ownerReceivesJson ?? [],
++      applicantGives: snapshot.applicantGivesJson ?? [],
++      applicantReceives: snapshot.applicantReceivesJson ?? [],
++      acceptedMessage: snapshot.acceptedMessage ?? null,
++      fromSnapshot: true,
++    };
++  }
++
+   const ownerId = proposal.trade?.ownerId ?? null;
+   const applicantId = proposal.applicantId;
+   const needs = uniqueDealItems([proposal.trade?.need, proposal.proposedNeed]);
+@@ -361,6 +390,8 @@ function acceptedDealAgreement(proposal: TradeProposalDto) {
+     ownerReceives: needs.filter((need) => need.ownerId === ownerId),
+     applicantGives: offers.filter((offer) => offer.ownerId === applicantId),
+     applicantReceives: needs.filter((need) => need.ownerId === applicantId),
++    acceptedMessage: proposal.messageDeletedAt ? null : proposal.message,
++    fromSnapshot: false,
+   };
+ }
+ 
+@@ -373,15 +404,15 @@ function dealStepState(tradeStatus: TradeDto["status"] | null | undefined, step:
+   return "pending";
+ }
+ 
+-function DealAgreementBucket({ label, items, kind, i18n }: { label: string; items: DealInventoryItem[]; kind: "need" | "offer"; i18n: TradeI18n }) {
++function DealAgreementBucket({ label, items, kind, i18n }: { label: string; items: DealAgreementItem[]; kind: "need" | "offer"; i18n: TradeI18n }) {
+   return (
+     <div className={`deal-agreement-bucket deal-agreement-bucket--${kind}`}>
+       <span className="deal-agreement-bucket__label">{label}</span>
+       {items.length ? (
+         items.map((item) => (
+-          <div key={item.id} className="deal-agreement-bucket__item">
++          <div key={`${isAcceptedDealSnapshotItem(item) ? item.kind : kind}-${item.id}`} className="deal-agreement-bucket__item">
+             <strong>{item.title}</strong>
+-            <p>{sideMeta(item, i18n)}</p>
++            <p>{dealAgreementMeta(item, kind, i18n)}</p>
+           </div>
+         ))
+       ) : (
+@@ -434,6 +465,8 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
+           <span>{tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")}</span>
+           <p>{tr(i18n, "trade.deal.agreementBody", "Review what each participant agreed to give and receive.")}</p>
+         </div>
++        {agreement.fromSnapshot ? <p className="notice-box info"><strong>{tr(i18n, "trade.deal.snapshotTitle", "Snapshot saved")}</strong><br />{tr(i18n, "trade.deal.snapshotBody", "This agreement is frozen from the moment the proposal was accepted, so later Need or Offer edits do not change the deal.")}</p> : null}
++        {agreement.acceptedMessage ? <div className="deal-accepted-message"><span>{tr(i18n, "trade.deal.acceptedMessage", "Accepted proposal message")}</span><p>{agreement.acceptedMessage}</p></div> : null}
+         <div className="deal-agreement-grid">
+           <DealAgreementBucket label={tr(i18n, "trade.deal.ownerGives", "Owner gives")} items={agreement.ownerGives} kind="offer" i18n={i18n} />
+           <DealAgreementBucket label={tr(i18n, "trade.deal.ownerReceives", "Owner receives")} items={agreement.ownerReceives} kind="need" i18n={i18n} />
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index ba3ce53..4fecb64 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -316,6 +316,43 @@ export const tradeProposalPackageItemSchema = z.object({
+   offer: offerSchema.nullable().optional(),
+ });
+ 
++export const acceptedDealSnapshotItemSchema = z.object({
++  kind: tradeProposalPackageItemKindSchema,
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string(),
++  itemType: inventoryItemTypeSchema.optional().default('service'),
++  category: z.string().nullable().optional(),
++  timing: z.string().nullable().optional(),
++  availability: z.string().nullable().optional(),
++  mode: tradeExchangeModeSchema.nullable().optional(),
++  locationLabel: z.string().nullable().optional(),
++  includes: z.array(z.string()).optional(),
++  tags: z.array(z.string()).optional(),
++  status: z.string().optional(),
++  source: z.enum(['trade', 'proposal', 'package']).optional(),
++  sortOrder: z.number().int().optional(),
++  snapshottedAt: z.string().optional(),
++}).passthrough();
++
++export const acceptedDealSnapshotSchema = z.object({
++  id: z.string(),
++  tradeId: z.string(),
++  proposalId: z.string(),
++  ownerId: z.string(),
++  applicantId: z.string(),
++  tradeSnapshotJson: z.record(z.string(), z.unknown()).optional(),
++  proposalSnapshotJson: z.record(z.string(), z.unknown()).optional(),
++  ownerGivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
++  ownerReceivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
++  applicantGivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
++  applicantReceivesJson: z.array(acceptedDealSnapshotItemSchema).optional().default([]),
++  acceptedMessage: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string().optional(),
++});
++
+ export const inventoryTemplateBusinessProfileSchema = z.object({
+   id: z.string(),
+   displayName: z.string(),
+@@ -462,7 +499,8 @@ export const tradeProposalSchema = z.object({
+   proposedNeed: needSchema.nullable().optional(),
+   proposedOffer: offerSchema.nullable().optional(),
+   packageItems: z.array(tradeProposalPackageItemSchema).optional(),
+-  messages: z.array(proposalMessageSchema).optional()
++  messages: z.array(proposalMessageSchema).optional(),
++  acceptedDealSnapshot: acceptedDealSnapshotSchema.nullable().optional()
+ });
+ 
+ export type NeedDto = z.infer<typeof needSchema>;
+@@ -479,6 +517,8 @@ export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
+ export type TradeProposalPackageKind = z.infer<typeof tradeProposalPackageKindSchema>;
+ export type TradeProposalPackageItemKind = z.infer<typeof tradeProposalPackageItemKindSchema>;
+ export type TradeProposalPackageItemRole = z.infer<typeof tradeProposalPackageItemRoleSchema>;
++export type AcceptedDealSnapshotItemDto = z.infer<typeof acceptedDealSnapshotItemSchema>;
++export type AcceptedDealSnapshotDto = z.infer<typeof acceptedDealSnapshotSchema>;
+ export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
+ export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+ export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index f004c6a..f0cbfb4 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -744,6 +744,9 @@ export const trade = {
+     applicantGives: 'Applicant gives',
+     applicantReceives: 'Applicant receives',
+     notSet: 'Not set in this proposal',
++    snapshotTitle: 'Agreement snapshot saved',
++    snapshotBody: 'This agreement is frozen from the moment the proposal was accepted, so later Need or Offer edits do not change the deal.',
++    acceptedMessage: 'Accepted proposal message',
+     safetyTitle: 'Safety checklist',
+     safetyKeepChat: 'Keep agreement details in this chat.',
+     safetyConfirmScope: 'Confirm scope, timing, and delivery format.',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index fdc10b2..808de8b 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -744,6 +744,9 @@ export const trade = {
+     applicantGives: 'Le candidat donne',
+     applicantReceives: 'Le candidat reçoit',
+     notSet: 'Non défini dans cette proposition',
++    snapshotTitle: 'Instantané de l’accord enregistré',
++    snapshotBody: 'Cet accord est figé au moment où la proposition est acceptée, afin que les modifications ultérieures d’un besoin ou d’une offre ne changent pas l’accord.',
++    acceptedMessage: 'Message de proposition accepté',
+     safetyTitle: 'Liste de sécurité',
+     safetyKeepChat: 'Gardez les détails de l’accord dans ce chat.',
+     safetyConfirmScope: 'Confirmez le périmètre, le délai et le format de livraison.',

@@ -1,7 +1,7 @@
 import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { resolveWebAssetUrl } from '../../lib/api';
-import { formatWebShortDate } from '../../lib/webFormat';
+import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
 
 export type Translator = (key: string, values?: TranslationValues) => string;
 
@@ -51,6 +51,7 @@ export function getOwnerName(trade: TradeDto, i18n?: TradeI18n) {
 }
 
 export function getTradePostType(trade: TradeDto) {
+  if (trade.cashPromise) return 'need_offer';
   if (trade.postType === 'open_need' || trade.postType === 'open_offer') return trade.postType;
 
   // Be defensive for existing/local mock records or older API responses that may
@@ -74,8 +75,8 @@ export function getTradeHeadline(trade: TradeDto, i18n?: TradeI18n) {
   const postType = getTradePostType(trade);
   if (postType === 'open_need') return trade.need?.title ?? trade.title;
   if (postType === 'open_offer') return trade.offer?.title ?? trade.title;
-  const needTitle = trade.need?.title ?? tr(i18n, 'trade.labels.needDetails', 'Need details');
-  const offerTitle = trade.offer?.title ?? tr(i18n, 'trade.labels.offerDetails', 'Offer details');
+  const needTitle = trade.cashPromise?.side === 'need' ? tr(i18n, 'trade.cashPromise.title', 'Cash promise') : trade.need?.title ?? tr(i18n, 'trade.labels.needDetails', 'Need details');
+  const offerTitle = trade.cashPromise?.side === 'offer' ? tr(i18n, 'trade.cashPromise.title', 'Cash promise') : trade.offer?.title ?? tr(i18n, 'trade.labels.offerDetails', 'Offer details');
   return `${needTitle} ↔ ${offerTitle}`;
 }
 
@@ -143,11 +144,27 @@ export function getTradeHowItWorks(trade: TradeDto, i18n?: TradeI18n) {
 }
 
 export function getNeedSide(trade: TradeDto, i18n?: TradeI18n): TradeSide {
+  if (trade.cashPromise?.side === 'need') return cashPromiseToSide(trade, tr(i18n, 'trade.labels.iNeed', 'I need'), 'need', i18n);
   return needToSide(trade.need, tr(i18n, 'trade.labels.iNeed', 'I need'), i18n);
 }
 
 export function getOfferSide(trade: TradeDto, i18n?: TradeI18n): TradeSide {
+  if (trade.cashPromise?.side === 'offer') return cashPromiseToSide(trade, tr(i18n, 'trade.labels.iOffer', 'I offer'), 'offer', i18n);
   return offerToSide(trade.offer, tr(i18n, 'trade.labels.iOffer', 'I offer'), i18n);
+}
+
+function cashPromiseToSide(trade: TradeDto, label: string, kind: 'need' | 'offer', i18n?: TradeI18n): TradeSide {
+  const cashPromise = trade.cashPromise;
+  const amountLabel = cashPromise ? formatWebMoney(cashPromise.amountCents, cashPromise.currency ?? 'eur') : '';
+  return {
+    label,
+    kind,
+    title: tr(i18n, 'trade.cashPromise.title', 'Cash promise'),
+    description: cashPromise?.note || tr(i18n, 'trade.cashPromise.outsideAppBody', 'Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash.'),
+    metadata: compactJoin([amountLabel, tr(i18n, 'trade.cashPromise.notProcessed', 'Not processed by Hellowhen')]),
+    tags: [tr(i18n, 'trade.cashPromise.outsideAppTitle', 'Outside-app cash arrangement')],
+    media: [],
+  };
 }
 
 export function needToSide(need: NeedDto | null | undefined, label: string, i18n?: TradeI18n): TradeSide {

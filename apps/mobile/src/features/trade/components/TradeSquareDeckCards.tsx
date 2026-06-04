@@ -63,9 +63,11 @@ function modeLabel(mode: string | null | undefined, t: TFunction) {
   return null;
 }
 function moneySide(trade: TradeDeckItem) { const amountCents = trade.amountCents ?? 0; if (amountCents <= 0) return null; if (!trade.need && trade.offer) return 'need' as const; if (trade.need && !trade.offer) return 'offer' as const; return null; }
+function cashPromiseSide(trade: TradeDeckItem) { return trade.cashPromise?.side ?? null; }
 function moneyLabel(trade: TradeDeckItem) { return formatMoney(trade.amountCents ?? 0, trade.currency ?? 'eur'); }
-function needTitle(trade: TradeDeckItem, t: TFunction) { return moneySide(trade) === 'need' ? t('account.walletMoney') : trade.need?.title || trade.title || t('trade.labels.openRequestFallback'); }
-function offerTitle(trade: TradeDeckItem, t: TFunction) { return moneySide(trade) === 'offer' ? t('account.walletMoney') : trade.offer?.title || t('trade.labels.openOfferFallback'); }
+function cashPromiseLabel(trade: TradeDeckItem) { return trade.cashPromise ? formatMoney(trade.cashPromise.amountCents, trade.cashPromise.currency ?? 'eur') : ''; }
+function needTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'need') return t('trade.cashPromise.title'); return moneySide(trade) === 'need' ? t('account.walletMoney') : trade.need?.title || trade.title || t('trade.labels.openRequestFallback'); }
+function offerTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'offer') return t('trade.cashPromise.title'); return moneySide(trade) === 'offer' ? t('account.walletMoney') : trade.offer?.title || t('trade.labels.openOfferFallback'); }
 function compactJoin(values: Array<string | null | undefined>, limit = 3) { return values.filter((value): value is string => Boolean(value && value.trim())).slice(0, limit).join(' · '); }
 function compactSideMeta(metadata: string, fallback?: string | null) { return metadata || fallback || ''; }
 function tradePostType(trade: TradeDeckItem): TradePostType { return trade.postType ?? 'need_offer'; }
@@ -79,6 +81,7 @@ function exchangeEyebrow(trade: TradeDeckItem, t: TFunction) {
   const postType = tradePostType(trade);
   if (postType === 'open_need') return t('trade.labels.othersCanProposeOffers');
   if (postType === 'open_offer') return t('trade.labels.othersCanProposeNeeds');
+  if (cashPromiseSide(trade)) return t('trade.cashPromise.notProcessed');
   if (moneySide(trade) === 'need') return t('trade.labels.moneyOfferExchange');
   if (moneySide(trade) === 'offer') return t('trade.labels.needMoneyExchange');
   return t('trade.labels.needOfferExchange');
@@ -89,8 +92,8 @@ function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: numb
 }
 function imagePlaceholderLabel(_media: MediaAssetDto | undefined, t: TFunction) { return t('trade.labels.imageUnavailable'); }
 function starterChips(trade: TradeDeckItem) { return [...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
-export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, need.timing, modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
-export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offer.availability, modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
+export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'need') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, need.timing, modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
+export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'offer') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offer.availability, modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
 
 function pad(value: number, size = 2) { return String(value).padStart(size, '0'); }
 function buildCountdownState(expiresAt: string | null | undefined, t: TFunction, now = Date.now()): CountdownState {

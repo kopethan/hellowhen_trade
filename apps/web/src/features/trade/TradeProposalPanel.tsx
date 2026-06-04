@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { NeedDto, OfferDto, TradeDto, TradeProposalDto } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type NeedDto, type OfferDto, type TradeDto, type TradeProposalDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
+import { formatWebMoney } from '../../lib/webFormat';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getStatusLabel, getTradePostType, getTradeProposalCopy, type TradeI18n } from './tradePresentation';
 import { ProTradePackagePrototype } from './ProTradePackagePrototype';
@@ -111,6 +112,12 @@ function firstMediaUrl(item: NeedDto | OfferDto) {
   return item.media?.find((media) => typeof media.url === 'string' && media.url.length > 0)?.url ?? null;
 }
 
+function parseProposalCashAmountCents(value: string) {
+  const amount = Number(value.trim().replace(',', '.'));
+  if (!Number.isFinite(amount)) return Number.NaN;
+  return Math.round(amount * 100);
+}
+
 function sideMeta(item: NeedDto | OfferDto, i18n?: TradeI18n) {
   const sideTiming = (item as NeedDto).timing ?? (item as OfferDto).availability;
   return [item.category, item.mode, sideTiming].filter(Boolean).join(' · ') || item.itemType || i18n?.t?.('trade.labels.savedItem') || 'Saved item';
@@ -183,7 +190,7 @@ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string;
         showHandle={false}
       />
       <p className="accepted-proposal-package__body">{t('trade.proposals.acceptedProposalPackageBody')}</p>
-      {sideItems.length ? (
+      {sideItems.length || proposal.cashPromise ? (
         <div className="accepted-proposal-package__sides">
           {sideItems.map((side) => (
             <ProposalSidePreview
@@ -194,6 +201,16 @@ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string;
               i18n={i18n}
             />
           ))}
+          {proposal.cashPromise ? (
+            <div className="proposal-side-preview proposal-side-preview--compact cash-promise-preview">
+              <div className="proposal-side-preview__media"><WebIcon name="proposal" size={22} decorative /></div>
+              <div className="proposal-side-preview__body">
+                <span className="proposal-side-preview__label">{proposal.cashPromise.side === 'need' ? t('trade.labels.proposedNeed') : t('trade.labels.proposedOffer')}</span>
+                <strong>{t('trade.cashPromise.title')} · {formatWebMoney(proposal.cashPromise.amountCents, proposal.cashPromise.currency ?? 'eur', i18n.language)}</strong>
+                <p>{t('trade.cashPromise.notProcessed')}</p>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {proposal.messageDeletedAt ? (
@@ -228,6 +245,11 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
   const [packagePrototypeEnabled, setPackagePrototypeEnabled] = useState(false);
   const [supportingNeedIds, setSupportingNeedIds] = useState<string[]>([]);
   const [supportingOfferIds, setSupportingOfferIds] = useState<string[]>([]);
+  const [cashPromiseSide, setCashPromiseSide] = useState<'' | 'need' | 'offer'>('');
+  const [cashPromiseAmount, setCashPromiseAmount] = useState('');
+  const [cashPromiseCurrency, setCashPromiseCurrency] = useState('eur');
+  const [cashPromiseNote, setCashPromiseNote] = useState('');
+  const [cashPromiseAcknowledged, setCashPromiseAcknowledged] = useState(false);
   const [sideLoading, setSideLoading] = useState(false);
   const [proposalFormError, setProposalFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -243,12 +265,17 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
   const selectedNeed = useMemo(() => activeProposalNeeds.find((need) => need.id === proposedNeedId) ?? null, [activeProposalNeeds, proposedNeedId]);
   const selectedOffer = useMemo(() => activeProposalOffers.find((offer) => offer.id === proposedOfferId) ?? null, [activeProposalOffers, proposedOfferId]);
   const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredProposalSide ?? '');
+  const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible;
+  const cashPromiseAmountCents = parseProposalCashAmountCents(cashPromiseAmount);
   const hasPackageRequiredSide = requiredProposalSide === 'offer' ? supportingOfferIds.length > 0 : requiredProposalSide === 'need' ? supportingNeedIds.length > 0 : false;
-  const hasRequiredSide = packagePrototypeActive ? hasPackageRequiredSide : requiredProposalSide === 'need' ? Boolean(selectedNeed) : requiredProposalSide === 'offer' ? Boolean(selectedOffer) : true;
+  const hasRequiredCashSide = Boolean(requiredProposalSide && cashPromiseSide === requiredProposalSide);
+  const hasRequiredSide = packagePrototypeActive ? hasPackageRequiredSide : requiredProposalSide === 'need' ? Boolean(selectedNeed) || hasRequiredCashSide : requiredProposalSide === 'offer' ? Boolean(selectedOffer) || hasRequiredCashSide : true;
 
   useEffect(() => {
     setProposedNeedId(proposalNeedIdFromUrl);
     setProposedOfferId(proposalOfferIdFromUrl);
+    if (proposalNeedIdFromUrl) setCashPromiseSide((current) => (current === 'need' ? '' : current));
+    if (proposalOfferIdFromUrl) setCashPromiseSide((current) => (current === 'offer' ? '' : current));
   }, [proposalNeedIdFromUrl, proposalOfferIdFromUrl]);
 
   useEffect(() => {
@@ -332,6 +359,10 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
       setProposalFormError(requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferBeforeSending') : requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedBeforeSending') : t('trade.proposals.chooseProposalItem'));
       return;
     }
+    if (cashPromiseSide && (!cashPromiseAvailable || !Number.isFinite(cashPromiseAmountCents) || cashPromiseAmountCents < 100 || !cashPromiseAcknowledged)) {
+      setProposalFormError(!cashPromiseAvailable ? t('trade.cashPromise.hidden') : !cashPromiseAcknowledged ? t('trade.cashPromise.validationAcknowledgement') : t('trade.cashPromise.validationAmount'));
+      return;
+    }
     if (!message) {
       setProposalFormError(t('trade.proposals.messageRequired'));
       return;
@@ -356,11 +387,13 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
             proposedNeedId: supportingNeedIds[0],
           }
           : null;
+      const cashPromise = cashPromiseSide ? { side: cashPromiseSide, amountCents: cashPromiseAmountCents, currency: cashPromiseCurrency, note: cashPromiseNote.trim() || undefined, acknowledgementAccepted: true as const, acknowledgementText: CASH_PROMISE_ACKNOWLEDGEMENT_TEXT } satisfies CashPromiseInput : undefined;
       const response = await api.trades.createProposal(trade.id, {
         message,
         ...(packagePayload ?? {
-          ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed ? { proposedNeedId: selectedNeed.id } : {}),
-          ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer ? { proposedOfferId: selectedOffer.id } : {}),
+          ...((requiredProposalSide === 'need' || !requiredProposalSide) && selectedNeed && cashPromiseSide !== 'need' ? { proposedNeedId: selectedNeed.id } : {}),
+          ...((requiredProposalSide === 'offer' || !requiredProposalSide) && selectedOffer && cashPromiseSide !== 'offer' ? { proposedOfferId: selectedOffer.id } : {}),
+          ...(cashPromise ? { cashPromise } : {}),
         }),
       });
       const proposal = normalizeProposal(response);
@@ -370,6 +403,10 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
       setPackagePrototypeEnabled(false);
       setSupportingNeedIds([]);
       setSupportingOfferIds([]);
+      setCashPromiseSide('');
+      setCashPromiseAmount('');
+      setCashPromiseNote('');
+      setCashPromiseAcknowledged(false);
       setProposalFormError(null);
       setNotice(t('trade.proposals.proposalSent'));
     } catch (error) {
@@ -457,6 +494,28 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
               href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
               i18n={i18n}
             />
+
+
+          {cashPromiseAvailable ? (
+            <div className="notice-box warning proposal-cash-promise-box">
+              <p className="eyebrow">{t('trade.cashPromise.title')}</p>
+              <p>{t('trade.cashPromise.outsideAppBody')}</p>
+              <div className="segmented-control" role="group" aria-label={t('trade.cashPromise.title')}>
+                <button type="button" className={cashPromiseSide === '' ? 'is-active' : ''} onClick={() => setCashPromiseSide('')}>{t('trade.cashPromise.none')}</button>
+                <button type="button" className={cashPromiseSide === 'need' ? 'is-active' : ''} onClick={() => { setCashPromiseSide('need'); setProposedNeedId(''); }}>{t('trade.labels.proposedNeed')}</button>
+                <button type="button" className={cashPromiseSide === 'offer' ? 'is-active' : ''} onClick={() => { setCashPromiseSide('offer'); setProposedOfferId(''); }}>{t('trade.labels.proposedOffer')}</button>
+              </div>
+              {cashPromiseSide ? (
+                <div className="cash-promise-fields">
+                  <label className="field-label">{t('trade.cashPromise.amount')}<input inputMode="decimal" value={cashPromiseAmount} onChange={(event) => setCashPromiseAmount(event.target.value)} placeholder="25" /></label>
+                  <label className="field-label">{t('trade.cashPromise.currency')}<select value={cashPromiseCurrency} onChange={(event) => setCashPromiseCurrency(event.target.value)}><option value="eur">EUR</option><option value="usd">USD</option><option value="gbp">GBP</option></select></label>
+                  <label className="field-label">{t('trade.cashPromise.note')}<textarea value={cashPromiseNote} onChange={(event) => setCashPromiseNote(event.target.value)} maxLength={500} placeholder={t('trade.cashPromise.notePlaceholder')} /></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={cashPromiseAcknowledged} onChange={(event) => setCashPromiseAcknowledged(event.target.checked)} /> {CASH_PROMISE_ACKNOWLEDGEMENT_TEXT}</label>
+                  {Number.isFinite(cashPromiseAmountCents) && cashPromiseAmountCents > 0 ? <p>{formatWebMoney(cashPromiseAmountCents, cashPromiseCurrency)} · {t('trade.cashPromise.notProcessed')}</p> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           <ProTradePackagePrototype
             requiredSide={requiredProposalSide}
