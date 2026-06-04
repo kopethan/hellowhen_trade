@@ -594,6 +594,17 @@ enum ContentDomainCategory {
   other
 }
 
+enum InAppNotificationType {
+  trade_proposal_received
+  trade_proposal_accepted
+  trade_proposal_declined
+  trade_proposal_withdrawn
+  proposal_message_received
+  support_ticket_updated
+  content_moderation_updated
+  trade_status_updated
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -689,6 +700,7 @@ model User {
   decidedPlanParticipants PlanParticipant[] @relation("PlanParticipantDecisions")
   usageHeartbeats UsageHeartbeat[]
   apiRequestMetrics ApiRequestMetric[]
+  inAppNotifications InAppNotification[]
   usernameHistory UsernameHistory[] @relation("UsernameHistoryUser")
   usernameChangesApproved UsernameHistory[] @relation("UsernameHistoryChangedBy")
   reviewedContentClassifications ContentClassification[] @relation("ReviewedContentClassifications")
@@ -697,6 +709,32 @@ model User {
 
 
 
+
+
+model InAppNotification {
+  id              String                @id @default(cuid())
+  userId          String
+  type            InAppNotificationType
+  title           String
+  body            String
+  targetPath      String?
+  tradeId         String?
+  proposalId      String?
+  supportTicketId String?
+  metadata        Json?
+  readAt          DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@index([tradeId])
+  @@index([proposalId])
+  @@index([supportTicketId])
+}
 
 model UsageHeartbeat {
   id           String   @id @default(cuid())

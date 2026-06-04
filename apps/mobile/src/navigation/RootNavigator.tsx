@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
@@ -9,6 +9,7 @@ import { AccountScreen } from '../features/account/AccountScreen';
 import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen';
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+import { NotificationsScreen } from '../features/account/NotificationsScreen';
 import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
@@ -38,6 +39,7 @@ import { PayoutsScreen } from '../features/wallet/PayoutsScreen';
 import { useAuth } from '../providers/AuthProvider';
 import { useThemeTokens } from '../providers/ThemeProvider';
 import { MobileIcon, type MobileIconName } from '../components/MobileIcon';
+import { api } from '../lib/api';
 import { betaFeatures } from '../lib/betaFeatures';
 import { AppCard } from '../components/AppCard';
 import { AppScreen } from '../components/AppScreen';
@@ -48,6 +50,7 @@ import type { LegalPolicyKey } from '@hellowhen/i18n';
 export type RootStackParamList = {
   TradeTabs: undefined;
   AccountProfile: undefined;
+  Notifications: undefined;
   ProPlans: undefined;
   Wallet: undefined;
   Payouts: undefined;
@@ -120,6 +123,7 @@ const ProtectedMyNeedsScreen = withAuth(MyNeedsScreen, 'Login to manage needs', 
 const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers', 'The public feed is open. Sign in to create, edit, and manage your own offers.');
 const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access profile, settings, wallet, support, and beta account tools.');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
+const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
 const ProtectedWalletScreen = withAuth(WalletScreen);
 const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
@@ -152,8 +156,22 @@ function getTabIconName(routeName: keyof MainTabParamList): MobileIconName {
 function TradeTabs() {
   const insets = useSafeAreaInsets();
   const theme = useThemeTokens();
+  const auth = useAuth();
   const bottomInset = Math.max(insets.bottom, 0);
   const { t } = useTranslation();
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+
+  const loadNotificationUnreadCount = useCallback(async () => {
+    if (!auth.isAuthenticated) { setNotificationUnreadCount(0); return; }
+    try {
+      const response = await api.notifications.unreadCount();
+      setNotificationUnreadCount(response.unreadCount ?? 0);
+    } catch {
+      setNotificationUnreadCount(0);
+    }
+  }, [auth.isAuthenticated]);
+
+  useFocusEffect(useCallback(() => { void loadNotificationUnreadCount(); }, [loadNotificationUnreadCount]));
 
   return (
     <Tabs.Navigator
@@ -174,7 +192,7 @@ function TradeTabs() {
       <Tabs.Screen name="Trades" component={TradeDeckFeedScreen} options={{ tabBarLabel: t('navigation.tabs.trades') }} />
       <Tabs.Screen name="Needs" component={ProtectedMyNeedsScreen} options={{ tabBarLabel: t('navigation.tabs.needs') }} />
       <Tabs.Screen name="Offers" component={ProtectedMyOffersScreen} options={{ tabBarLabel: t('navigation.tabs.offers') }} />
-      <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account') }} />
+      <Tabs.Screen name="Account" component={ProtectedAccountScreen} options={{ tabBarLabel: t('navigation.tabs.account'), tabBarBadge: notificationUnreadCount > 0 ? Math.min(notificationUnreadCount, 99) : undefined }} />
     </Tabs.Navigator>
   );
 }
@@ -195,6 +213,7 @@ export function RootNavigator() {
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+      <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
       {betaFeatures.proSubscriptionFeatures.proAccountsVisible ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}

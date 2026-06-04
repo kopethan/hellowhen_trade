@@ -20,7 +20,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { resolveMediaUrl } from '../trade/mediaUrls';
 
 type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
-type AccountRoute = 'AccountProfile' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+type AccountRoute = 'AccountProfile' | 'Notifications' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
 
 type AccountAction = {
   titleKey: string;
@@ -33,6 +33,7 @@ type AccountAction = {
 
 const accountActions: AccountAction[] = [
   { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile' },
+  { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell' },
   ...(betaFeatures.proSubscriptionFeatures.proAccountsVisible ? [{ titleKey: 'account.items.plans.title', descriptionKey: 'account.items.plans.bodyNative', badgeKey: 'account.items.plans.badge', tone: 'success' as SemanticColorName, route: 'ProPlans' as AccountRoute, icon: 'profile' as MobileIconName }] : []),
   ...(betaFeatures.businessAccountsVisible ? [{ titleKey: 'account.items.business.title', descriptionKey: 'account.items.business.bodyNative', badgeKey: 'account.items.business.badge', tone: 'instruction' as SemanticColorName, route: 'BusinessAccounts' as AccountRoute, icon: 'business' as MobileIconName }] : []),
   ...(betaFeatures.walletVisible ? [{ titleKey: 'account.items.wallet.title', descriptionKey: 'account.items.wallet.bodyNative', badgeKey: 'account.items.wallet.badge', tone: 'credits' as SemanticColorName, route: 'Wallet' as AccountRoute, icon: 'wallet' as MobileIconName }] : []),
@@ -82,6 +83,7 @@ export function AccountScreen() {
   const [wallet, setWallet] = useState<WalletResponse['wallet']>(null);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [loadingWallet, setLoadingWallet] = useState(false);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
 
   const loadWallet = useCallback(async () => {
     if (!(betaFeatures.walletVisible || betaFeatures.payoutsVisible)) { setWallet(null); setWalletError(null); return; }
@@ -99,7 +101,19 @@ export function AccountScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); }, [loadWallet]));
+  const loadNotificationPreview = useCallback(async () => {
+    try {
+      const response = await api.notifications.unreadCount();
+      setNotificationUnreadCount(response.unreadCount ?? 0);
+    } catch {
+      setNotificationUnreadCount(0);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet();
+    void loadNotificationPreview();
+  }, [loadWallet, loadNotificationPreview]));
 
   const displayName = getDisplayName(auth.user);
   const handle = auth.user?.profile?.handle ? `@${auth.user.profile.handle}` : t('account.addHandle');
@@ -110,6 +124,7 @@ export function AccountScreen() {
 
   function navigate(route: AccountRoute) {
     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+    else if (route === 'Notifications') navigation.navigate('Notifications');
     else if (route === 'ProPlans') navigation.navigate('ProPlans');
     else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
     else if (route === 'Wallet') navigation.navigate('Wallet');
@@ -125,7 +140,7 @@ export function AccountScreen() {
 
   return (
     <AppFixedHeaderScreen header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); }} />}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loadingWallet} onRefresh={() => { if (betaFeatures.walletVisible || betaFeatures.payoutsVisible) void loadWallet(); void loadNotificationPreview(); }} />}>
         <AppCard>
           <View style={styles.profileHero}>
             <View style={styles.avatar}>
@@ -189,7 +204,7 @@ export function AccountScreen() {
         </AppCard> : null}
 
         <View style={styles.menuList}>
-          {accountActions.map((action) => <AccountActionRow key={action.route} action={action} onPress={() => navigate(action.route)} />)}
+          {accountActions.map((action) => <AccountActionRow key={action.route} action={action} unreadCount={action.route === 'Notifications' ? notificationUnreadCount : 0} onPress={() => navigate(action.route)} />)}
         </View>
 
         <Pressable accessibilityRole="button" onPress={() => { void auth.logout(); }} style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
@@ -200,7 +215,7 @@ export function AccountScreen() {
   );
 }
 
-function AccountActionRow({ action, onPress }: { action: AccountAction; onPress: () => void }) {
+function AccountActionRow({ action, unreadCount, onPress }: { action: AccountAction; unreadCount?: number; onPress: () => void }) {
   const theme = useThemeTokens();
   const tone = theme.semantic[action.tone];
   const { t } = useTranslation();
@@ -213,7 +228,7 @@ function AccountActionRow({ action, onPress }: { action: AccountAction; onPress:
         <View style={styles.actionTextWrap}>
           <View style={styles.actionTitleRow}>
             <AppText style={styles.actionTitle}>{t(action.titleKey)}</AppText>
-            <SemanticBadge label={t(action.badgeKey)} tone={action.tone} size="sm" />
+            <SemanticBadge label={unreadCount && unreadCount > 0 ? String(unreadCount) : t(action.badgeKey)} tone={action.tone} size="sm" />
           </View>
           <AppText style={[styles.actionDescription, { color: theme.color.muted }]}>{t(action.descriptionKey)}</AppText>
         </View>

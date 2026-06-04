@@ -23,9 +23,11 @@ export function AccountHubClient() {
   const { t } = useWebTranslation();
   const [wallet, setWallet] = useState<WalletDto | null>(null);
   const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
 
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
+    { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
     ...(betaFeatures.proSubscriptionFeatures.proAccountsVisible ? [{ href: '/account/plans', titleKey: 'account.items.plans.title', bodyKey: 'account.items.plans.body', icon: 'profile' as WebIconName }] : []),
     ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
@@ -53,6 +55,24 @@ export function AccountHubClient() {
       }
     }
     void loadPreview();
+    return () => { mounted = false; };
+  }, [auth.hydrated, auth.isAuthenticated]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadNotificationPreview() {
+      if (!auth.hydrated || !auth.isAuthenticated) {
+        if (mounted) setNotificationUnreadCount(0);
+        return;
+      }
+      try {
+        const response = await api.notifications.unreadCount();
+        if (mounted) setNotificationUnreadCount(response.unreadCount ?? 0);
+      } catch {
+        if (mounted) setNotificationUnreadCount(0);
+      }
+    }
+    void loadNotificationPreview();
     return () => { mounted = false; };
   }, [auth.hydrated, auth.isAuthenticated]);
 
@@ -106,6 +126,9 @@ export function AccountHubClient() {
                 <br />
                 {t(item.bodyKey)}
               </span>
+              {item.href === '/account/notifications' && notificationUnreadCount > 0 ? (
+                <span className="semantic-badge proposal mobile-link-card__meta-badge">{notificationUnreadCount}</span>
+              ) : null}
               <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
             </Link>
           );

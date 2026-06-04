@@ -1,0 +1,748 @@
+diff --git a/apps/mobile/src/components/detail/MobileDetailUI.tsx b/apps/mobile/src/components/detail/MobileDetailUI.tsx
+new file mode 100644
+index 0000000..9c09888
+--- /dev/null
++++ b/apps/mobile/src/components/detail/MobileDetailUI.tsx
+@@ -0,0 +1,735 @@
++import React from 'react';
++import {
++  Image,
++  Pressable,
++  ScrollView,
++  StyleSheet,
++  TextInput,
++  type ImageStyle,
++  type StyleProp,
++  type ViewStyle,
++  View,
++} from 'react-native';
++import type { SemanticColorName } from '@hellowhen/theme';
++import { AppText } from '../AppText';
++import { MobileIcon, type MobileIconName } from '../MobileIcon';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++
++type DetailTone = SemanticColorName | 'neutral';
++
++type DetailHeroProps = {
++  eyebrow?: string;
++  title: string;
++  subtitle?: string;
++  meta?: string;
++  children?: React.ReactNode;
++  rightSlot?: React.ReactNode;
++  style?: StyleProp<ViewStyle>;
++};
++
++type DetailSectionProps = {
++  eyebrow?: string;
++  title?: string;
++  description?: string | null;
++  children?: React.ReactNode;
++  rightSlot?: React.ReactNode;
++  compact?: boolean;
++  withTopBorder?: boolean;
++  style?: StyleProp<ViewStyle>;
++};
++
++type DetailMetadataChip = {
++  key?: string;
++  label: string;
++  tone?: DetailTone;
++  icon?: MobileIconName;
++};
++
++type DetailMetadataChipsProps = {
++  chips: Array<DetailMetadataChip | string | null | undefined | false>;
++  compact?: boolean;
++  style?: StyleProp<ViewStyle>;
++};
++
++type DetailImageItem = {
++  id: string;
++  uri: string;
++  accessibilityLabel?: string;
++};
++
++type DetailImageGridProps = {
++  images: DetailImageItem[];
++  maxVisible?: number;
++  onPressImage?: (image: DetailImageItem, index: number) => void;
++  style?: StyleProp<ViewStyle>;
++  imageStyle?: StyleProp<ImageStyle>;
++};
++
++type DetailInfoRow = {
++  label: string;
++  value: string | number | null | undefined;
++  tone?: DetailTone;
++};
++
++type DetailInfoListProps = {
++  rows: DetailInfoRow[];
++  style?: StyleProp<ViewStyle>;
++};
++
++type DetailPrimaryAction = {
++  label: string;
++  onPress: () => void;
++  disabled?: boolean;
++  loading?: boolean;
++  tone?: 'primary' | 'danger' | 'muted';
++  icon?: MobileIconName;
++};
++
++type DetailSecondaryAction = {
++  label: string;
++  onPress: () => void;
++  disabled?: boolean;
++  icon?: MobileIconName;
++};
++
++type DetailBottomActionBarProps = {
++  primary?: DetailPrimaryAction;
++  secondary?: DetailSecondaryAction[];
++  helper?: string;
++  style?: StyleProp<ViewStyle>;
++};
++
++type DetailEmptyStateProps = {
++  icon?: MobileIconName;
++  title: string;
++  body?: string;
++  actionLabel?: string;
++  onAction?: () => void;
++  style?: StyleProp<ViewStyle>;
++};
++
++type ConversationBubbleProps = {
++  body: string;
++  mine?: boolean;
++  authorLabel?: string;
++  meta?: string;
++  deleted?: boolean;
++  rightSlot?: React.ReactNode;
++  style?: StyleProp<ViewStyle>;
++};
++
++type ConversationComposerBarProps = {
++  value: string;
++  placeholder: string;
++  onChangeText: (value: string) => void;
++  onSend: () => void;
++  disabled?: boolean;
++  sending?: boolean;
++  sendLabel?: string;
++  style?: StyleProp<ViewStyle>;
++};
++
++function normalizeChip(chip: DetailMetadataChip | string): DetailMetadataChip {
++  return typeof chip === 'string' ? { label: chip } : chip;
++}
++
++function toneColors(tone: DetailTone | undefined, theme: ReturnType<typeof useThemeTokens>) {
++  if (!tone || tone === 'neutral') {
++    return {
++      backgroundColor: theme.color.subtleSurface,
++      borderColor: theme.color.border,
++      color: theme.color.muted,
++    };
++  }
++  const color = theme.semantic[tone];
++  return { backgroundColor: color.softBg, borderColor: color.border, color: color.text };
++}
++
++export function DetailHero({ eyebrow, title, subtitle, meta, children, rightSlot, style }: DetailHeroProps) {
++  const theme = useThemeTokens();
++
++  return (
++    <View style={[styles.hero, style]}>
++      <View style={styles.heroTopRow}>
++        <View style={styles.heroCopy}>
++          {eyebrow ? <AppText style={[styles.eyebrow, { color: theme.color.muted }]}>{eyebrow}</AppText> : null}
++          <AppText style={styles.heroTitle}>{title}</AppText>
++        </View>
++        {rightSlot ? <View style={styles.heroRightSlot}>{rightSlot}</View> : null}
++      </View>
++      {subtitle ? <AppText style={[styles.heroSubtitle, { color: theme.color.text }]}>{subtitle}</AppText> : null}
++      {meta ? <AppText style={[styles.heroMeta, { color: theme.color.muted }]}>{meta}</AppText> : null}
++      {children ? <View style={styles.heroChildren}>{children}</View> : null}
++    </View>
++  );
++}
++
++export function DetailSection({ eyebrow, title, description, children, rightSlot, compact, withTopBorder = true, style }: DetailSectionProps) {
++  const theme = useThemeTokens();
++  const hasHeader = Boolean(eyebrow || title || rightSlot);
++
++  return (
++    <View style={[styles.section, compact && styles.sectionCompact, withTopBorder && { borderTopColor: theme.color.border, borderTopWidth: StyleSheet.hairlineWidth }, style]}>
++      {hasHeader ? (
++        <View style={styles.sectionHeader}>
++          <View style={styles.sectionTitleArea}>
++            {eyebrow ? <AppText style={[styles.eyebrow, { color: theme.color.muted }]}>{eyebrow}</AppText> : null}
++            {title ? <AppText style={styles.sectionTitle}>{title}</AppText> : null}
++          </View>
++          {rightSlot ? <View style={styles.sectionRightSlot}>{rightSlot}</View> : null}
++        </View>
++      ) : null}
++      {description ? <AppText style={[styles.sectionDescription, { color: theme.color.text }]}>{description}</AppText> : null}
++      {children ? <View style={styles.sectionChildren}>{children}</View> : null}
++    </View>
++  );
++}
++
++export function DetailMetadataChips({ chips, compact, style }: DetailMetadataChipsProps) {
++  const theme = useThemeTokens();
++  const normalized = chips.filter(Boolean).map((chip) => normalizeChip(chip as DetailMetadataChip | string)).filter((chip) => chip.label.trim().length > 0);
++  if (normalized.length === 0) return null;
++
++  return (
++    <View style={[styles.chips, style]}>
++      {normalized.map((chip, index) => {
++        const colors = toneColors(chip.tone, theme);
++        const key = chip.key ?? `${chip.label}-${index}`;
++        return (
++          <View key={key} style={[styles.chip, compact && styles.chipCompact, { backgroundColor: colors.backgroundColor, borderColor: colors.borderColor }]}>
++            {chip.icon ? <MobileIcon name={chip.icon} color={colors.color} size={compact ? 13 : 15} decorative /> : null}
++            <AppText style={[styles.chipText, compact && styles.chipTextCompact, { color: colors.color }]}>{chip.label}</AppText>
++          </View>
++        );
++      })}
++    </View>
++  );
++}
++
++export function DetailInfoList({ rows, style }: DetailInfoListProps) {
++  const theme = useThemeTokens();
++  const visibleRows = rows.filter((row) => row.value !== null && row.value !== undefined && String(row.value).trim().length > 0);
++  if (visibleRows.length === 0) return null;
++
++  return (
++    <View style={[styles.infoList, { borderColor: theme.color.border }, style]}>
++      {visibleRows.map((row, index) => {
++        const colors = toneColors(row.tone, theme);
++        return (
++          <View key={`${row.label}-${index}`} style={[styles.infoRow, index > 0 && { borderTopColor: theme.color.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
++            <AppText style={[styles.infoLabel, { color: theme.color.muted }]}>{row.label}</AppText>
++            <AppText style={[styles.infoValue, { color: colors.color }]}>{row.value}</AppText>
++          </View>
++        );
++      })}
++    </View>
++  );
++}
++
++export function DetailImageGrid({ images, maxVisible = 4, onPressImage, style, imageStyle }: DetailImageGridProps) {
++  const theme = useThemeTokens();
++  const visibleImages = images.filter((image) => image.uri).slice(0, maxVisible);
++  if (visibleImages.length === 0) return null;
++  const extraCount = Math.max(0, images.length - visibleImages.length);
++  const count = visibleImages.length;
++
++  return (
++    <View style={[styles.imageGrid, count === 1 && styles.imageGridSingle, style]}>
++      {visibleImages.map((image, index) => {
++        const showExtra = extraCount > 0 && index === visibleImages.length - 1;
++        const tileStyle = [
++          styles.imageTile,
++          count === 1 && styles.imageTileSingle,
++          count === 2 && styles.imageTileHalf,
++          count >= 3 && styles.imageTileGrid,
++          { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border },
++        ];
++        const content = (
++          <>
++            <Image accessibilityLabel={image.accessibilityLabel} source={{ uri: image.uri }} style={[styles.image, imageStyle]} />
++            {showExtra ? (
++              <View style={styles.imageOverlay}>
++                <AppText style={styles.imageOverlayText}>+{extraCount}</AppText>
++              </View>
++            ) : null}
++          </>
++        );
++        if (!onPressImage) return <View key={image.id} style={tileStyle}>{content}</View>;
++        return (
++          <Pressable key={image.id} accessibilityRole="imagebutton" onPress={() => onPressImage(image, index)} style={({ pressed }) => [tileStyle, pressed && styles.pressed]}>
++            {content}
++          </Pressable>
++        );
++      })}
++    </View>
++  );
++}
++
++export function DetailBottomActionBar({ primary, secondary = [], helper, style }: DetailBottomActionBarProps) {
++  const theme = useThemeTokens();
++  const primaryTone = primary?.tone ?? 'primary';
++  const primaryBackground = primaryTone === 'danger' ? theme.semantic.danger.bg : primaryTone === 'muted' ? theme.color.subtleSurface : theme.color.text;
++  const primaryText = primaryTone === 'muted' ? theme.color.text : theme.color.inverseText;
++
++  if (!primary && secondary.length === 0 && !helper) return null;
++
++  return (
++    <View style={[styles.bottomBar, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }, style]}>
++      {helper ? <AppText style={[styles.bottomHelper, { color: theme.color.muted }]}>{helper}</AppText> : null}
++      <View style={styles.bottomActions}>
++        {secondary.map((action) => (
++          <Pressable
++            key={action.label}
++            accessibilityRole="button"
++            disabled={action.disabled}
++            onPress={action.onPress}
++            style={({ pressed }) => [styles.secondaryAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, action.disabled && styles.disabled]}
++          >
++            {action.icon ? <MobileIcon name={action.icon} color={theme.color.text} size={17} decorative /> : null}
++            <AppText style={styles.secondaryActionText}>{action.label}</AppText>
++          </Pressable>
++        ))}
++        {primary ? (
++          <Pressable
++            accessibilityRole="button"
++            disabled={primary.disabled || primary.loading}
++            onPress={primary.onPress}
++            style={({ pressed }) => [styles.primaryAction, { backgroundColor: primaryBackground }, pressed && styles.pressed, (primary.disabled || primary.loading) && styles.disabled]}
++          >
++            {primary.icon ? <MobileIcon name={primary.icon} color={primaryText} size={18} decorative /> : null}
++            <AppText style={[styles.primaryActionText, { color: primaryText }]}>{primary.loading ? '…' : primary.label}</AppText>
++          </Pressable>
++        ) : null}
++      </View>
++    </View>
++  );
++}
++
++export function DetailEmptyState({ icon = 'trade', title, body, actionLabel, onAction, style }: DetailEmptyStateProps) {
++  const theme = useThemeTokens();
++  return (
++    <View style={[styles.emptyState, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, style]}>
++      <View style={[styles.emptyIcon, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++        <MobileIcon name={icon} color={theme.color.muted} size={22} decorative />
++      </View>
++      <AppText style={styles.emptyTitle}>{title}</AppText>
++      {body ? <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{body}</AppText> : null}
++      {actionLabel && onAction ? (
++        <Pressable accessibilityRole="button" onPress={onAction} style={({ pressed }) => [styles.emptyAction, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++          <AppText style={[styles.emptyActionText, { color: theme.color.inverseText }]}>{actionLabel}</AppText>
++        </Pressable>
++      ) : null}
++    </View>
++  );
++}
++
++export function ConversationBubble({ body, mine, authorLabel, meta, deleted, rightSlot, style }: ConversationBubbleProps) {
++  const theme = useThemeTokens();
++  const bubbleBg = mine ? theme.color.text : theme.color.surface;
++  const bubbleBorder = mine ? theme.color.text : theme.color.border;
++  const bubbleText = mine ? theme.color.inverseText : theme.color.text;
++  const metaColor = mine ? theme.color.inverseText : theme.color.muted;
++
++  return (
++    <View style={[styles.bubbleWrap, mine && styles.bubbleWrapMine, style]}>
++      {authorLabel ? <AppText style={[styles.bubbleAuthor, { color: theme.color.muted }, mine && styles.bubbleAuthorMine]}>{authorLabel}</AppText> : null}
++      <View style={[styles.bubble, mine && styles.bubbleMine, { backgroundColor: bubbleBg, borderColor: bubbleBorder }]}>
++        <View style={styles.bubbleTopRow}>
++          <AppText style={[styles.bubbleBody, deleted && styles.bubbleDeleted, { color: bubbleText }]}>{body}</AppText>
++          {rightSlot ? <View style={styles.bubbleRightSlot}>{rightSlot}</View> : null}
++        </View>
++        {meta ? <AppText style={[styles.bubbleMeta, { color: metaColor }]}>{meta}</AppText> : null}
++      </View>
++    </View>
++  );
++}
++
++export function ConversationComposerBar({ value, placeholder, onChangeText, onSend, disabled, sending, sendLabel, style }: ConversationComposerBarProps) {
++  const theme = useThemeTokens();
++  const canSend = value.trim().length > 0 && !disabled && !sending;
++  return (
++    <View style={[styles.composerWrap, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }, style]}>
++      <TextInput
++        editable={!disabled && !sending}
++        multiline
++        onChangeText={onChangeText}
++        placeholder={placeholder}
++        placeholderTextColor={theme.color.muted}
++        style={[styles.composerInput, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]}
++        value={value}
++      />
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel={sendLabel}
++        disabled={!canSend}
++        onPress={onSend}
++        style={({ pressed }) => [styles.composerSend, { backgroundColor: canSend ? theme.color.text : theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed, !canSend && styles.disabled]}
++      >
++        <MobileIcon name="send" color={canSend ? theme.color.inverseText : theme.color.muted} size={18} decorative />
++      </Pressable>
++    </View>
++  );
++}
++
++export function HorizontalDetailScroller({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
++  return (
++    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={style} contentContainerStyle={styles.horizontalScrollerContent}>
++      {children}
++    </ScrollView>
++  );
++}
++
++const styles = StyleSheet.create({
++  hero: {
++    paddingTop: 8,
++    paddingBottom: 18,
++    gap: 8,
++  },
++  heroTopRow: {
++    flexDirection: 'row',
++    alignItems: 'flex-start',
++    gap: 12,
++  },
++  heroCopy: {
++    flex: 1,
++    minWidth: 0,
++    gap: 5,
++  },
++  heroRightSlot: {
++    marginTop: 1,
++  },
++  eyebrow: {
++    fontSize: 11,
++    fontWeight: '900',
++    letterSpacing: 0.7,
++    textTransform: 'uppercase',
++  },
++  heroTitle: {
++    fontSize: 30,
++    lineHeight: 35,
++    fontWeight: '900',
++    letterSpacing: -0.9,
++  },
++  heroSubtitle: {
++    fontSize: 17,
++    lineHeight: 24,
++    fontWeight: '800',
++    letterSpacing: -0.2,
++  },
++  heroMeta: {
++    fontSize: 13,
++    lineHeight: 19,
++    fontWeight: '700',
++  },
++  heroChildren: {
++    paddingTop: 4,
++    gap: 10,
++  },
++  section: {
++    paddingVertical: 18,
++    gap: 10,
++  },
++  sectionCompact: {
++    paddingVertical: 13,
++  },
++  sectionHeader: {
++    flexDirection: 'row',
++    alignItems: 'flex-start',
++    gap: 10,
++  },
++  sectionTitleArea: {
++    flex: 1,
++    minWidth: 0,
++    gap: 4,
++  },
++  sectionTitle: {
++    fontSize: 22,
++    lineHeight: 27,
++    fontWeight: '900',
++    letterSpacing: -0.45,
++  },
++  sectionRightSlot: {
++    marginTop: 1,
++  },
++  sectionDescription: {
++    fontSize: 16,
++    lineHeight: 24,
++    fontWeight: '600',
++  },
++  sectionChildren: {
++    gap: 12,
++  },
++  chips: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: 8,
++  },
++  chip: {
++    minHeight: 31,
++    borderRadius: 999,
++    borderWidth: 1,
++    paddingHorizontal: 11,
++    paddingVertical: 7,
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 6,
++  },
++  chipCompact: {
++    minHeight: 27,
++    paddingHorizontal: 9,
++    paddingVertical: 5,
++  },
++  chipText: {
++    fontSize: 12,
++    lineHeight: 15,
++    fontWeight: '900',
++  },
++  chipTextCompact: {
++    fontSize: 11,
++  },
++  infoList: {
++    borderRadius: 18,
++    borderWidth: 1,
++    overflow: 'hidden',
++  },
++  infoRow: {
++    minHeight: 48,
++    paddingHorizontal: 13,
++    paddingVertical: 10,
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: 16,
++  },
++  infoLabel: {
++    flexShrink: 1,
++    fontSize: 13,
++    fontWeight: '800',
++  },
++  infoValue: {
++    flex: 1,
++    textAlign: 'right',
++    fontSize: 13,
++    lineHeight: 18,
++    fontWeight: '900',
++  },
++  imageGrid: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: 6,
++  },
++  imageGridSingle: {
++    gap: 0,
++  },
++  imageTile: {
++    overflow: 'hidden',
++    borderWidth: 1,
++    position: 'relative',
++  },
++  imageTileSingle: {
++    width: '100%',
++    aspectRatio: 1.55,
++    borderRadius: 22,
++  },
++  imageTileHalf: {
++    width: '49%',
++    aspectRatio: 1,
++    borderRadius: 18,
++  },
++  imageTileGrid: {
++    width: '49%',
++    aspectRatio: 1.1,
++    borderRadius: 18,
++  },
++  image: {
++    width: '100%',
++    height: '100%',
++    resizeMode: 'cover',
++  },
++  imageOverlay: {
++    ...StyleSheet.absoluteFillObject,
++    alignItems: 'center',
++    justifyContent: 'center',
++    backgroundColor: 'rgba(0, 0, 0, 0.48)',
++  },
++  imageOverlayText: {
++    color: '#FFFFFF',
++    fontSize: 24,
++    fontWeight: '900',
++  },
++  bottomBar: {
++    borderTopWidth: StyleSheet.hairlineWidth,
++    paddingTop: 12,
++    paddingBottom: 10,
++    gap: 9,
++  },
++  bottomHelper: {
++    fontSize: 12,
++    lineHeight: 17,
++    fontWeight: '700',
++  },
++  bottomActions: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 9,
++  },
++  primaryAction: {
++    minHeight: 48,
++    flex: 1,
++    borderRadius: 18,
++    paddingHorizontal: 16,
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: 8,
++  },
++  primaryActionText: {
++    fontSize: 14,
++    fontWeight: '900',
++  },
++  secondaryAction: {
++    minHeight: 48,
++    borderRadius: 18,
++    borderWidth: 1,
++    paddingHorizontal: 14,
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: 7,
++  },
++  secondaryActionText: {
++    fontSize: 13,
++    fontWeight: '900',
++  },
++  emptyState: {
++    borderRadius: 24,
++    borderWidth: 1,
++    padding: 18,
++    alignItems: 'center',
++    gap: 8,
++  },
++  emptyIcon: {
++    width: 46,
++    height: 46,
++    borderRadius: 23,
++    borderWidth: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    marginBottom: 2,
++  },
++  emptyTitle: {
++    textAlign: 'center',
++    fontSize: 18,
++    lineHeight: 23,
++    fontWeight: '900',
++  },
++  emptyBody: {
++    textAlign: 'center',
++    fontSize: 14,
++    lineHeight: 20,
++    fontWeight: '700',
++  },
++  emptyAction: {
++    marginTop: 6,
++    minHeight: 42,
++    borderRadius: 16,
++    paddingHorizontal: 15,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  emptyActionText: {
++    fontSize: 13,
++    fontWeight: '900',
++  },
++  bubbleWrap: {
++    maxWidth: '86%',
++    alignSelf: 'flex-start',
++    gap: 5,
++  },
++  bubbleWrapMine: {
++    alignSelf: 'flex-end',
++    alignItems: 'flex-end',
++  },
++  bubbleAuthor: {
++    paddingHorizontal: 4,
++    fontSize: 11,
++    fontWeight: '900',
++  },
++  bubbleAuthorMine: {
++    textAlign: 'right',
++  },
++  bubble: {
++    borderRadius: 22,
++    borderWidth: 1,
++    paddingHorizontal: 14,
++    paddingVertical: 10,
++    gap: 5,
++  },
++  bubbleMine: {
++    borderBottomRightRadius: 8,
++  },
++  bubbleTopRow: {
++    flexDirection: 'row',
++    alignItems: 'flex-start',
++    gap: 9,
++  },
++  bubbleBody: {
++    flex: 1,
++    fontSize: 15,
++    lineHeight: 21,
++    fontWeight: '700',
++  },
++  bubbleDeleted: {
++    fontStyle: 'italic',
++    opacity: 0.72,
++  },
++  bubbleRightSlot: {
++    marginTop: -3,
++    marginRight: -5,
++  },
++  bubbleMeta: {
++    fontSize: 11,
++    lineHeight: 15,
++    fontWeight: '700',
++    opacity: 0.75,
++  },
++  composerWrap: {
++    borderTopWidth: StyleSheet.hairlineWidth,
++    paddingTop: 10,
++    paddingBottom: 10,
++    flexDirection: 'row',
++    alignItems: 'flex-end',
++    gap: 9,
++  },
++  composerInput: {
++    flex: 1,
++    maxHeight: 120,
++    minHeight: 44,
++    borderRadius: 18,
++    borderWidth: 1,
++    paddingHorizontal: 13,
++    paddingTop: 11,
++    paddingBottom: 11,
++    fontSize: 15,
++    fontWeight: '700',
++  },
++  composerSend: {
++    width: 44,
++    height: 44,
++    borderRadius: 22,
++    borderWidth: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  horizontalScrollerContent: {
++    gap: 9,
++    paddingRight: 18,
++  },
++  pressed: {
++    opacity: 0.78,
++    transform: [{ scale: 0.99 }],
++  },
++  disabled: {
++    opacity: 0.48,
++  },
++});
+diff --git a/apps/mobile/src/components/detail/index.ts b/apps/mobile/src/components/detail/index.ts
+new file mode 100644
+index 0000000..8902ee7
+--- /dev/null
++++ b/apps/mobile/src/components/detail/index.ts
+@@ -0,0 +1 @@
++export * from './MobileDetailUI';

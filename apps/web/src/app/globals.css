@@ -2690,3 +2690,24 @@ html.dark .pro-package-prototype__item.selected {
   .home-trade-intro h2 { font-size: 23px; }
   .home-trade-intro__points span { width: 100%; }
 }
+
+.notifications-panel { display: grid; gap: 14px; }
+.notifications-summary-card { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.notification-empty-state { display: grid; gap: 10px; justify-items: start; }
+.notification-list { display: grid; gap: 10px; }
+.notification-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 22px; background: var(--app-surface); padding: 14px; color: inherit; text-decoration: none; box-shadow: var(--app-card-shadow); }
+.notification-card--unread { border-color: color-mix(in srgb, var(--proposal-border) 42%, var(--app-border)); background: color-mix(in srgb, var(--proposal-border) 7%, var(--app-surface)); }
+.notification-dot { width: 9px; height: 9px; border-radius: 999px; background: var(--app-text-soft); }
+.notification-dot--unread { background: var(--proposal-border); box-shadow: 0 0 0 4px color-mix(in srgb, var(--proposal-border) 14%, transparent); }
+.notification-card__copy { display: grid; gap: 5px; min-width: 0; }
+.notification-card__copy strong { color: var(--app-text); }
+.notification-card__copy > span:last-child { color: var(--app-text-muted); font-weight: 750; line-height: 1.35; }
+.notification-card__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--app-text-soft); font-size: 12px; font-weight: 800; }
+.notification-card__actions { display: flex; align-items: center; gap: 8px; }
+.button.tiny { border-radius: 999px; padding: 7px 10px; font-size: 12px; font-weight: 900; }
+.mobile-link-card__meta-badge { margin-left: auto; }
+@media (max-width: 420px) {
+  .notifications-summary-card { display: grid; }
+  .notification-card { grid-template-columns: auto minmax(0, 1fr); }
+  .notification-card__actions { grid-column: 2; justify-content: flex-start; }
+}

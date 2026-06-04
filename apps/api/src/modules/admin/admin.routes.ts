@@ -22,6 +22,7 @@ import { assertContentPlacementSignalsEnabled, buildContentPlacementSignalData, 
 import { API_METRICS_RETENTION_HOURS, USAGE_ACTIVITY_WINDOW_MINUTES, USAGE_LIVE_WINDOW_MINUTES, USAGE_MONITORING_PRIVACY_NOTE, USAGE_PRESENCE_RETENTION_HOURS, cleanupUsageMonitoringData, usageMonitoringWindowStart } from '../usage/usageRetention.js';
 import { buildAdminServerHealth } from '../usage/serverHealth.js';
 import { buildUsernameHistoryData, ensureUsernameAvailable, normalizeProfileHandle, usernameErrorPayload } from '../profile/profileUsernames.js';
+import { notifySupportTicketUpdated } from '../notifications/notifications.service.js';
 
 export const adminRoutes = Router();
 const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
@@ -3948,6 +3949,13 @@ adminRoutes.patch('/support/tickets/:ticketId', asyncRoute(async (req, res) => {
     previousValue: { status: existing.status, priority: existing.priority, assignedAdminId: existing.assignedAdminId, resolvedAt: existing.resolvedAt },
     nextValue: { status: updated.status, priority: updated.priority, assignedAdminId: updated.assignedAdminId, resolvedAt: updated.resolvedAt },
   });
+  if (existing.userId && updated.status !== existing.status) {
+    try {
+      await notifySupportTicketUpdated(prisma, { userId: existing.userId, actorId: req.user!.id, ticketId: existing.id, subject: existing.subject });
+    } catch {
+      // Notifications should not block admin support updates.
+    }
+  }
   res.json({ ticket: await withOneSupportTicketMedia(updated, 'admin') });
 }));
 
@@ -3977,5 +3985,12 @@ adminRoutes.post('/support/tickets/:ticketId/messages', asyncRoute(async (req, r
     targetId: ticket.id,
     nextValue: { status: nextStatus, messageId: message.id, internal: input.internal ?? false },
   });
+  if (ticket.userId && !input.internal) {
+    try {
+      await notifySupportTicketUpdated(prisma, { userId: ticket.userId, actorId: req.user!.id, ticketId: ticket.id, subject: ticket.subject });
+    } catch {
+      // Notifications should not block admin support replies.
+    }
+  }
   res.status(201).json({ message: await withOneSupportMessageMedia(message, 'admin') });
 }));

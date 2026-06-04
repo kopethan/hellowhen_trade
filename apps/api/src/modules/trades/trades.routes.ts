@@ -15,6 +15,7 @@ import { applyInventoryDisplayLanguageToTrade, applyInventoryDisplayLanguageToTr
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from '../proposals/proposalPackages.js';
+import { notifyTradeProposalReceived, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
 
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true } as const;
@@ -1041,6 +1042,11 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
     await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
   });
+  try {
+    await notifyTradeProposalReceived(prisma, { ownerId: trade.ownerId, actorId, tradeId: trade.id, proposalId: proposal.id, tradeTitle: trade.title });
+  } catch {
+    // Notifications are helpful, but proposal creation should not fail if inbox delivery fails.
+  }
   res.status(201).json({ proposal: (await withProposalTradeMedia([proposal], 'owner'))[0] });
 }));
 export async function releaseHeldWalletMoney(tx: Prisma.TransactionClient, trade: { id: string; title: string; providerId?: string | null }) {
@@ -1105,6 +1111,11 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, requireActiveAccount, asyncR
       return res.status(403).json({ error: 'payer_cannot_submit_delivery', message: 'The person receiving wallet money must mark delivery first. The payer confirms and releases money after reviewing it.' });
     }
     const updated = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'submitted', deliverySubmittedById: actorId, deliverySubmittedAt: new Date() }, include: tradeInclude });
+    try {
+      await notifyTradeStatusUpdated(prisma, { recipientIds: [trade.ownerId, trade.providerId], actorId, tradeId: trade.id, tradeTitle: trade.title, status: 'submitted' });
+    } catch {
+      // Notifications should not block trade status changes.
+    }
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
 
@@ -1125,12 +1136,22 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, requireActiveAccount, asyncR
     if (releasePayment?.status === 'held' && releasePayment.amountCents > 0 && releasePayment.sellerId) {
       await mirrorProviderTradeRelease({ tradeId: trade.id, buyerId: releasePayment.buyerId, sellerId: releasePayment.sellerId, amountCents: releasePayment.amountCents, currency: releasePayment.currency, confirmedById: actorId });
     }
+    try {
+      await notifyTradeStatusUpdated(prisma, { recipientIds: [trade.ownerId, trade.providerId], actorId, tradeId: trade.id, tradeTitle: trade.title, status: 'completed' });
+    } catch {
+      // Notifications should not block trade status changes.
+    }
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
 
   if (input.status === 'disputed') {
     if (!['active', 'in_progress', 'submitted'].includes(trade.status)) return res.status(409).json({ error: 'invalid_trade_status_transition' });
     const updated = await prisma.trade.update({ where: { id: trade.id }, data: { status: 'disputed', isPublic: false, disputedById: actorId, disputedAt: new Date() }, include: tradeInclude });
+    try {
+      await notifyTradeStatusUpdated(prisma, { recipientIds: [trade.ownerId, trade.providerId], actorId, tradeId: trade.id, tradeTitle: trade.title, status: 'disputed' });
+    } catch {
+      // Notifications should not block trade status changes.
+    }
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
 
@@ -1150,6 +1171,11 @@ tradesRoutes.patch('/:tradeId/status', requireAuth, requireActiveAccount, asyncR
     });
     if (refundPayment && ['held', 'released'].includes(refundPayment.status) && refundPayment.amountCents > 0) {
       await mirrorProviderTradeRefund({ tradeId: trade.id, buyerId: refundPayment.buyerId, sellerId: refundPayment.sellerId, amountCents: refundPayment.amountCents, currency: refundPayment.currency, refundedById: actorId, wasReleased: refundPayment.status === 'released', reason: 'trade_cancelled' });
+    }
+    try {
+      await notifyTradeStatusUpdated(prisma, { recipientIds: [trade.ownerId, trade.providerId], actorId, tradeId: trade.id, tradeTitle: trade.title, status: 'cancelled' });
+    } catch {
+      // Notifications should not block trade status changes.
     }
     return res.json({ trade: await withOneTradeDeckMedia(updated, 'owner') });
   }
@@ -1184,9 +1210,15 @@ tradesRoutes.post('/:tradeId/close', requireAuth, requireActiveAccount, asyncRou
   if (!['draft', 'active', 'expired'].includes(trade.status)) {
     return res.status(409).json({ error: 'trade_not_closable', message: 'Only draft, open, or expired trades can be closed from My Trades. Accepted trades must be cancelled from the private thread.' });
   }
+  const pendingProposals = await prisma.tradeProposal.findMany({ where: { tradeId: trade.id, status: 'pending' }, select: { applicantId: true, id: true } });
   const closed = await prisma.$transaction(async (tx) => {
     await tx.tradeProposal.updateMany({ where: { tradeId: trade.id, status: 'pending' }, data: { status: 'declined', respondedAt: new Date() } });
     return tx.trade.update({ where: { id: trade.id }, data: { status: 'closed', isPublic: false, closedAt: new Date() }, include: tradeInclude });
   });
+  try {
+    await notifyTradeStatusUpdated(prisma, { recipientIds: pendingProposals.map((proposal) => proposal.applicantId), actorId: req.user!.id, tradeId: trade.id, tradeTitle: trade.title, status: 'closed' });
+  } catch {
+    // Notifications should not block trade closure.
+  }
   res.json({ trade: await withOneTradeDeckMedia(closed, 'owner'), closed: true });
 }));

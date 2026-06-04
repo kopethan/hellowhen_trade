@@ -7,6 +7,7 @@ import { holdOwnerCreditsForProposal, proposalInclude, withOneTradeDeckMedia, wi
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
 import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPackageItemCreateManyRows } from './proposalPackages.js';
+import { notifyProposalDecision, notifyProposalMessageReceived, notifyProposalWithdrawn } from '../notifications/notifications.service.js';
 
 export const proposalsRoutes = Router();
 proposalsRoutes.use(requireAuth);
@@ -87,12 +88,22 @@ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(as
     if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
     if (!['pending', 'declined'].includes(proposal.status)) return res.status(409).json({ error: 'invalid_proposal_status_transition' });
     const updated = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { status: 'withdrawn', respondedAt: new Date() }, include: proposalInclude });
+    try {
+      await notifyProposalWithdrawn(prisma, { ownerId: proposal.trade.ownerId, actorId, tradeId: proposal.tradeId, proposalId: proposal.id, tradeTitle: proposal.trade.title });
+    } catch {
+      // Notifications should not block proposal withdrawal.
+    }
     return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
   }
   if (proposal.trade.ownerId !== actorId) return res.status(403).json({ error: 'forbidden', message: 'Only the trade owner can accept or decline proposals.' });
   if (input.status === 'declined') {
     if (proposal.status !== 'pending') return res.status(409).json({ error: 'invalid_proposal_status_transition' });
     const updated = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { status: 'declined', respondedAt: new Date() }, include: proposalInclude });
+    try {
+      await notifyProposalDecision(prisma, { applicantId: proposal.applicantId, actorId, tradeId: proposal.tradeId, proposalId: proposal.id, tradeTitle: proposal.trade.title, decision: 'declined' });
+    } catch {
+      // Notifications should not block proposal decisions.
+    }
     return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0] });
   }
   if (input.status === 'accepted') {
@@ -100,6 +111,11 @@ proposalsRoutes.patch('/:proposalId/status', requireActiveAccount, asyncRoute(as
     try {
       const trade = await withOneTradeDeckMedia(await holdOwnerCreditsForProposal(proposal.tradeId, proposal.id, proposal.trade.ownerId, proposal.applicantId), 'owner');
       const updated = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
+      try {
+        await notifyProposalDecision(prisma, { applicantId: proposal.applicantId, actorId, tradeId: proposal.tradeId, proposalId: proposal.id, tradeTitle: proposal.trade.title, decision: 'accepted' });
+      } catch {
+        // Notifications should not block proposal decisions.
+      }
       return res.json({ proposal: (await withProposalTradeMedia([updated], 'owner'))[0], trade });
     } catch (error) {
       const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
@@ -231,6 +247,11 @@ proposalsRoutes.post('/:proposalId/messages', requireActiveAccount, asyncRoute(a
   if (['declined', 'withdrawn'].includes(proposal.status) || ['cancelled', 'closed'].includes(proposal.trade.status)) return res.status(409).json({ error: 'proposal_conversation_closed', message: 'This proposal conversation is closed.' });
   if (await usersHaveBlockBetween(actorId, otherProposalMemberId(proposal, actorId))) return res.status(403).json({ error: 'user_blocked', message: 'This conversation is not available because one member has blocked the other.' });
   const message = await prisma.proposalMessage.create({ data: { proposalId: proposal.id, senderId: actorId, body: input.body }, include: { sender: { select: publicUserPreviewSelect } } });
+  try {
+    await notifyProposalMessageReceived(prisma, { recipientId: otherProposalMemberId(proposal, actorId), actorId, tradeId: proposal.tradeId, proposalId: proposal.id, tradeTitle: proposal.trade.title });
+  } catch {
+    // Notifications should not block private replies.
+  }
   const updatedProposal = await prisma.tradeProposal.update({ where: { id: proposal.id }, data: { updatedAt: new Date() }, include: proposalInclude });
   res.status(201).json({ message, proposal: (await withProposalTradeMedia([updatedProposal], 'owner'))[0] });
 }));
