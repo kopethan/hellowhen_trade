@@ -97,6 +97,8 @@ export declare const tradeOfferSideKindSchema: z.ZodEnum<{
     money: "money";
 }>;
 export { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from './inventoryLimits.js';
+export declare const CASH_PROMISE_NOTE_MAX_LENGTH = 500;
+export declare const CASH_PROMISE_ACKNOWLEDGEMENT_TEXT = "Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash promise.";
 export declare const createNeedRequestSchema: z.ZodObject<{
     title: z.ZodString;
     description: z.ZodString;

@@ -1,0 +1,112 @@
+diff --git a/packages/contracts/src/index.d.ts b/packages/contracts/src/index.d.ts
+index 58f5d74..b937bc0 100644
+--- a/packages/contracts/src/index.d.ts
++++ b/packages/contracts/src/index.d.ts
+@@ -12,4 +12,6 @@ export * from './admin.js';
+ export * from './reports.js';
+ export * from './account.js';
+ export * from './plans.js';
++export * from './usage.js';
++export * from './notifications.js';
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/packages/contracts/src/index.js b/packages/contracts/src/index.js
+index 69eb205..7a04539 100644
+--- a/packages/contracts/src/index.js
++++ b/packages/contracts/src/index.js
+@@ -12,4 +12,6 @@ export * from './admin.js';
+ export * from './reports.js';
+ export * from './account.js';
+ export * from './plans.js';
++export * from './usage.js';
++export * from './notifications.js';
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/packages/contracts/src/notifications.js b/packages/contracts/src/notifications.js
+new file mode 100644
+index 0000000..9caaa51
+--- /dev/null
++++ b/packages/contracts/src/notifications.js
+@@ -0,0 +1,43 @@
++import { z } from 'zod';
++export const inAppNotificationTypeSchema = z.enum([
++    'trade_proposal_received',
++    'trade_proposal_accepted',
++    'trade_proposal_declined',
++    'trade_proposal_withdrawn',
++    'proposal_message_received',
++    'support_ticket_updated',
++    'content_moderation_updated',
++    'trade_status_updated'
++]);
++const queryBooleanSchema = z.preprocess((value) => {
++    if (typeof value === 'string') {
++        if (value.toLowerCase() === 'true') return true;
++        if (value.toLowerCase() === 'false') return false;
++    }
++    return value;
++}, z.boolean());
++export const listNotificationsQuerySchema = z.object({
++    take: z.coerce.number().int().min(1).max(100).optional().default(50),
++    unreadOnly: queryBooleanSchema.optional().default(false)
++});
++export const notificationMetadataSchema = z.record(z.string(), z.unknown()).nullable().optional();
++export const notificationSchema = z.object({
++    id: z.string(),
++    type: inAppNotificationTypeSchema,
++    title: z.string(),
++    body: z.string(),
++    targetPath: z.string().nullable().optional(),
++    tradeId: z.string().nullable().optional(),
++    proposalId: z.string().nullable().optional(),
++    supportTicketId: z.string().nullable().optional(),
++    metadata: notificationMetadataSchema,
++    readAt: z.string().nullable().optional(),
++    createdAt: z.string()
++});
++export const notificationsResponseSchema = z.object({
++    notifications: z.array(notificationSchema),
++    unreadCount: z.number().int().min(0)
++});
++export const notificationResponseSchema = z.object({ notification: notificationSchema });
++export const notificationUnreadCountResponseSchema = z.object({ unreadCount: z.number().int().min(0) });
++export const markAllNotificationsReadResponseSchema = z.object({ updatedCount: z.number().int().min(0), unreadCount: z.number().int().min(0) });
+diff --git a/packages/contracts/src/trade.d.ts b/packages/contracts/src/trade.d.ts
+index e291efe..935879e 100644
+--- a/packages/contracts/src/trade.d.ts
++++ b/packages/contracts/src/trade.d.ts
+@@ -97,6 +97,8 @@ export declare const tradeOfferSideKindSchema: z.ZodEnum<{
+     money: "money";
+ }>;
+ export { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from './inventoryLimits.js';
++export declare const CASH_PROMISE_NOTE_MAX_LENGTH = 500;
++export declare const CASH_PROMISE_ACKNOWLEDGEMENT_TEXT = "Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash promise.";
+ export declare const createNeedRequestSchema: z.ZodObject<{
+     title: z.ZodString;
+     description: z.ZodString;
+diff --git a/packages/contracts/src/trade.js b/packages/contracts/src/trade.js
+index b59dcfc..ccb8025 100644
+--- a/packages/contracts/src/trade.js
++++ b/packages/contracts/src/trade.js
+@@ -18,6 +18,8 @@ export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
+ export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
+ export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
+ export { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from './inventoryLimits.js';
++export const CASH_PROMISE_NOTE_MAX_LENGTH = 500;
++export const CASH_PROMISE_ACKNOWLEDGEMENT_TEXT = 'Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash promise.';
+ const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
+ const needMetadataSchema = z.object({
+     itemType: inventoryItemTypeSchema.optional().default('service'),
+diff --git a/packages/contracts/src/usage.js b/packages/contracts/src/usage.js
+new file mode 100644
+index 0000000..ef03fe5
+--- /dev/null
++++ b/packages/contracts/src/usage.js
+@@ -0,0 +1,7 @@
++import { z } from 'zod';
++export const usageAreaSchema = z.enum(['trades', 'trade_detail', 'proposal_thread', 'needs', 'offers', 'account', 'admin', 'other']);
++export const usageHeartbeatRequestSchema = z.object({
++    area: usageAreaSchema,
++    routePattern: z.string().trim().min(1).max(140),
++    clientId: z.string().trim().min(8).max(120).optional()
++});
