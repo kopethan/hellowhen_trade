@@ -1,4 +1,4 @@
-import type { DiscoveryLanguage, InventoryItemType, InventoryTranslationDto, MediaAssetDto, NeedDto, OfferDto } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryItemType, InventoryTranslationDto, MediaAssetDto, NeedDto, OfferDto, PreviewCardTheme } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { findInventoryCategoryOption, getAlternateInventoryLanguage } from '@hellowhen/shared';
 import { resolveWebAssetUrl } from '../../lib/api';
@@ -35,6 +35,7 @@ export type InventoryFormValues = {
   tags: string;
   includes: string;
   expiresAt: string;
+  previewTheme: PreviewCardTheme;
 };
 
 export const emptyInventoryFormValues: InventoryFormValues = {
@@ -52,6 +53,7 @@ export const emptyInventoryFormValues: InventoryFormValues = {
   tags: '',
   includes: '',
   expiresAt: '',
+  previewTheme: 'default',
 };
 
 export function isNeed(item: InventoryItem): item is NeedDto {
@@ -186,6 +188,7 @@ export function inventoryToFormValues(item?: InventoryItem | null): InventoryFor
     tags: (item.tags ?? []).join(', '),
     includes: isNeed(item) ? '' : (item.includes ?? []).join('\n'),
     expiresAt: item.expiresAt ? item.expiresAt.slice(0, 10) : '',
+    previewTheme: item.previewTheme ?? 'default',
   };
 }
 

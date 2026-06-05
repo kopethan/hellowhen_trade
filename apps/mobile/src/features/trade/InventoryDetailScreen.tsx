@@ -8,6 +8,7 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
@@ -53,6 +54,7 @@ import { resolveMediaUrl } from './mediaUrls';
 import type {
   DiscoveryLanguage,
   InventoryItemType,
+  MediaAssetDto,
 } from '@hellowhen/contracts';
 import {
   INVENTORY_DESCRIPTION_MAX_LENGTH,
@@ -128,6 +130,17 @@ function detailChips({
     .map((label) => ({ label, tone }));
 }
 
+
+function normalizeMediaOrder(items: MediaAssetDto[]): MediaAssetDto[] {
+  const active = items.filter((item) => item.status !== 'removed');
+  const hasCover = active.some((item) => item.isCover);
+  return active.map((item, index) => ({
+    ...item,
+    sortOrder: index,
+    isCover: hasCover ? Boolean(item.isCover) : index === 0,
+  }));
+}
+
 export function InventoryDetailScreen({
   kind,
   itemId,
@@ -154,6 +167,7 @@ export function InventoryDetailScreen({
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
   const [mode, setMode] = useState<InventoryMode>('remote');
   const [locationLabel, setLocationLabel] = useState('');
+  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>([]);
   const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -214,6 +228,8 @@ export function InventoryDetailScreen({
         timingOrAvailability !== itemTimingOrAvailability ||
         mode !== normalizeMode(getOptionalString(item, 'mode')) ||
         locationLabel !== getOptionalString(item, 'locationLabel') ||
+        existingMedia.map((media) => media.id).join(',') !== (item.media ?? []).filter((media) => media.status !== 'removed').map((media) => media.id).join(',') ||
+        existingMedia.find((media) => media.isCover)?.id !== (item.media ?? []).find((media) => media.isCover)?.id ||
         newImages.length > 0,
     );
   }, [category, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
@@ -267,6 +283,7 @@ export function InventoryDetailScreen({
       );
       setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
       setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
+      setExistingMedia(normalizeMediaOrder(nextItem.media ?? []));
       setNewImages([]);
     },
     [isNeed, language],
@@ -353,7 +370,10 @@ export function InventoryDetailScreen({
     setError(null);
     try {
       setUploadProgress(null);
-      const mediaIds = await uploadSelectedImages(newImages, { onProgress: setUploadProgress });
+      const uploadedMediaIds = await uploadSelectedImages(newImages, { onProgress: setUploadProgress });
+      const existingMediaIds = existingMedia.filter((media) => media.status !== 'removed').map((media) => media.id);
+      const mediaIds = [...existingMediaIds, ...uploadedMediaIds].slice(0, 5);
+      const coverMediaId = existingMedia.find((media) => media.isCover)?.id ?? mediaIds[0];
       const payload = {
         title: title.trim(),
         description: description.trim(),
@@ -370,6 +390,7 @@ export function InventoryDetailScreen({
         locationLabel: optionalText(locationLabel),
         status: nextStatus ?? item?.status ?? 'draft',
         mediaIds,
+        coverMediaId,
       } as never;
       const result = isNeed
         ? ((await api.needs.update(itemId, payload)) as InventoryResponse)
@@ -385,6 +406,32 @@ export function InventoryDetailScreen({
       setUploadProgress(null);
       setSaving(false);
     }
+  }
+
+  function moveExistingImage(mediaId: string, direction: 'up' | 'down') {
+    setExistingMedia((current) => {
+      const index = current.findIndex((media) => media.id === mediaId);
+      if (index < 0) return current;
+      const nextIndex = direction === 'up' ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      if (!item) return current;
+      next.splice(nextIndex, 0, item);
+      return normalizeMediaOrder(next);
+    });
+  }
+
+  function setExistingCover(mediaId: string) {
+    setExistingMedia((current) => {
+      const index = current.findIndex((media) => media.id === mediaId);
+      if (index < 0) return current;
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      if (!item) return current;
+      next.unshift(item);
+      return normalizeMediaOrder(next.map((media) => ({ ...media, isCover: media.id === mediaId })));
+    });
   }
 
   async function removeImage(mediaId: string) {
@@ -684,14 +731,18 @@ export function InventoryDetailScreen({
                   }
                 >
                   <ExistingMediaManager
-                    media={item.media}
+                    media={existingMedia}
                     disabled={saving}
+                    enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
+                    onMove={moveExistingImage}
+                    onSetCover={setExistingCover}
                     onRemove={removeImage}
                   />
                   <ImagePickerField
                     images={newImages}
                     onChange={setNewImages}
                     disabled={saving}
+                    enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
                   />
                 </DetailSection>
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import type { MediaAssetDto, TradePostType } from '@hellowhen/contracts';
-import { formatMoney } from '@hellowhen/shared';
+import { formatMoney, normalizePreviewCardTheme } from '@hellowhen/shared';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
@@ -47,6 +47,15 @@ export function buildTradeSquareDeckCards(trade: TradeDeckItem, tradeIndex = 0, 
 export function renderTradeSquareDeckCard(card: TradeSquareDeckCard, _index: number, _total: number, onOpen: () => void) {
   if (card.kind === 'summary') return <TradeSummaryCard trade={card.trade} tradeIndex={card.tradeIndex} tradeTotal={card.tradeTotal} onOpen={onOpen} />;
   return <TradeImageCard trade={card.trade} kind={card.kind} media={card.media} onOpen={onOpen} />;
+}
+
+
+function previewThemeForTrade(trade: TradeDeckItem) {
+  const tradeTheme = normalizePreviewCardTheme(trade.previewTheme);
+  if (tradeTheme !== 'default') return tradeTheme;
+  const needTheme = normalizePreviewCardTheme(trade.need?.previewTheme);
+  if (needTheme !== 'default') return needTheme;
+  return normalizePreviewCardTheme(trade.offer?.previewTheme);
 }
 
 function getTradeCounter(index: number, total: number) { return `${String(index + 1).padStart(2, '0')}/${String(total).padStart(2, '0')}`; }
@@ -138,8 +147,10 @@ function TradeCountdown({ expiresAt, compact = false }: { expiresAt?: string | n
 function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSummaryCardProps) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
+  const previewTheme = previewThemeForTrade(trade);
+  const themeAccent = previewTheme === 'blue' ? '#dbeafe' : previewTheme === 'green' ? '#dcfce7' : previewTheme === 'purple' ? '#ede9fe' : previewTheme === 'amber' ? '#fef3c7' : previewTheme === 'rose' ? '#ffe4e6' : null;
   return (
-    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: themeAccent ?? theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.summaryHeaderRow}>
         <AppText style={[styles.summaryHeader, { color: theme.color.muted }]}>{t('trade.labels.trade').toUpperCase()} · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
         <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status, t)}</AppText>
@@ -191,6 +202,7 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
       chips={starterChips(trade)}
       variant={postType === 'open_need' ? 'need' : 'offer'}
       onPress={onOpen}
+      previewTheme={previewThemeForTrade(trade)}
     />
   );
 }
@@ -237,6 +249,7 @@ export function TradeImageCard({ trade, kind, media, onOpen }: TradeImageCardPro
       chips={(side?.tags ?? []).slice(0, 3)}
       variant={isNeed ? 'need' : 'offer'}
       onPress={onOpen}
+      previewTheme={previewThemeForTrade(trade)}
     />
   );
 }

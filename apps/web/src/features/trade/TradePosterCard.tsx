@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { normalizePreviewCardTheme, previewCardThemeClassName } from '@hellowhen/shared';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 type TradePosterCardProps = {
@@ -15,9 +16,18 @@ type TradePosterCardProps = {
   chips?: string[];
   footer?: ReactNode;
   variant?: 'trade' | 'need' | 'offer';
+  previewTheme?: string | null;
 };
 
 const FALLBACK_ACCENTS = ['#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b', '#6366f1'];
+const THEME_ACCENTS = {
+  default: null,
+  blue: '#3b82f6',
+  green: '#10b981',
+  purple: '#8b5cf6',
+  amber: '#f59e0b',
+  rose: '#f43f5e',
+} as const;
 
 function hashString(value: string) {
   let hash = 0;
@@ -43,12 +53,13 @@ function fallbackModel(id: string, variant: TradePosterCardProps['variant']) {
   };
 }
 
-export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], footer, variant = 'trade' }: TradePosterCardProps) {
+export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title, subtitle, detailTitle, chips = [], footer, variant = 'trade', previewTheme }: TradePosterCardProps) {
   const { t } = useWebTranslation();
   const [imageFailed, setImageFailed] = useState(!imageUrl);
   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
   const fallback = useMemo(() => fallbackModel(id, variant), [id, variant]);
   const visibleChips = chips.filter(Boolean).slice(0, 3);
+  const themeAccent = THEME_ACCENTS[normalizePreviewCardTheme(previewTheme)] ?? fallback.accent;
 
   useEffect(() => {
     setImageFailed(!imageUrl);
@@ -56,9 +67,9 @@ export function TradePosterCard({ id, imageUrl, imageAlt, badge, eyebrow, title,
 
   return (
     <article
-      className={`trade-poster-card trade-poster-card--${variant}${visibleImageUrl ? ' has-image' : ' has-fallback'}`}
+      className={`trade-poster-card trade-poster-card--${variant} ${previewCardThemeClassName(previewTheme)}${visibleImageUrl ? ' has-image' : ' has-fallback'}`}
       style={{
-        '--poster-accent': fallback.accent,
+        '--poster-accent': themeAccent,
         '--poster-hue': String(fallback.hue),
         '--poster-hue-two': String(fallback.hueTwo),
       } as CSSProperties}

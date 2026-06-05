@@ -4,7 +4,7 @@ import { PlanSelectionClient } from '../../../features/account/PlanSelectionClie
 import { betaFeatures } from '../../../lib/betaFeatures';
 
 export default function AccountPlansPage() {
-  if (!betaFeatures.proSubscriptionFeatures.proAccountsVisible) notFound();
+  if (!betaFeatures.plusSubscriptionFeatures.plusPublic) notFound();
 
   return (
     <MobilePage>

@@ -27,6 +27,7 @@ export function ImagePickerField({
   label,
   hint,
   reviewBody,
+  enableOrderControls,
 }: {
   images: SelectedLocalImage[];
   onChange: (images: SelectedLocalImage[]) => void;
@@ -35,6 +36,7 @@ export function ImagePickerField({
   label?: string;
   hint?: string;
   reviewBody?: string;
+  enableOrderControls?: boolean;
 }) {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -122,9 +124,37 @@ export function ImagePickerField({
     void openImagePicker();
   }
 
+  function normalizeCoverOrder(nextImages: SelectedLocalImage[]) {
+    return nextImages;
+  }
+
   function removeImage(uri: string) {
     if (disabled) return;
-    onChange(images.filter((image) => image.uri !== uri));
+    onChange(normalizeCoverOrder(images.filter((image) => image.uri !== uri)));
+  }
+
+  function moveImage(uri: string, direction: 'up' | 'down') {
+    if (disabled) return;
+    const index = images.findIndex((image) => image.uri === uri);
+    if (index < 0) return;
+    const nextIndex = direction === 'up' ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= images.length) return;
+    const next = [...images];
+    const [item] = next.splice(index, 1);
+    if (!item) return;
+    next.splice(nextIndex, 0, item);
+    onChange(normalizeCoverOrder(next));
+  }
+
+  function setCoverImage(uri: string) {
+    if (disabled) return;
+    const index = images.findIndex((image) => image.uri === uri);
+    if (index <= 0) return;
+    const next = [...images];
+    const [item] = next.splice(index, 1);
+    if (!item) return;
+    next.unshift(item);
+    onChange(normalizeCoverOrder(next));
   }
 
   return (
@@ -143,14 +173,25 @@ export function ImagePickerField({
       {error ? <InfoNotice tone="danger" title={t('inventory.labels.images')} body={error} /> : null}
       {images.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>
-          {images.map((image) => (
-            <View key={image.uri} style={styles.preview}>
-              <Image source={{ uri: image.uri }} style={styles.image} />
-              <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} accessibilityState={{ disabled: Boolean(disabled) }} onPress={() => removeImage(image.uri)} disabled={disabled} style={({ pressed }) => [styles.remove, disabled && styles.disabled, pressed && styles.pressed]}>
-                <AppText style={styles.removeText}>{t('common.actions.remove')}</AppText>
-              </Pressable>
-            </View>
-          ))}
+          {images.map((image, index) => {
+            const isCover = index === 0;
+            return (
+              <View key={image.uri} style={styles.preview}>
+                <Image source={{ uri: image.uri }} style={styles.image} />
+                {enableOrderControls ? <AppText style={styles.coverLabel}>{isCover ? 'Cover' : `Image ${index + 1}`}</AppText> : null}
+                {enableOrderControls ? (
+                  <View style={styles.orderRow}>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Move image earlier" accessibilityState={{ disabled: Boolean(disabled || index === 0) }} onPress={() => moveImage(image.uri, 'up')} disabled={disabled || index === 0} style={({ pressed }) => [styles.orderButton, (disabled || index === 0) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↑</AppText></Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Move image later" accessibilityState={{ disabled: Boolean(disabled || index === images.length - 1) }} onPress={() => moveImage(image.uri, 'down')} disabled={disabled || index === images.length - 1} style={({ pressed }) => [styles.orderButton, (disabled || index === images.length - 1) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↓</AppText></Pressable>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Set as cover" accessibilityState={{ disabled: Boolean(disabled || isCover) }} onPress={() => setCoverImage(image.uri)} disabled={disabled || isCover} style={({ pressed }) => [styles.orderButtonWide, (disabled || isCover) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>Cover</AppText></Pressable>
+                  </View>
+                ) : null}
+                <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} accessibilityState={{ disabled: Boolean(disabled) }} onPress={() => removeImage(image.uri)} disabled={disabled} style={({ pressed }) => [styles.remove, disabled && styles.disabled, pressed && styles.pressed]}>
+                  <AppText style={styles.removeText}>{t('common.actions.remove')}</AppText>
+                </Pressable>
+              </View>
+            );
+          })}
         </ScrollView>
       ) : (
         <View style={styles.empty}><AppText style={styles.emptyText}>{t('inventory.labels.noImagesSelected')}</AppText></View>
@@ -173,4 +214,4 @@ export function ImagePickerField({
     </View>
   );
 }
-const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, count: { marginTop: 4, color: '#475569', fontSize: 12, fontWeight: '900' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 118, gap: 7 }, image: { width: 118, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, count: { marginTop: 4, color: '#475569', fontSize: 12, fontWeight: '900' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 132, gap: 7 }, image: { width: 132, height: 98, borderRadius: 16, backgroundColor: '#E2E8F0' }, coverLabel: { position: 'absolute', top: 8, left: 8, overflow: 'hidden', borderRadius: 999, backgroundColor: 'rgba(15,23,42,0.78)', color: '#FFFFFF', paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '900' }, orderRow: { flexDirection: 'row', gap: 5 }, orderButton: { flex: 1, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 7, alignItems: 'center' }, orderButtonWide: { flex: 2, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 7, alignItems: 'center' }, orderText: { fontSize: 11, fontWeight: '900', color: '#334155' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });

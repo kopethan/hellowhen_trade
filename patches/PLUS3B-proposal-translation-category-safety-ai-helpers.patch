@@ -1,0 +1,1392 @@
+diff --git a/apps/api/src/modules/ai/aiAssist.routes.ts b/apps/api/src/modules/ai/aiAssist.routes.ts
+index 4f82c8e..ddbce32 100644
+--- a/apps/api/src/modules/ai/aiAssist.routes.ts
++++ b/apps/api/src/modules/ai/aiAssist.routes.ts
+@@ -58,6 +58,23 @@ const CATEGORY_KEYWORDS: Array<{ category: string; tags: string[]; keywords: str
+   { category: 'Local Help', tags: ['local help', 'practical help', 'errand'], keywords: ['move', 'moving', 'repair', 'carry', 'local', 'errand', 'help'] },
+ ];
+ 
++
++function parseTranslatableText(text: string): { title?: string; description?: string; body: string } {
++  try {
++    const parsed = JSON.parse(text) as unknown;
++    if (parsed && typeof parsed === 'object') {
++      const record = parsed as { title?: unknown; description?: unknown; body?: unknown; message?: unknown };
++      const title = typeof record.title === 'string' ? record.title.trim() : undefined;
++      const description = typeof record.description === 'string' ? record.description.trim() : undefined;
++      const body = typeof record.body === 'string' ? record.body.trim() : typeof record.message === 'string' ? record.message.trim() : '';
++      return { title: title || undefined, description: description || undefined, body: body || description || title || text };
++    }
++  } catch {
++    // Plain text is still supported for the stub provider.
++  }
++  return { body: text };
++}
++
+ function suggestCategoryTags(text: string): AiAssistSuggestion {
+   const normalized = text.toLowerCase();
+   const match = CATEGORY_KEYWORDS.find((entry) => entry.keywords.some((keyword) => normalized.includes(keyword)));
+@@ -97,8 +114,12 @@ function buildStubSuggestion(taskType: AiAssistTaskType, text: string, input: Re
+       };
+     case 'translate_text': {
+       const target = input.targetLanguage ?? (input.sourceLanguage === 'fr' ? 'en' : 'fr');
++      const translatable = parseTranslatableText(text);
++      const prefix = `[Stub ${target.toUpperCase()} translation]`;
+       return {
+-        text: `[Stub ${target.toUpperCase()} translation] ${base}`,
++        text: `${prefix} ${truncate(translatable.body, 800)}`,
++        title: translatable.title ? `${prefix} ${truncate(translatable.title, 100)}` : undefined,
++        description: translatable.description ? `${prefix} ${truncate(translatable.description, 800)}` : undefined,
+         language: target,
+       };
+     }
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index 8865569..e817a0a 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -22,6 +22,10 @@ import type { NeedItem } from './types';
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateNeed'>;
+ type CreateNeedResponse = { need: NeedItem };
+ 
++function parseCommaTags(value: string) {
++  return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
++}
++
+ export function CreateNeedScreen({ route, navigation }: Props) {
+   const { t, language } = useTranslation();
+   const [title, setTitle] = useState('');
+@@ -32,6 +36,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+   const [translationEnabled, setTranslationEnabled] = useState(false);
+   const [mode, setMode] = useState<TradeExchangeMode>('remote');
+   const [category, setCategory] = useState('');
++  const [tags, setTags] = useState('');
+   const [locationLabel, setLocationLabel] = useState('');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+@@ -45,9 +50,10 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+     translationTitle.trim() ||
+     translationDescription.trim() ||
+     category.trim() ||
++    tags.trim() ||
+     locationLabel.trim() ||
+     images.length > 0,
+-  ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
++  ), [category, description, images.length, locationLabel, tags, title, translationDescription, translationTitle]);
+ 
+   const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+@@ -75,6 +81,17 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+   const descriptionError = attemptedSubmit && description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH ? t('validation.needDescriptionTooShort') : null;
+   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
+ 
++  function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
++    setTranslationEnabled(true);
++    setTranslationTitle(titleText);
++    setTranslationDescription(descriptionText);
++  }
++
++  function applyAiCategoryTags(categoryText: string, tagList: string[]) {
++    setCategory(categoryText);
++    setTags(tagList.join(', '));
++  }
++
+   async function handleCreate() {
+     if (submitting) return;
+     setAttemptedSubmit(true);
+@@ -101,7 +118,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+         category: optionalText(category),
+         mode,
+         locationLabel: optionalText(locationLabel),
+-        tags: [],
++        tags: parseCommaTags(tags),
+         status: route.params?.returnTo ? 'active' : 'draft',
+         mediaIds,
+       }) as CreateNeedResponse;
+@@ -164,9 +181,14 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+           kind="need"
+           title={title}
+           description={description}
++          defaultLanguage={defaultLanguage}
++          category={category}
++          tags={tags}
+           disabled={submitting}
+           onApplyTitle={setTitle}
+           onApplyDescription={setDescription}
++          onApplyTranslation={applyAiTranslation}
++          onApplyCategoryTags={applyAiCategoryTags}
+         />
+ 
+         <AppCard>
+@@ -194,6 +216,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
+           <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={t('inventory.form.tagsPlaceholder')} disabled={submitting} />
+           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationNeedPlaceholder')} disabled={submitting} />
+         </AppCard>
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index a540ed4..bddfcbe 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -22,6 +22,10 @@ import type { OfferItem } from './types';
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
+ type CreateOfferResponse = { offer: OfferItem };
+ 
++function parseCommaTags(value: string) {
++  return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
++}
++
+ export function CreateOfferScreen({ route, navigation }: Props) {
+   const { t, language } = useTranslation();
+   const [title, setTitle] = useState('');
+@@ -32,6 +36,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+   const [translationEnabled, setTranslationEnabled] = useState(false);
+   const [mode, setMode] = useState<TradeExchangeMode>('remote');
+   const [category, setCategory] = useState('');
++  const [tags, setTags] = useState('');
+   const [locationLabel, setLocationLabel] = useState('');
+   const [images, setImages] = useState<SelectedLocalImage[]>([]);
+   const [submitting, setSubmitting] = useState(false);
+@@ -45,9 +50,10 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+     translationTitle.trim() ||
+     translationDescription.trim() ||
+     category.trim() ||
++    tags.trim() ||
+     locationLabel.trim() ||
+     images.length > 0,
+-  ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
++  ), [category, description, images.length, locationLabel, tags, title, translationDescription, translationTitle]);
+ 
+   const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+@@ -75,6 +81,17 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+   const descriptionError = attemptedSubmit && description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH ? t('validation.offerDescriptionTooShort') : null;
+   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
+ 
++  function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
++    setTranslationEnabled(true);
++    setTranslationTitle(titleText);
++    setTranslationDescription(descriptionText);
++  }
++
++  function applyAiCategoryTags(categoryText: string, tagList: string[]) {
++    setCategory(categoryText);
++    setTags(tagList.join(', '));
++  }
++
+   async function handleCreate() {
+     if (submitting) return;
+     setAttemptedSubmit(true);
+@@ -102,7 +119,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+         mode,
+         locationLabel: optionalText(locationLabel),
+         includes: [],
+-        tags: [],
++        tags: parseCommaTags(tags),
+         status: route.params?.returnTo ? 'active' : 'draft',
+         mediaIds,
+       }) as CreateOfferResponse;
+@@ -165,9 +182,14 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+           kind="offer"
+           title={title}
+           description={description}
++          defaultLanguage={defaultLanguage}
++          category={category}
++          tags={tags}
+           disabled={submitting}
+           onApplyTitle={setTitle}
+           onApplyDescription={setDescription}
++          onApplyTranslation={applyAiTranslation}
++          onApplyCategoryTags={applyAiCategoryTags}
+         />
+ 
+         <AppCard>
+@@ -195,6 +217,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
+           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
+           <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
++          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={t('inventory.form.tagsPlaceholder')} disabled={submitting} />
+           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationOfferPlaceholder')} disabled={submitting} />
+         </AppCard>
+diff --git a/apps/mobile/src/features/trade/CreateProposalScreen.tsx b/apps/mobile/src/features/trade/CreateProposalScreen.tsx
+index 792b273..9c54520 100644
+--- a/apps/mobile/src/features/trade/CreateProposalScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateProposalScreen.tsx
+@@ -13,10 +13,12 @@ import { AppText } from '../../components/AppText';
+ import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
++import { ProposalAiAssistCard } from './components/ProposalAiAssistCard';
+ import type { TradeProposalItem } from './types';
+ 
+ type Props = NativeStackScreenProps<RootStackParamList, 'CreateProposal'>;
+ type ProposalResponse = { proposal: TradeProposalItem };
++
+ export function CreateProposalScreen({ route, navigation }: Props) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+@@ -50,17 +52,65 @@ export function CreateProposalScreen({ route, navigation }: Props) {
+     try {
+       const result = await api.trades.createProposal(route.params.tradeId, { message: message.trim() }) as ProposalResponse;
+       navigation.replace('ProposalDetail', { proposalId: result.proposal.id });
+-    }
+-    catch (caughtError) {
++    } catch (caughtError) {
+       const body = caughtError && typeof caughtError === 'object' && 'body' in caughtError ? (caughtError as { body?: { proposal?: TradeProposalItem } }).body : undefined;
+       if (body?.proposal?.id) {
+         navigation.replace('ProposalDetail', { proposalId: body.proposal.id });
+         return;
+       }
+       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotSendProposal')));
++    } finally {
++      setSubmitting(false);
+     }
+-    finally { setSubmitting(false); }
+   }
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppHeader title={t('trade.proposals.askToTrade')} onBack={() => navigation.goBack()} /><AppCard><SemanticBadge label={t('trade.proposals.proposalConversation')} tone="proposal" /><AppText style={styles.title}>{t('trade.proposals.tradeRequest')}</AppText><InfoNotice tone="instruction" title={t('trade.labels.message')} body={route.params.title ?? t('trade.proposals.helperNeedOffer')} /><TextInput value={message} onChangeText={(nextMessage) => { setMessage(nextMessage); if (error) setError(null); }} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { backgroundColor: theme.color.surface, borderColor: messageError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />{messageError ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{messageError}</AppText> : null}{error ? <InfoNotice tone="danger" title={t('trade.filters.error')} body={error} /> : null}<Button title={submitting ? t('trade.proposals.sending') : t('trade.proposals.sendProposal')} disabled={submitting || message.trim().length < 3} onPress={() => { void submit(); }} /><Button title={t('common.actions.cancel')} color="#64748B" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView><AppConfirmSheet {...unsavedChangesConfirm} /></AppScreen>;
++
++  return (
++    <AppScreen>
++      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
++        <AppHeader title={t('trade.proposals.askToTrade')} onBack={() => navigation.goBack()} />
++        <AppCard>
++          <SemanticBadge label={t('trade.proposals.proposalConversation')} tone="proposal" />
++          <AppText style={styles.title}>{t('trade.proposals.tradeRequest')}</AppText>
++          <InfoNotice tone="instruction" title={t('trade.labels.message')} body={route.params.title ?? t('trade.proposals.helperNeedOffer')} />
++          <TextInput
++            value={message}
++            onChangeText={(nextMessage) => {
++              setMessage(nextMessage);
++              if (error) setError(null);
++            }}
++            multiline
++            textAlignVertical="top"
++            placeholder={placeholder}
++            placeholderTextColor={theme.color.muted}
++            style={[styles.textArea, { backgroundColor: theme.color.surface, borderColor: messageError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]}
++          />
++          {messageError ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{messageError}</AppText> : null}
++          {error ? <InfoNotice tone="danger" title={t('trade.filters.error')} body={error} /> : null}
++        </AppCard>
++
++        <ProposalAiAssistCard
++          message={message === placeholder ? '' : message}
++          context={route.params.title}
++          disabled={submitting}
++          onApplyMessage={(nextMessage) => {
++            setMessage(nextMessage);
++            if (error) setError(null);
++          }}
++        />
++
++        <AppCard>
++          <Button title={submitting ? t('trade.proposals.sending') : t('trade.proposals.sendProposal')} disabled={submitting || message.trim().length < 3} onPress={() => { void submit(); }} />
++          <Button title={t('common.actions.cancel')} color="#64748B" disabled={submitting} onPress={() => navigation.goBack()} />
++        </AppCard>
++      </ScrollView>
++      <AppConfirmSheet {...unsavedChangesConfirm} />
++    </AppScreen>
++  );
+ }
+-const styles = StyleSheet.create({ content: { paddingBottom: 28 }, kicker: { color: '#0F766E', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' }, title: { fontSize: 32, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, textArea: { minHeight: 180, borderRadius: 18, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22 }, fieldError: { fontSize: 12, fontWeight: '800', lineHeight: 17 }, error: { color: '#B91C1C', backgroundColor: '#FEE2E2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 16, padding: 12, fontWeight: '700' } });
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 28, gap: 14 },
++  title: { fontSize: 32, fontWeight: '900', letterSpacing: -0.8 },
++  textArea: { minHeight: 180, borderRadius: 18, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22 },
++  fieldError: { fontSize: 12, fontWeight: '800', lineHeight: 17 },
++});
+diff --git a/apps/mobile/src/features/trade/components/InventoryAiAssistCard.tsx b/apps/mobile/src/features/trade/components/InventoryAiAssistCard.tsx
+index a1c584c..99f2430 100644
+--- a/apps/mobile/src/features/trade/components/InventoryAiAssistCard.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryAiAssistCard.tsx
+@@ -1,6 +1,6 @@
+ import React, { useEffect, useMemo, useState } from 'react';
+ import { Pressable, StyleSheet, View } from 'react-native';
+-import type { AiAssistResponse, PlusAiAssistQuotaSummary, PlusAiAssistTaskType } from '@hellowhen/contracts';
++import type { AiAssistResponse, DiscoveryLanguage, PlusAiAssistQuotaSummary, PlusAiAssistTaskType } from '@hellowhen/contracts';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_TITLE_MAX_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import { api } from '../../../lib/api';
+ import { betaFeatures } from '../../../lib/betaFeatures';
+@@ -18,15 +18,21 @@ type InventoryAiAssistCardProps = {
+   kind: InventoryKind;
+   title: string;
+   description: string;
++  defaultLanguage: DiscoveryLanguage;
++  category?: string;
++  tags?: string;
+   disabled?: boolean;
+   onApplyTitle: (value: string) => void;
+   onApplyDescription: (value: string) => void;
++  onApplyTranslation: (languageCode: DiscoveryLanguage, title: string, description: string) => void;
++  onApplyCategoryTags: (category: string, tags: string[]) => void;
+ };
+ 
+-type PendingSuggestion = {
+-  field: AiAssistField;
+-  text: string;
+-};
++type PendingSuggestion =
++  | { kind: 'field'; field: AiAssistField; text: string }
++  | { kind: 'translation'; language: DiscoveryLanguage; title: string; description: string }
++  | { kind: 'category_tags'; category: string; tags: string[]; text: string }
++  | { kind: 'safety_readability'; safetyNotes: string[]; readabilityNotes: string[]; text: string };
+ 
+ const TASK_BY_KIND_AND_FIELD: Record<InventoryKind, Record<AiAssistField, PlusAiAssistTaskType>> = {
+   need: {
+@@ -53,6 +59,14 @@ function formatResetDate(value?: string | null) {
+   }
+ }
+ 
++function alternateLanguage(language: DiscoveryLanguage): DiscoveryLanguage {
++  return language === 'fr' ? 'en' : 'fr';
++}
++
++function compactList(value?: string) {
++  return (value ?? '').split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
++}
++
+ function getErrorMessage(cause: unknown, fallback: string) {
+   if (cause instanceof Error && cause.message) return cause.message;
+   if (cause && typeof cause === 'object') {
+@@ -64,16 +78,17 @@ function getErrorMessage(cause: unknown, fallback: string) {
+   return fallback;
+ }
+ 
+-export function InventoryAiAssistCard({ kind, title, description, disabled, onApplyTitle, onApplyDescription }: InventoryAiAssistCardProps) {
++export function InventoryAiAssistCard({ kind, title, description, defaultLanguage, category, tags, disabled, onApplyTitle, onApplyDescription, onApplyTranslation, onApplyCategoryTags }: InventoryAiAssistCardProps) {
+   const auth = useAuth();
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const enabled = betaFeatures.plusSubscriptionFeatures.aiAssistEnabled;
+   const [usage, setUsage] = useState<PlusAiAssistQuotaSummary | null>(null);
+-  const [loadingField, setLoadingField] = useState<AiAssistField | null>(null);
++  const [loadingTask, setLoadingTask] = useState<string | null>(null);
+   const [suggestion, setSuggestion] = useState<PendingSuggestion | null>(null);
+   const [message, setMessage] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
++  const targetLanguage = alternateLanguage(defaultLanguage);
+ 
+   const quotaLabel = useMemo(() => {
+     if (!usage) return t('inventory.aiAssist.quotaUnknown');
+@@ -98,17 +113,21 @@ export function InventoryAiAssistCard({ kind, title, description, disabled, onAp
+   if (!enabled) return null;
+ 
+   const quotaExhausted = usage ? usage.remaining <= 0 : false;
+-  const controlsDisabled = Boolean(disabled || loadingField || !auth.isAuthenticated || quotaExhausted);
++  const controlsDisabled = Boolean(disabled || loadingTask || !auth.isAuthenticated || quotaExhausted);
++
++  function sourceText() {
++    return [title.trim(), description.trim()].filter(Boolean).join('\n\n').trim();
++  }
+ 
+   async function requestSuggestion(field: AiAssistField) {
+-    const sourceText = (field === 'title' ? title || description : description || title).trim();
+-    if (!sourceText) {
++    const text = (field === 'title' ? title || description : description || title).trim();
++    if (!text) {
+       setMessage(null);
+       setError(t('inventory.aiAssist.addTextFirst'));
+       return;
+     }
+ 
+-    setLoadingField(field);
++    setLoadingTask(field);
+     setError(null);
+     setMessage(null);
+     setSuggestion(null);
+@@ -116,30 +135,139 @@ export function InventoryAiAssistCard({ kind, title, description, disabled, onAp
+       const response = await api.ai.assist({
+         taskType: TASK_BY_KIND_AND_FIELD[kind][field],
+         targetType: kind,
+-        text: sourceText,
++        text,
+         context: field === 'title' ? description.trim() : title.trim(),
+       }) as AiAssistResponse;
+       const nextText = trimForField(field, field === 'title'
+         ? response.suggestion.title ?? response.suggestion.text
+         : response.suggestion.description ?? response.suggestion.text);
+       setUsage(response.usage);
+-      setSuggestion({ field, text: nextText });
++      setSuggestion({ kind: 'field', field, text: nextText });
++      setMessage(t('inventory.aiAssist.reviewBeforeApply'));
++    } catch (cause) {
++      setError(getErrorMessage(cause, t('inventory.aiAssist.failed')));
++    } finally {
++      setLoadingTask(null);
++    }
++  }
++
++  async function requestTranslation() {
++    if (!sourceText()) {
++      setMessage(null);
++      setError(t('inventory.aiAssist.addTextFirst'));
++      return;
++    }
++    setLoadingTask('translation');
++    setError(null);
++    setMessage(null);
++    setSuggestion(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'translate_text',
++        targetType: 'translation',
++        text: JSON.stringify({ title: title.trim(), description: description.trim() }),
++        sourceLanguage: defaultLanguage,
++        targetLanguage,
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion({
++        kind: 'translation',
++        language: targetLanguage,
++        title: trimForField('title', response.suggestion.title ?? response.suggestion.text),
++        description: trimForField('description', response.suggestion.description ?? response.suggestion.text),
++      });
++      setMessage(t('inventory.aiAssist.reviewBeforeApply'));
++    } catch (cause) {
++      setError(getErrorMessage(cause, t('inventory.aiAssist.failed')));
++    } finally {
++      setLoadingTask(null);
++    }
++  }
++
++  async function requestCategoryTags() {
++    if (!sourceText()) {
++      setMessage(null);
++      setError(t('inventory.aiAssist.addTextFirst'));
++      return;
++    }
++    setLoadingTask('category_tags');
++    setError(null);
++    setMessage(null);
++    setSuggestion(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'category_tags',
++        targetType: 'category_tags',
++        text: sourceText(),
++        context: [category, ...compactList(tags)].filter(Boolean).join(', '),
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion({
++        kind: 'category_tags',
++        category: response.suggestion.category ?? 'Other',
++        tags: response.suggestion.tags ?? [],
++        text: response.suggestion.text,
++      });
+       setMessage(t('inventory.aiAssist.reviewBeforeApply'));
+     } catch (cause) {
+       setError(getErrorMessage(cause, t('inventory.aiAssist.failed')));
+     } finally {
+-      setLoadingField(null);
++      setLoadingTask(null);
++    }
++  }
++
++  async function requestSafetyReadability() {
++    if (!sourceText()) {
++      setMessage(null);
++      setError(t('inventory.aiAssist.addTextFirst'));
++      return;
++    }
++    setLoadingTask('safety_readability');
++    setError(null);
++    setMessage(null);
++    setSuggestion(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'safety_readability',
++        targetType: 'safety_readability',
++        text: sourceText(),
++        context: [category, ...compactList(tags)].filter(Boolean).join(', '),
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion({
++        kind: 'safety_readability',
++        safetyNotes: response.suggestion.safetyNotes ?? [],
++        readabilityNotes: response.suggestion.readabilityNotes ?? [],
++        text: response.suggestion.text,
++      });
++      setMessage(t('inventory.aiAssist.checkReady'));
++    } catch (cause) {
++      setError(getErrorMessage(cause, t('inventory.aiAssist.failed')));
++    } finally {
++      setLoadingTask(null);
+     }
+   }
+ 
+   function applySuggestion() {
+     if (!suggestion) return;
+-    if (suggestion.field === 'title') onApplyTitle(suggestion.text);
+-    else onApplyDescription(suggestion.text);
++    if (suggestion.kind === 'field') {
++      if (suggestion.field === 'title') onApplyTitle(suggestion.text);
++      else onApplyDescription(suggestion.text);
++    }
++    if (suggestion.kind === 'translation') onApplyTranslation(suggestion.language, suggestion.title, suggestion.description);
++    if (suggestion.kind === 'category_tags') onApplyCategoryTags(suggestion.category, suggestion.tags);
+     setSuggestion(null);
+     setMessage(t('inventory.aiAssist.applied'));
+   }
+ 
++  function suggestionLabel() {
++    if (!suggestion) return '';
++    if (suggestion.kind === 'field') return suggestion.field === 'title' ? t('inventory.labels.title') : t('inventory.labels.description');
++    if (suggestion.kind === 'translation') return t('inventory.aiAssist.translationLabel', { language: t(`inventory.languages.${suggestion.language}`) });
++    if (suggestion.kind === 'category_tags') return t('inventory.aiAssist.categoryTagsLabel');
++    return t('inventory.aiAssist.safetyReadabilityLabel');
++  }
++
+   return (
+     <AppCard style={styles.card}>
+       <View style={styles.headerRow}>
+@@ -151,12 +279,11 @@ export function InventoryAiAssistCard({ kind, title, description, disabled, onAp
+       </View>
+ 
+       <View style={styles.actions}>
+-        <Pressable disabled={controlsDisabled} onPress={() => requestSuggestion('title')} style={({ pressed }) => [styles.actionButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, controlsDisabled && styles.disabled, pressed && styles.pressed]}>
+-          <AppText style={styles.actionText}>{loadingField === 'title' ? t('inventory.aiAssist.generating') : kind === 'need' ? t('inventory.aiAssist.improveNeedTitle') : t('inventory.aiAssist.improveOfferTitle')}</AppText>
+-        </Pressable>
+-        <Pressable disabled={controlsDisabled} onPress={() => requestSuggestion('description')} style={({ pressed }) => [styles.actionButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, controlsDisabled && styles.disabled, pressed && styles.pressed]}>
+-          <AppText style={styles.actionText}>{loadingField === 'description' ? t('inventory.aiAssist.generating') : kind === 'need' ? t('inventory.aiAssist.improveNeedDescription') : t('inventory.aiAssist.improveOfferDescription')}</AppText>
+-        </Pressable>
++        <AssistButton disabled={controlsDisabled} loading={loadingTask === 'title'} label={kind === 'need' ? t('inventory.aiAssist.improveNeedTitle') : t('inventory.aiAssist.improveOfferTitle')} onPress={() => requestSuggestion('title')} />
++        <AssistButton disabled={controlsDisabled} loading={loadingTask === 'description'} label={kind === 'need' ? t('inventory.aiAssist.improveNeedDescription') : t('inventory.aiAssist.improveOfferDescription')} onPress={() => requestSuggestion('description')} />
++        <AssistButton disabled={controlsDisabled} loading={loadingTask === 'translation'} label={t('inventory.aiAssist.translateTo', { language: t(`inventory.languages.${targetLanguage}`) })} onPress={requestTranslation} />
++        <AssistButton disabled={controlsDisabled} loading={loadingTask === 'category_tags'} label={t('inventory.aiAssist.suggestCategoryTags')} onPress={requestCategoryTags} />
++        <AssistButton disabled={controlsDisabled} loading={loadingTask === 'safety_readability'} label={t('inventory.aiAssist.checkSafetyReadability')} onPress={requestSafetyReadability} />
+       </View>
+ 
+       <AppText style={[styles.quota, { color: theme.color.muted }]}>{quotaExhausted ? t('inventory.aiAssist.quotaExhausted') : quotaLabel}</AppText>
+@@ -166,13 +293,32 @@ export function InventoryAiAssistCard({ kind, title, description, disabled, onAp
+       {error ? <InfoNotice tone="danger" title={t('inventory.aiAssist.errorTitle')} body={error} /> : null}
+ 
+       {suggestion ? (
+-        <View style={[styles.suggestion, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}> 
+-          <AppText style={[styles.suggestionLabel, { color: theme.color.muted }]}>{suggestion.field === 'title' ? t('inventory.labels.title') : t('inventory.labels.description')}</AppText>
+-          <AppText style={styles.suggestionText}>{suggestion.text}</AppText>
++        <View style={[styles.suggestion, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++          <AppText style={[styles.suggestionLabel, { color: theme.color.muted }]}>{suggestionLabel()}</AppText>
++          {suggestion.kind === 'translation' ? (
++            <>
++              <AppText style={styles.suggestionText}>{t('inventory.labels.title')}: {suggestion.title}</AppText>
++              <AppText style={styles.suggestionText}>{t('inventory.labels.description')}: {suggestion.description}</AppText>
++            </>
++          ) : suggestion.kind === 'category_tags' ? (
++            <>
++              <AppText style={styles.suggestionText}>{t('inventory.labels.category')}: {suggestion.category}</AppText>
++              <AppText style={styles.suggestionText}>{t('inventory.labels.tags')}: {suggestion.tags.join(', ') || t('inventory.labels.notSpecified')}</AppText>
++            </>
++          ) : suggestion.kind === 'safety_readability' ? (
++            <>
++              <AppText style={styles.suggestionText}>{suggestion.text}</AppText>
++              {[...suggestion.safetyNotes, ...suggestion.readabilityNotes].map((note) => <AppText key={note} style={styles.noteText}>• {note}</AppText>)}
++            </>
++          ) : (
++            <AppText style={styles.suggestionText}>{suggestion.text}</AppText>
++          )}
+           <View style={styles.suggestionActions}>
+-            <Pressable onPress={applySuggestion} style={({ pressed }) => [styles.applyButton, pressed && styles.pressed]}>
+-              <AppText style={styles.applyButtonText}>{t('inventory.aiAssist.applySuggestion')}</AppText>
+-            </Pressable>
++            {suggestion.kind !== 'safety_readability' ? (
++              <Pressable onPress={applySuggestion} style={({ pressed }) => [styles.applyButton, pressed && styles.pressed]}>
++                <AppText style={styles.applyButtonText}>{t('inventory.aiAssist.applySuggestion')}</AppText>
++              </Pressable>
++            ) : null}
+             <Pressable onPress={() => setSuggestion(null)} style={({ pressed }) => [styles.dismissButton, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+               <AppText style={styles.dismissButtonText}>{t('inventory.aiAssist.discardSuggestion')}</AppText>
+             </Pressable>
+@@ -183,6 +329,16 @@ export function InventoryAiAssistCard({ kind, title, description, disabled, onAp
+   );
+ }
+ 
++function AssistButton({ disabled, loading, label, onPress }: { disabled: boolean; loading: boolean; label: string; onPress: () => void }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, disabled && styles.disabled, pressed && styles.pressed]}>
++      <AppText style={styles.actionText}>{loading ? t('inventory.aiAssist.generating') : label}</AppText>
++    </Pressable>
++  );
++}
++
+ const styles = StyleSheet.create({
+   card: {
+     gap: 12,
+@@ -243,6 +399,11 @@ const styles = StyleSheet.create({
+     fontWeight: '700',
+     lineHeight: 20,
+   },
++  noteText: {
++    color: '#334155',
++    fontWeight: '700',
++    lineHeight: 19,
++  },
+   suggestionActions: {
+     flexDirection: 'row',
+     flexWrap: 'wrap',
+diff --git a/apps/mobile/src/features/trade/components/ProposalAiAssistCard.tsx b/apps/mobile/src/features/trade/components/ProposalAiAssistCard.tsx
+new file mode 100644
+index 0000000..41e90ee
+--- /dev/null
++++ b/apps/mobile/src/features/trade/components/ProposalAiAssistCard.tsx
+@@ -0,0 +1,163 @@
++import React, { useEffect, useMemo, useState } from 'react';
++import { Pressable, StyleSheet, View } from 'react-native';
++import type { AiAssistResponse, PlusAiAssistQuotaSummary } from '@hellowhen/contracts';
++import { api } from '../../../lib/api';
++import { betaFeatures } from '../../../lib/betaFeatures';
++import { AppCard } from '../../../components/AppCard';
++import { AppText } from '../../../components/AppText';
++import { InfoNotice, SemanticBadge } from '../../../components/SemanticUI';
++import { useAuth } from '../../../providers/AuthProvider';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
++
++type ProposalAiAssistCardProps = {
++  message: string;
++  context?: string;
++  disabled?: boolean;
++  onApplyMessage: (value: string) => void;
++};
++
++function formatResetDate(value?: string | null) {
++  if (!value) return '';
++  try {
++    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
++  } catch {
++    return value.slice(0, 10);
++  }
++}
++
++function getErrorMessage(cause: unknown, fallback: string) {
++  if (cause instanceof Error && cause.message) return cause.message;
++  if (cause && typeof cause === 'object') {
++    const maybeMessage = (cause as { publicMessage?: unknown; message?: unknown; error?: unknown }).publicMessage
++      ?? (cause as { message?: unknown }).message
++      ?? (cause as { error?: unknown }).error;
++    if (typeof maybeMessage === 'string' && maybeMessage.trim()) return maybeMessage;
++  }
++  return fallback;
++}
++
++export function ProposalAiAssistCard({ message, context, disabled, onApplyMessage }: ProposalAiAssistCardProps) {
++  const auth = useAuth();
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const enabled = betaFeatures.plusSubscriptionFeatures.aiAssistEnabled;
++  const [usage, setUsage] = useState<PlusAiAssistQuotaSummary | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [suggestion, setSuggestion] = useState('');
++  const [notice, setNotice] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  const quotaLabel = useMemo(() => {
++    if (!usage) return t('inventory.aiAssist.quotaUnknown');
++    return t('inventory.aiAssist.quotaLabel', { used: usage.used, quota: usage.quota, remaining: usage.remaining, reset: formatResetDate(usage.resetAt) });
++  }, [t, usage]);
++
++  useEffect(() => {
++    if (!enabled || !auth.hydrated || !auth.isAuthenticated) return;
++    let mounted = true;
++    async function loadSnapshot() {
++      try {
++        const response = await api.plus.me();
++        if (mounted) setUsage(response.aiAssistUsage);
++      } catch {
++        // The assist endpoint still performs the authoritative quota check.
++      }
++    }
++    void loadSnapshot();
++    return () => { mounted = false; };
++  }, [auth.hydrated, auth.isAuthenticated, enabled]);
++
++  if (!enabled) return null;
++
++  const quotaExhausted = usage ? usage.remaining <= 0 : false;
++  const controlsDisabled = Boolean(disabled || loading || !auth.isAuthenticated || quotaExhausted);
++
++  async function requestSuggestion() {
++    const source = message.trim() || context?.trim() || '';
++    if (!source) {
++      setNotice(null);
++      setError(t('trade.proposals.aiAddMessageFirst'));
++      return;
++    }
++    setLoading(true);
++    setSuggestion('');
++    setNotice(null);
++    setError(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'proposal_message',
++        targetType: 'proposal',
++        text: source,
++        context: context?.trim(),
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion(response.suggestion.text.trim());
++      setNotice(t('trade.proposals.aiReviewBeforeApply'));
++    } catch (cause) {
++      setError(getErrorMessage(cause, t('inventory.aiAssist.failed')));
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  function applySuggestion() {
++    if (!suggestion) return;
++    onApplyMessage(suggestion);
++    setSuggestion('');
++    setNotice(t('trade.proposals.aiApplied'));
++  }
++
++  return (
++    <AppCard style={styles.card}>
++      <View style={styles.headerRow}>
++        <View style={styles.copy}>
++          <AppText style={styles.title}>{t('trade.proposals.aiTitle')}</AppText>
++          <AppText style={[styles.body, { color: theme.color.muted }]}>{t('trade.proposals.aiBody')}</AppText>
++        </View>
++        <SemanticBadge label={t('inventory.aiAssist.badge')} tone="instruction" />
++      </View>
++      <Pressable disabled={controlsDisabled} onPress={requestSuggestion} style={({ pressed }) => [styles.actionButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, controlsDisabled && styles.disabled, pressed && styles.pressed]}>
++        <AppText style={styles.actionText}>{loading ? t('inventory.aiAssist.generating') : t('trade.proposals.aiImproveMessage')}</AppText>
++      </Pressable>
++      <AppText style={[styles.quota, { color: theme.color.muted }]}>{quotaExhausted ? t('inventory.aiAssist.quotaExhausted') : quotaLabel}</AppText>
++      {notice ? <InfoNotice tone="success" title={t('inventory.aiAssist.noticeTitle')} body={notice} /> : null}
++      {error ? <InfoNotice tone="danger" title={t('inventory.aiAssist.errorTitle')} body={error} /> : null}
++      {suggestion ? (
++        <View style={[styles.suggestion, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++          <AppText style={[styles.suggestionLabel, { color: theme.color.muted }]}>{t('trade.proposals.proposalNote')}</AppText>
++          <AppText style={styles.suggestionText}>{suggestion}</AppText>
++          <View style={styles.suggestionActions}>
++            <Pressable onPress={applySuggestion} style={({ pressed }) => [styles.applyButton, pressed && styles.pressed]}>
++              <AppText style={styles.applyButtonText}>{t('inventory.aiAssist.applySuggestion')}</AppText>
++            </Pressable>
++            <Pressable onPress={() => setSuggestion('')} style={({ pressed }) => [styles.dismissButton, { borderColor: theme.color.border }, pressed && styles.pressed]}>
++              <AppText style={styles.dismissButtonText}>{t('inventory.aiAssist.discardSuggestion')}</AppText>
++            </Pressable>
++          </View>
++        </View>
++      ) : null}
++    </AppCard>
++  );
++}
++
++const styles = StyleSheet.create({
++  card: { gap: 12 },
++  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
++  copy: { flex: 1, gap: 4 },
++  title: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
++  body: { lineHeight: 20, fontWeight: '700' },
++  actionButton: { alignSelf: 'flex-start', borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 10 },
++  actionText: { fontWeight: '900', color: '#0F172A' },
++  quota: { fontSize: 12, fontWeight: '800', lineHeight: 17 },
++  suggestion: { borderRadius: 18, borderWidth: 1, padding: 13, gap: 9 },
++  suggestionLabel: { fontSize: 11, fontWeight: '900', letterSpacing: 0.7, textTransform: 'uppercase' },
++  suggestionText: { color: '#0F172A', fontWeight: '700', lineHeight: 20 },
++  suggestionActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
++  applyButton: { borderRadius: 999, backgroundColor: '#0F172A', paddingHorizontal: 13, paddingVertical: 10 },
++  applyButtonText: { color: '#FFFFFF', fontWeight: '900' },
++  dismissButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 10 },
++  dismissButtonText: { color: '#0F172A', fontWeight: '900' },
++  disabled: { opacity: 0.55 },
++  pressed: { opacity: 0.76 },
++});
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 1824223..8f725b8 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2859,6 +2859,8 @@ html.dark .pro-package-prototype__item.selected {
+ .inventory-ai-assist-panel__suggestion { display: grid; gap: 9px; border: 1px solid var(--app-border); background: var(--app-surface); border-radius: 18px; padding: 13px; }
+ .inventory-ai-assist-panel__suggestion p { margin: 0; color: var(--app-text); font-size: 14px; font-weight: 700; line-height: 1.5; white-space: pre-wrap; }
+ .inventory-ai-assist-panel__suggestion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
++.inventory-ai-assist-panel__suggestion ul { margin: 0; padding-left: 18px; color: var(--app-text); font-size: 13px; font-weight: 700; line-height: 1.45; }
++.proposal-ai-assist-panel { display: grid; gap: 12px; }
+ @media (max-width: 480px) {
+   .inventory-ai-assist-panel__header { flex-direction: column; }
+ }
+diff --git a/apps/web/src/features/inventory/InventoryAiAssistPanel.tsx b/apps/web/src/features/inventory/InventoryAiAssistPanel.tsx
+index 8a1e4cb..0b64134 100644
+--- a/apps/web/src/features/inventory/InventoryAiAssistPanel.tsx
++++ b/apps/web/src/features/inventory/InventoryAiAssistPanel.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import { useEffect, useMemo, useState } from 'react';
+-import type { AiAssistResponse, PlusAiAssistQuotaSummary, PlusAiAssistTaskType } from '@hellowhen/contracts';
++import type { AiAssistResponse, DiscoveryLanguage, PlusAiAssistQuotaSummary, PlusAiAssistTaskType } from '@hellowhen/contracts';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_TITLE_MAX_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+@@ -16,15 +16,21 @@ type InventoryAiAssistPanelProps = {
+   kind: InventoryKind;
+   title: string;
+   description: string;
++  defaultLanguage: DiscoveryLanguage;
++  category?: string;
++  tags?: string;
+   disabled?: boolean;
+   onApplyTitle: (value: string) => void;
+   onApplyDescription: (value: string) => void;
++  onApplyTranslation: (languageCode: DiscoveryLanguage, title: string, description: string) => void;
++  onApplyCategoryTags: (category: string, tags: string[]) => void;
+ };
+ 
+-type PendingSuggestion = {
+-  field: AiAssistField;
+-  text: string;
+-};
++type PendingSuggestion =
++  | { kind: 'field'; field: AiAssistField; text: string }
++  | { kind: 'translation'; language: DiscoveryLanguage; title: string; description: string }
++  | { kind: 'category_tags'; category: string; tags: string[]; text: string }
++  | { kind: 'safety_readability'; safetyNotes: string[]; readabilityNotes: string[]; text: string };
+ 
+ const TASK_BY_KIND_AND_FIELD: Record<InventoryKind, Record<AiAssistField, PlusAiAssistTaskType>> = {
+   need: {
+@@ -51,16 +57,25 @@ function formatResetDate(value?: string | null) {
+   }
+ }
+ 
+-export function InventoryAiAssistPanel({ kind, title, description, disabled, onApplyTitle, onApplyDescription }: InventoryAiAssistPanelProps) {
++function alternateLanguage(language: DiscoveryLanguage): DiscoveryLanguage {
++  return language === 'fr' ? 'en' : 'fr';
++}
++
++function compactList(value: string) {
++  return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
++}
++
++export function InventoryAiAssistPanel({ kind, title, description, defaultLanguage, category, tags, disabled, onApplyTitle, onApplyDescription, onApplyTranslation, onApplyCategoryTags }: InventoryAiAssistPanelProps) {
+   const auth = useWebAuth();
+   const { t } = useWebTranslation();
+   const enabled = betaFeatures.plusSubscriptionFeatures.aiAssistEnabled;
+   const [usage, setUsage] = useState<PlusAiAssistQuotaSummary | null>(null);
+-  const [loadingField, setLoadingField] = useState<AiAssistField | null>(null);
++  const [loadingTask, setLoadingTask] = useState<string | null>(null);
+   const [suggestion, setSuggestion] = useState<PendingSuggestion | null>(null);
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+ 
++  const targetLanguage = alternateLanguage(defaultLanguage);
+   const quotaLabel = useMemo(() => {
+     if (!usage) return t('inventory.aiAssist.quotaUnknown');
+     return t('inventory.aiAssist.quotaLabel', { used: usage.used, quota: usage.quota, remaining: usage.remaining, reset: formatResetDate(usage.resetAt) });
+@@ -84,17 +99,21 @@ export function InventoryAiAssistPanel({ kind, title, description, disabled, onA
+   if (!enabled) return null;
+ 
+   const quotaExhausted = usage ? usage.remaining <= 0 : false;
+-  const controlsDisabled = Boolean(disabled || loadingField || !auth.isAuthenticated || quotaExhausted);
++  const controlsDisabled = Boolean(disabled || loadingTask || !auth.isAuthenticated || quotaExhausted);
++
++  function sourceText() {
++    return [title.trim(), description.trim()].filter(Boolean).join('\n\n').trim();
++  }
+ 
+   async function requestSuggestion(field: AiAssistField) {
+-    const sourceText = (field === 'title' ? title || description : description || title).trim();
+-    if (!sourceText) {
++    const text = (field === 'title' ? title || description : description || title).trim();
++    if (!text) {
+       setMessage('');
+       setError(t('inventory.aiAssist.addTextFirst'));
+       return;
+     }
+ 
+-    setLoadingField(field);
++    setLoadingTask(field);
+     setError('');
+     setMessage('');
+     setSuggestion(null);
+@@ -102,30 +121,139 @@ export function InventoryAiAssistPanel({ kind, title, description, disabled, onA
+       const response = await api.ai.assist({
+         taskType: TASK_BY_KIND_AND_FIELD[kind][field],
+         targetType: kind,
+-        text: sourceText,
++        text,
+         context: field === 'title' ? description.trim() : title.trim(),
+       }) as AiAssistResponse;
+       const nextText = trimForField(field, field === 'title'
+         ? response.suggestion.title ?? response.suggestion.text
+         : response.suggestion.description ?? response.suggestion.text);
+       setUsage(response.usage);
+-      setSuggestion({ field, text: nextText });
++      setSuggestion({ kind: 'field', field, text: nextText });
++      setMessage(t('inventory.aiAssist.reviewBeforeApply'));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause));
++    } finally {
++      setLoadingTask(null);
++    }
++  }
++
++  async function requestTranslation() {
++    if (!sourceText()) {
++      setMessage('');
++      setError(t('inventory.aiAssist.addTextFirst'));
++      return;
++    }
++    setLoadingTask('translation');
++    setError('');
++    setMessage('');
++    setSuggestion(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'translate_text',
++        targetType: 'translation',
++        text: JSON.stringify({ title: title.trim(), description: description.trim() }),
++        sourceLanguage: defaultLanguage,
++        targetLanguage,
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion({
++        kind: 'translation',
++        language: targetLanguage,
++        title: trimForField('title', response.suggestion.title ?? response.suggestion.text),
++        description: trimForField('description', response.suggestion.description ?? response.suggestion.text),
++      });
++      setMessage(t('inventory.aiAssist.reviewBeforeApply'));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause));
++    } finally {
++      setLoadingTask(null);
++    }
++  }
++
++  async function requestCategoryTags() {
++    if (!sourceText()) {
++      setMessage('');
++      setError(t('inventory.aiAssist.addTextFirst'));
++      return;
++    }
++    setLoadingTask('category_tags');
++    setError('');
++    setMessage('');
++    setSuggestion(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'category_tags',
++        targetType: 'category_tags',
++        text: sourceText(),
++        context: [category, ...compactList(tags ?? '')].filter(Boolean).join(', '),
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion({
++        kind: 'category_tags',
++        category: response.suggestion.category ?? 'Other',
++        tags: response.suggestion.tags ?? [],
++        text: response.suggestion.text,
++      });
+       setMessage(t('inventory.aiAssist.reviewBeforeApply'));
+     } catch (cause) {
+       setError(getFriendlyApiErrorMessage(cause));
+     } finally {
+-      setLoadingField(null);
++      setLoadingTask(null);
++    }
++  }
++
++  async function requestSafetyReadability() {
++    if (!sourceText()) {
++      setMessage('');
++      setError(t('inventory.aiAssist.addTextFirst'));
++      return;
++    }
++    setLoadingTask('safety_readability');
++    setError('');
++    setMessage('');
++    setSuggestion(null);
++    try {
++      const response = await api.ai.assist({
++        taskType: 'safety_readability',
++        targetType: 'safety_readability',
++        text: sourceText(),
++        context: [category, ...compactList(tags ?? '')].filter(Boolean).join(', '),
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion({
++        kind: 'safety_readability',
++        safetyNotes: response.suggestion.safetyNotes ?? [],
++        readabilityNotes: response.suggestion.readabilityNotes ?? [],
++        text: response.suggestion.text,
++      });
++      setMessage(t('inventory.aiAssist.checkReady'));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause));
++    } finally {
++      setLoadingTask(null);
+     }
+   }
+ 
+   function applySuggestion() {
+     if (!suggestion) return;
+-    if (suggestion.field === 'title') onApplyTitle(suggestion.text);
+-    else onApplyDescription(suggestion.text);
++    if (suggestion.kind === 'field') {
++      if (suggestion.field === 'title') onApplyTitle(suggestion.text);
++      else onApplyDescription(suggestion.text);
++    }
++    if (suggestion.kind === 'translation') onApplyTranslation(suggestion.language, suggestion.title, suggestion.description);
++    if (suggestion.kind === 'category_tags') onApplyCategoryTags(suggestion.category, suggestion.tags);
+     setSuggestion(null);
+     setMessage(t('inventory.aiAssist.applied'));
+   }
+ 
++  function suggestionLabel() {
++    if (!suggestion) return '';
++    if (suggestion.kind === 'field') return suggestion.field === 'title' ? t('inventory.labels.title') : t('inventory.labels.description');
++    if (suggestion.kind === 'translation') return t('inventory.aiAssist.translationLabel', { language: t(`inventory.languages.${suggestion.language}`) });
++    if (suggestion.kind === 'category_tags') return t('inventory.aiAssist.categoryTagsLabel');
++    return t('inventory.aiAssist.safetyReadabilityLabel');
++  }
++
+   return (
+     <section className="mobile-card mobile-card--soft inventory-ai-assist-panel">
+       <div className="inventory-ai-assist-panel__header">
+@@ -138,10 +266,19 @@ export function InventoryAiAssistPanel({ kind, title, description, disabled, onA
+ 
+       <div className="inventory-ai-assist-panel__actions">
+         <button type="button" className="button secondary compact" onClick={() => requestSuggestion('title')} disabled={controlsDisabled}>
+-          {loadingField === 'title' ? t('inventory.aiAssist.generating') : kind === 'need' ? t('inventory.aiAssist.improveNeedTitle') : t('inventory.aiAssist.improveOfferTitle')}
++          {loadingTask === 'title' ? t('inventory.aiAssist.generating') : kind === 'need' ? t('inventory.aiAssist.improveNeedTitle') : t('inventory.aiAssist.improveOfferTitle')}
+         </button>
+         <button type="button" className="button secondary compact" onClick={() => requestSuggestion('description')} disabled={controlsDisabled}>
+-          {loadingField === 'description' ? t('inventory.aiAssist.generating') : kind === 'need' ? t('inventory.aiAssist.improveNeedDescription') : t('inventory.aiAssist.improveOfferDescription')}
++          {loadingTask === 'description' ? t('inventory.aiAssist.generating') : kind === 'need' ? t('inventory.aiAssist.improveNeedDescription') : t('inventory.aiAssist.improveOfferDescription')}
++        </button>
++        <button type="button" className="button secondary compact" onClick={requestTranslation} disabled={controlsDisabled}>
++          {loadingTask === 'translation' ? t('inventory.aiAssist.generating') : t('inventory.aiAssist.translateTo', { language: t(`inventory.languages.${targetLanguage}`) })}
++        </button>
++        <button type="button" className="button secondary compact" onClick={requestCategoryTags} disabled={controlsDisabled}>
++          {loadingTask === 'category_tags' ? t('inventory.aiAssist.generating') : t('inventory.aiAssist.suggestCategoryTags')}
++        </button>
++        <button type="button" className="button secondary compact" onClick={requestSafetyReadability} disabled={controlsDisabled}>
++          {loadingTask === 'safety_readability' ? t('inventory.aiAssist.generating') : t('inventory.aiAssist.checkSafetyReadability')}
+         </button>
+       </div>
+ 
+@@ -152,10 +289,28 @@ export function InventoryAiAssistPanel({ kind, title, description, disabled, onA
+ 
+       {suggestion ? (
+         <div className="inventory-ai-assist-panel__suggestion">
+-          <span className="semantic-badge instruction">{suggestion.field === 'title' ? t('inventory.labels.title') : t('inventory.labels.description')}</span>
+-          <p>{suggestion.text}</p>
++          <span className="semantic-badge instruction">{suggestionLabel()}</span>
++          {suggestion.kind === 'translation' ? (
++            <>
++              <p><strong>{t('inventory.labels.title')}:</strong> {suggestion.title}</p>
++              <p><strong>{t('inventory.labels.description')}:</strong> {suggestion.description}</p>
++            </>
++          ) : suggestion.kind === 'category_tags' ? (
++            <>
++              <p><strong>{t('inventory.labels.category')}:</strong> {suggestion.category}</p>
++              <p><strong>{t('inventory.labels.tags')}:</strong> {suggestion.tags.join(', ') || t('inventory.labels.notSpecified')}</p>
++            </>
++          ) : suggestion.kind === 'safety_readability' ? (
++            <>
++              <p>{suggestion.text}</p>
++              {suggestion.safetyNotes.length ? <ul>{suggestion.safetyNotes.map((note) => <li key={note}>{note}</li>)}</ul> : null}
++              {suggestion.readabilityNotes.length ? <ul>{suggestion.readabilityNotes.map((note) => <li key={note}>{note}</li>)}</ul> : null}
++            </>
++          ) : (
++            <p>{suggestion.text}</p>
++          )}
+           <div className="inventory-ai-assist-panel__suggestion-actions">
+-            <button type="button" className="button primary compact" onClick={applySuggestion}>{t('inventory.aiAssist.applySuggestion')}</button>
++            {suggestion.kind !== 'safety_readability' ? <button type="button" className="button primary compact" onClick={applySuggestion}>{t('inventory.aiAssist.applySuggestion')}</button> : null}
+             <button type="button" className="button secondary compact" onClick={() => setSuggestion(null)}>{t('inventory.aiAssist.discardSuggestion')}</button>
+           </div>
+         </div>
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 68b5f68..6c4c7b4 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useRouter } from 'next/navigation';
+ import type { FormEvent } from 'react';
+-import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
++import type { CreateNeedRequest, CreateOfferRequest, DiscoveryLanguage, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
+ import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import { useEffect, useMemo, useState } from 'react';
+@@ -205,6 +205,15 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+     setValues((current) => ({ ...current, [field]: value }));
+   }
+ 
++  function applyAiTranslation(languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
++    setValues((current) => setInventoryTranslationDraft(current, { languageCode, title: titleText, description: descriptionText }));
++    setTranslationPickerOpen(false);
++  }
++
++  function applyAiCategoryTags(categoryText: string, tagList: string[]) {
++    setValues((current) => ({ ...current, category: categoryText, tags: tagList.join(', ') }));
++  }
++
+   function addTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
+     setValues((current) => setInventoryTranslationDraft(current, { languageCode, title: '', description: '' }));
+     setTranslationPickerOpen(false);
+@@ -384,9 +393,14 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+           kind={kind}
+           title={values.title}
+           description={values.description}
++          defaultLanguage={values.defaultLanguage}
++          category={values.category}
++          tags={values.tags}
+           disabled={isEditProtected || saving || uploading}
+           onApplyTitle={(nextTitle) => updateField('title', nextTitle)}
+           onApplyDescription={(nextDescription) => updateField('description', nextDescription)}
++          onApplyTranslation={applyAiTranslation}
++          onApplyCategoryTags={applyAiCategoryTags}
+         />
+ 
+         <section className="mobile-card mobile-card--soft inventory-translation-panel">
+@@ -467,6 +481,11 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+             </select>
+             <small>{t('inventory.form.categoryHelp')}</small>
+           </label>
++          <label className="field-label inventory-form__wide">
++            <span className="field-label__row"><span>{t('inventory.labels.tags')}</span><small>{t('inventory.labels.optional')}</small></span>
++            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} maxLength={160} />
++            <small>{t('inventory.form.separateWithCommas')}</small>
++          </label>
+           <label className="field-label">
+             {t('inventory.labels.mode')}
+             <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
+diff --git a/apps/web/src/features/trade/ProposalAiAssistPanel.tsx b/apps/web/src/features/trade/ProposalAiAssistPanel.tsx
+new file mode 100644
+index 0000000..3db2434
+--- /dev/null
++++ b/apps/web/src/features/trade/ProposalAiAssistPanel.tsx
+@@ -0,0 +1,127 @@
++'use client';
++
++import { useEffect, useMemo, useState } from 'react';
++import type { AiAssistResponse, PlusAiAssistQuotaSummary } from '@hellowhen/contracts';
++import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
++import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
++import { useWebAuth } from '../../providers/WebAuthProvider';
++import { useWebTranslation } from '../../providers/WebI18nProvider';
++
++type ProposalAiAssistPanelProps = {
++  message: string;
++  context?: string;
++  disabled?: boolean;
++  onApplyMessage: (value: string) => void;
++};
++
++function formatResetDate(value?: string | null) {
++  if (!value) return '';
++  try {
++    return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
++  } catch {
++    return value.slice(0, 10);
++  }
++}
++
++export function ProposalAiAssistPanel({ message, context, disabled, onApplyMessage }: ProposalAiAssistPanelProps) {
++  const auth = useWebAuth();
++  const { t } = useWebTranslation();
++  const enabled = betaFeatures.plusSubscriptionFeatures.aiAssistEnabled;
++  const [usage, setUsage] = useState<PlusAiAssistQuotaSummary | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [suggestion, setSuggestion] = useState('');
++  const [notice, setNotice] = useState('');
++  const [error, setError] = useState('');
++
++  const quotaLabel = useMemo(() => {
++    if (!usage) return t('inventory.aiAssist.quotaUnknown');
++    return t('inventory.aiAssist.quotaLabel', { used: usage.used, quota: usage.quota, remaining: usage.remaining, reset: formatResetDate(usage.resetAt) });
++  }, [t, usage]);
++
++  useEffect(() => {
++    if (!enabled || !auth.hydrated || !auth.isAuthenticated) return;
++    let mounted = true;
++    async function loadSnapshot() {
++      try {
++        const response = await api.plus.me();
++        if (mounted) setUsage(response.aiAssistUsage);
++      } catch {
++        // The assist endpoint still performs the authoritative quota check.
++      }
++    }
++    void loadSnapshot();
++    return () => { mounted = false; };
++  }, [auth.hydrated, auth.isAuthenticated, enabled]);
++
++  if (!enabled) return null;
++
++  const quotaExhausted = usage ? usage.remaining <= 0 : false;
++  const controlsDisabled = Boolean(disabled || loading || !auth.isAuthenticated || quotaExhausted);
++
++  async function requestSuggestion() {
++    const source = message.trim() || context?.trim() || '';
++    if (!source) {
++      setNotice('');
++      setError(t('trade.proposals.aiAddMessageFirst'));
++      return;
++    }
++    setLoading(true);
++    setSuggestion('');
++    setNotice('');
++    setError('');
++    try {
++      const response = await api.ai.assist({
++        taskType: 'proposal_message',
++        targetType: 'proposal',
++        text: source,
++        context: context?.trim(),
++      }) as AiAssistResponse;
++      setUsage(response.usage);
++      setSuggestion(response.suggestion.text.trim());
++      setNotice(t('trade.proposals.aiReviewBeforeApply'));
++    } catch (cause) {
++      setError(getFriendlyApiErrorMessage(cause));
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  function applySuggestion() {
++    if (!suggestion) return;
++    onApplyMessage(suggestion);
++    setSuggestion('');
++    setNotice(t('trade.proposals.aiApplied'));
++  }
++
++  return (
++    <section className="mobile-card mobile-card--soft proposal-ai-assist-panel">
++      <div className="inventory-ai-assist-panel__header">
++        <div className="inventory-form__helper-copy">
++          <strong>{t('trade.proposals.aiTitle')}</strong>
++          <span>{t('trade.proposals.aiBody')}</span>
++        </div>
++        <span className="semantic-badge instruction">{t('inventory.aiAssist.badge')}</span>
++      </div>
++      <div className="inventory-ai-assist-panel__actions">
++        <button type="button" className="button secondary compact" disabled={controlsDisabled} onClick={requestSuggestion}>
++          {loading ? t('inventory.aiAssist.generating') : t('trade.proposals.aiImproveMessage')}
++        </button>
++      </div>
++      <small className="inventory-ai-assist-panel__quota">{quotaExhausted ? t('inventory.aiAssist.quotaExhausted') : quotaLabel}</small>
++      {!auth.isAuthenticated && auth.hydrated ? <small className="inventory-ai-assist-panel__quota">{t('inventory.aiAssist.signInRequired')}</small> : null}
++      {notice ? <p className="form-message form-message--success">{notice}</p> : null}
++      {error ? <p className="form-message form-message--error">{error}</p> : null}
++      {suggestion ? (
++        <div className="inventory-ai-assist-panel__suggestion">
++          <span className="semantic-badge instruction">{t('trade.proposals.proposalNote')}</span>
++          <p>{suggestion}</p>
++          <div className="inventory-ai-assist-panel__suggestion-actions">
++            <button type="button" className="button primary compact" onClick={applySuggestion}>{t('inventory.aiAssist.applySuggestion')}</button>
++            <button type="button" className="button secondary compact" onClick={() => setSuggestion('')}>{t('inventory.aiAssist.discardSuggestion')}</button>
++          </div>
++        </div>
++      ) : null}
++    </section>
++  );
++}
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 65b2019..0e47211 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -14,6 +14,7 @@ import { ProTradePackagePrototype } from './ProTradePackagePrototype';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { UserIdentityLink } from '../users/UserIdentityLink';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
++import { ProposalAiAssistPanel } from './ProposalAiAssistPanel';
+ 
+ const PROPOSAL_REFRESH_INTERVAL_MS = 6000;
+ 
+@@ -529,6 +530,16 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+             onSupportingOfferIdsChange={setSupportingOfferIds}
+           />
+ 
++          <ProposalAiAssistPanel
++            message={proposalMessage}
++            context={[trade.need?.title, trade.offer?.title, trade.need?.description, trade.offer?.description].filter(Boolean).join('\n')}
++            disabled={loading || sideLoading}
++            onApplyMessage={(nextMessage) => {
++              setProposalMessage(nextMessage);
++              if (proposalFormError) setProposalFormError(null);
++            }}
++          />
++
+           <label className="field-label proposal-message-field">
+             {t('trade.labels.message')}
+             <textarea
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index 5d9e671..ce72bca 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -128,6 +128,13 @@ export const inventory = {
+     noticeTitle: 'Suggestion ready',
+     errorTitle: 'AI helper unavailable',
+     failed: 'The AI helper could not generate a suggestion right now.',
++    translateTo: 'Translate to {{language}}',
++    suggestCategoryTags: 'Suggest category/tags',
++    checkSafetyReadability: 'Check safety/readability',
++    translationLabel: 'Translation · {{language}}',
++    categoryTagsLabel: 'Category and tags',
++    safetyReadabilityLabel: 'Safety/readability check',
++    checkReady: 'Review the check below. Nothing is changed automatically.',
+   },
+   actions: {
+     createNeed: 'Create Need',
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 89782e4..0152bed 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -209,6 +209,12 @@ export const trade = {
+     applicantProposes: 'Applicant proposes',
+     youPropose: 'You propose',
+     proposalNote: 'Proposal note',
++    aiTitle: 'AI proposal helper',
++    aiBody: 'Draft a clearer private proposal. Review it before applying; nothing is sent automatically.',
++    aiImproveMessage: 'Improve proposal message',
++    aiReviewBeforeApply: 'Review the proposal suggestion before applying it.',
++    aiApplied: 'Suggestion applied. You can still edit it before sending.',
++    aiAddMessageFirst: 'Write a short message or choose proposal context first.',
+     openForOffers: 'Open for offers',
+     openForNeeds: 'Open for needs',
+     openForOffersBody: 'People can propose one of their saved Offers. When you accept one, this post becomes an in-progress trade with that Offer attached.',
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index bdf9042..d9c6107 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -128,6 +128,13 @@ export const inventory = {
+     noticeTitle: 'Suggestion prête',
+     errorTitle: 'Assistant IA indisponible',
+     failed: 'L’assistant IA n’a pas pu générer de suggestion pour le moment.',
++    translateTo: 'Traduire en {{language}}',
++    suggestCategoryTags: 'Suggérer catégorie/tags',
++    checkSafetyReadability: 'Vérifier sécurité/lisibilité',
++    translationLabel: 'Traduction · {{language}}',
++    categoryTagsLabel: 'Catégorie et tags',
++    safetyReadabilityLabel: 'Vérification sécurité/lisibilité',
++    checkReady: 'Lis la vérification ci-dessous. Rien n’est changé automatiquement.',
+   },
+   actions: {
+     createNeed: 'Créer un besoin',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index c8a1456..d6ba18b 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -209,6 +209,12 @@ export const trade = {
+     applicantProposes: 'Le candidat propose',
+     youPropose: 'Vous proposez',
+     proposalNote: 'Note de proposition',
++    aiTitle: 'Assistant IA de proposition',
++    aiBody: 'Prépare un message privé plus clair. Relis-le avant de l’appliquer ; rien n’est envoyé automatiquement.',
++    aiImproveMessage: 'Améliorer le message de proposition',
++    aiReviewBeforeApply: 'Relis la suggestion de proposition avant de l’appliquer.',
++    aiApplied: 'Suggestion appliquée. Tu peux encore la modifier avant l’envoi.',
++    aiAddMessageFirst: 'Écris un court message ou choisis d’abord un contexte de proposition.',
+     openForOffers: 'Ouvert aux offres',
+     openForNeeds: 'Ouvert aux besoins',
+     openForOffersBody: 'Les personnes peuvent proposer une de leurs offres enregistrées. Lorsque vous en acceptez une, cette publication devient un échange en cours avec cette offre attachée.',

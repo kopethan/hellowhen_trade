@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { normalizePreviewCardTheme } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
 
@@ -18,9 +19,18 @@ type TradePosterCardProps = {
   identity?: React.ReactNode;
   variant?: TradePosterCardVariant;
   onPress: () => void;
+  previewTheme?: string | null;
 };
 
 const FALLBACK_ACCENTS = ['#f97316', '#84cc16', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b', '#6366f1'];
+const THEME_FALLBACK_ACCENTS = {
+  default: null,
+  blue: '#3b82f6',
+  green: '#10b981',
+  purple: '#8b5cf6',
+  amber: '#f59e0b',
+  rose: '#f43f5e',
+} as const;
 const TEXT_ZONE_BLUR_BANDS = [
   { top: 45, height: 40, blur: 6, opacity: 0.04, tintOpacity: 0 },
   { top: 56, height: 36, blur: 12, opacity: 0.08, tintOpacity: 0.012 },
@@ -89,12 +99,14 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
   );
 }
 
-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, identity, variant = 'trade', onPress }: TradePosterCardProps) {
+function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, identity, variant = 'trade', onPress, previewTheme }: TradePosterCardProps) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
   const [imageFailed, setImageFailed] = useState(!imageUrl);
   const visibleImageUrl = imageUrl && !imageFailed ? imageUrl : null;
   const fallback = useMemo(() => fallbackModel(id, variant), [id, variant]);
+  const controlledTheme = normalizePreviewCardTheme(previewTheme);
+  const controlledAccent = THEME_FALLBACK_ACCENTS[controlledTheme];
   const visibleChips = useMemo(() => normalizeChips(chips), [chips]);
   const fallbackLines = useMemo(() => Array.from({ length: 8 }, (_, index) => index), []);
 
@@ -120,7 +132,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           : '#b91c1c';
 
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: mediaSurface }, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, { backgroundColor: controlledAccent && !visibleImageUrl ? `${controlledAccent}24` : mediaSurface }, pressed && styles.pressed]}>
       {visibleImageUrl ? (
         <Image source={{ uri: visibleImageUrl }} resizeMode="cover" onError={() => setImageFailed(true)} style={StyleSheet.absoluteFillObject} />
       ) : (
@@ -142,7 +154,7 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
             style={[
               styles.fallbackDot,
               {
-                backgroundColor: fallback.accent,
+                backgroundColor: controlledAccent ?? fallback.accent,
                 transform: [{ translateX: fallback.dotOffsetX }, { translateY: fallback.dotOffsetY }],
               },
             ]}

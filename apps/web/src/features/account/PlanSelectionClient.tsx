@@ -2,11 +2,11 @@
 
 import Link from 'next/link';
 import { betaFeatures } from '../../lib/betaFeatures';
-import { formatWebProMonthlyPrice, getWebProGate } from '../../lib/proGate';
+import { formatWebPlusMonthlyPrice, formatWebPlusYearlyPrice, getWebPlusGate } from '../../lib/plusGate';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 
 type PlanCard = {
-  id: 'free' | 'pro' | 'business';
+  id: 'free' | 'plus';
   badge?: string;
   title: string;
   price: string;
@@ -50,75 +50,49 @@ function PlanCardView({ card }: { card: PlanCard }) {
 
 export function PlanSelectionClient() {
   const auth = useWebAuth();
-  const gate = getWebProGate();
-  const proPrice = formatWebProMonthlyPrice(gate);
-  const trialCopy = betaFeatures.proSubscriptionFeatures.proTrialsEnabled
-    ? `${gate.trialDays}-day trial planned`
-    : 'Trial planned for a future Pro beta';
+  const gate = getWebPlusGate();
+  const plusPrice = formatWebPlusMonthlyPrice(gate);
+  const yearlyPrice = formatWebPlusYearlyPrice(gate);
 
   const freeAction: PlanCard['action'] = auth.isAuthenticated
     ? { label: 'Current plan', kind: 'current' }
     : { label: 'Get started', kind: 'link', href: `/auth?next=${encodeURIComponent('/account/plans')}` };
-
-  const proAction: PlanCard['action'] = betaFeatures.proSubscriptionFeatures.identityVerificationEnabled
-    ? { label: 'Start Pro setup', kind: 'link', href: '/account/pro/setup' }
-    : { label: 'Coming later', kind: 'disabled' };
 
   const cards: PlanCard[] = [
     {
       id: 'free',
       title: 'Free',
       price: '€0/month',
-      tagline: 'Start trading needs and offers.',
-      description: 'Use the core Hellowhen Trade marketplace as an individual user.',
+      tagline: 'Core Hellowhen Trade access.',
+      description: 'Use the marketplace to create Needs, Offers, Trades, and proposals with the normal safety tools included.',
       bullets: [
         'Create Needs and Offers',
         'Create normal one-to-one Trades',
         'Send and receive proposals',
-        'Use public discussion and private proposal conversations',
-        'Basic profile and account settings',
-        'Report and support access',
+        `Small AI assist quota planned later: ${gate.entitlements.monthlyAiAssistQuota} assists/month`,
+        'Profile, support, reporting, and moderation tools',
       ],
-      boundary: 'Professional tools, package proposals, portfolio features, and professional verification are not included.',
+      boundary: 'Free keeps the core marketplace available. Plus will not be required to trade safely.',
       action: freeAction,
     },
     {
-      id: 'pro',
-      badge: 'For professionals',
-      title: 'Pro',
-      price: `${proPrice}/month`,
-      tagline: 'Show more value, build trust, and work faster.',
-      description: 'For freelancers, creators, service providers, consultants, and professionals who want stronger profile, proposal, and discovery tools.',
+      id: 'plus',
+      badge: 'Hidden preview',
+      title: 'Plus',
+      price: `${plusPrice}/month`,
+      tagline: 'AI helpers and personalization first.',
+      description: 'A lightweight future paid tier for users who want help writing better posts and controlling how their previews look.',
       bullets: [
-        'Verified Professional badge',
-        'Professional profile section',
-        'Pro Trade Packages',
-        'Portfolio/gallery tools later',
-        'Reusable proposal and offer templates later',
-        'Basic analytics later',
-        'Priority visibility experiments later',
+        'Improve Need and Offer title/description drafts',
+        'Improve proposal messages before sending',
+        'EN/FR translation helper planned',
+        'Category, tag, safety, and readability suggestions planned',
+        `${betaFeatures.plusSubscriptionFeatures.plusMonthlyAiAssistQuota} AI assists/month planned for Plus`,
+        'Controlled preview themes and cover/image order customization planned',
       ],
-      boundary: `Requires identity verification and an active or trialing Pro subscription. ${trialCopy}.`,
-      action: proAction,
-      featured: true,
-    },
-    {
-      id: 'business',
-      badge: 'Coming later',
-      title: 'Business',
-      price: 'Custom / later',
-      tagline: 'For verified brands, teams, and organizations.',
-      description: 'Business accounts are planned for brands, agencies, shops, studios, and teams that need organization-level verification, campaigns, libraries, and team controls.',
-      bullets: [
-        'Business verification / KYB later',
-        'Team members and roles later',
-        'Brand profile and library items later',
-        'Campaign-style Needs and Offers later',
-        'Sponsored placements later',
-        'Business analytics and budgets later',
-      ],
-      boundary: 'Business is not part of the first Pro launch and will be designed separately.',
+      boundary: `Billing is not connected. Yearly may be planned later around ${yearlyPrice}/year. Ads removal and short video are not included in Plus v1. Plus never bypasses moderation, reports, trust, or safety rules.`,
       action: { label: 'Coming later', kind: 'disabled' },
+      featured: true,
     },
   ];
 
@@ -126,16 +100,16 @@ export function PlanSelectionClient() {
     <div className="plan-selection-page">
       <div className="page-intro">
         <div>
-          <p className="eyebrow">Plans</p>
-          <h2>Choose how you want to use Hellowhen</h2>
-          <p>Free stays available for normal Need and Offer trades. Pro is a future professional upgrade, and Business will be designed later.</p>
+          <p className="eyebrow">Plus</p>
+          <h2>Free + Plus preview</h2>
+          <p>Plus is a hidden account preview for AI helpers and personalization. It is not public, not connected to billing, and does not start checkout.</p>
         </div>
       </div>
 
       <section className="mobile-card mobile-card--soft plan-selection-note">
         <span className="semantic-badge instruction">Hidden preview</span>
-        <h3>Not connected to billing yet</h3>
-        <p>This page is a hidden pricing and plan-selection prototype. It does not start checkout, identity verification, native purchases, or public Pro onboarding.</p>
+        <h3>Billing is not connected</h3>
+        <p>This page is controlled by Plus feature flags. It shows planned copy only: no Apple billing, Google billing, Stripe checkout, Ad removal, or video upload is enabled.</p>
       </section>
 
       <div className="plan-selection-grid">
@@ -143,8 +117,8 @@ export function PlanSelectionClient() {
       </div>
 
       <section className="mobile-card mobile-card--soft plan-selection-safety">
-        <h3>Pro safety boundaries</h3>
-        <p>Pro will never unlock moderation bypasses, private proposal access, report bypasses, or payment/payout access without later provider and compliance approval.</p>
+        <h3>Plus safety boundaries</h3>
+        <p>Plus can suggest text and personalization, but users must approve every AI suggestion manually. Plus does not bypass moderation, reports, restricted-user rules, trust checks, or future money safety limits.</p>
       </section>
     </div>
   );

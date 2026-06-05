@@ -9,15 +9,30 @@ function createMediaRequestError(code: string, publicMessage: string, statusCode
   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
 }
 
-export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: string[] | undefined, entityType: MediaEntityType, entityId: string) {
-  const ids = Array.from(new Set(mediaIds ?? []));
-  if (ids.length === 0) return;
+export type AttachMediaOptions = {
+  coverMediaId?: string | null;
+  enableOrderAndCover?: boolean;
+  syncSelection?: boolean;
+};
+
+export async function attachUploadedMediaToEntity(
+  ownerId: string,
+  mediaIds: string[] | undefined,
+  entityType: MediaEntityType,
+  entityId: string,
+  options: AttachMediaOptions = {},
+) {
+  if (mediaIds === undefined) return;
+
+  const ids = Array.from(new Set(mediaIds));
   if (ids.length > 5) {
     throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
   }
 
   const [selectedMedia, existingEntityMedia] = await Promise.all([
-    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: 'active' } }),
+    ids.length
+      ? prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: 'active' } })
+      : Promise.resolve([]),
     prisma.mediaAsset.findMany({ where: { entityType, entityId, status: { not: 'removed' } }, select: { id: true } })
   ]);
 
@@ -36,6 +51,29 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
     throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
   }
 
+  if (options.syncSelection) {
+    const removedIds = existingEntityMedia.map((item) => item.id).filter((id) => !ids.includes(id));
+    if (removedIds.length) {
+      await prisma.mediaAsset.updateMany({
+        where: { id: { in: removedIds }, ownerId, entityType, entityId },
+        data: { entityType: null, entityId: null, sortOrder: 0, isCover: false }
+      });
+    }
+  }
+
+  if (ids.length === 0) return;
+
+  const coverMediaId = options.enableOrderAndCover && options.coverMediaId && ids.includes(options.coverMediaId)
+    ? options.coverMediaId
+    : ids[0] ?? null;
+
+  if (options.enableOrderAndCover) {
+    await prisma.$transaction(ids.map((id, index) => prisma.mediaAsset.update({
+      where: { id },
+      data: { entityType, entityId, sortOrder: index, isCover: coverMediaId === id }
+    })));
+    return;
+  }
 
   await prisma.mediaAsset.updateMany({
     where: {
@@ -44,7 +82,7 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
       status: { not: 'removed' },
       OR: [{ entityId: null }, { entityId }]
     },
-    data: { entityType, entityId }
+    data: { entityType, entityId, sortOrder: 0, isCover: false }
   });
 }
 
@@ -61,7 +99,7 @@ export async function loadMediaByEntityIds(entityType: MediaEntityType, entityId
 
   const media = await prisma.mediaAsset.findMany({
     where: { entityType, entityId: { in: ids }, ...statusWhere },
-    orderBy: { createdAt: 'asc' }
+    orderBy: [{ isCover: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }]
   });
   // First beta policy: uploads are active immediately. Public trade pages only
   // render active media; flagged/removed media is hidden from public decks and

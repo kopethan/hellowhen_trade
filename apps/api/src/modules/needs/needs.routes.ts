@@ -6,6 +6,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
 
 export const needsRoutes = Router();
 needsRoutes.use(requireAuth);
@@ -89,6 +90,10 @@ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
 
 needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createNeedRequestSchema.parse(req.body);
+  const [previewTheme, canCustomizeMedia] = await Promise.all([
+    resolvePlusPreviewThemeForCreate(req.user!.id, input.previewTheme),
+    userCanUsePlusCustomization(req.user!.id),
+  ]);
   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
   let need = await prisma.need.create({
     data: {
@@ -103,11 +108,15 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       locationLabel: input.locationLabel ?? null,
       tags: input.tags ?? [],
       status: input.status ?? 'draft',
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      previewTheme
     }
   });
   await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations ?? []);
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id, {
+    coverMediaId: input.coverMediaId,
+    enableOrderAndCover: canCustomizeMedia,
+  });
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'need',
     targetId: need.id,
@@ -134,9 +143,17 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
   if (active.activeTradeCount > 0) {
     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
-  let need = await prisma.need.update({ where: { id: existing.id }, data: buildNeedUpdateData(input) });
+  const [previewTheme, canCustomizeMedia] = await Promise.all([
+    resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
+    userCanUsePlusCustomization(req.user!.id),
+  ]);
+  let need = await prisma.need.update({ where: { id: existing.id }, data: { ...buildNeedUpdateData(input), ...(previewTheme !== undefined ? { previewTheme } : {}) } });
   await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations);
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id, {
+    coverMediaId: input.coverMediaId,
+    enableOrderAndCover: canCustomizeMedia,
+    syncSelection: input.mediaIds !== undefined,
+  });
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'need',
     targetId: need.id,

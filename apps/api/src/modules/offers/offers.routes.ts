@@ -6,6 +6,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
 import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
 
 export const offersRoutes = Router();
 offersRoutes.use(requireAuth);
@@ -90,6 +91,10 @@ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
 
 offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createOfferRequestSchema.parse(req.body);
+  const [previewTheme, canCustomizeMedia] = await Promise.all([
+    resolvePlusPreviewThemeForCreate(req.user!.id, input.previewTheme),
+    userCanUsePlusCustomization(req.user!.id),
+  ]);
   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
   let offer = await prisma.offer.create({
     data: {
@@ -105,11 +110,15 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       includes: input.includes ?? [],
       tags: input.tags ?? [],
       status: input.status ?? 'draft',
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null
+      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      previewTheme
     }
   });
   await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations ?? []);
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id, {
+    coverMediaId: input.coverMediaId,
+    enableOrderAndCover: canCustomizeMedia,
+  });
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'offer',
     targetId: offer.id,
@@ -136,9 +145,17 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
   if (active.activeTradeCount > 0) {
     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
   }
-  let offer = await prisma.offer.update({ where: { id: existing.id }, data: buildOfferUpdateData(input) });
+  const [previewTheme, canCustomizeMedia] = await Promise.all([
+    resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
+    userCanUsePlusCustomization(req.user!.id),
+  ]);
+  let offer = await prisma.offer.update({ where: { id: existing.id }, data: { ...buildOfferUpdateData(input), ...(previewTheme !== undefined ? { previewTheme } : {}) } });
   await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations);
-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
+  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id, {
+    coverMediaId: input.coverMediaId,
+    enableOrderAndCover: canCustomizeMedia,
+    syncSelection: input.mediaIds !== undefined,
+  });
   const classification = await classifyContentRulesIfEnabled(prisma, {
     targetType: 'offer',
     targetId: offer.id,

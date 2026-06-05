@@ -1,0 +1,861 @@
+diff --git a/apps/api/prisma/migrations/20260605152000_plus_media_cover_order/migration.sql b/apps/api/prisma/migrations/20260605152000_plus_media_cover_order/migration.sql
+new file mode 100644
+index 0000000..42a5fc4
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260605152000_plus_media_cover_order/migration.sql
+@@ -0,0 +1,6 @@
++-- Add stable media ordering and a single cover marker for Plus visual customization.
++ALTER TABLE "MediaAsset" ADD COLUMN IF NOT EXISTS "sortOrder" INTEGER NOT NULL DEFAULT 0;
++ALTER TABLE "MediaAsset" ADD COLUMN IF NOT EXISTS "isCover" BOOLEAN NOT NULL DEFAULT false;
++
++CREATE INDEX IF NOT EXISTS "MediaAsset_entityType_entityId_isCover_sortOrder_idx"
++  ON "MediaAsset"("entityType", "entityId", "isCover", "sortOrder");
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index e6fd7b0..be06f14 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -1469,6 +1469,8 @@ model MediaAsset {
+   filename    String
+   mimeType    String
+   sizeBytes   Int
++  sortOrder   Int              @default(0)
++  isCover     Boolean          @default(false)
+   status      MediaAssetStatus @default(active)
+   reviewNote  String?
+   reviewedAt  DateTime?
+@@ -1481,6 +1483,7 @@ model MediaAsset {
+ 
+   @@index([ownerId, createdAt])
+   @@index([entityType, entityId])
++  @@index([entityType, entityId, isCover, sortOrder])
+   @@index([status, createdAt])
+ }
+ 
+diff --git a/apps/api/src/modules/media/media.helpers.ts b/apps/api/src/modules/media/media.helpers.ts
+index 43ba4cd..df4870a 100644
+--- a/apps/api/src/modules/media/media.helpers.ts
++++ b/apps/api/src/modules/media/media.helpers.ts
+@@ -9,15 +9,30 @@ function createMediaRequestError(code: string, publicMessage: string, statusCode
+   return Object.assign(new Error(publicMessage), { code, publicMessage, statusCode });
+ }
+ 
+-export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: string[] | undefined, entityType: MediaEntityType, entityId: string) {
+-  const ids = Array.from(new Set(mediaIds ?? []));
+-  if (ids.length === 0) return;
++export type AttachMediaOptions = {
++  coverMediaId?: string | null;
++  enableOrderAndCover?: boolean;
++  syncSelection?: boolean;
++};
++
++export async function attachUploadedMediaToEntity(
++  ownerId: string,
++  mediaIds: string[] | undefined,
++  entityType: MediaEntityType,
++  entityId: string,
++  options: AttachMediaOptions = {},
++) {
++  if (mediaIds === undefined) return;
++
++  const ids = Array.from(new Set(mediaIds));
+   if (ids.length > 5) {
+     throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
+   }
+ 
+   const [selectedMedia, existingEntityMedia] = await Promise.all([
+-    prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: 'active' } }),
++    ids.length
++      ? prisma.mediaAsset.findMany({ where: { id: { in: ids }, ownerId, status: 'active' } })
++      : Promise.resolve([]),
+     prisma.mediaAsset.findMany({ where: { entityType, entityId, status: { not: 'removed' } }, select: { id: true } })
+   ]);
+ 
+@@ -36,6 +51,29 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
+     throw createMediaRequestError('too_many_images', 'You can attach up to 5 images. Remove one image before adding another.');
+   }
+ 
++  if (options.syncSelection) {
++    const removedIds = existingEntityMedia.map((item) => item.id).filter((id) => !ids.includes(id));
++    if (removedIds.length) {
++      await prisma.mediaAsset.updateMany({
++        where: { id: { in: removedIds }, ownerId, entityType, entityId },
++        data: { entityType: null, entityId: null, sortOrder: 0, isCover: false }
++      });
++    }
++  }
++
++  if (ids.length === 0) return;
++
++  const coverMediaId = options.enableOrderAndCover && options.coverMediaId && ids.includes(options.coverMediaId)
++    ? options.coverMediaId
++    : ids[0] ?? null;
++
++  if (options.enableOrderAndCover) {
++    await prisma.$transaction(ids.map((id, index) => prisma.mediaAsset.update({
++      where: { id },
++      data: { entityType, entityId, sortOrder: index, isCover: coverMediaId === id }
++    })));
++    return;
++  }
+ 
+   await prisma.mediaAsset.updateMany({
+     where: {
+@@ -44,7 +82,7 @@ export async function attachUploadedMediaToEntity(ownerId: string, mediaIds: str
+       status: { not: 'removed' },
+       OR: [{ entityId: null }, { entityId }]
+     },
+-    data: { entityType, entityId }
++    data: { entityType, entityId, sortOrder: 0, isCover: false }
+   });
+ }
+ 
+@@ -61,7 +99,7 @@ export async function loadMediaByEntityIds(entityType: MediaEntityType, entityId
+ 
+   const media = await prisma.mediaAsset.findMany({
+     where: { entityType, entityId: { in: ids }, ...statusWhere },
+-    orderBy: { createdAt: 'asc' }
++    orderBy: [{ isCover: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }]
+   });
+   // First beta policy: uploads are active immediately. Public trade pages only
+   // render active media; flagged/removed media is hidden from public decks and
+diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
+index 6f83ab5..2bcaade 100644
+--- a/apps/api/src/modules/needs/needs.routes.ts
++++ b/apps/api/src/modules/needs/needs.routes.ts
+@@ -6,7 +6,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+-import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate } from '../subscriptions/plusCustomization.js';
++import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
+ 
+ export const needsRoutes = Router();
+ needsRoutes.use(requireAuth);
+@@ -90,7 +90,10 @@ needsRoutes.get('/:needId/delete-impact', asyncRoute(async (req, res) => {
+ 
+ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createNeedRequestSchema.parse(req.body);
+-  const previewTheme = await resolvePlusPreviewThemeForCreate(req.user!.id, input.previewTheme);
++  const [previewTheme, canCustomizeMedia] = await Promise.all([
++    resolvePlusPreviewThemeForCreate(req.user!.id, input.previewTheme),
++    userCanUsePlusCustomization(req.user!.id),
++  ]);
+   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_need_status', message: 'Review-only statuses are available only through Business review flows.' });
+   let need = await prisma.need.create({
+     data: {
+@@ -110,7 +113,10 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     }
+   });
+   await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations ?? []);
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id, {
++    coverMediaId: input.coverMediaId,
++    enableOrderAndCover: canCustomizeMedia,
++  });
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'need',
+     targetId: need.id,
+@@ -137,10 +143,17 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+   if (active.activeTradeCount > 0) {
+     return res.status(409).json(linkedNeedBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+   }
+-  const previewTheme = await resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme);
++  const [previewTheme, canCustomizeMedia] = await Promise.all([
++    resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
++    userCanUsePlusCustomization(req.user!.id),
++  ]);
+   let need = await prisma.need.update({ where: { id: existing.id }, data: { ...buildNeedUpdateData(input), ...(previewTheme !== undefined ? { previewTheme } : {}) } });
+   await syncInventoryTranslations(prisma, 'need', need.id, req.user!.id, need.defaultLanguage, input.translations);
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id);
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'need', need.id, {
++    coverMediaId: input.coverMediaId,
++    enableOrderAndCover: canCustomizeMedia,
++    syncSelection: input.mediaIds !== undefined,
++  });
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'need',
+     targetId: need.id,
+diff --git a/apps/api/src/modules/offers/offers.routes.ts b/apps/api/src/modules/offers/offers.routes.ts
+index 2ef274d..de26cf6 100644
+--- a/apps/api/src/modules/offers/offers.routes.ts
++++ b/apps/api/src/modules/offers/offers.routes.ts
+@@ -6,7 +6,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { buildContentReviewGateDecision, classifyContentRulesIfEnabled } from '../content-intelligence/contentIntelligence.classifier.js';
+ import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
+ import { inventoryTranslationExtraText, syncInventoryTranslations, withInventoryTranslations, withOneInventoryTranslation } from '../inventoryTranslations.js';
+-import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate } from '../subscriptions/plusCustomization.js';
++import { resolvePlusPreviewThemeForCreate, resolvePlusPreviewThemeForUpdate, userCanUsePlusCustomization } from '../subscriptions/plusCustomization.js';
+ 
+ export const offersRoutes = Router();
+ offersRoutes.use(requireAuth);
+@@ -91,7 +91,10 @@ offersRoutes.get('/:offerId/delete-impact', asyncRoute(async (req, res) => {
+ 
+ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createOfferRequestSchema.parse(req.body);
+-  const previewTheme = await resolvePlusPreviewThemeForCreate(req.user!.id, input.previewTheme);
++  const [previewTheme, canCustomizeMedia] = await Promise.all([
++    resolvePlusPreviewThemeForCreate(req.user!.id, input.previewTheme),
++    userCanUsePlusCustomization(req.user!.id),
++  ]);
+   if (input.status && ['pending_review', 'rejected'].includes(input.status)) return res.status(400).json({ error: 'invalid_offer_status', message: 'Review-only statuses are available only through Business review flows.' });
+   let offer = await prisma.offer.create({
+     data: {
+@@ -112,7 +115,10 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     }
+   });
+   await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations ?? []);
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id, {
++    coverMediaId: input.coverMediaId,
++    enableOrderAndCover: canCustomizeMedia,
++  });
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'offer',
+     targetId: offer.id,
+@@ -139,10 +145,17 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+   if (active.activeTradeCount > 0) {
+     return res.status(409).json(linkedOfferBlockedPayload(active.activeTradeCount, active.activeTrades, 'edit'));
+   }
+-  const previewTheme = await resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme);
++  const [previewTheme, canCustomizeMedia] = await Promise.all([
++    resolvePlusPreviewThemeForUpdate(req.user!.id, input.previewTheme),
++    userCanUsePlusCustomization(req.user!.id),
++  ]);
+   let offer = await prisma.offer.update({ where: { id: existing.id }, data: { ...buildOfferUpdateData(input), ...(previewTheme !== undefined ? { previewTheme } : {}) } });
+   await syncInventoryTranslations(prisma, 'offer', offer.id, req.user!.id, offer.defaultLanguage, input.translations);
+-  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id);
++  await attachUploadedMediaToEntity(req.user!.id, input.mediaIds, 'offer', offer.id, {
++    coverMediaId: input.coverMediaId,
++    enableOrderAndCover: canCustomizeMedia,
++    syncSelection: input.mediaIds !== undefined,
++  });
+   const classification = await classifyContentRulesIfEnabled(prisma, {
+     targetType: 'offer',
+     targetId: offer.id,
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index 6dff6ae..35dcf6a 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -5,6 +5,7 @@ import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@he
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppCard } from '../../components/AppCard';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+@@ -125,6 +126,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+         previewTheme,
+         status: route.params?.returnTo ? 'active' : 'draft',
+         mediaIds,
++        coverMediaId: mediaIds[0],
+       }) as CreateNeedResponse;
+ 
+       if (route.params?.returnTo === 'proposalDetail' && route.params.proposalId) {
+@@ -233,6 +235,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+             images={images}
+             onChange={setImages}
+             disabled={submitting}
++            enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
+             label={t('inventory.labels.referenceImages')}
+             hint={t('inventory.form.needImageHint')}
+           />
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index 75a4a2d..c18bad8 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -5,6 +5,7 @@ import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@he
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppCard } from '../../components/AppCard';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+@@ -126,6 +127,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+         previewTheme,
+         status: route.params?.returnTo ? 'active' : 'draft',
+         mediaIds,
++        coverMediaId: mediaIds[0],
+       }) as CreateOfferResponse;
+ 
+       if (route.params?.returnTo === 'proposalDetail' && route.params.proposalId) {
+@@ -234,6 +236,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+             images={images}
+             onChange={setImages}
+             disabled={submitting}
++            enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
+             label={t('inventory.labels.sampleImages')}
+             hint={t('inventory.form.offerImageHint')}
+           />
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index caeb820..e8827b6 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -8,6 +8,7 @@ import {
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+@@ -53,6 +54,7 @@ import { resolveMediaUrl } from './mediaUrls';
+ import type {
+   DiscoveryLanguage,
+   InventoryItemType,
++  MediaAssetDto,
+ } from '@hellowhen/contracts';
+ import {
+   INVENTORY_DESCRIPTION_MAX_LENGTH,
+@@ -128,6 +130,17 @@ function detailChips({
+     .map((label) => ({ label, tone }));
+ }
+ 
++
++function normalizeMediaOrder(items: MediaAssetDto[]): MediaAssetDto[] {
++  const active = items.filter((item) => item.status !== 'removed');
++  const hasCover = active.some((item) => item.isCover);
++  return active.map((item, index) => ({
++    ...item,
++    sortOrder: index,
++    isCover: hasCover ? Boolean(item.isCover) : index === 0,
++  }));
++}
++
+ export function InventoryDetailScreen({
+   kind,
+   itemId,
+@@ -154,6 +167,7 @@ export function InventoryDetailScreen({
+   const [timingOrAvailability, setTimingOrAvailability] = useState('');
+   const [mode, setMode] = useState<InventoryMode>('remote');
+   const [locationLabel, setLocationLabel] = useState('');
++  const [existingMedia, setExistingMedia] = useState<MediaAssetDto[]>([]);
+   const [newImages, setNewImages] = useState<SelectedLocalImage[]>([]);
+   const [editing, setEditing] = useState(false);
+   const [loading, setLoading] = useState(false);
+@@ -214,6 +228,8 @@ export function InventoryDetailScreen({
+         timingOrAvailability !== itemTimingOrAvailability ||
+         mode !== normalizeMode(getOptionalString(item, 'mode')) ||
+         locationLabel !== getOptionalString(item, 'locationLabel') ||
++        existingMedia.map((media) => media.id).join(',') !== (item.media ?? []).filter((media) => media.status !== 'removed').map((media) => media.id).join(',') ||
++        existingMedia.find((media) => media.isCover)?.id !== (item.media ?? []).find((media) => media.isCover)?.id ||
+         newImages.length > 0,
+     );
+   }, [category, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
+@@ -267,6 +283,7 @@ export function InventoryDetailScreen({
+       );
+       setMode(normalizeMode(getOptionalString(nextItem, 'mode')));
+       setLocationLabel(getOptionalString(nextItem, 'locationLabel'));
++      setExistingMedia(normalizeMediaOrder(nextItem.media ?? []));
+       setNewImages([]);
+     },
+     [isNeed, language],
+@@ -353,7 +370,10 @@ export function InventoryDetailScreen({
+     setError(null);
+     try {
+       setUploadProgress(null);
+-      const mediaIds = await uploadSelectedImages(newImages, { onProgress: setUploadProgress });
++      const uploadedMediaIds = await uploadSelectedImages(newImages, { onProgress: setUploadProgress });
++      const existingMediaIds = existingMedia.filter((media) => media.status !== 'removed').map((media) => media.id);
++      const mediaIds = [...existingMediaIds, ...uploadedMediaIds].slice(0, 5);
++      const coverMediaId = existingMedia.find((media) => media.isCover)?.id ?? mediaIds[0];
+       const payload = {
+         title: title.trim(),
+         description: description.trim(),
+@@ -370,6 +390,7 @@ export function InventoryDetailScreen({
+         locationLabel: optionalText(locationLabel),
+         status: nextStatus ?? item?.status ?? 'draft',
+         mediaIds,
++        coverMediaId,
+       } as never;
+       const result = isNeed
+         ? ((await api.needs.update(itemId, payload)) as InventoryResponse)
+@@ -387,6 +408,30 @@ export function InventoryDetailScreen({
+     }
+   }
+ 
++  function moveExistingImage(mediaId: string, direction: 'up' | 'down') {
++    setExistingMedia((current) => {
++      const index = current.findIndex((media) => media.id === mediaId);
++      if (index < 0) return current;
++      const nextIndex = direction === 'up' ? index - 1 : index + 1;
++      if (nextIndex < 0 || nextIndex >= current.length) return current;
++      const next = [...current];
++      const [item] = next.splice(index, 1);
++      next.splice(nextIndex, 0, item);
++      return normalizeMediaOrder(next);
++    });
++  }
++
++  function setExistingCover(mediaId: string) {
++    setExistingMedia((current) => {
++      const index = current.findIndex((media) => media.id === mediaId);
++      if (index < 0) return current;
++      const next = [...current];
++      const [item] = next.splice(index, 1);
++      next.unshift(item);
++      return normalizeMediaOrder(next.map((media) => ({ ...media, isCover: media.id === mediaId })));
++    });
++  }
++
+   async function removeImage(mediaId: string) {
+     setSaving(true);
+     setError(null);
+@@ -684,14 +729,18 @@ export function InventoryDetailScreen({
+                   }
+                 >
+                   <ExistingMediaManager
+-                    media={item.media}
++                    media={existingMedia}
+                     disabled={saving}
++                    enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
++                    onMove={moveExistingImage}
++                    onSetCover={setExistingCover}
+                     onRemove={removeImage}
+                   />
+                   <ImagePickerField
+                     images={newImages}
+                     onChange={setNewImages}
+                     disabled={saving}
++                    enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
+                   />
+                 </DetailSection>
+ 
+diff --git a/apps/mobile/src/features/trade/components/ImagePickerField.tsx b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+index 644503e..2b6179c 100644
+--- a/apps/mobile/src/features/trade/components/ImagePickerField.tsx
++++ b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+@@ -27,6 +27,7 @@ export function ImagePickerField({
+   label,
+   hint,
+   reviewBody,
++  enableOrderControls,
+ }: {
+   images: SelectedLocalImage[];
+   onChange: (images: SelectedLocalImage[]) => void;
+@@ -35,6 +36,7 @@ export function ImagePickerField({
+   label?: string;
+   hint?: string;
+   reviewBody?: string;
++  enableOrderControls?: boolean;
+ }) {
+   const { t } = useTranslation();
+   const [error, setError] = useState<string | null>(null);
+@@ -122,9 +124,35 @@ export function ImagePickerField({
+     void openImagePicker();
+   }
+ 
++  function normalizeCoverOrder(nextImages: SelectedLocalImage[]) {
++    return nextImages;
++  }
++
+   function removeImage(uri: string) {
+     if (disabled) return;
+-    onChange(images.filter((image) => image.uri !== uri));
++    onChange(normalizeCoverOrder(images.filter((image) => image.uri !== uri)));
++  }
++
++  function moveImage(uri: string, direction: 'up' | 'down') {
++    if (disabled) return;
++    const index = images.findIndex((image) => image.uri === uri);
++    if (index < 0) return;
++    const nextIndex = direction === 'up' ? index - 1 : index + 1;
++    if (nextIndex < 0 || nextIndex >= images.length) return;
++    const next = [...images];
++    const [item] = next.splice(index, 1);
++    next.splice(nextIndex, 0, item);
++    onChange(normalizeCoverOrder(next));
++  }
++
++  function setCoverImage(uri: string) {
++    if (disabled) return;
++    const index = images.findIndex((image) => image.uri === uri);
++    if (index <= 0) return;
++    const next = [...images];
++    const [item] = next.splice(index, 1);
++    next.unshift(item);
++    onChange(normalizeCoverOrder(next));
+   }
+ 
+   return (
+@@ -143,14 +171,25 @@ export function ImagePickerField({
+       {error ? <InfoNotice tone="danger" title={t('inventory.labels.images')} body={error} /> : null}
+       {images.length > 0 ? (
+         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewRow}>
+-          {images.map((image) => (
+-            <View key={image.uri} style={styles.preview}>
+-              <Image source={{ uri: image.uri }} style={styles.image} />
+-              <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} accessibilityState={{ disabled: Boolean(disabled) }} onPress={() => removeImage(image.uri)} disabled={disabled} style={({ pressed }) => [styles.remove, disabled && styles.disabled, pressed && styles.pressed]}>
+-                <AppText style={styles.removeText}>{t('common.actions.remove')}</AppText>
+-              </Pressable>
+-            </View>
+-          ))}
++          {images.map((image, index) => {
++            const isCover = index === 0;
++            return (
++              <View key={image.uri} style={styles.preview}>
++                <Image source={{ uri: image.uri }} style={styles.image} />
++                {enableOrderControls ? <AppText style={styles.coverLabel}>{isCover ? 'Cover' : `Image ${index + 1}`}</AppText> : null}
++                {enableOrderControls ? (
++                  <View style={styles.orderRow}>
++                    <Pressable accessibilityRole="button" accessibilityLabel="Move image earlier" accessibilityState={{ disabled: Boolean(disabled || index === 0) }} onPress={() => moveImage(image.uri, 'up')} disabled={disabled || index === 0} style={({ pressed }) => [styles.orderButton, (disabled || index === 0) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↑</AppText></Pressable>
++                    <Pressable accessibilityRole="button" accessibilityLabel="Move image later" accessibilityState={{ disabled: Boolean(disabled || index === images.length - 1) }} onPress={() => moveImage(image.uri, 'down')} disabled={disabled || index === images.length - 1} style={({ pressed }) => [styles.orderButton, (disabled || index === images.length - 1) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>↓</AppText></Pressable>
++                    <Pressable accessibilityRole="button" accessibilityLabel="Set as cover" accessibilityState={{ disabled: Boolean(disabled || isCover) }} onPress={() => setCoverImage(image.uri)} disabled={disabled || isCover} style={({ pressed }) => [styles.orderButtonWide, (disabled || isCover) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.orderText}>Cover</AppText></Pressable>
++                  </View>
++                ) : null}
++                <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} accessibilityState={{ disabled: Boolean(disabled) }} onPress={() => removeImage(image.uri)} disabled={disabled} style={({ pressed }) => [styles.remove, disabled && styles.disabled, pressed && styles.pressed]}>
++                  <AppText style={styles.removeText}>{t('common.actions.remove')}</AppText>
++                </Pressable>
++              </View>
++            );
++          })}
+         </ScrollView>
+       ) : (
+         <View style={styles.empty}><AppText style={styles.emptyText}>{t('inventory.labels.noImagesSelected')}</AppText></View>
+@@ -173,4 +212,4 @@ export function ImagePickerField({
+     </View>
+   );
+ }
+-const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, count: { marginTop: 4, color: '#475569', fontSize: 12, fontWeight: '900' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 118, gap: 7 }, image: { width: 118, height: 92, borderRadius: 16, backgroundColor: '#E2E8F0' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ wrap: { gap: 10 }, row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, copy: { flex: 1 }, label: { fontSize: 16, fontWeight: '900' }, hint: { color: '#64748B', fontSize: 12, lineHeight: 18, fontWeight: '700' }, count: { marginTop: 4, color: '#475569', fontSize: 12, fontWeight: '900' }, button: { borderRadius: 14, backgroundColor: '#111827', paddingHorizontal: 14, paddingVertical: 10 }, buttonText: { color: '#FFFFFF', fontWeight: '900' }, previewRow: { gap: 10 }, preview: { width: 132, gap: 7 }, image: { width: 132, height: 98, borderRadius: 16, backgroundColor: '#E2E8F0' }, coverLabel: { position: 'absolute', top: 8, left: 8, overflow: 'hidden', borderRadius: 999, backgroundColor: 'rgba(15,23,42,0.78)', color: '#FFFFFF', paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '900' }, orderRow: { flexDirection: 'row', gap: 5 }, orderButton: { flex: 1, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 7, alignItems: 'center' }, orderButtonWide: { flex: 2, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 7, alignItems: 'center' }, orderText: { fontSize: 11, fontWeight: '900', color: '#334155' }, remove: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 7, alignItems: 'center' }, removeText: { fontSize: 12, fontWeight: '900', color: '#991B1B' }, empty: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: '#CBD5E1', padding: 12 }, emptyText: { color: '#64748B', fontWeight: '700' }, error: { color: '#B91C1C', fontWeight: '700' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx b/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
+index da80476..b85c0ef 100644
+--- a/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryDetailFields.tsx
+@@ -59,12 +59,13 @@ export function InventoryModePicker({ value, onChange, disabled }: { value: Inve
+   return <View style={styles.field}><AppText style={styles.label}>{t('inventory.labels.mode')}</AppText><View style={styles.modeRow}>{inventoryModes.map((mode) => { const selected = value === mode; return <Pressable key={mode} disabled={disabled} onPress={() => onChange(mode)} style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{modeLabel(mode, t)}</AppText></Pressable>; })}</View></View>;
+ }
+ 
+-export function ExistingMediaManager({ media, disabled, onRemove }: { media?: MediaAssetDto[]; disabled?: boolean; onRemove: (mediaId: string) => void }) {
++export function ExistingMediaManager({ media, disabled, enableOrderControls, onMove, onSetCover, onRemove }: { media?: MediaAssetDto[]; disabled?: boolean; enableOrderControls?: boolean; onMove?: (mediaId: string, direction: 'up' | 'down') => void; onSetCover?: (mediaId: string) => void; onRemove: (mediaId: string) => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const visible = (media ?? []).filter((item) => item.status !== 'removed');
+   if (visible.length === 0) return <View style={[styles.emptyMedia, { borderColor: theme.color.border }]}><AppText style={[styles.emptyMediaText, { color: theme.color.muted }]}>{t('inventory.labels.noImages')}</AppText></View>;
+-  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item) => <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>{t('common.actions.remove')}</AppText></Pressable></View>)}</ScrollView>;
++  const hasCover = visible.some((item) => item.isCover);
++  return <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaRow}>{visible.map((item, index) => { const isCover = item.isCover || (!hasCover && index === 0); return <View key={item.id} style={styles.mediaCard}><Image source={{ uri: resolveMediaUrl(item.url) }} style={styles.mediaImage} />{enableOrderControls ? <View style={styles.mediaCoverBadge}><AppText style={styles.mediaCoverBadgeText}>{isCover ? 'Cover' : `Image ${index + 1}`}</AppText></View> : item.status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={item.status} size="sm" /></View> : null}{enableOrderControls ? <View style={styles.mediaOrderRow}><Pressable disabled={disabled || index === 0} onPress={() => onMove?.(item.id, 'up')} style={({ pressed }) => [styles.mediaOrderButton, (disabled || index === 0) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.mediaOrderText}>↑</AppText></Pressable><Pressable disabled={disabled || index === visible.length - 1} onPress={() => onMove?.(item.id, 'down')} style={({ pressed }) => [styles.mediaOrderButton, (disabled || index === visible.length - 1) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.mediaOrderText}>↓</AppText></Pressable><Pressable disabled={disabled || isCover} onPress={() => onSetCover?.(item.id)} style={({ pressed }) => [styles.mediaOrderButtonWide, (disabled || isCover) && styles.disabled, pressed && styles.pressed]}><AppText style={styles.mediaOrderText}>Cover</AppText></Pressable></View> : null}<Pressable disabled={disabled} onPress={() => onRemove(item.id)} style={({ pressed }) => [styles.removeMediaButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.removeMediaButtonText}>{t('common.actions.remove')}</AppText></Pressable></View>; })}</ScrollView>;
+ }
+ 
+ 
+@@ -72,4 +73,4 @@ export function DangerButton({ label, disabled, onPress }: { label: string; disa
+ export function PrimaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) { return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.primaryButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.primaryButtonText}>{label}</AppText></Pressable>; }
+ export function SecondaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) { return <Pressable disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.secondaryButton, disabled && styles.disabled, pressed && styles.pressed]}><AppText style={styles.secondaryButtonText}>{label}</AppText></Pressable>; }
+ 
+-const styles = StyleSheet.create({ field: { gap: 8 }, labelTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, label: { fontWeight: '900' }, counter: { fontSize: 12, fontWeight: '900' }, input: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, fontSize: 16, fontWeight: '700' }, textarea: { minHeight: 128, lineHeight: 22 }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, modeButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, modeButtonSelected: {}, modeButtonText: { fontWeight: '900' }, modeButtonTextSelected: {}, mediaRow: { gap: 12 }, mediaCard: { width: 148, gap: 8 }, mediaImage: { width: 148, height: 112, borderRadius: 18, backgroundColor: '#E2E8F0' }, mediaStatus: { position: 'absolute', top: 8, left: 8 }, removeMediaButton: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 8, alignItems: 'center' }, removeMediaButtonText: { color: '#991B1B', fontSize: 12, fontWeight: '900' }, emptyMedia: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', padding: 12 }, emptyMediaText: { fontWeight: '700' }, primaryButton: { borderRadius: 18, backgroundColor: '#111827', paddingVertical: 14, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { color: '#334155', fontWeight: '900' }, dangerButton: { borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2', paddingVertical: 14, alignItems: 'center' }, dangerButtonText: { color: '#991B1B', fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ field: { gap: 8 }, labelTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, label: { fontWeight: '900' }, counter: { fontSize: 12, fontWeight: '900' }, input: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, fontSize: 16, fontWeight: '700' }, textarea: { minHeight: 128, lineHeight: 22 }, modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, modeButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 }, modeButtonSelected: {}, modeButtonText: { fontWeight: '900' }, modeButtonTextSelected: {}, mediaRow: { gap: 12 }, mediaCard: { width: 148, gap: 8 }, mediaImage: { width: 148, height: 112, borderRadius: 18, backgroundColor: '#E2E8F0' }, mediaStatus: { position: 'absolute', top: 8, left: 8 }, mediaCoverBadge: { position: 'absolute', top: 8, left: 8, borderRadius: 999, backgroundColor: 'rgba(15,23,42,0.78)', paddingHorizontal: 8, paddingVertical: 4 }, mediaCoverBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' }, mediaOrderRow: { flexDirection: 'row', gap: 5 }, mediaOrderButton: { flex: 1, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 7, alignItems: 'center' }, mediaOrderButtonWide: { flex: 2, borderRadius: 999, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 7, alignItems: 'center' }, mediaOrderText: { color: '#334155', fontSize: 11, fontWeight: '900' }, removeMediaButton: { borderRadius: 999, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEE2E2', paddingVertical: 8, alignItems: 'center' }, removeMediaButtonText: { color: '#991B1B', fontSize: 12, fontWeight: '900' }, emptyMedia: { borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', padding: 12 }, emptyMediaText: { fontWeight: '700' }, primaryButton: { borderRadius: 18, backgroundColor: '#111827', paddingVertical: 14, alignItems: 'center' }, primaryButtonText: { color: '#FFFFFF', fontWeight: '900' }, secondaryButton: { borderRadius: 18, borderWidth: 1, borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', paddingVertical: 14, alignItems: 'center' }, secondaryButtonText: { color: '#334155', fontWeight: '900' }, dangerButton: { borderRadius: 18, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2', paddingVertical: 14, alignItems: 'center' }, dangerButtonText: { color: '#991B1B', fontWeight: '900' }, disabled: { opacity: 0.55 }, pressed: { opacity: 0.78 } });
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 187635b..502823d 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2898,3 +2898,9 @@ html.dark .pro-package-prototype__item.selected {
+ @media (max-width: 420px) {
+   .inventory-preview-theme-picker__grid { grid-template-columns: 1fr; }
+ }
++.inventory-media-order-panel { display: grid; gap: 12px; }
++.inventory-media-grid--managed figure { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-text) 8%, transparent); }
++.inventory-media-grid--managed figure.is-cover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent, #14b8a6) 65%, transparent); }
++.inventory-media-controls { position: absolute; left: 8px; right: 8px; top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
++.inventory-media-controls button { min-height: 28px; border-radius: 999px; padding: 0 9px; font-size: 11px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18); }
++.inventory-media-controls button:disabled { opacity: 0.58; cursor: not-allowed; }
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 4cacff3..7fd77da 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -9,6 +9,7 @@ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INV
+ import { useEffect, useMemo, useState } from 'react';
+ import { ConfirmDialog } from '../../components/ConfirmDialog';
+ import { InventoryAiAssistPanel } from './InventoryAiAssistPanel';
++import { InventoryMediaOrderPanel } from './InventoryMediaOrderPanel';
+ import { InventoryPreviewThemePicker } from './InventoryPreviewThemePicker';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+@@ -23,10 +24,8 @@ import {
+   getVisibleInventoryTranslations,
+   inventoryLanguageLabel,
+   inventoryToFormValues,
+-  inventoryStatusLabel,
+   itemTypeLabel,
+   kindLabel,
+-  mediaSrc,
+   normalizeInventoryItem,
+   normalizeInventoryTranslationsForPayload,
+   normalizeMediaUpload,
+@@ -76,7 +75,7 @@ function parseMode(value: string): TradeExchangeMode | undefined {
+   return value === 'remote' || value === 'local' || value === 'hybrid' ? value : undefined;
+ }
+ 
+-function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): CreateNeedRequest | UpdateNeedRequest {
++function formToNeedPayload(values: InventoryFormValues, mediaIds: string[], coverMediaId?: string): CreateNeedRequest | UpdateNeedRequest {
+   return {
+     title: values.title.trim(),
+     description: values.description.trim(),
+@@ -92,10 +91,11 @@ function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): Cre
+     expiresAt: toIsoDate(values.expiresAt),
+     previewTheme: values.previewTheme,
+     mediaIds,
++    coverMediaId,
+   };
+ }
+ 
+-function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): CreateOfferRequest | UpdateOfferRequest {
++function formToOfferPayload(values: InventoryFormValues, mediaIds: string[], coverMediaId?: string): CreateOfferRequest | UpdateOfferRequest {
+   return {
+     title: values.title.trim(),
+     description: values.description.trim(),
+@@ -112,6 +112,7 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): Cr
+     expiresAt: toIsoDate(values.expiresAt),
+     previewTheme: values.previewTheme,
+     mediaIds,
++    coverMediaId,
+   };
+ }
+ 
+@@ -125,6 +126,16 @@ function buildCreateRedirectHref(redirect: InventoryCreateRedirect, savedId: str
+   return `${redirect.pathname}${query ? `?${query}` : ''}`;
+ }
+ 
++
++function normalizeMediaOrder(items: MediaAssetDto[]): MediaAssetDto[] {
++  const hasCover = items.some((item) => item.isCover);
++  return items.map((item, index) => ({
++    ...item,
++    sortOrder: index,
++    isCover: hasCover ? Boolean(item.isCover) : index === 0,
++  }));
++}
++
+ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreateRedirect }: InventoryFormClientProps) {
+   const auth = useWebAuth();
+   const router = useRouter();
+@@ -170,13 +181,13 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+         const item = normalizeInventoryItem(response, kind);
+         if (item) {
+           setValues(inventoryToFormValues(item));
+-          setMedia(item.media ?? []);
++          setMedia(normalizeMediaOrder(item.media ?? []));
+         }
+       } catch {
+         if (!mounted) return;
+         const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null : null;
+         setValues(inventoryToFormValues(fallback));
+-        setMedia(fallback?.media ?? []);
++        setMedia(normalizeMediaOrder(fallback?.media ?? []));
+         setMessage(demoDataEnabled && fallback ? t('inventory.messages.usingDemoData') : t('inventory.messages.itemCouldNotLoad'));
+       } finally {
+         if (mounted) setLoading(false);
+@@ -203,6 +214,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+   }, [auth.hydrated, auth.isAuthenticated, itemId, kind, mode]);
+ 
+   const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
++  const coverMediaId = useMemo(() => media.find((item) => item.isCover)?.id ?? media[0]?.id, [media]);
+ 
+   function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
+     setValues((current) => ({ ...current, [field]: value }));
+@@ -239,9 +251,9 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+         formData.append('image', file);
+         const response = await api.media.uploadImage(formData);
+         const uploaded = normalizeMediaUpload(response);
+-        if (uploaded) nextMedia.push(uploaded);
++        if (uploaded) nextMedia.push({ ...uploaded, sortOrder: nextMedia.length, isCover: nextMedia.length === 0 });
+       }
+-      setMedia(nextMedia.slice(0, 5));
++      setMedia(normalizeMediaOrder(nextMedia.slice(0, 5)));
+       setMessage(t('inventory.messages.imageUploaded'));
+     } catch (cause) {
+       setError(getFriendlyApiErrorMessage(cause));
+@@ -252,7 +264,31 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+ 
+   function removeMedia(mediaId: string) {
+     if (isEditProtected) return;
+-    setMedia((current) => current.filter((item) => item.id !== mediaId));
++    setMedia((current) => normalizeMediaOrder(current.filter((item) => item.id !== mediaId)));
++  }
++
++  function moveMedia(mediaId: string, direction: 'up' | 'down') {
++    setMedia((current) => {
++      const index = current.findIndex((item) => item.id === mediaId);
++      if (index < 0) return current;
++      const nextIndex = direction === 'up' ? index - 1 : index + 1;
++      if (nextIndex < 0 || nextIndex >= current.length) return current;
++      const next = [...current];
++      const [item] = next.splice(index, 1);
++      next.splice(nextIndex, 0, item);
++      return normalizeMediaOrder(next);
++    });
++  }
++
++  function setCoverMedia(mediaId: string) {
++    setMedia((current) => {
++      const index = current.findIndex((item) => item.id === mediaId);
++      if (index < 0) return current;
++      const next = [...current];
++      const [item] = next.splice(index, 1);
++      next.unshift(item);
++      return normalizeMediaOrder(next.map((candidate) => ({ ...candidate, isCover: candidate.id === mediaId })));
++    });
+   }
+ 
+   function validateValues() {
+@@ -290,7 +326,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+     setError('');
+     setMessage('');
+     try {
+-      const payload = kind === 'need' ? formToNeedPayload(values, mediaIds) : formToOfferPayload(values, mediaIds);
++      const payload = kind === 'need' ? formToNeedPayload(values, mediaIds, coverMediaId) : formToOfferPayload(values, mediaIds, coverMediaId);
+       let saved: InventoryItem | null = null;
+       if (kind === 'need') {
+         const response = mode === 'edit' && itemId
+@@ -519,19 +555,14 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={isEditProtected || uploading || media.length >= 5} />
+             {uploading ? t('media.states.uploading') : media.length >= 5 ? t('inventory.actions.imageLimitReached') : t('inventory.actions.uploadImages')}
+           </label>
+-          {media.length ? (
+-            <div className="inventory-media-grid">
+-              {media.map((item) => (
+-                <figure key={item.id}>
+-                  <img src={mediaSrc(item)} alt={item.filename ?? `${noun} ${t('inventory.labels.images').toLowerCase()}`} />
+-                  <figcaption>
+-                    <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
+-                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>{t('common.actions.remove')}</button>
+-                  </figcaption>
+-                </figure>
+-              ))}
+-            </div>
+-          ) : null}
++          <InventoryMediaOrderPanel
++            media={media}
++            disabled={isEditProtected || saving || uploading}
++            label={noun}
++            onMove={moveMedia}
++            onSetCover={setCoverMedia}
++            onRemove={removeMedia}
++          />
+         </section>
+ 
+         </fieldset>
+diff --git a/apps/web/src/features/inventory/InventoryMediaOrderPanel.tsx b/apps/web/src/features/inventory/InventoryMediaOrderPanel.tsx
+new file mode 100644
+index 0000000..11102e7
+--- /dev/null
++++ b/apps/web/src/features/inventory/InventoryMediaOrderPanel.tsx
+@@ -0,0 +1,69 @@
++'use client';
++
++import { useEffect, useState } from 'react';
++import type { MediaAssetDto } from '@hellowhen/contracts';
++import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
++import { mediaSrc } from './inventoryPresentation';
++
++type InventoryMediaOrderPanelProps = {
++  media: MediaAssetDto[];
++  disabled?: boolean;
++  label: string;
++  onMove: (mediaId: string, direction: 'up' | 'down') => void;
++  onSetCover: (mediaId: string) => void;
++  onRemove: (mediaId: string) => void;
++};
++
++export function InventoryMediaOrderPanel({ media, disabled, label, onMove, onSetCover, onRemove }: InventoryMediaOrderPanelProps) {
++  const [canCustomize, setCanCustomize] = useState(false);
++
++  useEffect(() => {
++    if (!betaFeatures.plusSubscriptionFeatures.customizationEnabled) {
++      setCanCustomize(false);
++      return;
++    }
++    let mounted = true;
++    async function loadPlusSnapshot() {
++      try {
++        const response = await api.plus.me();
++        if (mounted) setCanCustomize(Boolean(response.access.entitlements.customization));
++      } catch {
++        if (mounted) setCanCustomize(false);
++      }
++    }
++    void loadPlusSnapshot();
++    return () => { mounted = false; };
++  }, []);
++
++  if (!media.length) return null;
++
++  const controlsDisabled = disabled || !canCustomize;
++  return (
++    <div className="inventory-media-order-panel">
++      <div className="inventory-form__helper-copy">
++        <strong>Cover image and order</strong>
++        <span>{canCustomize ? 'Choose the first preview image and reorder the gallery for this saved item.' : 'Cover image and order controls are a hidden Plus customization preview.'}</span>
++      </div>
++      <div className="inventory-media-grid inventory-media-grid--managed">
++        {media.map((item, index) => {
++          const isCover = item.isCover || (!media.some((candidate) => candidate.isCover) && index === 0);
++          return (
++            <figure key={item.id} className={isCover ? 'is-cover' : undefined}>
++              <img src={mediaSrc(item)} alt={item.filename ?? `${label} image`} />
++              <figcaption>
++                <span className={`semantic-badge ${isCover ? 'instruction' : 'muted'}`}>{isCover ? 'Cover' : `Image ${index + 1}`}</span>
++                <button type="button" className="secondary" onClick={() => onRemove(item.id)} disabled={disabled}>Remove</button>
++              </figcaption>
++              <div className="inventory-media-controls" aria-label="Image order controls">
++                <button type="button" className="secondary" onClick={() => onMove(item.id, 'up')} disabled={controlsDisabled || index === 0}>↑</button>
++                <button type="button" className="secondary" onClick={() => onMove(item.id, 'down')} disabled={controlsDisabled || index === media.length - 1}>↓</button>
++                <button type="button" className="secondary" onClick={() => onSetCover(item.id)} disabled={controlsDisabled || isCover}>Set cover</button>
++              </div>
++            </figure>
++          );
++        })}
++      </div>
++    </div>
++  );
++}
+diff --git a/packages/contracts/src/media.ts b/packages/contracts/src/media.ts
+index c82846e..517578e 100644
+--- a/packages/contracts/src/media.ts
++++ b/packages/contracts/src/media.ts
+@@ -13,6 +13,8 @@ export const mediaAssetSchema = z.object({
+   filename: z.string(),
+   mimeType: z.string(),
+   sizeBytes: z.number().int(),
++  sortOrder: z.number().int().optional().default(0),
++  isCover: z.boolean().optional().default(false),
+   status: mediaAssetStatusSchema,
+   reviewNote: z.string().nullable().optional(),
+   reviewedAt: z.string().nullable().optional(),
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index ab71ee6..9efbcef 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -94,6 +94,7 @@ export const createNeedRequestSchema = z.object({
+   status: needStatusSchema.optional(),
+   expiresAt: z.string().datetime().optional(),
+   mediaIds: z.array(z.string()).max(5).optional(),
++  coverMediaId: z.string().min(1).optional(),
+   previewTheme: previewCardThemeSchema.optional().default('default')
+ }).merge(needMetadataSchema);
+ 
+@@ -105,6 +106,7 @@ export const createOfferRequestSchema = z.object({
+   status: offerStatusSchema.optional(),
+   expiresAt: z.string().datetime().optional(),
+   mediaIds: z.array(z.string()).max(5).optional(),
++  coverMediaId: z.string().min(1).optional(),
+   previewTheme: previewCardThemeSchema.optional().default('default')
+ }).merge(offerMetadataSchema);
+ 
+@@ -125,6 +127,7 @@ export const createTradeRequestSchema = z.object({
+   expiresAt: z.string().datetime().optional(),
+   // Deprecated for the new mobile create flow. Trade deck images come from the selected Need and Offer.
+   mediaIds: z.array(z.string()).max(5).optional(),
++  coverMediaId: z.string().min(1).optional(),
+   previewTheme: previewCardThemeSchema.optional().default('default')
+ }).superRefine((value, ctx) => {
+   const needIsMoney = value.needKind === 'money';
+@@ -207,6 +210,7 @@ const inventoryUpdateBaseSchema = z.object({
+   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
+   includes: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
+   mediaIds: z.array(z.string()).max(5).optional(),
++  coverMediaId: z.string().min(1).nullable().optional(),
+   previewTheme: previewCardThemeSchema.optional(),
+ });
+ 

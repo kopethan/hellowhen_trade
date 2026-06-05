@@ -13,6 +13,8 @@ export const mediaAssetSchema = z.object({
   filename: z.string(),
   mimeType: z.string(),
   sizeBytes: z.number().int(),
+  sortOrder: z.number().int().optional().default(0),
+  isCover: z.boolean().optional().default(false),
   status: mediaAssetStatusSchema,
   reviewNote: z.string().nullable().optional(),
   reviewedAt: z.string().nullable().optional(),

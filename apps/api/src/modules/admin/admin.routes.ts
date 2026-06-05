@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
-import { hasProAccess } from '@hellowhen/shared';
+import { adminBusinessProfileActionRequestSchema, adminBusinessBudgetActionRequestSchema, adminBusinessBudgetListQuerySchema, adminBusinessCampaignActionRequestSchema, adminBusinessCampaignListQuerySchema, adminBusinessSponsoredPlacementActionRequestSchema, adminBusinessSponsoredPlacementListQuerySchema, adminContentActionRequestSchema, adminContentClassificationActionRequestSchema, adminContentClassificationAiSuggestionRequestSchema, adminListContentClassificationsQuerySchema, adminCreateSupportMessageRequestSchema, adminListReportsQuerySchema, adminReportActionRequestSchema, adminListContentQuerySchema, adminListMediaQuerySchema, adminPayoutActionRequestSchema, adminPayoutStatusFilterSchema, adminUserModerationActionRequestSchema, moneyProviderWalletBalancesSyncRequestSchema, adminTradeDisputeActionRequestSchema, adminUpdateTrustTierRequestSchema, adminUpdateUsernameRequestSchema, adminPlusGrantRequestSchema, adminUpdateSupportTicketRequestSchema, supportTicketCategorySchema, supportTicketPrioritySchema, supportTicketStatusSchema, updateMediaStatusRequestSchema } from '@hellowhen/contracts';
+import { AI_ASSIST_TASK_TYPES, AI_ASSIST_USAGE_STATUSES, buildAiAssistPeriodKey, evaluatePlusGate, hasProAccess } from '@hellowhen/shared';
 import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireAuth } from '../../middleware/auth.js';
-import { requireBusinessAccountsEnabled, requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible } from '../../middleware/featureGates.js';
+import { requireBusinessAccountsEnabled, requireBusinessBudgetsEnabled, requireBusinessCampaignsEnabled, requireBusinessSponsoredContentEnabled, requireMoneyFeaturesVisible, requirePayoutsVisible, requirePlusAdminGrantsEnabled } from '../../middleware/featureGates.js';
 import { attachUploadedMediaToEntity, withMedia, withOneMedia } from '../media/media.helpers.js';
 import { buildLaunchLimits } from '../limits/launchLimits.js';
 import { buildAdminMoneySafetySummary, buildGlobalMoneySafetyConfig } from '../money/moneySafety.js';
@@ -23,6 +23,8 @@ import { API_METRICS_RETENTION_HOURS, USAGE_ACTIVITY_WINDOW_MINUTES, USAGE_LIVE_
 import { buildAdminServerHealth } from '../usage/serverHealth.js';
 import { buildUsernameHistoryData, ensureUsernameAvailable, normalizeProfileHandle, usernameErrorPayload } from '../profile/profileUsernames.js';
 import { notifySupportTicketUpdated } from '../notifications/notifications.service.js';
+import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+import { getAiAssistUsageSummary, normalizeAiAssistPeriodKey } from '../subscriptions/aiAssistUsage.js';
 
 export const adminRoutes = Router();
 const mediaUserSelect = { id: true, email: true, role: true, trustTier: true, emailVerifiedAt: true, ageConfirmedAt: true, declaredAgeBucket: true, twoFactorEnabled: true, createdAt: true, profile: true } as const;
@@ -136,6 +138,7 @@ adminRoutes.use('/business-campaigns', requireBusinessCampaignsEnabled('Admin Bu
 adminRoutes.use('/business-budgets', requireBusinessBudgetsEnabled('Admin Business budget sandbox'));
 adminRoutes.use('/money', requireMoneyFeaturesVisible('Admin money tools'));
 adminRoutes.use('/credits', requireMoneyFeaturesVisible('Admin credit tools'));
+adminRoutes.use('/plus', requirePlusAdminGrantsEnabled('Admin Plus grant tools'));
 
 
 adminRoutes.get('/overview', asyncRoute(async (_req, res) => {
@@ -940,7 +943,7 @@ adminRoutes.patch('/reports/:reportId/action', asyncRoute(async (req, res) => {
 }));
 
 const adminProfessionalStatusValues = ['none', 'pending_verification', 'verified', 'rejected', 'suspended'] as const;
-const adminSubscriptionTierValues = ['free', 'plus_later', 'pro', 'business_later'] as const;
+const adminSubscriptionTierValues = ['free', 'plus', 'plus_later', 'pro', 'business_later'] as const;
 const adminSubscriptionStatusValues = ['none', 'trialing', 'active', 'past_due', 'canceled', 'expired'] as const;
 const adminIdentityVerificationProviderValues = ['none', 'manual', 'stripe_identity', 'airwallex'] as const;
 const adminIdentityVerificationStatusValues = ['none', 'pending', 'verified', 'rejected', 'expired', 'cancelled'] as const;
@@ -1234,6 +1237,266 @@ adminRoutes.patch('/pro/users/:userId', asyncRoute(async (req, res) => {
 
   const user = await loadAdminProUser(existing.id);
   res.json({ user, config: adminProConfigSnapshot() });
+}));
+
+
+const adminPlusSubscriptionTierFilters = ['all', 'free', 'plus', 'pro'] as const;
+const adminPlusSubscriptionStatusFilters = ['all', 'none', 'trialing', 'active', 'past_due', 'canceled', 'expired'] as const;
+const adminPlusAiAssistTaskFilters = ['all', ...AI_ASSIST_TASK_TYPES] as const;
+const adminPlusAiAssistStatusFilters = ['all', ...AI_ASSIST_USAGE_STATUSES] as const;
+
+const adminPlusListQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  subscriptionTier: z.enum(adminPlusSubscriptionTierFilters).optional().default('all'),
+  subscriptionStatus: z.enum(adminPlusSubscriptionStatusFilters).optional().default('all'),
+  take: z.coerce.number().int().min(1).max(250).optional().default(100),
+});
+
+const adminPlusAiAssistUsageQuerySchema = z.object({
+  q: z.string().trim().min(1).max(120).optional(),
+  userId: z.string().trim().min(1).optional(),
+  periodKey: z.string().trim().regex(/^\d{4}-\d{2}$/).optional(),
+  taskType: z.enum(adminPlusAiAssistTaskFilters).optional().default('all'),
+  status: z.enum(adminPlusAiAssistStatusFilters).optional().default('all'),
+  take: z.coerce.number().int().min(1).max(250).optional().default(100),
+});
+
+const adminPlusUserSelect = {
+  id: true,
+  email: true,
+  role: true,
+  trustTier: true,
+  subscriptionTier: true,
+  subscriptionStatus: true,
+  subscriptionStatusUpdatedAt: true,
+  emailVerifiedAt: true,
+  ageConfirmedAt: true,
+  createdAt: true,
+  profile: { select: { displayName: true, handle: true, avatarUrl: true } },
+  subscriptionState: {
+    select: {
+      id: true,
+      tier: true,
+      status: true,
+      provider: true,
+      currentPeriodStartedAt: true,
+      currentPeriodEndsAt: true,
+      trialStartedAt: true,
+      trialEndsAt: true,
+      canceledAt: true,
+      pastDueAt: true,
+      expiresAt: true,
+      lastSyncedAt: true,
+      adminNote: true,
+    },
+  },
+} as const;
+
+function adminIso(value: Date | string | null | undefined) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return value;
+}
+
+function normalizeAdminPlusUser(user: any) {
+  const gate = evaluatePlusGate(plusConfigSnapshot(), {
+    subscriptionTier: user.subscriptionTier,
+    subscriptionStatus: user.subscriptionStatus,
+  });
+  return {
+    ...user,
+    subscriptionStatusUpdatedAt: adminIso(user.subscriptionStatusUpdatedAt),
+    emailVerifiedAt: adminIso(user.emailVerifiedAt),
+    ageConfirmedAt: adminIso(user.ageConfirmedAt),
+    createdAt: adminIso(user.createdAt),
+    subscriptionState: user.subscriptionState ? {
+      ...user.subscriptionState,
+      currentPeriodStartedAt: adminIso(user.subscriptionState.currentPeriodStartedAt),
+      currentPeriodEndsAt: adminIso(user.subscriptionState.currentPeriodEndsAt),
+      trialStartedAt: adminIso(user.subscriptionState.trialStartedAt),
+      trialEndsAt: adminIso(user.subscriptionState.trialEndsAt),
+      canceledAt: adminIso(user.subscriptionState.canceledAt),
+      pastDueAt: adminIso(user.subscriptionState.pastDueAt),
+      expiresAt: adminIso(user.subscriptionState.expiresAt),
+      lastSyncedAt: adminIso(user.subscriptionState.lastSyncedAt),
+    } : null,
+    access: {
+      canSeePlusSurfaces: gate.canSeePlusSurfaces,
+      hasPlusAccess: gate.hasPlusAccess,
+      blockers: gate.blockers,
+      entitlements: gate.entitlements,
+    },
+  };
+}
+
+function adminPlusWhere(input: z.infer<typeof adminPlusListQuerySchema>) {
+  const where: Record<string, unknown> = {};
+  if (input.subscriptionTier !== 'all') where.subscriptionTier = input.subscriptionTier;
+  if (input.subscriptionStatus !== 'all') where.subscriptionStatus = input.subscriptionStatus;
+  if (input.q) {
+    where.OR = [
+      { email: { contains: input.q, mode: 'insensitive' as const } },
+      { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } },
+      { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } },
+    ];
+  }
+  return where;
+}
+
+async function loadAdminPlusUser(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: adminPlusUserSelect });
+  return user ? normalizeAdminPlusUser(user) : null;
+}
+
+function parseAdminPlusDate(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+adminRoutes.get('/plus/users', asyncRoute(async (req, res) => {
+  const input = adminPlusListQuerySchema.parse(req.query);
+  const config = plusConfigSnapshot();
+  const users = await prisma.user.findMany({
+    where: adminPlusWhere(input),
+    select: adminPlusUserSelect,
+    orderBy: [{ subscriptionStatusUpdatedAt: 'desc' }, { createdAt: 'desc' }],
+    take: input.take,
+  });
+  const normalizedUsers = await Promise.all(users.map(async (user: any) => ({
+    ...normalizeAdminPlusUser(user),
+    aiAssistUsage: await getAiAssistUsageSummary(prisma as any, user, config),
+  })));
+  res.json({ users: normalizedUsers, config });
+}));
+
+adminRoutes.get('/plus/ai-assist-usage', asyncRoute(async (req, res) => {
+  const input = adminPlusAiAssistUsageQuerySchema.parse(req.query);
+  const periodKey = normalizeAiAssistPeriodKey(input.periodKey ?? buildAiAssistPeriodKey());
+  const where: Record<string, unknown> = { periodKey };
+  if (input.userId) where.userId = input.userId;
+  if (input.taskType !== 'all') where.taskType = input.taskType;
+  if (input.status !== 'all') where.status = input.status;
+  if (input.q) {
+    where.user = {
+      OR: [
+        { email: { contains: input.q, mode: 'insensitive' as const } },
+        { profile: { is: { displayName: { contains: input.q, mode: 'insensitive' as const } } } },
+        { profile: { is: { handle: { contains: input.q, mode: 'insensitive' as const } } } },
+      ],
+    };
+  }
+
+  const [usage, total, completed, failed, reserved, refunded] = await Promise.all([
+    (prisma as any).aiAssistUsage?.findMany({
+      where,
+      orderBy: [{ requestedAt: 'desc' }],
+      take: input.take,
+      include: { user: { select: { id: true, email: true, profile: { select: { displayName: true, handle: true, avatarUrl: true } } } } },
+    }) ?? Promise.resolve([]),
+    (prisma as any).aiAssistUsage?.count({ where }) ?? Promise.resolve(0),
+    (prisma as any).aiAssistUsage?.count({ where: { ...where, status: 'completed' } }) ?? Promise.resolve(0),
+    (prisma as any).aiAssistUsage?.count({ where: { ...where, status: 'failed' } }) ?? Promise.resolve(0),
+    (prisma as any).aiAssistUsage?.count({ where: { ...where, status: 'reserved' } }) ?? Promise.resolve(0),
+    (prisma as any).aiAssistUsage?.count({ where: { ...where, status: 'refunded' } }) ?? Promise.resolve(0),
+  ]);
+
+  res.json({
+    periodKey,
+    config: plusConfigSnapshot(),
+    summary: { total, completed, failed, reserved, refunded },
+    usage: usage.map((item: any) => ({
+      ...item,
+      requestedAt: adminIso(item.requestedAt),
+      completedAt: adminIso(item.completedAt),
+      createdAt: adminIso(item.createdAt),
+    })),
+  });
+}));
+
+adminRoutes.patch('/plus/users/:userId/grant', asyncRoute(async (req, res) => {
+  const input = adminPlusGrantRequestSchema.parse(req.body ?? {});
+  const existing = await prisma.user.findUnique({
+    where: { id: req.params.userId },
+    select: adminPlusUserSelect,
+  });
+  if (!existing) return res.status(404).json({ error: 'not_found' });
+
+  const now = new Date();
+  const currentPeriodEndsAt = parseAdminPlusDate(input.currentPeriodEndsAt);
+  const trialEndsAt = parseAdminPlusDate(input.trialEndsAt);
+  const nextTier = input.action === 'revoke_plus' ? 'free' : 'plus';
+  const nextStatus = input.action === 'revoke_plus' ? 'none' : input.action === 'start_plus_trial' ? 'trialing' : 'active';
+
+  await prisma.$transaction(async (tx: any) => {
+    await tx.user.update({
+      where: { id: existing.id },
+      data: {
+        subscriptionTier: nextTier,
+        subscriptionStatus: nextStatus,
+        subscriptionStatusUpdatedAt: now,
+      },
+    });
+
+    const subscriptionData = input.action === 'revoke_plus'
+      ? {
+          tier: 'free',
+          status: 'none',
+          provider: existing.subscriptionState?.provider ?? 'manual_admin',
+          currentPeriodStartedAt: null,
+          currentPeriodEndsAt: null,
+          trialStartedAt: null,
+          trialEndsAt: null,
+          canceledAt: now,
+          pastDueAt: null,
+          expiresAt: now,
+          lastSyncedAt: now,
+          adminNote: input.adminNote ?? input.note,
+        }
+      : {
+          tier: 'plus',
+          status: nextStatus,
+          provider: 'manual_admin',
+          currentPeriodStartedAt: now,
+          currentPeriodEndsAt,
+          trialStartedAt: input.action === 'start_plus_trial' ? now : null,
+          trialEndsAt: input.action === 'start_plus_trial' ? trialEndsAt : null,
+          canceledAt: null,
+          pastDueAt: null,
+          expiresAt: null,
+          lastSyncedAt: now,
+          adminNote: input.adminNote ?? input.note,
+        };
+
+    await tx.subscriptionState.upsert({
+      where: { userId: existing.id },
+      create: { userId: existing.id, ...subscriptionData },
+      update: subscriptionData,
+    });
+
+    await recordAdminAuditLog(tx, req.user!.id, {
+      action: `plus.${input.action}`,
+      targetType: 'user',
+      targetId: existing.id,
+      reason: input.note,
+      previousValue: normalizeAdminPlusUser(existing),
+      nextValue: {
+        subscriptionTier: nextTier,
+        subscriptionStatus: nextStatus,
+        currentPeriodEndsAt: adminIso(currentPeriodEndsAt),
+        trialEndsAt: adminIso(input.action === 'start_plus_trial' ? trialEndsAt : null),
+      },
+      metadata: {
+        provider: 'manual_admin',
+        publicUpgradeVisible: false,
+        billingConnected: false,
+        manualAdminOnly: true,
+      },
+    });
+  });
+
+  const user = await loadAdminPlusUser(existing.id);
+  res.json({ user, config: plusConfigSnapshot() });
 }));
 
 

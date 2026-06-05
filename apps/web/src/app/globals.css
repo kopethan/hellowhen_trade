@@ -2851,3 +2851,56 @@ html.dark .pro-package-prototype__item.selected {
   font-weight: 750;
   line-height: 1.42;
 }
+
+.inventory-ai-assist-panel { display: grid; gap: 12px; }
+.inventory-ai-assist-panel__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.inventory-ai-assist-panel__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inventory-ai-assist-panel__quota { color: var(--app-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+.inventory-ai-assist-panel__suggestion { display: grid; gap: 9px; border: 1px solid var(--app-border); background: var(--app-surface); border-radius: 18px; padding: 13px; }
+.inventory-ai-assist-panel__suggestion p { margin: 0; color: var(--app-text); font-size: 14px; font-weight: 700; line-height: 1.5; white-space: pre-wrap; }
+.inventory-ai-assist-panel__suggestion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inventory-ai-assist-panel__suggestion ul { margin: 0; padding-left: 18px; color: var(--app-text); font-size: 13px; font-weight: 700; line-height: 1.45; }
+.proposal-ai-assist-panel { display: grid; gap: 12px; }
+@media (max-width: 480px) {
+  .inventory-ai-assist-panel__header { flex-direction: column; }
+}
+
+/* PLUS4A: controlled Plus preview card themes */
+.preview-theme--blue { --plus-preview-accent: #3b82f6; --plus-preview-soft: rgba(59, 130, 246, 0.12); }
+.preview-theme--green { --plus-preview-accent: #10b981; --plus-preview-soft: rgba(16, 185, 129, 0.12); }
+.preview-theme--purple { --plus-preview-accent: #8b5cf6; --plus-preview-soft: rgba(139, 92, 246, 0.12); }
+.preview-theme--amber { --plus-preview-accent: #f59e0b; --plus-preview-soft: rgba(245, 158, 11, 0.14); }
+.preview-theme--rose { --plus-preview-accent: #f43f5e; --plus-preview-soft: rgba(244, 63, 94, 0.12); }
+.trade-stack-card--summary.preview-theme--blue,
+.trade-stack-card--summary.preview-theme--green,
+.trade-stack-card--summary.preview-theme--purple,
+.trade-stack-card--summary.preview-theme--amber,
+.trade-stack-card--summary.preview-theme--rose {
+  background:
+    radial-gradient(circle at 88% 14%, color-mix(in srgb, var(--plus-preview-accent) 18%, transparent) 0 18%, transparent 38%),
+    linear-gradient(135deg, var(--plus-preview-soft), var(--app-surface));
+}
+.trade-poster-card.preview-theme--blue,
+.trade-poster-card.preview-theme--green,
+.trade-poster-card.preview-theme--purple,
+.trade-poster-card.preview-theme--amber,
+.trade-poster-card.preview-theme--rose {
+  --poster-accent: var(--plus-preview-accent);
+}
+.inventory-preview-theme-picker { display: grid; gap: 12px; }
+.inventory-preview-theme-picker__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.inventory-preview-theme-option { display: grid; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 9px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); padding: 10px; color: var(--app-text); text-align: left; cursor: pointer; }
+.inventory-preview-theme-option:disabled { cursor: not-allowed; opacity: 0.54; }
+.inventory-preview-theme-option.is-selected { border-color: color-mix(in srgb, var(--plus-preview-accent, var(--app-text)) 58%, var(--app-border)); background: color-mix(in srgb, var(--plus-preview-soft, var(--app-surface-soft)) 70%, var(--app-surface)); }
+.inventory-preview-theme-option__swatch { grid-row: span 2; width: 24px; height: 24px; border-radius: 999px; background: var(--plus-preview-accent, var(--app-border-strong)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-text) 8%, transparent); }
+.inventory-preview-theme-option strong { min-width: 0; font-size: 13px; font-weight: 950; }
+.inventory-preview-theme-option small { display: block; min-width: 0; color: var(--app-text-muted); font-size: 11px; font-weight: 760; line-height: 1.25; }
+@media (max-width: 420px) {
+  .inventory-preview-theme-picker__grid { grid-template-columns: 1fr; }
+}
+.inventory-media-order-panel { display: grid; gap: 12px; }
+.inventory-media-grid--managed figure { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-text) 8%, transparent); }
+.inventory-media-grid--managed figure.is-cover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-accent, #14b8a6) 65%, transparent); }
+.inventory-media-controls { position: absolute; left: 8px; right: 8px; top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.inventory-media-controls button { min-height: 28px; border-radius: 999px; padding: 0 9px; font-size: 11px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18); }
+.inventory-media-controls button:disabled { opacity: 0.58; cursor: not-allowed; }

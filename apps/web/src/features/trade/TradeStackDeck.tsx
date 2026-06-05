@@ -3,12 +3,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { TradeDto } from '@hellowhen/contracts';
+import { normalizePreviewCardTheme, previewCardThemeClassName } from '@hellowhen/shared';
 import { WebIcon } from '../../components/WebIcon';
 import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
 import { getDeckImages, getExchangeLabel, getExpiryUrgencyBadge, getNeedSide, getOfferSide, getStatusLabel, getTradePostType, type TradeI18n } from './tradePresentation';
 import { TradePosterCard } from './TradePosterCard';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
+
+
+function previewThemeForTrade(trade: TradeDto) {
+  const tradeTheme = normalizePreviewCardTheme(trade.previewTheme);
+  if (tradeTheme !== 'default') return tradeTheme;
+  const needTheme = normalizePreviewCardTheme(trade.need?.previewTheme);
+  if (needTheme !== 'default') return needTheme;
+  return normalizePreviewCardTheme(trade.offer?.previewTheme);
+}
 
 function TradeStackImageCard({ image, i18n }: { image: ReturnType<typeof getDeckImages>[number]; i18n?: TradeI18n }) {
   const [failed, setFailed] = useState(!image.url);
@@ -159,6 +169,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
   const offer = getOfferSide(trade, i18n);
   const images = getDeckImages(trade, i18n);
   const exchange = getExchangeLabel(trade, i18n);
+  const previewTheme = previewThemeForTrade(trade);
   const totalCards = images.length + 1;
   const coverImage = images[0];
   const summarySubtitle = summarySubtitleForTrade(trade, need, offer, i18n);
@@ -169,7 +180,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
   const showTradeFooter = true;
 
   const summaryContent = postType === 'need_offer' ? (
-    <div className="trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity">
+    <div className={`trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity ${previewCardThemeClassName(previewTheme)}`}>
       <div className="trade-stack-card__mobile-top">
         <span>{(i18n?.t?.('trade.labels.trade') ?? 'TRADE').toUpperCase()} · {cardCountLabel(totalCards)}</span>
         <strong>{getStatusLabel(trade.status, i18n)}</strong>
@@ -212,6 +223,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
       chips={summaryChips}
       footer={<TradeCountdown expiresAt={trade.expiresAt} variant="poster" i18n={i18n} />}
       variant="trade"
+      previewTheme={previewTheme}
     />
   );
 
@@ -248,6 +260,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
           subtitle={sideMeta}
           chips={side.tags.slice(0, 3)}
           variant={variant}
+          previewTheme={previewTheme}
         />
       ),
     };

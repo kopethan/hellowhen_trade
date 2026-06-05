@@ -151,6 +151,17 @@ export const env = {
   businessCampaignsEnabled: enabled(process.env.BUSINESS_CAMPAIGNS_ENABLED),
   businessBudgetsEnabled: enabled(process.env.BUSINESS_BUDGETS_ENABLED),
   subscriptionsEnabled: enabled(process.env.SUBSCRIPTIONS_ENABLED),
+  plusEnabled: enabled(process.env.PLUS_ENABLED),
+  plusPublic: enabled(process.env.PLUS_PUBLIC),
+  plusAiAssistEnabled: enabled(process.env.AI_ASSIST_ENABLED),
+  plusCustomizationEnabled: enabled(process.env.PLUS_CUSTOMIZATION_ENABLED),
+  plusAdminGrantsEnabled: enabled(process.env.PLUS_ADMIN_GRANTS_ENABLED),
+  plusMonthlyPriceCents: Number(process.env.PLUS_MONTHLY_PRICE_CENTS ?? 499),
+  plusMonthlyPriceCurrency: (process.env.PLUS_MONTHLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
+  plusYearlyPriceCents: Number(process.env.PLUS_YEARLY_PRICE_CENTS ?? 3999),
+  plusYearlyPriceCurrency: (process.env.PLUS_YEARLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
+  freeMonthlyAiAssistQuota: Number(process.env.FREE_MONTHLY_AI_ASSIST_QUOTA ?? 3),
+  plusMonthlyAiAssistQuota: Number(process.env.PLUS_MONTHLY_AI_ASSIST_QUOTA ?? 75),
   proAccountsEnabled: enabled(process.env.PRO_ACCOUNTS_ENABLED),
   proAccountsVisible: enabled(process.env.PRO_ACCOUNTS_VISIBLE),
   proTrialsEnabled: enabled(process.env.PRO_TRIALS_ENABLED),
@@ -356,23 +367,36 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
   }
 
   const subscriptionFlagsEnabled = env.subscriptionsEnabled
+    || env.plusEnabled
+    || env.plusPublic
+    || env.plusAiAssistEnabled
+    || env.plusCustomizationEnabled
+    || env.plusAdminGrantsEnabled
     || env.proAccountsEnabled
     || env.proAccountsVisible
     || env.proTrialsEnabled
     || env.identityVerificationEnabled
     || env.proTradePackagesEnabled
     || publicFlagEnabled('NEXT_PUBLIC_SUBSCRIPTIONS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_PLUS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_PLUS_PUBLIC')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_ASSIST_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_IDENTITY_VERIFICATION_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_PLUS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_PLUS_PUBLIC')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_ASSIST_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_TRIALS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_IDENTITY_VERIFICATION_ENABLED');
   if (subscriptionFlagsEnabled) {
-    errors.push('Professional/subscription flags must stay disabled and hidden for first launch.');
+    errors.push('Plus, professional, and subscription flags must stay disabled and hidden for first launch.');
   }
 
   const webAdsProviderFlag = publicFlagValue('NEXT_PUBLIC_ADS_PROVIDER');
@@ -413,12 +437,14 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
   }
 
   const publicAiEnabled = publicFlagEnabled('NEXT_PUBLIC_AI_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_AI_ASSIST_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_MODERATION_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_SUGGESTIONS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_ADMIN_ASSIST_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_SAFETY_CLASSIFIER_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_AI_DEBUG_PLACEHOLDERS')
     || publicFlagEnabled('EXPO_PUBLIC_AI_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_AI_ASSIST_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_AI_MODERATION_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_AI_SUGGESTIONS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_AI_ADMIN_ASSIST_ENABLED')
@@ -427,6 +453,7 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
   const publicAiProvider = publicFlagValue('NEXT_PUBLIC_AI_PROVIDER');
   const mobileAiProvider = publicFlagValue('EXPO_PUBLIC_AI_PROVIDER');
   const aiRuntimeEnabled = env.aiEnabled
+    || env.plusAiAssistEnabled
     || env.aiModerationEnabled
     || env.aiSuggestionsEnabled
     || env.aiAdminAssistEnabled
@@ -465,7 +492,9 @@ export function validateProductionEnv() {
   if (publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE') && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_ACCOUNTS_VISIBLE=true requires EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if ((publicFlagEnabled('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED') || publicFlagEnabled('EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED')) && !publicFlagEnabled('EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED')) errors.push('EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED, EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED, and EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED require EXPO_PUBLIC_BUSINESS_ACCOUNTS_ENABLED=true in production.');
   if (env.plansVisible && !env.plansEnabled) errors.push('PLANS_VISIBLE=true requires PLANS_ENABLED=true in production.');
-  const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
+  if ((env.plusPublic || env.plusAiAssistEnabled || env.plusCustomizationEnabled || env.plusAdminGrantsEnabled) && !env.plusEnabled) errors.push('Plus public, AI assist, customization, and admin grant flags require PLUS_ENABLED=true.');
+  if (env.plusAiAssistEnabled && !env.aiEnabled) errors.push('AI_ASSIST_ENABLED requires AI_ENABLED=true in production.');
+  const aiConfigured = env.aiProvider !== 'none' || env.aiEnabled || env.plusAiAssistEnabled || env.aiModerationEnabled || env.aiSuggestionsEnabled || env.aiAdminAssistEnabled || env.aiSafetyClassifierEnabled || env.aiPrivateContentEnabled || env.aiModerationSuggestionsEnabled || env.aiDebugPlaceholders;
   const aiSecretsConfigured = hasConfiguredValue(env.openaiApiKey) || hasConfiguredValue(env.geminiApiKey) || hasConfiguredValue(env.groqApiKey);
   if (aiConfigured && env.aiProvider === 'none') {
     errors.push('AI feature flags require AI_PROVIDER to be set to a real provider in a later dedicated AI launch.');

@@ -21,6 +21,7 @@ export const cashPromiseSideSchema = z.enum(['need', 'offer']);
 export const proposalActionStatusSchema = z.enum(['accepted', 'declined', 'withdrawn']);
 export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
 export const discoveryLanguageSchema = z.enum(['en', 'fr']);
+export const previewCardThemeSchema = z.enum(['default', 'blue', 'green', 'purple', 'amber', 'rose']);
 export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
 export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
 export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
@@ -92,7 +93,9 @@ export const createNeedRequestSchema = z.object({
   translations: inventoryTranslationsInputSchema,
   status: needStatusSchema.optional(),
   expiresAt: z.string().datetime().optional(),
-  mediaIds: z.array(z.string()).max(5).optional()
+  mediaIds: z.array(z.string()).max(5).optional(),
+  coverMediaId: z.string().min(1).optional(),
+  previewTheme: previewCardThemeSchema.optional().default('default')
 }).merge(needMetadataSchema);
 
 export const createOfferRequestSchema = z.object({
@@ -102,7 +105,9 @@ export const createOfferRequestSchema = z.object({
   translations: inventoryTranslationsInputSchema,
   status: offerStatusSchema.optional(),
   expiresAt: z.string().datetime().optional(),
-  mediaIds: z.array(z.string()).max(5).optional()
+  mediaIds: z.array(z.string()).max(5).optional(),
+  coverMediaId: z.string().min(1).optional(),
+  previewTheme: previewCardThemeSchema.optional().default('default')
 }).merge(offerMetadataSchema);
 
 export const createTradeRequestSchema = z.object({
@@ -121,7 +126,9 @@ export const createTradeRequestSchema = z.object({
   cashPromise: cashPromiseInputSchema.optional(),
   expiresAt: z.string().datetime().optional(),
   // Deprecated for the new mobile create flow. Trade deck images come from the selected Need and Offer.
-  mediaIds: z.array(z.string()).max(5).optional()
+  mediaIds: z.array(z.string()).max(5).optional(),
+  coverMediaId: z.string().min(1).optional(),
+  previewTheme: previewCardThemeSchema.optional().default('default')
 }).superRefine((value, ctx) => {
   const needIsMoney = value.needKind === 'money';
   const offerIsMoney = value.offerKind === 'money';
@@ -203,6 +210,8 @@ const inventoryUpdateBaseSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
   includes: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
   mediaIds: z.array(z.string()).max(5).optional(),
+  coverMediaId: z.string().min(1).nullable().optional(),
+  previewTheme: previewCardThemeSchema.optional(),
 });
 
 export const updateNeedRequestSchema = inventoryUpdateBaseSchema.extend({ status: needStatusSchema.optional() });
@@ -320,6 +329,7 @@ export const needSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
+  previewTheme: previewCardThemeSchema.optional().default('default'),
   media: z.array(mediaAssetSchema).optional()
 });
 
@@ -343,6 +353,7 @@ export const offerSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
+  previewTheme: previewCardThemeSchema.optional().default('default'),
   media: z.array(mediaAssetSchema).optional()
 });
 
@@ -503,6 +514,7 @@ export const tradeSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   expiresAt: z.string().nullable().optional(),
+  previewTheme: previewCardThemeSchema.optional().default('default'),
   closedAt: z.string().nullable().optional(),
   cancelledByUserId: z.string().nullable().optional(),
   cancelledAt: z.string().nullable().optional(),
@@ -590,6 +602,7 @@ export type AcceptedDealSnapshotItemDto = z.infer<typeof acceptedDealSnapshotIte
 export type AcceptedDealSnapshotDto = z.infer<typeof acceptedDealSnapshotSchema>;
 export type ProposalActionStatus = z.infer<typeof proposalActionStatusSchema>;
 export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+export type PreviewCardTheme = z.infer<typeof previewCardThemeSchema>;
 export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;
 export type InventoryItemType = z.infer<typeof inventoryItemTypeSchema>;
 export type InventoryTemplateKind = z.infer<typeof inventoryTemplateKindSchema>;

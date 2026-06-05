@@ -1,4 +1,4 @@
-import { AI_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, getProTradePackageEntitlements, normalizeAiProvider } from '@hellowhen/shared';
+import { AI_FEATURE_DEFAULTS, PLUS_SUBSCRIPTION_FEATURE_DEFAULTS, PRO_SUBSCRIPTION_FEATURE_DEFAULTS, getProTradePackageEntitlements, normalizeAiProvider } from '@hellowhen/shared';
 const enabled = (value: string | undefined) => value?.toLowerCase() === 'true';
 const disabled = (value: string | undefined) => value?.toLowerCase() === 'false';
 const firstLaunchGuardsEnabled = !disabled(process.env.EXPO_PUBLIC_FIRST_LAUNCH_GUARDS_ENABLED);
@@ -24,6 +24,21 @@ const aiFeatures = {
   debugPlaceholders: process.env.NODE_ENV !== 'production' && aiEnabled && enabled(process.env.EXPO_PUBLIC_AI_DEBUG_PLACEHOLDERS),
 } as const;
 const subscriptionsEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_SUBSCRIPTIONS_ENABLED);
+const plusEnabled = !forceFirstLaunchSafeFlags && enabled(process.env.EXPO_PUBLIC_PLUS_ENABLED);
+const plusSubscriptionFeatures = {
+  ...PLUS_SUBSCRIPTION_FEATURE_DEFAULTS,
+  plusEnabled,
+  plusPublic: plusEnabled && enabled(process.env.EXPO_PUBLIC_PLUS_PUBLIC),
+  aiAssistEnabled: plusEnabled && enabled(process.env.EXPO_PUBLIC_AI_ASSIST_ENABLED),
+  customizationEnabled: plusEnabled && enabled(process.env.EXPO_PUBLIC_PLUS_CUSTOMIZATION_ENABLED),
+  adminGrantsEnabled: false,
+  monthlyPriceCents: Number(process.env.EXPO_PUBLIC_PLUS_MONTHLY_PRICE_CENTS ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCents),
+  monthlyPriceCurrency: (process.env.EXPO_PUBLIC_PLUS_MONTHLY_PRICE_CURRENCY ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.monthlyPriceCurrency).toLowerCase(),
+  yearlyPriceCents: Number(process.env.EXPO_PUBLIC_PLUS_YEARLY_PRICE_CENTS ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.yearlyPriceCents),
+  yearlyPriceCurrency: (process.env.EXPO_PUBLIC_PLUS_YEARLY_PRICE_CURRENCY ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.yearlyPriceCurrency).toLowerCase(),
+  freeMonthlyAiAssistQuota: Number(process.env.EXPO_PUBLIC_FREE_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.freeMonthlyAiAssistQuota),
+  plusMonthlyAiAssistQuota: Number(process.env.EXPO_PUBLIC_PLUS_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.plusMonthlyAiAssistQuota),
+} as const;
 const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED);
 const proSubscriptionFeatures = {
   ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
@@ -64,6 +79,7 @@ export const betaFeatures = {
   businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
   businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
   businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED),
+  plusSubscriptionFeatures,
   proSubscriptionFeatures,
   proTradePackageFeatures,
   adsProvider: forceFirstLaunchSafeFlags ? 'none' : rawAdsProvider,

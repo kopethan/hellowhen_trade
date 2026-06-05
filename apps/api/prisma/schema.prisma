@@ -36,6 +36,7 @@ enum ProfessionalStatus {
 
 enum SubscriptionTier {
   free
+  plus
   plus_later
   pro
   business_later
@@ -48,6 +49,24 @@ enum SubscriptionStatus {
   past_due
   canceled
   expired
+}
+
+enum AiAssistUsageTaskType {
+  need_title
+  need_description
+  offer_title
+  offer_description
+  proposal_message
+  translate_text
+  category_tags
+  safety_readability
+}
+
+enum AiAssistUsageStatus {
+  reserved
+  completed
+  failed
+  refunded
 }
 
 enum IdentityVerificationProvider {
@@ -121,6 +140,15 @@ enum InventoryTemplateStatus {
   active
   rejected
   archived
+}
+
+enum PreviewCardTheme {
+  default
+  blue
+  green
+  purple
+  amber
+  rose
 }
 
 enum InventoryTranslationTargetType {
@@ -713,6 +741,31 @@ model User {
   usernameChangesApproved UsernameHistory[] @relation("UsernameHistoryChangedBy")
   reviewedContentClassifications ContentClassification[] @relation("ReviewedContentClassifications")
   approvedContentPlacementSignals ContentPlacementSignal[] @relation("ApprovedContentPlacementSignals")
+  aiAssistUsage AiAssistUsage[]
+}
+
+model AiAssistUsage {
+  id              String                @id @default(cuid())
+  userId          String
+  periodKey       String
+  taskType        AiAssistUsageTaskType
+  status          AiAssistUsageStatus   @default(completed)
+  planTierAtUse   SubscriptionTier      @default(free)
+  quotaLimitAtUse Int
+  inputHash       String?
+  metadata        Json?
+  errorCode       String?
+  requestedAt     DateTime              @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, periodKey, status])
+  @@index([userId, taskType, requestedAt])
+  @@index([periodKey, status, requestedAt])
+  @@index([createdAt])
 }
 
 
@@ -1098,6 +1151,7 @@ model Need {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   expiresAt     DateTime?
+  previewTheme PreviewCardTheme @default(default)
 
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
@@ -1133,6 +1187,7 @@ model Offer {
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   expiresAt     DateTime?
+  previewTheme PreviewCardTheme @default(default)
 
   owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   businessProfile BusinessProfile? @relation(fields: [businessProfileId], references: [id], onDelete: SetNull)
@@ -1222,6 +1277,7 @@ model Trade {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   expiresAt    DateTime?
+  previewTheme PreviewCardTheme @default(default)
   closedAt     DateTime?
   cancelledByUserId    String?
   cancelledAt          DateTime?
@@ -1413,6 +1469,8 @@ model MediaAsset {
   filename    String
   mimeType    String
   sizeBytes   Int
+  sortOrder   Int              @default(0)
+  isCover     Boolean          @default(false)
   status      MediaAssetStatus @default(active)
   reviewNote  String?
   reviewedAt  DateTime?
@@ -1425,6 +1483,7 @@ model MediaAsset {
 
   @@index([ownerId, createdAt])
   @@index([entityType, entityId])
+  @@index([entityType, entityId, isCover, sortOrder])
   @@index([status, createdAt])
 }
 

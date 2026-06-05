@@ -77,6 +77,14 @@ export function requirePlansVisible(surface = 'Plans'): RequestHandler {
   return (_req, _res, next) => next();
 }
 
+
+export function requirePlusAdminGrantsEnabled(surface = 'Plus admin grants'): RequestHandler {
+  if (!env.plusEnabled || !env.plusAdminGrantsEnabled) {
+    return disabledSurface('plus_admin_grants_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
 export function requireSubscriptionsEnabled(surface = 'Subscriptions'): RequestHandler {
   if (!env.subscriptionsEnabled) {
     return disabledSurface('subscriptions_disabled', `${surface} are disabled for this launch.`);

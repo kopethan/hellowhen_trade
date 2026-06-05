@@ -3,11 +3,14 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { FormEvent } from 'react';
-import type { CreateNeedRequest, CreateOfferRequest, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
+import type { CreateNeedRequest, CreateOfferRequest, DiscoveryLanguage, InventoryItemType, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode, UpdateNeedRequest, UpdateOfferRequest } from '@hellowhen/contracts';
 import { findInventoryCategoryOption, inventoryCategoryOptions } from '@hellowhen/shared';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { InventoryAiAssistPanel } from './InventoryAiAssistPanel';
+import { InventoryMediaOrderPanel } from './InventoryMediaOrderPanel';
+import { InventoryPreviewThemePicker } from './InventoryPreviewThemePicker';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
@@ -21,10 +24,8 @@ import {
   getVisibleInventoryTranslations,
   inventoryLanguageLabel,
   inventoryToFormValues,
-  inventoryStatusLabel,
   itemTypeLabel,
   kindLabel,
-  mediaSrc,
   normalizeInventoryItem,
   normalizeInventoryTranslationsForPayload,
   normalizeMediaUpload,
@@ -74,7 +75,7 @@ function parseMode(value: string): TradeExchangeMode | undefined {
   return value === 'remote' || value === 'local' || value === 'hybrid' ? value : undefined;
 }
 
-function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): CreateNeedRequest | UpdateNeedRequest {
+function formToNeedPayload(values: InventoryFormValues, mediaIds: string[], coverMediaId?: string): CreateNeedRequest | UpdateNeedRequest {
   return {
     title: values.title.trim(),
     description: values.description.trim(),
@@ -88,11 +89,13 @@ function formToNeedPayload(values: InventoryFormValues, mediaIds: string[]): Cre
     locationLabel: values.locationLabel.trim() || undefined,
     tags: parseCsvList(values.tags),
     expiresAt: toIsoDate(values.expiresAt),
+    previewTheme: values.previewTheme,
     mediaIds,
+    coverMediaId,
   };
 }
 
-function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): CreateOfferRequest | UpdateOfferRequest {
+function formToOfferPayload(values: InventoryFormValues, mediaIds: string[], coverMediaId?: string): CreateOfferRequest | UpdateOfferRequest {
   return {
     title: values.title.trim(),
     description: values.description.trim(),
@@ -107,7 +110,9 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[]): Cr
     includes: parseLineList(values.includes),
     tags: parseCsvList(values.tags),
     expiresAt: toIsoDate(values.expiresAt),
+    previewTheme: values.previewTheme,
     mediaIds,
+    coverMediaId,
   };
 }
 
@@ -119,6 +124,16 @@ function buildCreateRedirectHref(redirect: InventoryCreateRedirect, savedId: str
   params.set(redirect.selectedParam, savedId);
   const query = params.toString();
   return `${redirect.pathname}${query ? `?${query}` : ''}`;
+}
+
+
+function normalizeMediaOrder(items: MediaAssetDto[]): MediaAssetDto[] {
+  const hasCover = items.some((item) => item.isCover);
+  return items.map((item, index) => ({
+    ...item,
+    sortOrder: index,
+    isCover: hasCover ? Boolean(item.isCover) : index === 0,
+  }));
 }
 
 export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreateRedirect }: InventoryFormClientProps) {
@@ -166,13 +181,13 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         const item = normalizeInventoryItem(response, kind);
         if (item) {
           setValues(inventoryToFormValues(item));
-          setMedia(item.media ?? []);
+          setMedia(normalizeMediaOrder(item.media ?? []));
         }
       } catch {
         if (!mounted) return;
         const fallback = demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((item) => item.id === requestedItemId) ?? null : null;
         setValues(inventoryToFormValues(fallback));
-        setMedia(fallback?.media ?? []);
+        setMedia(normalizeMediaOrder(fallback?.media ?? []));
         setMessage(demoDataEnabled && fallback ? t('inventory.messages.usingDemoData') : t('inventory.messages.itemCouldNotLoad'));
       } finally {
         if (mounted) setLoading(false);
@@ -199,9 +214,19 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
   }, [auth.hydrated, auth.isAuthenticated, itemId, kind, mode]);
 
   const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
+  const coverMediaId = useMemo(() => media.find((item) => item.isCover)?.id ?? media[0]?.id, [media]);
 
   function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
     setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  function applyAiTranslation(languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
+    setValues((current) => setInventoryTranslationDraft(current, { languageCode, title: titleText, description: descriptionText }));
+    setTranslationPickerOpen(false);
+  }
+
+  function applyAiCategoryTags(categoryText: string, tagList: string[]) {
+    setValues((current) => ({ ...current, category: categoryText, tags: tagList.join(', ') }));
   }
 
   function addTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
@@ -226,9 +251,9 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
         formData.append('image', file);
         const response = await api.media.uploadImage(formData);
         const uploaded = normalizeMediaUpload(response);
-        if (uploaded) nextMedia.push(uploaded);
+        if (uploaded) nextMedia.push({ ...uploaded, sortOrder: nextMedia.length, isCover: nextMedia.length === 0 });
       }
-      setMedia(nextMedia.slice(0, 5));
+      setMedia(normalizeMediaOrder(nextMedia.slice(0, 5)));
       setMessage(t('inventory.messages.imageUploaded'));
     } catch (cause) {
       setError(getFriendlyApiErrorMessage(cause));
@@ -239,7 +264,33 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
 
   function removeMedia(mediaId: string) {
     if (isEditProtected) return;
-    setMedia((current) => current.filter((item) => item.id !== mediaId));
+    setMedia((current) => normalizeMediaOrder(current.filter((item) => item.id !== mediaId)));
+  }
+
+  function moveMedia(mediaId: string, direction: 'up' | 'down') {
+    setMedia((current) => {
+      const index = current.findIndex((item) => item.id === mediaId);
+      if (index < 0) return current;
+      const nextIndex = direction === 'up' ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      if (!item) return current;
+      next.splice(nextIndex, 0, item);
+      return normalizeMediaOrder(next);
+    });
+  }
+
+  function setCoverMedia(mediaId: string) {
+    setMedia((current) => {
+      const index = current.findIndex((item) => item.id === mediaId);
+      if (index < 0) return current;
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      if (!item) return current;
+      next.unshift(item);
+      return normalizeMediaOrder(next.map((candidate) => ({ ...candidate, isCover: candidate.id === mediaId })));
+    });
   }
 
   function validateValues() {
@@ -277,7 +328,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
     setError('');
     setMessage('');
     try {
-      const payload = kind === 'need' ? formToNeedPayload(values, mediaIds) : formToOfferPayload(values, mediaIds);
+      const payload = kind === 'need' ? formToNeedPayload(values, mediaIds, coverMediaId) : formToOfferPayload(values, mediaIds, coverMediaId);
       let saved: InventoryItem | null = null;
       if (kind === 'need') {
         const response = mode === 'edit' && itemId
@@ -379,6 +430,26 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
           </label>
         </section>
 
+        <InventoryAiAssistPanel
+          kind={kind}
+          title={values.title}
+          description={values.description}
+          defaultLanguage={values.defaultLanguage}
+          category={values.category}
+          tags={values.tags}
+          disabled={isEditProtected || saving || uploading}
+          onApplyTitle={(nextTitle) => updateField('title', nextTitle)}
+          onApplyDescription={(nextDescription) => updateField('description', nextDescription)}
+          onApplyTranslation={applyAiTranslation}
+          onApplyCategoryTags={applyAiCategoryTags}
+        />
+
+        <InventoryPreviewThemePicker
+          value={values.previewTheme}
+          disabled={isEditProtected || saving || uploading}
+          onChange={(nextTheme) => updateField('previewTheme', nextTheme)}
+        />
+
         <section className="mobile-card mobile-card--soft inventory-translation-panel">
           <div className="inventory-translation-panel__header">
             <div className="inventory-form__helper-copy">
@@ -457,6 +528,11 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
             </select>
             <small>{t('inventory.form.categoryHelp')}</small>
           </label>
+          <label className="field-label inventory-form__wide">
+            <span className="field-label__row"><span>{t('inventory.labels.tags')}</span><small>{t('inventory.labels.optional')}</small></span>
+            <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} maxLength={160} />
+            <small>{t('inventory.form.separateWithCommas')}</small>
+          </label>
           <label className="field-label">
             {t('inventory.labels.mode')}
             <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
@@ -481,19 +557,14 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={isEditProtected || uploading || media.length >= 5} />
             {uploading ? t('media.states.uploading') : media.length >= 5 ? t('inventory.actions.imageLimitReached') : t('inventory.actions.uploadImages')}
           </label>
-          {media.length ? (
-            <div className="inventory-media-grid">
-              {media.map((item) => (
-                <figure key={item.id}>
-                  <img src={mediaSrc(item)} alt={item.filename ?? `${noun} ${t('inventory.labels.images').toLowerCase()}`} />
-                  <figcaption>
-                    <span className="semantic-badge instruction">{inventoryStatusLabel(item.status, i18n)}</span>
-                    <button type="button" className="secondary" onClick={() => removeMedia(item.id)} disabled={isEditProtected}>{t('common.actions.remove')}</button>
-                  </figcaption>
-                </figure>
-              ))}
-            </div>
-          ) : null}
+          <InventoryMediaOrderPanel
+            media={media}
+            disabled={isEditProtected || saving || uploading}
+            label={noun}
+            onMove={moveMedia}
+            onSetCover={setCoverMedia}
+            onRemove={removeMedia}
+          />
         </section>
 
         </fieldset>

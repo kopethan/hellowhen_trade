@@ -18,6 +18,7 @@ import { hasProposalPackageInput, resolveProposalPackagePayload, toProposalPacka
 import { notifyTradeProposalReceived, notifyTradeStatusUpdated } from '../notifications/notifications.service.js';
 import { createAcceptedDealSnapshot } from '../proposals/dealSnapshots.js';
 import { validateCashPromiseInput } from '../cash-promise/cashPromise.js';
+import { resolvePlusPreviewThemeForCreate } from '../subscriptions/plusCustomization.js';
 
 export const tradesRoutes = Router();
 export const tradeInclude = { owner: { select: publicUserPreviewSelect }, provider: { select: publicUserPreviewSelect }, need: true, offer: true, payment: true, escrow: true, cashPromise: true } as const;
@@ -829,6 +830,7 @@ tradesRoutes.delete('/:tradeId', requireAuth, requireActiveAccount, asyncRoute(a
 tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createTradeRequestSchema.parse(req.body);
   const actorId = req.user!.id;
+  const previewTheme = await resolvePlusPreviewThemeForCreate(actorId, input.previewTheme);
   const postType = input.postType ?? 'need_offer';
   const cashPromiseDecision = validateCashPromiseInput(input.cashPromise, Boolean(input.cashPromise), { allowTradeCreate: true });
   if (cashPromiseDecision && !cashPromiseDecision.ok) {
@@ -953,6 +955,7 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
       status: 'active',
       isPublic: true,
       expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+      previewTheme,
       cashPromise: cashPromise ? {
         create: {
           side: cashPromise.side,

@@ -14,6 +14,7 @@ import { ProTradePackagePrototype } from './ProTradePackagePrototype';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
+import { ProposalAiAssistPanel } from './ProposalAiAssistPanel';
 
 const PROPOSAL_REFRESH_INTERVAL_MS = 6000;
 
@@ -527,6 +528,16 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
             onToggleEnabled={setPackagePrototypeEnabled}
             onSupportingNeedIdsChange={setSupportingNeedIds}
             onSupportingOfferIdsChange={setSupportingOfferIds}
+          />
+
+          <ProposalAiAssistPanel
+            message={proposalMessage}
+            context={[trade.need?.title, trade.offer?.title, trade.need?.description, trade.offer?.description].filter(Boolean).join('\n')}
+            disabled={loading || sideLoading}
+            onApplyMessage={(nextMessage) => {
+              setProposalMessage(nextMessage);
+              if (proposalFormError) setProposalFormError(null);
+            }}
           />
 
           <label className="field-label proposal-message-field">

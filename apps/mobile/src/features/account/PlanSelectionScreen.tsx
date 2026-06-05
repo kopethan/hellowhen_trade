@@ -7,7 +7,7 @@ import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { betaFeatures } from '../../lib/betaFeatures';
-import { formatMobileProMonthlyPrice, getMobileProGate } from '../../lib/proGate';
+import { formatMobilePlusMonthlyPrice, formatMobilePlusYearlyPrice, getMobilePlusGate } from '../../lib/plusGate';
 import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
@@ -21,12 +21,13 @@ type PlanCard = {
   badge?: string;
   body: string;
   bullets: string[];
+  boundary?: string;
   actionLabel: string;
   featured?: boolean;
 };
 
-function bulletList(keyPrefix: string, count: number, t: TFunction) {
-  return Array.from({ length: count }, (_, index) => t(`${keyPrefix}.${index + 1}`));
+function bulletList(keyPrefix: string, count: number, t: TFunction, values?: Record<string, string | number | boolean | null | undefined>) {
+  return Array.from({ length: count }, (_, index) => t(`${keyPrefix}.${index + 1}`, values));
 }
 
 function PlanCardView({ card }: { card: PlanCard }) {
@@ -49,6 +50,7 @@ function PlanCardView({ card }: { card: PlanCard }) {
           </View>
         ))}
       </View>
+      {card.boundary ? <AppText style={[styles.boundary, { color: theme.color.muted, borderTopColor: theme.color.border }]}>{card.boundary}</AppText> : null}
       <Pressable accessibilityRole="button" disabled style={[styles.disabledButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
         <AppText style={[styles.disabledButtonText, { color: theme.color.muted }]}>{card.actionLabel}</AppText>
       </Pressable>
@@ -60,34 +62,29 @@ export function PlanSelectionScreen({ navigation }: Props) {
   const auth = useAuth();
   const theme = useThemeTokens();
   const { t } = useTranslation();
-  const gate = getMobileProGate();
-  const proPrice = formatMobileProMonthlyPrice(gate);
-  const hidden = !betaFeatures.proSubscriptionFeatures.proAccountsVisible;
+  const gate = getMobilePlusGate();
+  const plusPrice = formatMobilePlusMonthlyPrice(gate);
+  const yearlyPrice = formatMobilePlusYearlyPrice(gate);
+  const hidden = !betaFeatures.plusSubscriptionFeatures.plusPublic;
 
   const cards: PlanCard[] = [
     {
       title: t('account.plans.free.title'),
       price: t('account.plans.free.price'),
       body: t('account.plans.free.body'),
-      bullets: bulletList('account.plans.free.bullets', 4, t),
+      bullets: bulletList('account.plans.free.bullets', 5, t, { quota: gate.entitlements.monthlyAiAssistQuota }),
+      boundary: t('account.plans.free.boundary'),
       actionLabel: auth.isAuthenticated ? t('account.plans.actions.currentPlan') : t('common.actions.loginOrRegister'),
     },
     {
-      title: t('account.plans.pro.title'),
-      price: t('account.plans.pro.price', { price: proPrice }),
-      badge: t('account.plans.pro.badge'),
-      body: t('account.plans.pro.body'),
-      bullets: bulletList('account.plans.pro.bullets', 4, t),
-      actionLabel: betaFeatures.proSubscriptionFeatures.identityVerificationEnabled ? t('account.plans.actions.startProSetup') : t('account.plans.actions.comingLater'),
-      featured: true,
-    },
-    {
-      title: t('account.plans.business.title'),
-      price: t('account.plans.business.price'),
-      badge: t('account.plans.business.badge'),
-      body: t('account.plans.business.body'),
-      bullets: bulletList('account.plans.business.bullets', 4, t),
+      title: t('account.plans.plus.title'),
+      price: t('account.plans.plus.price', { price: plusPrice }),
+      badge: t('account.plans.plus.badge'),
+      body: t('account.plans.plus.body'),
+      bullets: bulletList('account.plans.plus.bullets', 6, t, { quota: betaFeatures.plusSubscriptionFeatures.plusMonthlyAiAssistQuota }),
+      boundary: t('account.plans.plus.boundary', { yearlyPrice }),
       actionLabel: t('account.plans.actions.comingLater'),
+      featured: true,
     },
   ];
 
@@ -100,8 +97,9 @@ export function PlanSelectionScreen({ navigation }: Props) {
           <>
             <InfoNotice tone="info" title={t('account.plans.previewTitle')} body={t('account.plans.previewBody')} />
             <View style={[styles.priceStrip, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-              <AppText style={[styles.priceStripLabel, { color: theme.color.muted }]}>{t('account.plans.pro.monthlyLabel')}</AppText>
-              <AppText style={styles.priceStripValue}>{proPrice}{t('account.plans.pro.monthlySuffix')}</AppText>
+              <AppText style={[styles.priceStripLabel, { color: theme.color.muted }]}>{t('account.plans.plus.monthlyLabel')}</AppText>
+              <AppText style={styles.priceStripValue}>{plusPrice}{t('account.plans.plus.monthlySuffix')}</AppText>
+              <AppText style={[styles.priceStripBody, { color: theme.color.muted }]}>{t('account.plans.plus.yearlyLater', { yearlyPrice })}</AppText>
             </View>
             {cards.map((card) => <PlanCardView key={card.title} card={card} />)}
             <InfoNotice tone="warning" title={t('account.plans.safetyTitle')} body={t('account.plans.safetyBody')} />
@@ -117,6 +115,7 @@ const styles = StyleSheet.create({
   priceStrip: { borderWidth: 1, borderRadius: 22, padding: 16, gap: 4 },
   priceStripLabel: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 },
   priceStripValue: { fontSize: 24, lineHeight: 29, fontWeight: '900', letterSpacing: -0.5 },
+  priceStripBody: { fontSize: 13, lineHeight: 19, fontWeight: '800' },
   planCard: { gap: 14 },
   planHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   planTitleBlock: { flex: 1, gap: 8 },
@@ -127,6 +126,7 @@ const styles = StyleSheet.create({
   bulletRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   bulletMark: { fontSize: 14, lineHeight: 20, fontWeight: '900' },
   bulletText: { flex: 1, fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  boundary: { borderTopWidth: 1, paddingTop: 12, fontSize: 13, lineHeight: 19, fontWeight: '800' },
   disabledButton: { minHeight: 46, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   disabledButtonText: { fontSize: 14, fontWeight: '900' },
 });

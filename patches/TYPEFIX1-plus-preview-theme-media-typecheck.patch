@@ -1,0 +1,327 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 9190123..53607f2 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -120,6 +120,7 @@ function buildPreviewTrade({ postType, needSelection, offerSelection, need, offe
+     amountCents: 0,
+     currency,
+     postType: resolvedPostType,
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt,
+@@ -239,6 +240,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+         postType,
+         needKind: 'need',
+         offerKind: 'offer',
++        previewTheme: 'default',
+         ...(postType !== 'open_offer' && needSelection?.kind === 'need' ? { needId: needSelection.id } : {}),
+         ...(postType !== 'open_need' && offerSelection?.kind === 'offer' ? { offerId: offerSelection.id } : {}),
+         ...(cashPromise ? { cashPromise } : {}),
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index e8827b6..80a4b2e 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -416,6 +416,7 @@ export function InventoryDetailScreen({
+       if (nextIndex < 0 || nextIndex >= current.length) return current;
+       const next = [...current];
+       const [item] = next.splice(index, 1);
++      if (!item) return current;
+       next.splice(nextIndex, 0, item);
+       return normalizeMediaOrder(next);
+     });
+@@ -427,6 +428,7 @@ export function InventoryDetailScreen({
+       if (index < 0) return current;
+       const next = [...current];
+       const [item] = next.splice(index, 1);
++      if (!item) return current;
+       next.unshift(item);
+       return normalizeMediaOrder(next.map((media) => ({ ...media, isCover: media.id === mediaId })));
+     });
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 5ea69b8..17e03c5 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -37,7 +37,7 @@ type RequiredProposalSide = 'need' | 'offer' | null;
+ const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
+ 
+ function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
+-function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? '', creditAmount: params.creditAmount ?? 0, amountCents: params.amountCents ?? 0, currency: params.currency ?? 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: params.expiresAt ?? null, closedAt: null, postType: 'need_offer' }; }
++function fallback(params: RootStackParamList['TradeDetail']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade detail', description: params.description ?? '', creditAmount: params.creditAmount ?? 0, amountCents: params.amountCents ?? 0, currency: params.currency ?? 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: params.expiresAt ?? null, closedAt: null, postType: 'need_offer', previewTheme: 'default' }; }
+ type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
+ function compactList(values: Array<string | null | undefined>) { return values.map((value) => value?.trim()).filter(Boolean).join(' · '); }
+diff --git a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+index 267b947..d39d89a 100644
+--- a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+@@ -32,7 +32,7 @@ type TFunction = (key: string, values?: Record<string, string | number | boolean
+ 
+ const tradeStatuses: TradeStatus[] = ['draft', 'active', 'funded', 'in_progress', 'submitted', 'completed', 'disputed', 'expired', 'closed', 'cancelled'];
+ function normalizeStatus(status?: string): TradeStatus { return tradeStatuses.includes(status as TradeStatus) ? status as TradeStatus : 'active'; }
+-function fallback(params: RootStackParamList['TradePrivateProposals']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade', description: '', creditAmount: 0, amountCents: 0, currency: 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, closedAt: null, postType: 'need_offer' }; }
++function fallback(params: RootStackParamList['TradePrivateProposals']): TradeDeckItem { return { id: params.tradeId, ownerId: 'unknown', providerId: null, title: params.title ?? 'Trade', description: '', creditAmount: 0, amountCents: 0, currency: 'eur', status: normalizeStatus(params.status), isPublic: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: null, closedAt: null, postType: 'need_offer', previewTheme: 'default' }; }
+ function compactList(values: Array<string | null | undefined>) { return values.map((value) => value?.trim()).filter(Boolean).join(' · '); }
+ function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
+ function tradePostType(trade: TradeDeckItem): TradePostType { return trade.postType ?? 'need_offer'; }
+diff --git a/apps/mobile/src/features/trade/components/ImagePickerField.tsx b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+index 2b6179c..b048bb6 100644
+--- a/apps/mobile/src/features/trade/components/ImagePickerField.tsx
++++ b/apps/mobile/src/features/trade/components/ImagePickerField.tsx
+@@ -141,6 +141,7 @@ export function ImagePickerField({
+     if (nextIndex < 0 || nextIndex >= images.length) return;
+     const next = [...images];
+     const [item] = next.splice(index, 1);
++    if (!item) return;
+     next.splice(nextIndex, 0, item);
+     onChange(normalizeCoverOrder(next));
+   }
+@@ -151,6 +152,7 @@ export function ImagePickerField({
+     if (index <= 0) return;
+     const next = [...images];
+     const [item] = next.splice(index, 1);
++    if (!item) return;
+     next.unshift(item);
+     onChange(normalizeCoverOrder(next));
+   }
+diff --git a/apps/web/src/features/account/BusinessAccountsClient.tsx b/apps/web/src/features/account/BusinessAccountsClient.tsx
+index 39f483d..5ed7efc 100644
+--- a/apps/web/src/features/account/BusinessAccountsClient.tsx
++++ b/apps/web/src/features/account/BusinessAccountsClient.tsx
+@@ -440,6 +440,7 @@ export function BusinessAccountsClient() {
+           description: contentForm.description,
+           itemType: contentForm.itemType,
+           defaultLanguage: 'en',
++          previewTheme: 'default',
+           category: contentForm.category.trim() || undefined,
+           timing: contentForm.timing.trim() || undefined,
+           mediaIds: [],
+@@ -452,6 +453,7 @@ export function BusinessAccountsClient() {
+           description: contentForm.description,
+           itemType: contentForm.itemType,
+           defaultLanguage: 'en',
++          previewTheme: 'default',
+           category: contentForm.category.trim() || undefined,
+           availability: contentForm.availability.trim() || undefined,
+           mediaIds: [],
+diff --git a/apps/web/src/features/inventory/InventoryFormClient.tsx b/apps/web/src/features/inventory/InventoryFormClient.tsx
+index 7fd77da..49895c7 100644
+--- a/apps/web/src/features/inventory/InventoryFormClient.tsx
++++ b/apps/web/src/features/inventory/InventoryFormClient.tsx
+@@ -275,6 +275,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+       if (nextIndex < 0 || nextIndex >= current.length) return current;
+       const next = [...current];
+       const [item] = next.splice(index, 1);
++      if (!item) return current;
+       next.splice(nextIndex, 0, item);
+       return normalizeMediaOrder(next);
+     });
+@@ -286,6 +287,7 @@ export function InventoryFormClient({ kind, itemId, mode, cancelHref, afterCreat
+       if (index < 0) return current;
+       const next = [...current];
+       const [item] = next.splice(index, 1);
++      if (!item) return current;
+       next.unshift(item);
+       return normalizeMediaOrder(next.map((candidate) => ({ ...candidate, isCover: candidate.id === mediaId })));
+     });
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index 87700fb..3f9c4ec 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -275,6 +275,7 @@ function buildPreviewTrade(input: {
+     needId: input.need?.id ?? null,
+     offerId: input.offer?.id ?? null,
+     postType: input.postType,
++    previewTheme: 'default',
+     title: input.title,
+     description: input.description,
+     creditAmount: 0,
+@@ -487,6 +488,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+       postType,
+       needKind: (postType === 'need_offer' && betaFeatures.moneyTradesEnabled && values.needMode === 'money' ? 'money' : 'need') as TradeNeedSideKind,
+       offerKind: (postType === 'need_offer' && betaFeatures.moneyTradesEnabled && values.offerMode === 'money' ? 'money' : 'offer') as TradeOfferSideKind,
++      previewTheme: 'default',
+       needId: postType !== 'open_offer' && values.needMode === 'saved' ? selectedNeed?.id : undefined,
+       offerId: postType !== 'open_need' && values.offerMode === 'saved' ? selectedOffer?.id : undefined,
+       creditAmount: 0,
+diff --git a/apps/web/src/lib/mockData.ts b/apps/web/src/lib/mockData.ts
+index b0009f9..c487f80 100644
+--- a/apps/web/src/lib/mockData.ts
++++ b/apps/web/src/lib/mockData.ts
+@@ -16,6 +16,8 @@ function demoImage(id: string, ownerId: string, entityType: 'need' | 'offer', en
+     filename: `${id}.svg`,
+     mimeType: 'image/svg+xml',
+     sizeBytes: svg.length,
++    sortOrder: 0,
++    isCover: false,
+     status: 'active',
+     createdAt: now,
+     updatedAt: now,
+@@ -29,6 +31,7 @@ export const mockNeeds: NeedDto[] = [
+     title: 'Landing page design',
+     description: 'I need a clean landing page for a small product launch with hero copy, sections, and a simple CTA.',
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: 'service',
+     category: 'Design',
+     timing: 'This week',
+@@ -47,6 +50,7 @@ export const mockNeeds: NeedDto[] = [
+     title: 'Short launch video edit',
+     description: 'Looking for someone to polish a 45-second launch video and export it for mobile and social.',
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: 'service',
+     category: 'Video',
+     timing: '24–48 hours',
+@@ -65,6 +69,7 @@ export const mockNeeds: NeedDto[] = [
+     title: 'Email launch copy',
+     description: 'I need three concise emails for a small product launch: announcement, reminder, and last call.',
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: 'service',
+     category: 'Copywriting',
+     timing: 'Next week',
+@@ -86,6 +91,7 @@ export const mockOffers: OfferDto[] = [
+     title: 'Product photography',
+     description: 'I can shoot and edit a clean set of ecommerce-style product photos for your website or social launch.',
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: 'service',
+     category: 'Photography',
+     availability: 'Weekend',
+@@ -105,6 +111,7 @@ export const mockOffers: OfferDto[] = [
+     title: 'SEO audit',
+     description: 'I can review one site and send a prioritized SEO checklist with technical and content quick wins.',
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: 'service',
+     category: 'Marketing',
+     availability: 'This month',
+@@ -145,6 +152,7 @@ export const mockTrades: TradeDto[] = [
+     amountCents: 0,
+     currency: 'eur',
+     postType: 'need_offer',
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt: now,
+@@ -157,6 +165,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'Landing page design',
+       description: 'I need a clean landing page for a small product launch with hero copy, sections, and a simple CTA.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Design',
+       timing: 'This week',
+@@ -175,6 +184,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'Product photography',
+       description: 'I can shoot and edit a clean set of ecommerce-style product photos for your website or social launch.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Photography',
+       availability: 'Weekend',
+@@ -198,6 +208,7 @@ export const mockTrades: TradeDto[] = [
+     amountCents: 0,
+     currency: 'eur',
+     postType: 'need_offer',
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt: now,
+@@ -210,6 +221,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'Short launch video edit',
+       description: 'Looking for someone to polish a 45-second launch video and export it for mobile and social.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Video',
+       timing: '24–48 hours',
+@@ -228,6 +240,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'Product samples',
+       description: 'I can send small product samples for content testing or styling reference.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'goods',
+       category: 'Goods',
+       availability: 'This week',
+@@ -251,6 +264,7 @@ export const mockTrades: TradeDto[] = [
+     amountCents: 0,
+     currency: 'eur',
+     postType: 'need_offer',
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt: now,
+@@ -263,6 +277,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'Email launch copy',
+       description: 'I need three concise emails for a small product launch: announcement, reminder, and last call.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Copywriting',
+       timing: 'Next week',
+@@ -281,6 +296,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'SEO audit',
+       description: 'I can review one site and send a prioritized SEO checklist with technical and content quick wins.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Marketing',
+       availability: 'This month',
+@@ -305,6 +321,7 @@ export const mockTrades: TradeDto[] = [
+     amountCents: 0,
+     currency: 'eur',
+     postType: 'open_need',
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt: now,
+@@ -317,6 +334,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'Mobile web beta test',
+       description: 'I need a focused mobile web test with screenshots, bugs, and friction notes for onboarding and create trade.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Testing',
+       timing: 'This week',
+@@ -340,6 +358,7 @@ export const mockTrades: TradeDto[] = [
+     amountCents: 0,
+     currency: 'eur',
+     postType: 'open_offer',
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt: now,
+@@ -353,6 +372,7 @@ export const mockTrades: TradeDto[] = [
+       title: 'UI polish review',
+       description: 'I can review a screen, point out layout issues, and suggest copy and spacing improvements.',
+       defaultLanguage: 'en',
++      previewTheme: 'default',
+       itemType: 'service',
+       category: 'Design',
+       availability: '48 hours',
+@@ -459,6 +479,7 @@ for (const [index, fixture] of stressMockFixtures.entries()) {
+     title: fixture.needTitle,
+     description: fixture.needDescription,
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: fixture.needCategory === 'Goods' ? 'goods' : fixture.needCategory === 'Errand' ? 'other' : 'service',
+     category: fixture.needCategory,
+     timing: fixture.needTiming,
+@@ -477,6 +498,7 @@ for (const [index, fixture] of stressMockFixtures.entries()) {
+     title: fixture.offerTitle,
+     description: fixture.offerDescription,
+     defaultLanguage: 'en',
++    previewTheme: 'default',
+     itemType: 'service',
+     category: fixture.offerCategory,
+     availability: fixture.offerAvailability,
+@@ -502,6 +524,7 @@ for (const [index, fixture] of stressMockFixtures.entries()) {
+     amountCents: 0,
+     currency: 'eur',
+     postType: 'need_offer',
++    previewTheme: 'default',
+     status: 'active',
+     isPublic: true,
+     createdAt,

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { accountRoutes } from './modules/account/account.routes.js';
+import { aiAssistRoutes } from './modules/ai/aiAssist.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { businessRoutes } from './modules/business/business.routes.js';
@@ -14,6 +15,7 @@ import { profileRoutes } from './modules/profile/profile.routes.js';
 import { reportsRoutes } from './modules/reports/reports.routes.js';
 import { proposalsRoutes } from './modules/proposals/proposals.routes.js';
 import { plansRoutes } from './modules/plans/plans.routes.js';
+import { plusRoutes } from './modules/subscriptions/plus.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
 import { subscriptionsRoutes } from './modules/subscriptions/subscriptions.routes.js';
@@ -26,6 +28,7 @@ import { requireBusinessAccountsEnabled, requireMoneyFeaturesVisible, requireSub
 export const routes = Router();
 
 routes.use('/health', healthRoutes);
+routes.use('/ai', aiAssistRoutes);
 routes.use('/inventory-templates', inventoryTemplatesRoutes);
 routes.use('/auth', authRoutes);
 routes.use('/account', accountRoutes);
@@ -41,6 +44,7 @@ routes.use('/needs', needsRoutes);
 routes.use('/offers', offersRoutes);
 routes.use('/trades', tradesRoutes);
 routes.use('/plans', requirePlansEnabled(), plansRoutes);
+routes.use('/plus', plusRoutes);
 routes.use('/users', usersRoutes);
 routes.use('/usage', usageRoutes);
 routes.use('/proposals', proposalsRoutes);

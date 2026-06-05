@@ -214,7 +214,7 @@ export function RootNavigator() {
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
-      {betaFeatures.proSubscriptionFeatures.proAccountsVisible ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
+      {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}
       <Stack.Screen name="Settings" component={ProtectedSettingsScreen} />

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { DiscoveryLanguage, TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
@@ -14,12 +15,18 @@ import { AppText } from '../../components/AppText';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { ImagePickerField } from './components/ImagePickerField';
 import { AddTranslationButton, buildManualTranslation, CategoryPicker, InventoryTextField, ManualTranslationFields, ModePicker, optionalText, OriginalLanguageSummary } from './components/InventoryFormFields';
+import { InventoryAiAssistCard } from './components/InventoryAiAssistCard';
+import { PreviewThemePickerCard } from './components/PreviewThemePickerCard';
 import { formatUploadProgress, getFriendlyUploadErrorMessage, uploadSelectedImages, type SelectedImageUploadProgress, type SelectedLocalImage } from './mediaUpload';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import type { OfferItem } from './types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateOffer'>;
 type CreateOfferResponse = { offer: OfferItem };
+
+function parseCommaTags(value: string) {
+  return value.split(',').map((item) => item.trim()).filter(Boolean).slice(0, 8);
+}
 
 export function CreateOfferScreen({ route, navigation }: Props) {
   const { t, language } = useTranslation();
@@ -30,7 +37,9 @@ export function CreateOfferScreen({ route, navigation }: Props) {
   const [translationDescription, setTranslationDescription] = useState('');
   const [translationEnabled, setTranslationEnabled] = useState(false);
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
+  const [previewTheme, setPreviewTheme] = useState<PreviewCardTheme>('default');
   const [category, setCategory] = useState('');
+  const [tags, setTags] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -44,9 +53,11 @@ export function CreateOfferScreen({ route, navigation }: Props) {
     translationTitle.trim() ||
     translationDescription.trim() ||
     category.trim() ||
+    tags.trim() ||
     locationLabel.trim() ||
+    previewTheme !== 'default' ||
     images.length > 0,
-  ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
+  ), [category, description, images.length, locationLabel, previewTheme, tags, title, translationDescription, translationTitle]);
 
   const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
@@ -73,6 +84,17 @@ export function CreateOfferScreen({ route, navigation }: Props) {
   const titleError = attemptedSubmit && title.trim().length < INVENTORY_TITLE_MIN_LENGTH ? t('validation.offerTitleTooShort') : null;
   const descriptionError = attemptedSubmit && description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH ? t('validation.offerDescriptionTooShort') : null;
   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
+
+  function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
+    setTranslationEnabled(true);
+    setTranslationTitle(titleText);
+    setTranslationDescription(descriptionText);
+  }
+
+  function applyAiCategoryTags(categoryText: string, tagList: string[]) {
+    setCategory(categoryText);
+    setTags(tagList.join(', '));
+  }
 
   async function handleCreate() {
     if (submitting) return;
@@ -101,9 +123,11 @@ export function CreateOfferScreen({ route, navigation }: Props) {
         mode,
         locationLabel: optionalText(locationLabel),
         includes: [],
-        tags: [],
+        tags: parseCommaTags(tags),
+        previewTheme,
         status: route.params?.returnTo ? 'active' : 'draft',
         mediaIds,
+        coverMediaId: mediaIds[0],
       }) as CreateOfferResponse;
 
       if (route.params?.returnTo === 'proposalDetail' && route.params.proposalId) {
@@ -160,6 +184,22 @@ export function CreateOfferScreen({ route, navigation }: Props) {
           <InventoryTextField label={t('inventory.labels.description')} value={description} onChangeText={setDescription} placeholder={t('inventory.form.descriptionOfferMobile')} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} multiline disabled={submitting} error={descriptionError} />
         </AppCard>
 
+        <InventoryAiAssistCard
+          kind="offer"
+          title={title}
+          description={description}
+          defaultLanguage={defaultLanguage}
+          category={category}
+          tags={tags}
+          disabled={submitting}
+          onApplyTitle={setTitle}
+          onApplyDescription={setDescription}
+          onApplyTranslation={applyAiTranslation}
+          onApplyCategoryTags={applyAiCategoryTags}
+        />
+
+        <PreviewThemePickerCard value={previewTheme} onChange={setPreviewTheme} disabled={submitting} />
+
         <AppCard>
           <AppText style={styles.sectionTitle}>{t('inventory.form.languageTitle')}</AppText>
           <AppText style={styles.sectionBody}>{t('inventory.form.languageBody')}</AppText>
@@ -185,6 +225,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
           <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
           <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
           <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
+          <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={t('inventory.form.tagsPlaceholder')} disabled={submitting} />
           <ModePicker value={mode} onChange={setMode} disabled={submitting} />
           <InventoryTextField label={t('inventory.labels.location')} hint={t('inventory.labels.optional')} value={locationLabel} onChangeText={setLocationLabel} placeholder={t('inventory.form.locationOfferPlaceholder')} disabled={submitting} />
         </AppCard>
@@ -195,6 +236,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
             images={images}
             onChange={setImages}
             disabled={submitting}
+            enableOrderControls={betaFeatures.plusSubscriptionFeatures.customizationEnabled}
             label={t('inventory.labels.sampleImages')}
             hint={t('inventory.form.offerImageHint')}
           />

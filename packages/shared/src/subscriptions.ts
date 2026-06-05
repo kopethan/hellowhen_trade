@@ -1,11 +1,37 @@
 export const ACCOUNT_KINDS = ['individual', 'business_later'] as const;
 export type AccountKind = typeof ACCOUNT_KINDS[number];
 
-export const SUBSCRIPTION_TIERS = ['free', 'plus_later', 'pro', 'business_later'] as const;
+export const SUBSCRIPTION_TIERS = ['free', 'plus', 'plus_later', 'pro', 'business_later'] as const;
 export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[number];
 
 export const SUBSCRIPTION_STATUSES = ['none', 'trialing', 'active', 'past_due', 'canceled', 'expired'] as const;
 export type SubscriptionStatus = typeof SUBSCRIPTION_STATUSES[number];
+
+export const AI_ASSIST_TASK_TYPES = [
+  'need_title',
+  'need_description',
+  'offer_title',
+  'offer_description',
+  'proposal_message',
+  'translate_text',
+  'category_tags',
+  'safety_readability',
+] as const;
+export type AiAssistTaskType = typeof AI_ASSIST_TASK_TYPES[number];
+
+export const AI_ASSIST_USAGE_STATUSES = ['reserved', 'completed', 'failed', 'refunded'] as const;
+export type AiAssistUsageStatus = typeof AI_ASSIST_USAGE_STATUSES[number];
+
+export const AI_ASSIST_QUOTA_COUNTED_STATUSES = ['completed'] as const satisfies readonly AiAssistUsageStatus[];
+
+export type AiAssistQuotaSnapshot = {
+  periodKey: string;
+  resetAt: string;
+  used: number;
+  quota: number;
+  remaining: number;
+  isUnlimited: false;
+};
 
 export const PROFESSIONAL_STATUSES = ['none', 'pending_verification', 'verified', 'rejected', 'suspended'] as const;
 export type ProfessionalStatus = typeof PROFESSIONAL_STATUSES[number];
@@ -15,6 +41,65 @@ export type IdentityVerificationProvider = typeof IDENTITY_VERIFICATION_PROVIDER
 
 export const IDENTITY_VERIFICATION_STATUSES = ['none', 'pending', 'verified', 'rejected', 'expired', 'cancelled'] as const;
 export type IdentityVerificationStatus = typeof IDENTITY_VERIFICATION_STATUSES[number];
+
+export type PlusSubscriptionFeatureFlags = {
+  plusEnabled: boolean;
+  plusPublic: boolean;
+  aiAssistEnabled: boolean;
+  customizationEnabled: boolean;
+  adminGrantsEnabled: boolean;
+  monthlyPriceCents: number;
+  monthlyPriceCurrency: string;
+  yearlyPriceCents: number;
+  yearlyPriceCurrency: string;
+  freeMonthlyAiAssistQuota: number;
+  plusMonthlyAiAssistQuota: number;
+};
+
+export const PLUS_SUBSCRIPTION_DEFAULTS = {
+  monthlyPriceCents: 499,
+  monthlyPriceCurrency: 'eur',
+  yearlyPriceCents: 3999,
+  yearlyPriceCurrency: 'eur',
+  freeMonthlyAiAssistQuota: 3,
+  plusMonthlyAiAssistQuota: 75,
+} as const;
+
+export const PLUS_SUBSCRIPTION_FEATURE_DEFAULTS: PlusSubscriptionFeatureFlags = {
+  plusEnabled: false,
+  plusPublic: false,
+  aiAssistEnabled: false,
+  customizationEnabled: false,
+  adminGrantsEnabled: false,
+  ...PLUS_SUBSCRIPTION_DEFAULTS,
+};
+
+export type PlusAccessState = {
+  subscriptionTier: SubscriptionTier;
+  subscriptionStatus: SubscriptionStatus;
+};
+
+export type PlusAccessBlocker = 'not_on_plus_tier' | 'subscription_not_active';
+export type PlusGateBlocker = 'plus_disabled' | 'plus_hidden' | PlusAccessBlocker;
+
+export type PlusEntitlements = {
+  aiAssist: boolean;
+  customization: boolean;
+  monthlyAiAssistQuota: number;
+};
+
+export type PlusGateState = PlusAccessState & {
+  canSeePlusSurfaces: boolean;
+  hasPlusAccess: boolean;
+  blockers: PlusGateBlocker[];
+  price: {
+    monthlyCents: number;
+    monthlyCurrency: string;
+    yearlyCents: number;
+    yearlyCurrency: string;
+  };
+  entitlements: PlusEntitlements;
+};
 
 export type ProSubscriptionFeatureFlags = {
   subscriptionsEnabled: boolean;
@@ -113,6 +198,113 @@ export function normalizeIdentityVerificationStatus(value: string | undefined | 
   return (IDENTITY_VERIFICATION_STATUSES as readonly string[]).includes(normalized) ? normalized as IdentityVerificationStatus : 'none';
 }
 
+export function normalizePlusAccessState(state?: Partial<PlusAccessState> | null): PlusAccessState {
+  return {
+    subscriptionTier: normalizeSubscriptionTier(state?.subscriptionTier),
+    subscriptionStatus: normalizeSubscriptionStatus(state?.subscriptionStatus),
+  };
+}
+
+export function isPlusEntitledTier(tier: SubscriptionTier): boolean {
+  return tier === 'plus' || tier === 'pro';
+}
+
+export function isActiveSubscriptionStatus(status: SubscriptionStatus): boolean {
+  return status === 'trialing' || status === 'active';
+}
+
+export function hasPlusAccess(state?: Partial<PlusAccessState> | null): boolean {
+  const normalized = normalizePlusAccessState(state);
+  return isPlusEntitledTier(normalized.subscriptionTier) && isActiveSubscriptionStatus(normalized.subscriptionStatus);
+}
+
+export function getPlusAccessBlockers(state?: Partial<PlusAccessState> | null): PlusAccessBlocker[] {
+  const normalized = normalizePlusAccessState(state);
+  const blockers: PlusAccessBlocker[] = [];
+  if (!isPlusEntitledTier(normalized.subscriptionTier)) blockers.push('not_on_plus_tier');
+  if (!isActiveSubscriptionStatus(normalized.subscriptionStatus)) blockers.push('subscription_not_active');
+  return blockers;
+}
+
+export function getPlusAiAssistQuotaForPlan(
+  state?: Partial<PlusAccessState> | null,
+  features: Pick<PlusSubscriptionFeatureFlags, 'freeMonthlyAiAssistQuota' | 'plusMonthlyAiAssistQuota'> = PLUS_SUBSCRIPTION_FEATURE_DEFAULTS,
+): number {
+  return hasPlusAccess(state) ? features.plusMonthlyAiAssistQuota : features.freeMonthlyAiAssistQuota;
+}
+
+export function buildAiAssistPeriodKey(date = new Date()): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
+export function getAiAssistPeriodResetAt(periodKey = buildAiAssistPeriodKey()): Date {
+  const [rawYear, rawMonth] = periodKey.split('-');
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+  }
+  return new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+}
+
+export function buildAiAssistQuotaSnapshot(input: {
+  used: number;
+  quota: number;
+  periodKey?: string;
+}): AiAssistQuotaSnapshot {
+  const periodKey = input.periodKey ?? buildAiAssistPeriodKey();
+  const used = Math.max(0, Math.trunc(Number.isFinite(input.used) ? input.used : 0));
+  const quota = Math.max(0, Math.trunc(Number.isFinite(input.quota) ? input.quota : 0));
+  return {
+    periodKey,
+    resetAt: getAiAssistPeriodResetAt(periodKey).toISOString(),
+    used,
+    quota,
+    remaining: Math.max(quota - used, 0),
+    isUnlimited: false,
+  };
+}
+
+export function canUseAiAssist(features: Pick<PlusSubscriptionFeatureFlags, 'plusEnabled' | 'aiAssistEnabled'>): boolean {
+  return Boolean(features.plusEnabled && features.aiAssistEnabled);
+}
+
+export function getPlusEntitlements(features: PlusSubscriptionFeatureFlags, state?: Partial<PlusAccessState> | null): PlusEntitlements {
+  const hasAccess = features.plusEnabled && hasPlusAccess(state);
+  return {
+    aiAssist: canUseAiAssist(features),
+    customization: hasAccess && features.customizationEnabled,
+    monthlyAiAssistQuota: getPlusAiAssistQuotaForPlan(state, features),
+  };
+}
+
+export function evaluatePlusGate(features: PlusSubscriptionFeatureFlags, state?: Partial<PlusAccessState> | null): PlusGateState {
+  const normalized = normalizePlusAccessState(state);
+  const accessBlockers = getPlusAccessBlockers(normalized);
+  const blockers: PlusGateBlocker[] = [];
+
+  if (!features.plusEnabled) blockers.push('plus_disabled');
+  if (!features.plusPublic) blockers.push('plus_hidden');
+  blockers.push(...accessBlockers);
+
+  return {
+    ...normalized,
+    canSeePlusSurfaces: features.plusEnabled && features.plusPublic,
+    hasPlusAccess: features.plusEnabled && hasPlusAccess(normalized),
+    blockers,
+    price: {
+      monthlyCents: Number.isFinite(features.monthlyPriceCents) ? features.monthlyPriceCents : PLUS_SUBSCRIPTION_DEFAULTS.monthlyPriceCents,
+      monthlyCurrency: features.monthlyPriceCurrency || PLUS_SUBSCRIPTION_DEFAULTS.monthlyPriceCurrency,
+      yearlyCents: Number.isFinite(features.yearlyPriceCents) ? features.yearlyPriceCents : PLUS_SUBSCRIPTION_DEFAULTS.yearlyPriceCents,
+      yearlyCurrency: features.yearlyPriceCurrency || PLUS_SUBSCRIPTION_DEFAULTS.yearlyPriceCurrency,
+    },
+    entitlements: getPlusEntitlements(features, normalized),
+  };
+}
+
 export function normalizeProAccessState(state?: Partial<ProAccessState> | null): ProAccessState {
   return {
     professionalStatus: normalizeProfessionalStatus(state?.professionalStatus),
@@ -125,7 +317,7 @@ export function hasProAccess(state?: Partial<ProAccessState> | null): boolean {
   const normalized = normalizeProAccessState(state);
   return normalized.professionalStatus === 'verified'
     && normalized.subscriptionTier === 'pro'
-    && (normalized.subscriptionStatus === 'trialing' || normalized.subscriptionStatus === 'active');
+    && isActiveSubscriptionStatus(normalized.subscriptionStatus);
 }
 
 export function getProAccessBlockers(state?: Partial<ProAccessState> | null): ProAccessBlocker[] {
@@ -133,7 +325,7 @@ export function getProAccessBlockers(state?: Partial<ProAccessState> | null): Pr
   const blockers: ProAccessBlocker[] = [];
   if (normalized.professionalStatus !== 'verified') blockers.push('identity_not_verified');
   if (normalized.subscriptionTier !== 'pro') blockers.push('not_on_pro_tier');
-  if (normalized.subscriptionStatus !== 'trialing' && normalized.subscriptionStatus !== 'active') blockers.push('subscription_not_active');
+  if (!isActiveSubscriptionStatus(normalized.subscriptionStatus)) blockers.push('subscription_not_active');
   return blockers;
 }
 
