@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
-import { AppScreen } from './AppScreen';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { APP_SCREEN_HORIZONTAL_PADDING, AppScreen } from './AppScreen';
 import { useThemeTokens } from '../providers/ThemeProvider';
 
 const FALLBACK_HEADER_INSET = 132;
@@ -29,8 +30,10 @@ type AppCollapsibleHeaderScreenProps = {
 
 export function AppCollapsibleHeaderScreen({ header, children, style, headerStyle, bodyStyle, resetKey }: AppCollapsibleHeaderScreenProps) {
   const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
   const scrollY = useRef(new Animated.Value(0)).current;
   const [headerHeight, setHeaderHeight] = useState(0);
+  const safeTopOffset = insets.top + 18;
 
   useEffect(() => {
     scrollY.setValue(0);
@@ -89,7 +92,7 @@ export function AppCollapsibleHeaderScreen({ header, children, style, headerStyl
   return (
     <AppScreen style={[styles.screen, style]}>
       <View style={[styles.body, bodyStyle]}>{renderedChildren}</View>
-      <Animated.View pointerEvents="box-none" style={[styles.headerOverlay, headerAnimatedStyle]}>
+      <Animated.View pointerEvents="box-none" style={[styles.headerOverlay, { top: safeTopOffset }, headerAnimatedStyle]}>
         <View onLayout={handleHeaderLayout} style={[styles.header, { backgroundColor: theme.color.background }, headerStyle]}>
           {header}
         </View>
@@ -103,8 +106,8 @@ const styles = StyleSheet.create({
   headerOverlay: {
     position: 'absolute',
     top: 0,
-    left: 0,
-    right: 0,
+    left: APP_SCREEN_HORIZONTAL_PADDING,
+    right: APP_SCREEN_HORIZONTAL_PADDING,
     zIndex: 10,
     elevation: 10,
   },
