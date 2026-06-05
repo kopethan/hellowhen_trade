@@ -638,6 +638,7 @@ export const trade = {
     reset: 'Réinitialiser',
     includesWalletMoney: 'Inclut de l’argent portefeuille',
     controls: 'Contrôles du fil d’échanges',
+    searchAndFilters: 'Recherche et filtres',
     loadingTrades: 'Chargement des échanges…',
     activeTrades: '{{count}} échanges actifs',
     activeTradeOne: '1 échange actif',

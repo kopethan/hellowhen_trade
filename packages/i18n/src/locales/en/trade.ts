@@ -638,6 +638,7 @@ export const trade = {
     reset: 'Reset',
     includesWalletMoney: 'Includes wallet money',
     controls: 'Trade feed controls',
+    searchAndFilters: 'Search & filters',
     loadingTrades: 'Loading trades...',
     activeTrades: '{{count}} active trades',
     activeTradeOne: '1 active trade',

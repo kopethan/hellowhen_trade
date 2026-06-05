@@ -90,7 +90,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
   const [loadError, setLoadError] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [activeToolPanel, setActiveToolPanel] = useState<'search' | 'filter' | null>(null);
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
   const [homeIntroDismissed, setHomeIntroDismissed] = useState(false);
@@ -192,6 +192,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
     setAppliedFilters(filters);
+    setActiveToolPanel(null);
   }
 
   function resetFilters() {
@@ -200,6 +201,20 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
   }
+
+  useEffect(() => {
+    if (!activeToolPanel) return undefined;
+    const root = document.documentElement;
+    root.classList.add('trade-tools-open');
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setActiveToolPanel(null);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      root.classList.remove('trade-tools-open');
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeToolPanel]);
 
   return (
     <section className="mobile-page trade-feed-page">
@@ -213,8 +228,12 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
 
       {activeTab === 'discover' ? (
         <>
-          <form className="trade-feed-controls" aria-label={t('trade.filters.controls')} onSubmit={applySearch}>
-            <label className="trade-search-field">
+          <form className={`trade-feed-controls${activeToolPanel ? ' is-tools-open' : ''}`} aria-label={t('trade.filters.controls')} onSubmit={applySearch}>
+            <button type="button" className="trade-search-open-pill" onClick={() => setActiveToolPanel('search')}>
+              <WebIcon name="search" size={17} decorative />
+              <span>{t('trade.filters.searchTrades')}</span>
+            </button>
+            <label className="trade-search-field trade-search-field--desktop">
               <span className="sr-only">{t('trade.filters.searchTrades')}</span>
               <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
               <input
@@ -224,15 +243,34 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
                 type="search"
               />
             </label>
-            <button type="button" className="trade-filter-pill" onClick={() => setShowFilters((value) => !value)}>
+            <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value ? null : 'filter')} aria-expanded={Boolean(activeToolPanel)}>
               <WebIcon name="filter" size={17} decorative />
               <span>{t('trade.filters.filter')}</span>
             </button>
             <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')}>
               <WebIcon name="add" size={21} decorative />
             </Link>
-            {showFilters ? (
-              <div className="trade-filter-panel">
+            {activeToolPanel ? (
+              <div className={`trade-filter-panel trade-filter-panel--${activeToolPanel}`} role="dialog" aria-modal="true" aria-labelledby="trade-filter-panel-title">
+                <div className="trade-filter-panel__header">
+                  <div>
+                    <span className="eyebrow">{t('trade.filters.controls')}</span>
+                    <h2 id="trade-filter-panel-title">{t('trade.filters.searchAndFilters')}</h2>
+                  </div>
+                  <button type="button" className="trade-filter-panel__close" onClick={() => setActiveToolPanel(null)} aria-label={t('common.actions.close')}>×</button>
+                </div>
+                <label className="trade-filter-panel__search">
+                  <span>{t('trade.filters.searchTrades')}</span>
+                  <span className="trade-filter-panel__search-input">
+                    <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
+                    <input
+                      value={filters.q}
+                      onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
+                      placeholder={t('trade.filters.searchTrades')}
+                      type="search"
+                    />
+                  </span>
+                </label>
                 <label>
                   <span>{t('trade.filters.mode')}</span>
                   <select value={filters.mode} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value }))}>

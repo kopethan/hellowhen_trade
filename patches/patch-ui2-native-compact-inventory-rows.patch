@@ -1,0 +1,137 @@
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index 18d0b60..3ecf529 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -6,13 +6,12 @@ import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+-import { AppCard } from '../../components/AppCard';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon } from '../../components/MobileIcon';
+-import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+-import { MediaStrip } from './components/MediaStrip';
++import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
++import { InventoryCompactRow } from './components/InventoryCompactRow';
+ import type { NeedItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+@@ -99,7 +98,7 @@ export function MyNeedsScreen() {
+     {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
+     {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+       {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
+-      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstNeed')} body={t('inventory.empty.needNativeBody')} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle} numberOfLines={2}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
++      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstNeed')} body={t('inventory.empty.needNativeBody')} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
+     </>}
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+@@ -127,4 +126,4 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
+   );
+ }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index dace752..77737c2 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -6,13 +6,12 @@ import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+-import { AppCard } from '../../components/AppCard';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon } from '../../components/MobileIcon';
+-import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+-import { MediaStrip } from './components/MediaStrip';
++import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+ import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
++import { InventoryCompactRow } from './components/InventoryCompactRow';
+ import type { OfferItem } from './types';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+@@ -99,7 +98,7 @@ export function MyOffersScreen() {
+     {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
+     {sourceTab === 'starter' ? <StarterInventoryLibrary kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisOffer')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+       {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadOffer')} body={error} /> : null}
+-      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstOffer')} body={t('inventory.empty.offerNativeBody')} tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><AppCard><View style={styles.cardHeaderRow}><AppText style={styles.cardTitle} numberOfLines={2}>{item.title}</AppText><StatusBadge status={item.status} size="sm" /></View><AppText style={[styles.cardText, { color: theme.color.muted }]} numberOfLines={2}>{item.description}</AppText><MediaStrip media={item.media} /></AppCard></Pressable>)}
++      {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstOffer')} body={t('inventory.empty.offerNativeBody')} tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="offer" item={item} /></Pressable>)}
+     </>}
+   </ScrollView></AppFixedHeaderScreen>;
+ }
+@@ -127,4 +126,4 @@ function EmptyInventoryPlaceholder({ title, body, tone, onPress }: { title: stri
+   );
+ }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, cardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, cardTitle: { flex: 1, fontSize: 20, fontWeight: '900' }, cardText: { lineHeight: 20, fontWeight: '600' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
++const styles = StyleSheet.create({ content: { paddingBottom: 28, gap: 14 }, headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }, headerCopy: { flex: 1, gap: 8 }, title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 }, subtitle: { lineHeight: 20, fontWeight: '600' }, createButton: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 12 }, createButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 7 }, createButtonText: { color: '#FFFFFF', fontWeight: '900' }, sourceTabs: { flexDirection: 'row', borderRadius: 22, borderWidth: 1, padding: 4, gap: 4 }, sourceTabButton: { flex: 1, minHeight: 44, borderRadius: 18, borderWidth: 1, borderColor: 'transparent', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 }, sourceTabText: { fontSize: 13, fontWeight: '900' }, openCreatedButton: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, openCreatedText: { fontWeight: '900' }, emptyPlaceholder: { minHeight: 208, borderRadius: 28, borderWidth: 1.5, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', padding: 22, gap: 10 }, emptyIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, emptyTitle: { textAlign: 'center', fontSize: 22, fontWeight: '900', letterSpacing: -0.35 }, emptyBody: { textAlign: 'center', lineHeight: 20, fontWeight: '700' }, pressed: { opacity: 0.78 } });
+diff --git a/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx b/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
+new file mode 100644
+index 0000000..3009f74
+--- /dev/null
++++ b/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
+@@ -0,0 +1,61 @@
++import React from 'react';
++import { Image, StyleSheet, View } from 'react-native';
++import type { MediaAssetDto } from '@hellowhen/contracts';
++import { AppText } from '../../../components/AppText';
++import { MobileIcon } from '../../../components/MobileIcon';
++import { SemanticBadge, StatusBadge } from '../../../components/SemanticUI';
++import { useThemeTokens } from '../../../providers/ThemeProvider';
++import { useTranslation } from '../../../providers/MobileI18nProvider';
++import { resolveMediaUrl } from '../mediaUrls';
++import type { NeedItem, OfferItem } from '../types';
++
++type TFunction = ReturnType<typeof useTranslation>['t'];
++type InventoryCompactRowProps = { kind: 'need' | 'offer'; item: NeedItem | OfferItem };
++
++function visibleMedia(media?: MediaAssetDto[]) { return (media ?? []).filter((asset) => asset.status !== 'removed'); }
++function firstMediaUrl(media?: MediaAssetDto[]) { const first = visibleMedia(media)[0]; return first?.url ? resolveMediaUrl(first.url) : ''; }
++function labelize(value: string) { return value.replaceAll('_', ' ').replaceAll('-', ' ').trim(); }
++function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
++function typeLabel(itemType: string | undefined, t: TFunction) { if (itemType === 'goods') return t('inventory.itemTypes.goods'); if (itemType === 'other') return t('inventory.itemTypes.other'); return t('inventory.itemTypes.service'); }
++function metadataFor(kind: 'need' | 'offer', item: NeedItem | OfferItem, t: TFunction) { const timing = kind === 'need' ? (item as NeedItem).timing : (item as OfferItem).availability; const parts = [item.category ? labelize(item.category) : typeLabel(item.itemType, t), modeLabel(item.mode, t), timing?.trim()].filter(Boolean); return parts.join(' · '); }
++function mediaCountLabel(count: number, t: TFunction) { if (count <= 0) return t('inventory.labels.noImages'); return `${count} ${t('inventory.labels.images').toLowerCase()}`; }
++
++export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const semantic = kind === 'need' ? theme.semantic.need : theme.semantic.offer;
++  const media = visibleMedia(item.media);
++  const thumbnailUrl = firstMediaUrl(item.media);
++  const metadata = metadataFor(kind, item, t);
++  const imageLabel = mediaCountLabel(media.length, t);
++
++  return (
++    <View style={[styles.card, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <View style={[styles.mediaZone, { backgroundColor: semantic.softBg }]}> 
++        {thumbnailUrl ? <Image source={{ uri: thumbnailUrl }} resizeMode="cover" style={styles.mediaImage} /> : <View style={[styles.mediaFallback, { backgroundColor: semantic.softBg }]}><MobileIcon name={kind} size={28} color={semantic.text} /></View>}
++        {media[0]?.status && media[0].status !== 'active' ? <View style={styles.mediaStatus}><StatusBadge status={media[0].status} size="sm" /></View> : null}
++      </View>
++      <View style={styles.contentZone}>
++        <View style={styles.topRow}><SemanticBadge label={t(`inventory.labels.${kind}`)} tone={kind} size="sm" style={styles.kindBadge} /><StatusBadge status={item.status} size="sm" /></View>
++        <View style={styles.mainCopy}><AppText style={styles.title} numberOfLines={2}>{item.title}</AppText>{metadata ? <AppText style={[styles.meta, { color: theme.color.muted }]} numberOfLines={1}>{metadata}</AppText> : null}</View>
++        <View style={styles.footerRow}><MobileIcon name="image" size={14} color={theme.color.muted} /><AppText style={[styles.footerText, { color: theme.color.muted }]} numberOfLines={1}>{imageLabel}</AppText></View>
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  card: { flexDirection: 'row', overflow: 'hidden', borderRadius: 24, borderWidth: 1 },
++  mediaZone: { width: '33.333%', aspectRatio: 1, position: 'relative' },
++  mediaImage: { width: '100%', height: '100%' },
++  mediaFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
++  mediaStatus: { position: 'absolute', left: 7, bottom: 7 },
++  contentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'space-between', gap: 6 },
++  topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
++  kindBadge: { flexShrink: 1 },
++  mainCopy: { gap: 3 },
++  title: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
++  meta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
++  footerText: { flex: 1, fontSize: 11, fontWeight: '900', letterSpacing: 0.25, textTransform: 'uppercase' },
++});
