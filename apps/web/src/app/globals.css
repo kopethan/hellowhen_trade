@@ -153,6 +153,7 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom: 
 .mobile-card--flat { box-shadow: none; }
 .mobile-card--soft { background: var(--app-surface-soft); }
 .mobile-card p:last-child, .card p:last-child { margin-bottom: 0; }
+.app-loading-logo { display: block; width: 64px; height: 64px; margin-bottom: 10px; border: 1px solid var(--app-border); border-radius: 18px; background: #FFFFFF; object-fit: contain; }
 .mobile-link-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent); border-radius: 24px; background: var(--app-surface); padding: 16px; box-shadow: var(--app-card-shadow); }
 .mobile-link-card span { color: var(--app-text-muted); font-weight: 800; }
 .mobile-link-card__body { min-width: 0; flex: 1 1 auto; }
