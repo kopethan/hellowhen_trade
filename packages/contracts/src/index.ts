@@ -15,3 +15,4 @@ export * from './plans.js';
 export * from './usage.js';
 export * from './notifications.js';
 export * from './plus.js';
+export * from './tradeSearch.js';

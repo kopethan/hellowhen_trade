@@ -1,0 +1,189 @@
+diff --git a/packages/contracts/src/index.d.ts b/packages/contracts/src/index.d.ts
+index b937bc0..00252c2 100644
+--- a/packages/contracts/src/index.d.ts
++++ b/packages/contracts/src/index.d.ts
+@@ -14,4 +14,5 @@ export * from './account.js';
+ export * from './plans.js';
+ export * from './usage.js';
+ export * from './notifications.js';
++export * from './tradeSearch.js';
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/packages/contracts/src/index.js b/packages/contracts/src/index.js
+index 7a04539..6cc1072 100644
+--- a/packages/contracts/src/index.js
++++ b/packages/contracts/src/index.js
+@@ -14,4 +14,5 @@ export * from './account.js';
+ export * from './plans.js';
+ export * from './usage.js';
+ export * from './notifications.js';
++export * from './tradeSearch.js';
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file
+diff --git a/packages/contracts/src/tradeSearch.d.ts b/packages/contracts/src/tradeSearch.d.ts
+new file mode 100644
+index 0000000..60150eb
+--- /dev/null
++++ b/packages/contracts/src/tradeSearch.d.ts
+@@ -0,0 +1,100 @@
++import { z } from 'zod';
++export declare const tradeSearchKeywordSourceSchema: z.ZodEnum<{
++    submitted: "submitted";
++    suggestion_clicked: "suggestion_clicked";
++}>;
++export declare const tradeSearchSuggestionSourceSchema: z.ZodEnum<{
++    keyword: "keyword";
++    category: "category";
++    tag: "tag";
++}>;
++export declare const tradeSearchQuerySchema: z.ZodString;
++export declare const listTradeSearchSuggestionsQuerySchema: z.ZodObject<{
++    q: z.ZodOptional<z.ZodString>;
++    language: z.ZodOptional<z.ZodEnum<{
++        en: "en";
++        fr: "fr";
++    }>>;
++    countryCode: z.ZodOptional<z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>>;
++    take: z.ZodDefault<z.ZodCoercedNumber<number>>;
++}, z.core.$strip>;
++export declare const recordTradeSearchKeywordRequestSchema: z.ZodObject<{
++    q: z.ZodString;
++    source: z.ZodDefault<z.ZodOptional<z.ZodEnum<{
++        submitted: "submitted";
++        suggestion_clicked: "suggestion_clicked";
++    }>>>;
++    resultCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
++    language: z.ZodOptional<z.ZodEnum<{
++        en: "en";
++        fr: "fr";
++    }>>;
++    countryCode: z.ZodOptional<z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>>;
++}, z.core.$strip>;
++export declare const tradeSearchSuggestionSchema: z.ZodObject<{
++    query: z.ZodString;
++    source: z.ZodEnum<{
++        keyword: "keyword";
++        category: "category";
++        tag: "tag";
++    }>;
++    score: z.ZodNumber;
++    totalCount: z.ZodOptional<z.ZodNumber>;
++}, z.core.$strip>;
++export declare const tradeSearchKeywordSchema: z.ZodObject<{
++    id: z.ZodString;
++    normalizedQuery: z.ZodString;
++    displayQuery: z.ZodString;
++    language: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
++        en: "en";
++        fr: "fr";
++    }>>>;
++    countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
++    totalCount: z.ZodNumber;
++    successfulCount: z.ZodNumber;
++    suggestionClickCount: z.ZodNumber;
++    lastResultCount: z.ZodNumber;
++    lastSearchedAt: z.ZodString;
++    createdAt: z.ZodString;
++    updatedAt: z.ZodString;
++}, z.core.$strip>;
++export declare const tradeSearchSuggestionsResponseSchema: z.ZodObject<{
++    suggestions: z.ZodArray<z.ZodObject<{
++        query: z.ZodString;
++        source: z.ZodEnum<{
++            keyword: "keyword";
++            category: "category";
++            tag: "tag";
++        }>;
++        score: z.ZodNumber;
++        totalCount: z.ZodOptional<z.ZodNumber>;
++    }, z.core.$strip>>;
++}, z.core.$strip>;
++export declare const tradeSearchKeywordResponseSchema: z.ZodObject<{
++    keyword: z.ZodObject<{
++        id: z.ZodString;
++        normalizedQuery: z.ZodString;
++        displayQuery: z.ZodString;
++        language: z.ZodOptional<z.ZodNullable<z.ZodEnum<{
++            en: "en";
++            fr: "fr";
++        }>>>;
++        countryCode: z.ZodOptional<z.ZodNullable<z.ZodString>>;
++        totalCount: z.ZodNumber;
++        successfulCount: z.ZodNumber;
++        suggestionClickCount: z.ZodNumber;
++        lastResultCount: z.ZodNumber;
++        lastSearchedAt: z.ZodString;
++        createdAt: z.ZodString;
++        updatedAt: z.ZodString;
++    }, z.core.$strip>;
++}, z.core.$strip>;
++export type TradeSearchKeywordSource = z.infer<typeof tradeSearchKeywordSourceSchema>;
++export type TradeSearchSuggestionSource = z.infer<typeof tradeSearchSuggestionSourceSchema>;
++export type ListTradeSearchSuggestionsQuery = z.infer<typeof listTradeSearchSuggestionsQuerySchema>;
++export type RecordTradeSearchKeywordRequest = z.infer<typeof recordTradeSearchKeywordRequestSchema>;
++export type TradeSearchSuggestion = z.infer<typeof tradeSearchSuggestionSchema>;
++export type TradeSearchKeywordDto = z.infer<typeof tradeSearchKeywordSchema>;
++export type TradeSearchSuggestionsResponse = z.infer<typeof tradeSearchSuggestionsResponseSchema>;
++export type TradeSearchKeywordResponse = z.infer<typeof tradeSearchKeywordResponseSchema>;
++//# sourceMappingURL=tradeSearch.d.ts.map
+diff --git a/packages/contracts/src/tradeSearch.d.ts.map b/packages/contracts/src/tradeSearch.d.ts.map
+new file mode 100644
+index 0000000..1b34bfe
+--- /dev/null
++++ b/packages/contracts/src/tradeSearch.d.ts.map
+@@ -0,0 +1 @@
++{"version":3,"file":"tradeSearch.d.ts","sourceRoot":"","sources":["tradeSearch.ts"],"names":[],"mappings":""}
+diff --git a/packages/contracts/src/tradeSearch.js b/packages/contracts/src/tradeSearch.js
+new file mode 100644
+index 0000000..56e100c
+--- /dev/null
++++ b/packages/contracts/src/tradeSearch.js
+@@ -0,0 +1,41 @@
++import { z } from 'zod';
++import { discoveryLanguageSchema } from './trade.js';
++export const tradeSearchKeywordSourceSchema = z.enum(['submitted', 'suggestion_clicked']);
++export const tradeSearchSuggestionSourceSchema = z.enum(['keyword', 'category', 'tag']);
++export const tradeSearchQuerySchema = z.string().trim().min(2).max(120);
++export const listTradeSearchSuggestionsQuerySchema = z.object({
++    q: z.string().trim().min(1).max(120).optional(),
++    language: discoveryLanguageSchema.optional(),
++    countryCode: z.string().trim().min(2).max(2).transform((value) => value.toUpperCase()).optional(),
++    take: z.coerce.number().int().min(1).max(20).optional().default(8),
++});
++export const recordTradeSearchKeywordRequestSchema = z.object({
++    q: tradeSearchQuerySchema,
++    source: tradeSearchKeywordSourceSchema.optional().default('submitted'),
++    resultCount: z.number().int().min(0).max(100000).optional().default(0),
++    language: discoveryLanguageSchema.optional(),
++    countryCode: z.string().trim().min(2).max(2).transform((value) => value.toUpperCase()).optional(),
++});
++export const tradeSearchSuggestionSchema = z.object({
++    query: z.string(),
++    source: tradeSearchSuggestionSourceSchema,
++    score: z.number(),
++    totalCount: z.number().int().min(0).optional(),
++});
++export const tradeSearchKeywordSchema = z.object({
++    id: z.string(),
++    normalizedQuery: z.string(),
++    displayQuery: z.string(),
++    language: discoveryLanguageSchema.nullable().optional(),
++    countryCode: z.string().nullable().optional(),
++    totalCount: z.number().int().min(0),
++    successfulCount: z.number().int().min(0),
++    suggestionClickCount: z.number().int().min(0),
++    lastResultCount: z.number().int().min(0),
++    lastSearchedAt: z.string(),
++    createdAt: z.string(),
++    updatedAt: z.string(),
++});
++export const tradeSearchSuggestionsResponseSchema = z.object({ suggestions: z.array(tradeSearchSuggestionSchema) });
++export const tradeSearchKeywordResponseSchema = z.object({ keyword: tradeSearchKeywordSchema });
++//# sourceMappingURL=tradeSearch.js.map
+diff --git a/packages/contracts/src/tradeSearch.js.map b/packages/contracts/src/tradeSearch.js.map
+new file mode 100644
+index 0000000..1bb1ac1
+--- /dev/null
++++ b/packages/contracts/src/tradeSearch.js.map
+@@ -0,0 +1 @@
++{"version":3,"file":"tradeSearch.js","sourceRoot":"","sources":["tradeSearch.ts"],"names":[],"mappings":""}

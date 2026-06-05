@@ -19,6 +19,7 @@ import { plusRoutes } from './modules/subscriptions/plus.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { supportRoutes } from './modules/support/support.routes.js';
 import { subscriptionsRoutes } from './modules/subscriptions/subscriptions.routes.js';
+import { tradeSearchRoutes } from './modules/trade-search/tradeSearch.routes.js';
 import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { usersRoutes } from './modules/users/users.routes.js';
 import { usageRoutes } from './modules/usage/usage.routes.js';
@@ -42,6 +43,7 @@ routes.use('/subscriptions', requireSubscriptionsEnabled(), subscriptionsRoutes)
 routes.use('/notifications', notificationsRoutes);
 routes.use('/needs', needsRoutes);
 routes.use('/offers', offersRoutes);
+routes.use('/trade-search', tradeSearchRoutes);
 routes.use('/trades', tradesRoutes);
 routes.use('/plans', requirePlansEnabled(), plansRoutes);
 routes.use('/plus', plusRoutes);

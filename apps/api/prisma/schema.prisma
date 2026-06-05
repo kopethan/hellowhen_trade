@@ -1259,6 +1259,27 @@ model InventoryTemplate {
   @@index([category])
 }
 
+
+
+model TradeSearchKeyword {
+  id                   String   @id @default(cuid())
+  normalizedQuery      String   @unique
+  displayQuery         String
+  language             String?
+  countryCode          String?
+  totalCount           Int      @default(0)
+  successfulCount      Int      @default(0)
+  suggestionClickCount Int      @default(0)
+  lastResultCount      Int      @default(0)
+  lastSearchedAt       DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([totalCount, lastSearchedAt])
+  @@index([successfulCount, lastSearchedAt])
+  @@index([language, countryCode, lastSearchedAt])
+}
+
 model Trade {
   id           String      @id @default(cuid())
   ownerId      String

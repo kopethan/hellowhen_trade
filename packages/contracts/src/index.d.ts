@@ -14,4 +14,5 @@ export * from './account.js';
 export * from './plans.js';
 export * from './usage.js';
 export * from './notifications.js';
+export * from './tradeSearch.js';
 //# sourceMappingURL=index.d.ts.map

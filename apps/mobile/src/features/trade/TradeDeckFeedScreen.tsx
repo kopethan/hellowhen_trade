@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, Scrol
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType } from '@hellowhen/contracts';
+import type { ListTradesFeedQuery, TradeExchangeMode, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
 import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -35,6 +35,8 @@ const modeOptions: Array<{ labelKey: string; value: ModeFilter }> = [
   { labelKey: 'trade.modes.local', value: 'local' },
   { labelKey: 'trade.modes.hybrid', value: 'hybrid' },
 ];
+const minSearchSuggestionLength = 2;
+
 const postTypeOptions: Array<{ labelKey: string; value: PostTypeFilter }> = [
   { labelKey: 'trade.filters.anyPostType', value: 'all' },
   { labelKey: 'trade.postTypes.needOffer', value: 'need_offer' },
@@ -58,9 +60,17 @@ function compactSeenTradeIds(ids: string[]) {
   return Array.from(new Set(ids)).slice(-80);
 }
 
+function normalizeSearchText(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function canUseSearchSuggestions(value: string) {
+  return normalizeSearchText(value).length >= minSearchSuggestionLength;
+}
+
 function buildFeedQuery(query: string, modeFilter: ModeFilter, postTypeFilter: PostTypeFilter, category: string, imagesOnly: boolean, moneyOnly: boolean, refreshSeed: string, seenTradeIds: string[], language: 'en' | 'fr', countryCode?: string | null): ListTradesFeedQuery {
   return {
-    q: query.trim() || undefined,
+    q: normalizeSearchText(query) || undefined,
     mode: modeFilter === 'all' ? undefined : modeFilter,
     postType: postTypeFilter === 'all' ? undefined : postTypeFilter,
     category: category.trim() || undefined,
@@ -82,6 +92,9 @@ export function TradeDeckFeedScreen() {
   const [activeTab, setActiveTab] = useState<TradeFeedTab>('discover');
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [query, setQuery] = useState('');
+  const [draftQuery, setDraftQuery] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<TradeSearchSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [toolsModal, setToolsModal] = useState<'search' | 'filters' | null>(null);
   const [modeFilter, setModeFilter] = useState<ModeFilter>('all');
   const [postTypeFilter, setPostTypeFilter] = useState<PostTypeFilter>('all');
@@ -93,9 +106,26 @@ export function TradeDeckFeedScreen() {
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
   const loadRequestIdRef = useRef(0);
+  const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
 
   const feedQuery = useMemo(() => buildFeedQuery(query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, refreshSeed, seenTradeIds, language, auth.user?.profile?.countryCode), [auth.user?.profile?.countryCode, category, imagesOnly, language, modeFilter, moneyOnly, postTypeFilter, query, refreshSeed, seenTradeIds]);
   const activeFilterCount = useMemo(() => [feedQuery.q, feedQuery.mode, feedQuery.postType, feedQuery.category, feedQuery.hasImages, betaFeatures.moneyTradesEnabled ? feedQuery.hasMoney : undefined].filter(Boolean).length, [feedQuery]);
+
+  const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
+    const normalized = normalizeSearchText(q);
+    if (!canUseSearchSuggestions(normalized)) return;
+    pendingSearchRecordRef.current = { q: normalized, source };
+  }, []);
+
+  const recordSearchKeyword = useCallback(async (pending: { q: string; source: TradeSearchKeywordSource }, resultCount: number) => {
+    const normalized = normalizeSearchText(pending.q);
+    if (!canUseSearchSuggestions(normalized)) return;
+    try {
+      await api.tradeSearch.recordKeyword({ q: normalized, source: pending.source, resultCount, language, countryCode: auth.user?.profile?.countryCode ?? undefined });
+    } catch {
+      // Search logging is best-effort and must never block discovery.
+    }
+  }, [auth.user?.profile?.countryCode, language]);
 
   const loadFeed = useCallback(async () => {
     const requestId = loadRequestIdRef.current + 1;
@@ -105,7 +135,13 @@ export function TradeDeckFeedScreen() {
     try {
       const result = await api.trades.feed(feedQuery) as FeedResponse;
       if (requestId !== loadRequestIdRef.current) return;
-      setTrades(Array.isArray(result.trades) ? result.trades : []);
+      const nextTrades = Array.isArray(result.trades) ? result.trades : [];
+      setTrades(nextTrades);
+      const pendingRecord = pendingSearchRecordRef.current;
+      if (pendingRecord && normalizeSearchText(pendingRecord.q) === normalizeSearchText(feedQuery.q ?? '')) {
+        pendingSearchRecordRef.current = null;
+        void recordSearchKeyword(pendingRecord, nextTrades.length);
+      }
     } catch (caughtError) {
       if (requestId !== loadRequestIdRef.current) return;
       setTrades([]);
@@ -113,7 +149,7 @@ export function TradeDeckFeedScreen() {
     } finally {
       if (requestId === loadRequestIdRef.current) setLoading(false);
     }
-  }, [feedQuery]);
+  }, [feedQuery, recordSearchKeyword]);
 
   useFocusEffect(useCallback(() => { if (activeTab === 'discover') void loadFeed(); }, [activeTab, loadFeed]));
 
@@ -126,6 +162,33 @@ export function TradeDeckFeedScreen() {
   useEffect(() => {
     if (activeTab !== 'discover') setToolsModal(null);
   }, [activeTab]);
+
+  useEffect(() => {
+    const draft = normalizeSearchText(draftQuery);
+    if (toolsModal !== 'search' || !canUseSearchSuggestions(draft)) {
+      setSearchSuggestions([]);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const handle = setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        const response = await api.tradeSearch.suggestions({ q: draft, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 8 }) as { suggestions?: TradeSearchSuggestion[] };
+        if (!cancelled) setSearchSuggestions(response.suggestions ?? []);
+      } catch {
+        if (!cancelled) setSearchSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [auth.user?.profile?.countryCode, draftQuery, language, toolsModal]);
 
   const visibleTrades = useMemo(() => trades.filter((trade) => {
     if (imagesOnly && !hasApprovedImages(trade)) return false;
@@ -160,6 +223,9 @@ export function TradeDeckFeedScreen() {
   }, [auth.isAuthenticated, navigation]);
   const clearFilters = useCallback(() => {
     setQuery('');
+    setDraftQuery('');
+    setSearchSuggestions([]);
+    pendingSearchRecordRef.current = null;
     setModeFilter('all');
     setPostTypeFilter('all');
     setCategory('');
@@ -168,6 +234,26 @@ export function TradeDeckFeedScreen() {
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
   }, []);
+
+  const applyDiscoveryTools = useCallback((source?: TradeSearchKeywordSource) => {
+    const normalized = normalizeSearchText(draftQuery);
+    if (source) queueSearchKeywordRecord(normalized, source);
+    setQuery(normalized);
+    setDraftQuery(normalized);
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
+    setToolsModal(null);
+  }, [draftQuery, queueSearchKeywordRecord]);
+
+  const applySuggestionSearch = useCallback((suggestionQuery: string) => {
+    const normalized = normalizeSearchText(suggestionQuery);
+    setDraftQuery(normalized);
+    queueSearchKeywordRecord(normalized, 'suggestion_clicked');
+    setQuery(normalized);
+    setSeenTradeIds([]);
+    setRefreshSeed(createFeedRefreshSeed());
+    setToolsModal(null);
+  }, [queueSearchKeywordRecord]);
 
   const hasTrades = trades.length > 0;
   const hasVisibleTrades = visibleTrades.length > 0;
@@ -183,10 +269,10 @@ export function TradeDeckFeedScreen() {
           </Pressable>
           {activeTab === 'discover' ? (
             <>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchTrades')} onPress={() => setToolsModal('search')} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, toolsModal === 'search' && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchTrades')} onPress={() => { setDraftQuery(query); setToolsModal('search'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, toolsModal === 'search' && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
                 <MobileIcon name="search" size={18} color={toolsModal === 'search' ? theme.semantic.info.text : theme.color.text} />
               </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.filter')} onPress={() => setToolsModal('filters')} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (toolsModal === 'filters' || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+              <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.filter')} onPress={() => { setDraftQuery(query); setToolsModal('filters'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (toolsModal === 'filters' || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
                 <MobileIcon name="filter" size={18} color={(toolsModal === 'filters' || hasFilters) ? theme.semantic.info.text : theme.color.text} />
                 {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
               </Pressable>
@@ -226,7 +312,7 @@ export function TradeDeckFeedScreen() {
           <TradeDiscoveryToolsModal
             visible={toolsModal !== null}
             initialFocus={toolsModal ?? 'filters'}
-            query={query}
+            query={draftQuery}
             modeFilter={modeFilter}
             postTypeFilter={postTypeFilter}
             category={category}
@@ -234,15 +320,18 @@ export function TradeDeckFeedScreen() {
             moneyOnly={moneyOnly}
             hasFilters={hasFilters}
             activeFilterCount={activeFilterCount}
-            onChangeQuery={setQuery}
+            suggestions={searchSuggestions}
+            suggestionsLoading={suggestionsLoading}
+            onChangeQuery={setDraftQuery}
+            onSelectSuggestion={applySuggestionSearch}
             onChangeMode={setModeFilter}
             onChangePostType={setPostTypeFilter}
             onChangeCategory={setCategory}
             onToggleImagesOnly={() => setImagesOnly((current) => !current)}
             onToggleMoneyOnly={() => setMoneyOnly((current) => !current)}
             onClear={clearFilters}
-            onApply={() => setToolsModal(null)}
-            onSubmitSearch={() => { refreshDiscoveryOrder(); setToolsModal(null); }}
+            onApply={() => applyDiscoveryTools('submitted')}
+            onSubmitSearch={() => applyDiscoveryTools('submitted')}
             onClose={() => setToolsModal(null)}
           />
         </>
@@ -264,7 +353,10 @@ type TradeDiscoveryToolsModalProps = {
   moneyOnly: boolean;
   hasFilters: boolean;
   activeFilterCount: number;
+  suggestions: TradeSearchSuggestion[];
+  suggestionsLoading: boolean;
   onChangeQuery: (value: string) => void;
+  onSelectSuggestion: (value: string) => void;
   onChangeMode: (value: ModeFilter) => void;
   onChangePostType: (value: PostTypeFilter) => void;
   onChangeCategory: (value: string) => void;
@@ -276,7 +368,7 @@ type TradeDiscoveryToolsModalProps = {
   onClose: () => void;
 };
 
-function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, hasFilters, activeFilterCount, onChangeQuery, onChangeMode, onChangePostType, onChangeCategory, onToggleImagesOnly, onToggleMoneyOnly, onClear, onApply, onSubmitSearch, onClose }: TradeDiscoveryToolsModalProps) {
+function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, hasFilters, activeFilterCount, suggestions, suggestionsLoading, onChangeQuery, onSelectSuggestion, onChangeMode, onChangePostType, onChangeCategory, onToggleImagesOnly, onToggleMoneyOnly, onClear, onApply, onSubmitSearch, onClose }: TradeDiscoveryToolsModalProps) {
   const theme = useThemeTokens();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
@@ -313,6 +405,7 @@ function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, po
                 onSubmitEditing={onSubmitSearch}
                 style={[styles.searchInput, { backgroundColor: theme.color.background, borderColor: theme.color.border, color: theme.color.text }]}
               />
+              <TradeSearchSuggestionList query={query} suggestions={suggestions} loading={suggestionsLoading} onSelect={onSelectSuggestion} />
             </View>
 
             <View style={[styles.toolsSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }] }>
@@ -388,6 +481,33 @@ function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, po
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+
+function getSuggestionSourceLabel(source: TradeSearchSuggestion['source'], t: ReturnType<typeof useTranslation>['t']) {
+  if (source === 'category') return t('trade.filters.suggestionSourceCategory');
+  if (source === 'tag') return t('trade.filters.suggestionSourceTag');
+  return t('trade.filters.suggestionSourcePopular');
+}
+
+function TradeSearchSuggestionList({ query, suggestions, loading, onSelect }: { query: string; suggestions: TradeSearchSuggestion[]; loading: boolean; onSelect: (query: string) => void }) {
+  const theme = useThemeTokens();
+  const { t } = useTranslation();
+  if (!canUseSearchSuggestions(query)) return null;
+
+  return (
+    <View style={[styles.suggestionsBox, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
+      <AppText style={[styles.suggestionsTitle, { color: theme.color.muted }]}>{t('trade.filters.suggestions')}</AppText>
+      {loading && suggestions.length === 0 ? <AppText style={[styles.suggestionsEmpty, { color: theme.color.muted }]}>{t('common.states.loading')}</AppText> : null}
+      {!loading && suggestions.length === 0 ? <AppText style={[styles.suggestionsEmpty, { color: theme.color.muted }]}>{t('trade.filters.noSuggestions')}</AppText> : null}
+      {suggestions.map((suggestion) => (
+        <Pressable key={`${suggestion.source}:${suggestion.query}`} accessibilityRole="button" onPress={() => onSelect(suggestion.query)} style={({ pressed }) => [styles.suggestionRow, { backgroundColor: theme.color.surface }, pressed && styles.pressed]}>
+          <AppText numberOfLines={1} style={[styles.suggestionText, { color: theme.color.text }]}>{suggestion.query}</AppText>
+          <AppText style={[styles.suggestionSource, { color: theme.color.muted }]}>{getSuggestionSourceLabel(suggestion.source, t)}</AppText>
+        </Pressable>
+      ))}
+    </View>
   );
 }
 
@@ -774,6 +894,12 @@ const styles = StyleSheet.create({
   filterChip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 9 },
   filterChipText: { fontSize: 13, fontWeight: '900' },
   categoryInput: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, fontSize: 15, fontWeight: '700' },
+  suggestionsBox: { borderRadius: 18, borderWidth: 1, padding: 8, gap: 6 },
+  suggestionsTitle: { paddingHorizontal: 4, fontSize: 11, fontWeight: '900', letterSpacing: 0.8, textTransform: 'uppercase' },
+  suggestionsEmpty: { paddingHorizontal: 4, paddingVertical: 8, fontSize: 13, fontWeight: '800' },
+  suggestionRow: { minHeight: 42, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  suggestionText: { flex: 1, minWidth: 0, fontSize: 14, fontWeight: '900' },
+  suggestionSource: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   feedList: { gap: 20 },
   mineHeaderCard: { gap: 14 },
   mineHeaderCopy: { gap: 8 },

@@ -234,10 +234,12 @@ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disa
                 {`${media.length} ${t('inventory.labels.images').toLowerCase()}`}
               </AppText>
             </View>
-          ) : null}
-          <View style={[styles.usePill, { backgroundColor: semantic.bg }]}>
-            <AppText style={[styles.usePillText, { color: theme.color.background }]} numberOfLines={1}>{cloning ? t('common.states.saving') : actionLabel}</AppText>
-          </View>
+          ) : <View style={styles.templateFooterMeta} />}
+          {cloning ? (
+            <AppText style={[styles.templateSavingText, { color: semantic.text }]} numberOfLines={1}>{t('common.states.saving')}</AppText>
+          ) : (
+            <MobileIcon name="chevron-right" size={18} color={theme.color.muted} />
+          )}
         </View>
       </View>
     </Pressable>
@@ -269,8 +271,7 @@ const styles = StyleSheet.create({
   templateFooterRow: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
   templateFooterMeta: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
   templateFooterText: { flex: 1, fontSize: 11, fontWeight: '900', letterSpacing: 0.25, textTransform: 'uppercase' },
-  usePill: { flexShrink: 0, maxWidth: 104, minHeight: 28, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6 },
-  usePillText: { fontSize: 11, fontWeight: '900' },
+  templateSavingText: { flexShrink: 0, maxWidth: 96, fontSize: 11, fontWeight: '900', letterSpacing: 0.25, textTransform: 'uppercase' },
   emptyCard: { gap: 10 },
   emptyTitle: { fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
   emptyBody: { lineHeight: 20, fontWeight: '700' },

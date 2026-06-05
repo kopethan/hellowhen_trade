@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import type { FormEvent } from 'react';
-import type { TradeDto, TradePostType } from '@hellowhen/contracts';
+import type { TradeDto, TradePostType, TradeSearchKeywordSource, TradeSearchSuggestion } from '@hellowhen/contracts';
 import { getTradeOwnerVisibilityState, isTradeOwnerCloseAllowed, isTradeOwnerRenewAllowed } from '@hellowhen/shared';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { WebIcon } from '../../components/WebIcon';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -29,6 +29,7 @@ type TradeWithCounts = TradeDto & { _count?: { proposals?: number } };
 type TradeWithViewerProposal = TradeWithCounts & { viewerProposal?: { id: string; status: string; createdAt?: string; respondedAt?: string | null } | null; viewerInvolvement?: 'owner' | 'provider' | 'applicant' };
 
 const initialFilters: FeedFilters = { q: '', mode: '', hasImages: false, hasMoney: false, postType: '' };
+const minSearchSuggestionLength = 2;
 const homeTradeIntroSeenKey = 'hellowhen.trade.homeIntro.seen.v1';
 
 function createFeedRefreshSeed() {
@@ -64,6 +65,14 @@ function localDiscoverySort(trades: TradeDto[], refreshSeed: string, seenTradeId
   });
 }
 
+function normalizeSearchText(value: string) {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function canUseSearchSuggestions(value: string) {
+  return normalizeSearchText(value).length >= minSearchSuggestionLength;
+}
+
 function localFilter(trades: TradeDto[], filters: FeedFilters) {
   const query = filters.q.trim().toLowerCase();
   return trades.filter((trade) => {
@@ -90,9 +99,13 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<TradeSearchSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [searchInputFocused, setSearchInputFocused] = useState(false);
   const [activeToolPanel, setActiveToolPanel] = useState<'search' | 'filter' | null>(null);
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
+  const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
   const [homeIntroDismissed, setHomeIntroDismissed] = useState(false);
   const [homeIntroReady, setHomeIntroReady] = useState(false);
   const { t, language } = useWebTranslation();
@@ -102,6 +115,22 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const createNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs/new' : '/needs/new';
   const createOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers/new' : '/offers/new';
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
+
+  const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
+    const normalized = normalizeSearchText(q);
+    if (!canUseSearchSuggestions(normalized)) return;
+    pendingSearchRecordRef.current = { q: normalized, source };
+  }, []);
+
+  const recordSearchKeyword = useCallback(async (pending: { q: string; source: TradeSearchKeywordSource }, resultCount: number) => {
+    const normalized = normalizeSearchText(pending.q);
+    if (!canUseSearchSuggestions(normalized)) return;
+    try {
+      await api.tradeSearch.recordKeyword({ q: normalized, source: pending.source, resultCount, language, countryCode: auth.user?.profile?.countryCode ?? undefined });
+    } catch {
+      // Search logging is best-effort and must never block discovery.
+    }
+  }, [auth.user?.profile?.countryCode, language]);
 
   useEffect(() => {
     if (!showHomeIntro) {
@@ -160,6 +189,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
         setTrades(nextTrades);
         setUsingFallback(false);
         setLoadError('');
+        const pendingRecord = pendingSearchRecordRef.current;
+        if (pendingRecord && normalizeSearchText(pendingRecord.q) === normalizeSearchText(appliedFilters.q)) {
+          pendingSearchRecordRef.current = null;
+          void recordSearchKeyword(pendingRecord, nextTrades.length);
+        }
       } catch {
         if (!mounted) return;
         if (demoDataEnabled) {
@@ -177,27 +211,70 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     }
     void loadTrades();
     return () => { mounted = false; };
-  }, [activeTab, appliedFilters, auth.user?.profile?.countryCode, demoDataEnabled, language, refreshSeed, seenTradeIds, t]);
+  }, [activeTab, appliedFilters, auth.user?.profile?.countryCode, demoDataEnabled, language, recordSearchKeyword, refreshSeed, seenTradeIds, t]);
 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
   const hasAppliedFilters = Boolean(appliedFilters.q.trim() || appliedFilters.mode || appliedFilters.hasImages || appliedFilters.hasMoney || appliedFilters.postType);
+  const shouldShowSuggestions = activeTab === 'discover' && canUseSearchSuggestions(filters.q) && (activeToolPanel === 'search' || searchInputFocused);
+
+  useEffect(() => {
+    const q = normalizeSearchText(filters.q);
+    if (!shouldShowSuggestions || !canUseSearchSuggestions(q)) {
+      setSearchSuggestions([]);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const handle = window.setTimeout(async () => {
+      setSuggestionsLoading(true);
+      try {
+        const response = await api.tradeSearch.suggestions({ q, language, countryCode: auth.user?.profile?.countryCode ?? undefined, take: 8 });
+        if (!cancelled) setSearchSuggestions(response.suggestions ?? []);
+      } catch {
+        if (!cancelled) setSearchSuggestions([]);
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false);
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [activeTab, activeToolPanel, auth.user?.profile?.countryCode, filters.q, language, searchInputFocused, shouldShowSuggestions]);
 
   function refreshDiscoveryOrder() {
     setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
     setRefreshSeed(createFeedRefreshSeed());
   }
 
-  function applySearch(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function submitFilters(nextFilters: FeedFilters, source?: TradeSearchKeywordSource) {
+    const normalizedFilters = { ...nextFilters, q: normalizeSearchText(nextFilters.q) };
+    if (source) queueSearchKeywordRecord(normalizedFilters.q, source);
+    setFilters(normalizedFilters);
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
-    setAppliedFilters(filters);
+    setAppliedFilters(normalizedFilters);
     setActiveToolPanel(null);
+    setSearchInputFocused(false);
+  }
+
+  function applySearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    submitFilters(filters, 'submitted');
+  }
+
+  function applySuggestionSearch(query: string) {
+    submitFilters({ ...filters, q: query }, 'suggestion_clicked');
   }
 
   function resetFilters() {
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
+    setSearchSuggestions([]);
+    setSearchInputFocused(false);
+    pendingSearchRecordRef.current = null;
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
   }
@@ -233,16 +310,21 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
               <WebIcon name="search" size={17} decorative />
               <span>{t('trade.filters.searchTrades')}</span>
             </button>
-            <label className="trade-search-field trade-search-field--desktop">
-              <span className="sr-only">{t('trade.filters.searchTrades')}</span>
-              <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
-              <input
-                value={filters.q}
-                onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
-                placeholder={t('trade.filters.searchTrades')}
-                type="search"
-              />
-            </label>
+            <div className="trade-search-combobox trade-search-combobox--desktop">
+              <label className="trade-search-field trade-search-field--desktop">
+                <span className="sr-only">{t('trade.filters.searchTrades')}</span>
+                <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
+                <input
+                  value={filters.q}
+                  onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
+                  onFocus={() => setSearchInputFocused(true)}
+                  onBlur={() => window.setTimeout(() => setSearchInputFocused(false), 140)}
+                  placeholder={t('trade.filters.searchTrades')}
+                  type="search"
+                />
+              </label>
+              <TradeSearchSuggestionList visible={shouldShowSuggestions && searchInputFocused} suggestions={searchSuggestions} loading={suggestionsLoading} query={filters.q} onSelect={applySuggestionSearch} />
+            </div>
             <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value ? null : 'filter')} aria-expanded={Boolean(activeToolPanel)}>
               <WebIcon name="filter" size={17} decorative />
               <span>{t('trade.filters.filter')}</span>
@@ -259,9 +341,10 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
                   </div>
                   <button type="button" className="trade-filter-panel__close" onClick={() => setActiveToolPanel(null)} aria-label={t('common.actions.close')}>×</button>
                 </div>
-                <label className="trade-filter-panel__search">
+                <div className="trade-filter-panel__search">
                   <span>{t('trade.filters.searchTrades')}</span>
-                  <span className="trade-filter-panel__search-input">
+                  <label className="trade-filter-panel__search-input">
+                    <span className="sr-only">{t('trade.filters.searchTrades')}</span>
                     <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
                     <input
                       value={filters.q}
@@ -269,8 +352,9 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
                       placeholder={t('trade.filters.searchTrades')}
                       type="search"
                     />
-                  </span>
-                </label>
+                  </label>
+                  <TradeSearchSuggestionList visible={shouldShowSuggestions && activeToolPanel === 'search'} suggestions={searchSuggestions} loading={suggestionsLoading} query={filters.q} onSelect={applySuggestionSearch} />
+                </div>
                 <label>
                   <span>{t('trade.filters.mode')}</span>
                   <select value={filters.mode} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value }))}>
@@ -346,6 +430,32 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   );
 }
 
+
+
+function getSuggestionSourceLabel(source: TradeSearchSuggestion['source'], t: ReturnType<typeof useWebTranslation>['t']) {
+  if (source === 'category') return t('trade.filters.suggestionSourceCategory');
+  if (source === 'tag') return t('trade.filters.suggestionSourceTag');
+  return t('trade.filters.suggestionSourcePopular');
+}
+
+function TradeSearchSuggestionList({ visible, suggestions, loading, query, onSelect }: { visible: boolean; suggestions: TradeSearchSuggestion[]; loading: boolean; query: string; onSelect: (query: string) => void }) {
+  const { t } = useWebTranslation();
+  if (!visible || !canUseSearchSuggestions(query)) return null;
+
+  return (
+    <div className="trade-search-suggestions" role="listbox" aria-label={t('trade.filters.suggestions')}>
+      <div className="trade-search-suggestions__title">{t('trade.filters.suggestions')}</div>
+      {loading && !suggestions.length ? <div className="trade-search-suggestions__empty">{t('common.states.loading')}</div> : null}
+      {!loading && !suggestions.length ? <div className="trade-search-suggestions__empty">{t('trade.filters.noSuggestions')}</div> : null}
+      {suggestions.map((suggestion) => (
+        <button key={`${suggestion.source}:${suggestion.query}`} type="button" className="trade-search-suggestion" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => onSelect(suggestion.query)}>
+          <span>{suggestion.query}</span>
+          <small>{getSuggestionSourceLabel(suggestion.source, t)}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 type HomeTradeIntroBannerProps = {
   createTradeHref: string;

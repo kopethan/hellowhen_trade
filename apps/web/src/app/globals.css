@@ -464,6 +464,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
   .trade-mine-row { grid-template-columns: minmax(0, 1fr); }
   .trade-mine-row__icon { display: none; }
 }
+.trade-search-combobox { position: relative; min-width: 0; }
 .trade-search-field { position: relative; display: block; min-width: 0; color: var(--app-text-muted); }
 .trade-search-field__icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 .trade-search-field input { min-height: 44px; border-radius: 999px; padding: 0 14px 0 40px; font-size: 14px; font-weight: 850; background: color-mix(in srgb, var(--app-surface) 96%, transparent); box-shadow: var(--app-control-shadow); backdrop-filter: blur(14px); }
@@ -473,6 +474,14 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .trade-filter-panel label { display: grid; gap: 7px; color: var(--app-text); font-size: 13px; font-weight: 900; }
 .trade-filter-panel__search-input { position: relative; display: block; }
 .trade-filter-panel__search-input input { min-height: 48px; border-radius: 18px; padding-left: 42px; }
+.trade-search-suggestions { position: absolute; z-index: 210; top: calc(100% + 8px); right: 0; left: 0; display: grid; gap: 6px; border: 1px solid var(--app-border); border-radius: 22px; background: color-mix(in srgb, var(--app-surface) 98%, transparent); box-shadow: var(--app-card-shadow); padding: 10px; color: var(--app-text); backdrop-filter: blur(18px); }
+.trade-filter-panel__search .trade-search-suggestions { position: static; margin-top: 8px; box-shadow: var(--app-control-shadow); }
+.trade-search-suggestions__title { padding: 2px 4px 4px; color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: 0.08em; text-transform: uppercase; }
+.trade-search-suggestions__empty { padding: 10px 8px; color: var(--app-text-muted); font-size: 13px; font-weight: 800; }
+.trade-search-suggestion { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; border: 0; border-radius: 15px; background: transparent; color: var(--app-text); padding: 8px 10px; text-align: left; box-shadow: none; cursor: pointer; }
+.trade-search-suggestion:hover, .trade-search-suggestion:focus-visible { background: var(--app-surface-soft); }
+.trade-search-suggestion span { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 900; text-overflow: ellipsis; white-space: nowrap; }
+.trade-search-suggestion small { flex: 0 0 auto; color: var(--app-text-muted); font-size: 11px; font-weight: 900; text-transform: uppercase; }
 .trade-filter-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .feed-status-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .feed-status-row p { margin: 0; font-size: 13px; font-weight: 800; }
@@ -784,6 +793,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
   .trade-feed-controls { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
   .trade-search-open-pill { display: inline-flex; min-width: 0; justify-content: flex-start; }
   .trade-search-open-pill span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trade-search-combobox--desktop { display: none; }
   .trade-search-field--desktop { display: none; }
   .trade-feed-controls .trade-filter-panel { position: fixed; inset: 0; z-index: 180; display: grid; grid-template-rows: auto auto auto auto auto 1fr auto; align-content: start; gap: 14px; overflow-y: auto; border: 0; border-radius: 0; background: var(--app-bg); padding: calc(14px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom)); box-shadow: none; overscroll-behavior: contain; }
   .trade-filter-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 2px; }
