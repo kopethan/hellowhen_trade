@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileDto } from '@hellowhen/contracts';
 import { normalizeUsername, publicUserPath, usernameChangeAvailableAt, validateUsername } from '@hellowhen/shared';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import { AppActionSheet } from '../../components/AppActionSheet';
 import { AppCard } from '../../components/AppCard';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
@@ -60,6 +61,8 @@ export function ProfileScreen({ navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [avatarPickerIntroVisible, setAvatarPickerIntroVisible] = useState(false);
+  const [avatarPickerIntroAccepted, setAvatarPickerIntroAccepted] = useState(false);
   const avatarSource = avatarImage?.uri ? getLocalAvatarSource(avatarImage.uri) : getStoredAvatarSource(avatarUrl);
   const publicProfilePath = publicUserPath(handle);
   const usernameAvailableAt = usernameChangeAvailableAt(auth.user?.profile?.handleChangedAt ?? null);
@@ -77,15 +80,33 @@ export function ProfileScreen({ navigation }: Props) {
     helper: t(`common.locale.currencies.${currency.code}`),
   })), [t]);
 
-  async function pickAvatar() {
+  async function openAvatarPicker() {
     setError(null);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) { setError(t('profile.edit.photoPermission')); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: false, quality: 0.85 });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
-    setAvatarImage({ uri: asset.uri, name: asset.fileName ?? `profile-avatar-${Date.now()}.jpg`, type: asset.mimeType ?? 'image/jpeg' });
-    setSaved(false);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: false, quality: 0.85 });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      setAvatarImage({ uri: asset.uri, name: asset.fileName ?? `profile-avatar-${Date.now()}.jpg`, type: asset.mimeType ?? 'image/jpeg' });
+      setSaved(false);
+    } catch {
+      setError(t('profile.edit.photoPermission'));
+    }
+  }
+
+  function pickAvatar() {
+    if (saving || removingAvatar) return;
+    setError(null);
+    if (!avatarPickerIntroAccepted) {
+      setAvatarPickerIntroVisible(true);
+      return;
+    }
+    void openAvatarPicker();
+  }
+
+  function continueAfterAvatarIntro() {
+    setAvatarPickerIntroVisible(false);
+    setAvatarPickerIntroAccepted(true);
+    void openAvatarPicker();
   }
 
   async function handleSave() {
@@ -211,6 +232,21 @@ export function ProfileScreen({ navigation }: Props) {
 
         </View>
       </ScrollView>
+      <AppActionSheet
+        visible={avatarPickerIntroVisible}
+        title={t('profile.edit.photoPickerTitle')}
+        body={t('profile.edit.photoPickerBody')}
+        cancelLabel={t('common.actions.cancel')}
+        onCancel={() => setAvatarPickerIntroVisible(false)}
+        actions={[{
+          key: 'continue',
+          label: t('common.actions.continue'),
+          icon: 'image',
+          tone: 'primary',
+          helper: t('profile.edit.photoPickerHelper'),
+          onPress: continueAfterAvatarIntro,
+        }]}
+      />
     </AppScreen>
   );
 }

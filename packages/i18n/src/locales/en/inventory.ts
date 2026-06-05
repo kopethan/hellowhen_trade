@@ -49,6 +49,11 @@ export const inventory = {
     updated: 'Updated',
     usedInTrade: 'Used in trade',
   },
+  permissions: {
+    imagePickerTitle: 'Choose images',
+    imagePickerBody: 'Hellowhen will open your photo picker so you can choose images for this item. We only use the images you select.',
+    imagePickerHelper: 'No full photo library browsing is needed.',
+  },
   side: {
     need: 'I need',
     offer: 'I offer',

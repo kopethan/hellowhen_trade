@@ -17,7 +17,7 @@ import { mockTrades } from '../../lib/mockData';
 import { TradeImageGrid } from './TradeImageGrid';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getModeLabel, getNeedSide, getOfferSide, getStatusLabel, getTradeHeadline, getTradeHowItWorks, getTradeMode, getTradePostType, getTradeProposalCopy, type TradeI18n, type TradeSide } from './tradePresentation';
+import { formatDateLabel, formatRelativeExpiry, getExchangeLabel, getNeedSide, getOfferSide, getStatusLabel, getTradeHeadline, getTradeHowItWorks, getTradePostType, getTradeProposalCopy, type TradeI18n, type TradeSide } from './tradePresentation';
 
 function normalizeTradeResponse(value: unknown): TradeDto | null {
   if (!value || typeof value !== 'object') return null;
@@ -186,7 +186,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
 
   if (!trade && loading) {
     return (
-      <article className="trade-detail-page">
+      <article className="trade-detail-page trade-detail-page--social">
         <section className="trade-hero-section">
           <span className="semantic-badge instruction">{t('common.states.loading')}</span>
           <h2>{t('trade.detail.loadingTitle')}</h2>
@@ -197,7 +197,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
 
   if (!trade) {
     return (
-      <article className="trade-detail-page">
+      <article className="trade-detail-page trade-detail-page--social">
         <section className="trade-hero-section">
           <span className="semantic-badge danger">{t('trade.labels.notFound')}</span>
           <h2>{t('trade.detail.couldNotLoad')}</h2>
@@ -302,25 +302,32 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   const headline = getTradeHeadline(currentTrade, i18n);
   const howItWorks = getTradeHowItWorks(currentTrade, i18n);
   const postType = getTradePostType(currentTrade);
-  const proposalCopy = getTradeProposalCopy(currentTrade, i18n);
-  const mode = getTradeMode(currentTrade);
+  const typeLabel = postType === 'open_need' ? t('trade.labels.openNeed') : postType === 'open_offer' ? t('trade.labels.openOffer') : t('trade.labels.needOffer');
 
   return (
-    <article className="trade-detail-page">
-      <section className="trade-hero-section">
+    <article className="trade-detail-page trade-detail-page--social">
+      <header className="trade-detail-toolbar" aria-label={t('trade.labels.trade')}>
+        <Link href="/trades" className="trade-detail-back-link">
+          <span aria-hidden="true">←</span>
+          <span>{t('trade.labels.trade')}</span>
+        </Link>
+        <button type="button" className="trade-detail-icon-button" onClick={() => void shareTrade()} disabled={shareLoading} aria-label={t('trade.detail.shareTrade')}>
+          <WebIcon name="share" size={17} decorative />
+          <span>{shareLoading ? t('trade.detail.sharing') : t('trade.detail.shareTrade')}</span>
+        </button>
+      </header>
+
+      <section className="trade-hero-section trade-detail-hero">
         <div className="trade-detail-hero-top">
-          <div className="status-row">
+          <div className="status-row trade-detail-status-row">
             <span className="semantic-badge trade"><WebIcon name="trade" size={14} decorative /> {getStatusLabel(currentTrade.status, i18n)}</span>
-            <span className="semantic-badge trade">{exchange}</span>
+            <span className="semantic-badge trade">{postType === 'open_need' ? t('trade.labels.openNeed') : postType === 'open_offer' ? t('trade.labels.openOffer') : t('trade.labels.needOffer')}</span>
+            <span className="semantic-badge proposal">{exchange}</span>
             {usingFallback ? <span className="semantic-badge instruction">{t('trade.labels.demoDetail')}</span> : null}
           </div>
-          <button type="button" className="button secondary trade-share-button" onClick={() => void shareTrade()} disabled={shareLoading}>
-            <WebIcon name="share" size={16} decorative />
-            {shareLoading ? t('trade.detail.sharing') : t('trade.detail.shareTrade')}
-          </button>
         </div>
         <h2>{headline}</h2>
-        <p>{currentTrade.description}</p>
+        {currentTrade.description ? <p className="trade-detail-hero-description">{currentTrade.description}</p> : null}
         <div className="trade-detail-owner-row">
           <span className="meta">{t('trade.labels.postedBy')}</span>
           <UserIdentityLink
@@ -334,56 +341,80 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           <span className="meta">· {formatRelativeExpiry(currentTrade.expiresAt, i18n)}</span>
         </div>
         {shareNotice ? <p className="trade-share-notice" role="status" aria-live="polite">{shareNotice}</p> : null}
-        {!isOwner ? <ReportContentButton targetType="trade" targetId={currentTrade.id} labelKey="report.trade" helperKey="report.helper.trade" buttonClassName="button secondary danger-text" /> : null}
+        {!isOwner ? <ReportContentButton targetType="trade" targetId={currentTrade.id} labelKey="report.trade" helperKey="report.helper.trade" buttonClassName="button secondary danger-text trade-detail-report-button" /> : null}
       </section>
 
       {postType !== 'open_offer' ? <SideSection side={needSide} i18n={i18n} /> : null}
       {postType !== 'open_need' ? <SideSection side={offerSide} i18n={i18n} /> : null}
       {postType === 'open_need' || postType === 'open_offer' ? <OpenResponseSection trade={currentTrade} i18n={i18n} /> : null}
 
-      <section className="trade-social-section trade-social-section--compact">
+      <section className="trade-social-section trade-social-section--compact trade-details-modern-section">
         <div className="trade-section-heading">
           <div>
             <p className="eyebrow">{t('trade.labels.tradeDetails')}</p>
-            <h2 className="icon-heading"><WebIcon name="trade" size={21} decorative /> {t('trade.labels.howThisTradeWorks')}</h2>
-          </div>
-        </div>
-        <dl className="trade-detail-list">
-          <div><dt>{t('trade.labels.status')}</dt><dd>{getStatusLabel(currentTrade.status, i18n)}</dd></div>
-          <div><dt>{t('trade.labels.exchange')}</dt><dd>{exchange}</dd></div>
-          <div><dt>{t('trade.labels.responseNeeded')}</dt><dd>{proposalCopy.responseNeeded}</dd></div>
-          <div><dt>{t('trade.labels.mode')}</dt><dd>{getModeLabel(mode, i18n) ?? t('trade.labels.unavailable')}</dd></div>
-          <div><dt>{t('trade.labels.created')}</dt><dd>{formatDateLabel(currentTrade.createdAt, i18n)}</dd></div>
-          <div><dt>{t('trade.labels.expires')}</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt, i18n)}</dd></div>
-        </dl>
-        <p className="trade-how-it-works">{howItWorks}</p>
-      </section>
-
-      <section className="trade-social-section trade-social-section--compact">
-        <div className="trade-section-heading">
-          <div>
-            <p className="eyebrow">{t('trade.labels.confirmation')}</p>
-            <h2 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={21} decorative /> {t('trade.labels.deliveryConfirmation')}</h2>
+            <h2 className="icon-heading"><WebIcon name="trade" size={21} decorative /> {t('trade.labels.nextStep')}</h2>
           </div>
           {actionLoading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
         </div>
-        <p>{completionHint(currentTrade, actorId, i18n)}</p>
-        <p className="meta">{t('trade.detail.viewingAs', { role: participantLabel(currentTrade, actorId, i18n) })}</p>
-        {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
-        <div className="trade-action-row">
-          {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>{t('trade.detail.markDelivered')}</button> : null}
-          {canConfirmCompletion ? <button type="button" className="success" onClick={() => setConfirmCompletionOpen(true)} disabled={Boolean(actionLoading)}>{t('trade.detail.confirmCompleted')}</button> : null}
-          {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> {t('trade.detail.reportProblem')}</button> : null}
+        <p className="trade-next-step-copy">{howItWorks}</p>
+        <dl className="trade-detail-list trade-detail-list--native">
+          <div><dt>{t('trade.labels.type')}</dt><dd>{typeLabel}</dd></div>
+          <div><dt>{t('trade.labels.status')}</dt><dd>{getStatusLabel(currentTrade.status, i18n)}</dd></div>
+          <div><dt>{t('trade.labels.expiry')}</dt><dd>{formatRelativeExpiry(currentTrade.expiresAt, i18n)}</dd></div>
+          <div><dt>{t('trade.labels.exchange')}</dt><dd>{exchange}</dd></div>
+          <div><dt>{t('trade.labels.created')}</dt><dd>{formatDateLabel(currentTrade.createdAt, i18n)}</dd></div>
+        </dl>
+
+        <div className="trade-detail-people-row">
+          <div className="trade-detail-person-pill">
+            <span className="eyebrow">{t('trade.labels.owner')}</span>
+            <UserIdentityLink
+              user={currentTrade.owner}
+              userId={currentTrade.ownerId}
+              variant="chip"
+              avatarSize="sm"
+              statusText={t('trade.labels.creator')}
+              showHandle={false}
+            />
+          </div>
+          {currentTrade.provider ? (
+            <div className="trade-detail-person-pill">
+              <span className="eyebrow">{t('trade.labels.provider')}</span>
+              <UserIdentityLink
+                user={currentTrade.provider}
+                userId={currentTrade.providerId}
+                variant="chip"
+                avatarSize="sm"
+                statusText={t('trade.labels.acceptedTrader')}
+                showHandle={false}
+              />
+            </div>
+          ) : null}
         </div>
-        {reportOpen ? (
-          <form className="proposal-composer" onSubmit={submitReport}>
-            <label className="field-label">
-              {t('trade.detail.whatHappened')}
-              <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder={t('trade.detail.reportPlaceholder')} rows={4} />
-            </label>
-            <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>{t('trade.detail.sendReport')}</button>
-          </form>
-        ) : null}
+
+        <div className="trade-next-step-panel">
+          <div>
+            <p className="eyebrow">{t('trade.labels.confirmation')}</p>
+            <h3 className="icon-heading"><WebIcon name={currentTrade.status === 'disputed' ? 'dispute' : 'proposal-accepted'} size={19} decorative /> {t('trade.labels.deliveryConfirmation')}</h3>
+          </div>
+          <p>{completionHint(currentTrade, actorId, i18n)}</p>
+          <p className="meta">{t('trade.detail.viewingAs', { role: participantLabel(currentTrade, actorId, i18n) })}</p>
+          {actionNotice ? <p className="notice-box info">{actionNotice}</p> : null}
+          <div className="trade-action-row">
+            {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>{t('trade.detail.markDelivered')}</button> : null}
+            {canConfirmCompletion ? <button type="button" className="success" onClick={() => setConfirmCompletionOpen(true)} disabled={Boolean(actionLoading)}>{t('trade.detail.confirmCompleted')}</button> : null}
+            {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> {t('trade.detail.reportProblem')}</button> : null}
+          </div>
+          {reportOpen ? (
+            <form className="proposal-composer" onSubmit={submitReport}>
+              <label className="field-label">
+                {t('trade.detail.whatHappened')}
+                <textarea value={reportMessage} onChange={(event) => setReportMessage(event.target.value)} placeholder={t('trade.detail.reportPlaceholder')} rows={4} />
+              </label>
+              <button type="submit" disabled={actionLoading === 'report' || reportMessage.trim().length < 10}>{t('trade.detail.sendReport')}</button>
+            </form>
+          ) : null}
+        </div>
       </section>
 
       <TradeThreadSplitSection trade={currentTrade} isOwner={isOwner} i18n={i18n} />

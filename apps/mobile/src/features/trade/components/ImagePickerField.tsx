@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { AppActionSheet } from '../../../components/AppActionSheet';
 import { AppText } from '../../../components/AppText';
 import { InfoNotice } from '../../../components/SemanticUI';
 import { useTranslation } from '../../../providers/MobileI18nProvider';
@@ -38,12 +39,14 @@ export function ImagePickerField({
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
+  const [accessIntroVisible, setAccessIntroVisible] = useState(false);
+  const [accessIntroAccepted, setAccessIntroAccepted] = useState(false);
   const resolvedLabel = label ?? t('inventory.labels.images');
   const resolvedReviewBody = reviewBody ?? t('inventory.form.imagePickerDefaultBody');
   const remaining = Math.max(0, maxImages - images.length);
   const atLimit = remaining <= 0;
 
-  async function pickImages() {
+  async function openImagePicker() {
     if (disabled || selecting) return;
     setError(null);
     if (remaining <= 0) {
@@ -53,12 +56,6 @@ export function ImagePickerField({
 
     setSelecting(true);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setError(t('inventory.messages.photoLibraryPermission'));
-        return;
-      }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
@@ -104,6 +101,27 @@ export function ImagePickerField({
     }
   }
 
+
+  function pickImages() {
+    if (disabled || selecting) return;
+    setError(null);
+    if (remaining <= 0) {
+      setError(t('inventory.messages.addImagesLimit', { count: maxImages }));
+      return;
+    }
+    if (!accessIntroAccepted) {
+      setAccessIntroVisible(true);
+      return;
+    }
+    void openImagePicker();
+  }
+
+  function continueAfterAccessIntro() {
+    setAccessIntroVisible(false);
+    setAccessIntroAccepted(true);
+    void openImagePicker();
+  }
+
   function removeImage(uri: string) {
     if (disabled) return;
     onChange(images.filter((image) => image.uri !== uri));
@@ -137,6 +155,21 @@ export function ImagePickerField({
       ) : (
         <View style={styles.empty}><AppText style={styles.emptyText}>{t('inventory.labels.noImagesSelected')}</AppText></View>
       )}
+      <AppActionSheet
+        visible={accessIntroVisible}
+        title={t('inventory.permissions.imagePickerTitle')}
+        body={t('inventory.permissions.imagePickerBody')}
+        cancelLabel={t('common.actions.cancel')}
+        onCancel={() => setAccessIntroVisible(false)}
+        actions={[{
+          key: 'continue',
+          label: t('common.actions.continue'),
+          icon: 'image',
+          tone: 'primary',
+          helper: t('inventory.permissions.imagePickerHelper'),
+          onPress: continueAfterAccessIntro,
+        }]}
+      />
     </View>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,6 +10,7 @@ import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { AppCard } from '../../components/AppCard';
+import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppCollapsibleHeaderScreen, type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
@@ -211,7 +212,7 @@ export function TradeDeckFeedScreen() {
       {(scrollProps) => (
         <>
           {activeTab === 'discover' ? (
-            <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
+            <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
               {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
               {hasVisibleTrades ? (
                 <View style={styles.feedList}>
@@ -436,6 +437,7 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
   const [statusFilter, setStatusFilter] = useState('all');
   const [busyTradeId, setBusyTradeId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tradeToClose, setTradeToClose] = useState<TradeWithCounts | null>(null);
 
   const loadMine = useCallback(async () => {
     if (!auth.isAuthenticated) return;
@@ -473,27 +475,25 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
 
   const closeTrade = useCallback((trade: TradeWithCounts) => {
     if (!isTradeOwnerCloseAllowed(trade)) return;
-    Alert.alert(t('trade.mine.close'), t('trade.mine.closeConfirm'), [
-      { text: t('common.actions.cancel'), style: 'cancel' },
-      {
-        text: t('trade.mine.close'),
-        style: 'destructive',
-        onPress: async () => {
-          setBusyTradeId(trade.id);
-          setNotice(null);
-          try {
-            const result = await api.trades.close(trade.id) as { trade?: TradeWithCounts };
-            if (result.trade) replaceTrade(result.trade);
-            setNotice(t('trade.mine.closedNotice'));
-          } catch (caughtError) {
-            setNotice(getFriendlyApiErrorMessage(caughtError) || t('trade.mine.closeError'));
-          } finally {
-            setBusyTradeId(null);
-          }
-        }
-      }
-    ]);
-  }, [replaceTrade, t]);
+    setTradeToClose(trade);
+  }, []);
+
+  const confirmCloseTrade = useCallback(async () => {
+    const trade = tradeToClose;
+    if (!trade) return;
+    setTradeToClose(null);
+    setBusyTradeId(trade.id);
+    setNotice(null);
+    try {
+      const result = await api.trades.close(trade.id) as { trade?: TradeWithCounts };
+      if (result.trade) replaceTrade(result.trade);
+      setNotice(t('trade.mine.closedNotice'));
+    } catch (caughtError) {
+      setNotice(getFriendlyApiErrorMessage(caughtError) || t('trade.mine.closeError'));
+    } finally {
+      setBusyTradeId(null);
+    }
+  }, [replaceTrade, t, tradeToClose]);
 
   useFocusEffect(useCallback(() => { void loadMine(); }, [loadMine]));
 
@@ -505,7 +505,7 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
 
   if (!auth.isAuthenticated) {
     return (
-      <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false}>
         <AppCard style={styles.authMineCard}>
           <SemanticBadge label={t('trade.mine.myTradesTab')} tone="trade" />
           <AppText style={styles.emptyTitle}>{t('trade.mine.loginTitle')}</AppText>
@@ -516,36 +516,49 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
   }
 
   return (
-    <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMine} />}>
-      <AppCard style={styles.mineHeaderCard}>
-        <View style={styles.mineHeaderCopy}>
-          <SemanticBadge label={t('trade.mine.ownerArea')} tone="trade" />
-          <AppText style={styles.mineTitle}>{t('trade.mine.title')}</AppText>
-          <AppText style={[styles.mineBody, { color: theme.color.muted }]}>{t('trade.mine.body')}</AppText>
-        </View>
-        <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-          <MobileIcon name="add" size={18} color={theme.color.background} />
-          <AppText style={[styles.mineCreateButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText>
-        </Pressable>
-      </AppCard>
+    <>
+      <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMine} />}>
+        <AppCard style={styles.mineHeaderCard}>
+          <View style={styles.mineHeaderCopy}>
+            <SemanticBadge label={t('trade.mine.ownerArea')} tone="trade" />
+            <AppText style={styles.mineTitle}>{t('trade.mine.title')}</AppText>
+            <AppText style={[styles.mineBody, { color: theme.color.muted }]}>{t('trade.mine.body')}</AppText>
+          </View>
+          <Pressable accessibilityRole="button" onPress={onCreate} style={({ pressed }) => [styles.mineCreateButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+            <MobileIcon name="add" size={18} color={theme.color.background} />
+            <AppText style={[styles.mineCreateButtonText, { color: theme.color.background }]}>{t('trade.create.title')}</AppText>
+          </Pressable>
+        </AppCard>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mineFilterRow}>
-        {['all', 'active', 'with_proposals', 'in_progress', 'expired', 'closed'].map((status) => {
-          const selected = statusFilter === status;
-          const label = status === 'all' ? t('trade.mine.filterAll') : status === 'with_proposals' ? t('trade.mine.filterWithProposals') : t(`trade.statuses.${status}`);
-          return (
-            <Pressable key={status} accessibilityRole="button" onPress={() => setStatusFilter(status)} style={({ pressed }) => [styles.mineFilterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
-              <AppText style={[styles.mineFilterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{label}</AppText>
-            </Pressable>
-          );
-        })}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mineFilterRow}>
+          {['all', 'active', 'with_proposals', 'in_progress', 'expired', 'closed'].map((status) => {
+            const selected = statusFilter === status;
+            const label = status === 'all' ? t('trade.mine.filterAll') : status === 'with_proposals' ? t('trade.mine.filterWithProposals') : t(`trade.statuses.${status}`);
+            return (
+              <Pressable key={status} accessibilityRole="button" onPress={() => setStatusFilter(status)} style={({ pressed }) => [styles.mineFilterChip, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+                <AppText style={[styles.mineFilterChipText, { color: selected ? theme.color.background : theme.color.muted }]}>{label}</AppText>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {notice ? <InfoNotice tone="info" title={t('trade.mine.ownerArea')} body={notice} /> : null}
+        {error ? <InfoNotice tone="danger" title={t('trade.mine.couldNotLoad')} body={error} /> : null}
+        {!error && !loading && visibleTrades.length === 0 ? <MyCreatedTradesEmpty hasFilter={statusFilter !== 'all'} onCreate={onCreate} /> : null}
+        {visibleTrades.length ? <View style={styles.mineList}>{visibleTrades.map((trade) => <MyCreatedTradeRow key={trade.id} trade={trade} busy={busyTradeId === trade.id} onOpen={() => onOpenTrade(trade)} onOpenProposals={() => onOpenProposals(trade)} onRenew={() => renewTrade(trade)} onClose={() => closeTrade(trade)} />)}</View> : null}
       </ScrollView>
-
-      {notice ? <InfoNotice tone="info" title={t('trade.mine.ownerArea')} body={notice} /> : null}
-      {error ? <InfoNotice tone="danger" title={t('trade.mine.couldNotLoad')} body={error} /> : null}
-      {!error && !loading && visibleTrades.length === 0 ? <MyCreatedTradesEmpty hasFilter={statusFilter !== 'all'} onCreate={onCreate} /> : null}
-      {visibleTrades.length ? <View style={styles.mineList}>{visibleTrades.map((trade) => <MyCreatedTradeRow key={trade.id} trade={trade} busy={busyTradeId === trade.id} onOpen={() => onOpenTrade(trade)} onOpenProposals={() => onOpenProposals(trade)} onRenew={() => renewTrade(trade)} onClose={() => closeTrade(trade)} />)}</View> : null}
-    </ScrollView>
+      <AppConfirmSheet
+        visible={Boolean(tradeToClose)}
+        title={t('trade.mine.close')}
+        body={t('trade.mine.closeConfirm')}
+        cancelLabel={t('common.actions.cancel')}
+        confirmLabel={t('trade.mine.close')}
+        tone="danger"
+        confirmDisabled={Boolean(busyTradeId)}
+        onCancel={() => setTradeToClose(null)}
+        onConfirm={() => { void confirmCloseTrade(); }}
+      />
+    </>
   );
 }
 
@@ -629,7 +642,7 @@ function InvolvedTradesPanel({ scrollProps, onOpenTrade, onOpenProposal }: { scr
 
   if (!auth.isAuthenticated) {
     return (
-      <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false}>
         <AppCard style={styles.authMineCard}>
           <SemanticBadge label={t('trade.involved.tab')} tone="trade" />
           <AppText style={styles.emptyTitle}>{t('trade.involved.loginTitle')}</AppText>
@@ -640,7 +653,7 @@ function InvolvedTradesPanel({ scrollProps, onOpenTrade, onOpenProposal }: { scr
   }
 
   return (
-    <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadInvolved} />}>
+    <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadInvolved} />}>
       <AppCard style={styles.mineHeaderCard}>
         <View style={styles.mineHeaderCopy}>
           <SemanticBadge label={t('trade.involved.badge')} tone="trade" />

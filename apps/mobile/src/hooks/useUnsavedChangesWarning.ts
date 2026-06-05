@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
-import { Alert } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
 import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+
+type DispatchAction<ParamList extends ParamListBase> = Parameters<Pick<NavigationProp<ParamList>, 'dispatch'>['dispatch']>[0];
 
 export function useUnsavedChangesWarning<ParamList extends ParamListBase>({
   navigation,
@@ -17,22 +18,38 @@ export function useUnsavedChangesWarning<ParamList extends ParamListBase>({
   stayLabel: string;
   discardLabel: string;
 }) {
+  const [pendingAction, setPendingAction] = useState<DispatchAction<ParamList> | null>(null);
+
   useEffect(() => {
     if (!enabled) return undefined;
 
     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
       if (!enabled) return;
       event.preventDefault();
-      Alert.alert(title, body, [
-        { text: stayLabel, style: 'cancel' },
-        {
-          text: discardLabel,
-          style: 'destructive',
-          onPress: () => navigation.dispatch(event.data.action),
-        },
-      ]);
+      setPendingAction(() => event.data.action as DispatchAction<ParamList>);
     });
 
     return unsubscribe;
-  }, [body, discardLabel, enabled, navigation, stayLabel, title]);
+  }, [enabled, navigation]);
+
+  const cancel = useCallback(() => {
+    setPendingAction(null);
+  }, []);
+
+  const confirm = useCallback(() => {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (action) navigation.dispatch(action);
+  }, [navigation, pendingAction]);
+
+  return {
+    visible: Boolean(pendingAction),
+    title,
+    body,
+    cancelLabel: stayLabel,
+    confirmLabel: discardLabel,
+    tone: 'danger' as const,
+    onCancel: cancel,
+    onConfirm: confirm,
+  };
 }

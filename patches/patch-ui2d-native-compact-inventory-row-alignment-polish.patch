@@ -1,0 +1,98 @@
+diff --git a/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx b/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
+index 3009f74..636fc1e 100644
+--- a/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
++++ b/apps/mobile/src/features/trade/components/InventoryCompactRow.tsx
+@@ -18,7 +18,7 @@ function labelize(value: string) { return value.replaceAll('_', ' ').replaceAll(
+ function modeLabel(mode: string | null | undefined, t: TFunction) { if (mode === 'remote') return t('trade.modes.remote'); if (mode === 'local') return t('trade.modes.local'); if (mode === 'hybrid') return t('trade.modes.hybrid'); return null; }
+ function typeLabel(itemType: string | undefined, t: TFunction) { if (itemType === 'goods') return t('inventory.itemTypes.goods'); if (itemType === 'other') return t('inventory.itemTypes.other'); return t('inventory.itemTypes.service'); }
+ function metadataFor(kind: 'need' | 'offer', item: NeedItem | OfferItem, t: TFunction) { const timing = kind === 'need' ? (item as NeedItem).timing : (item as OfferItem).availability; const parts = [item.category ? labelize(item.category) : typeLabel(item.itemType, t), modeLabel(item.mode, t), timing?.trim()].filter(Boolean); return parts.join(' · '); }
+-function mediaCountLabel(count: number, t: TFunction) { if (count <= 0) return t('inventory.labels.noImages'); return `${count} ${t('inventory.labels.images').toLowerCase()}`; }
++function mediaCountLabel(count: number, t: TFunction) { return `${count} ${t('inventory.labels.images').toLowerCase()}`; }
+ 
+ export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
+   const theme = useThemeTokens();
+@@ -38,24 +38,29 @@ export function InventoryCompactRow({ kind, item }: InventoryCompactRowProps) {
+       <View style={styles.contentZone}>
+         <View style={styles.topRow}><SemanticBadge label={t(`inventory.labels.${kind}`)} tone={kind} size="sm" style={styles.kindBadge} /><StatusBadge status={item.status} size="sm" /></View>
+         <View style={styles.mainCopy}><AppText style={styles.title} numberOfLines={2}>{item.title}</AppText>{metadata ? <AppText style={[styles.meta, { color: theme.color.muted }]} numberOfLines={1}>{metadata}</AppText> : null}</View>
+-        <View style={styles.footerRow}><MobileIcon name="image" size={14} color={theme.color.muted} /><AppText style={[styles.footerText, { color: theme.color.muted }]} numberOfLines={1}>{imageLabel}</AppText></View>
++        {media.length > 0 ? (
++          <View style={styles.footerRow}>
++            <MobileIcon name="image" size={14} color={theme.color.muted} />
++            <AppText style={[styles.footerText, { color: theme.color.muted }]} numberOfLines={1}>{imageLabel}</AppText>
++          </View>
++        ) : null}
+       </View>
+     </View>
+   );
+ }
+ 
+ const styles = StyleSheet.create({
+-  card: { flexDirection: 'row', overflow: 'hidden', borderRadius: 24, borderWidth: 1 },
+-  mediaZone: { width: '33.333%', aspectRatio: 1, position: 'relative' },
++  card: { flexDirection: 'row', overflow: 'hidden', borderRadius: 24, borderWidth: 1, aspectRatio: 3 },
++  mediaZone: { width: '33.333%', height: '100%', position: 'relative' },
+   mediaImage: { width: '100%', height: '100%' },
+   mediaFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+   mediaStatus: { position: 'absolute', left: 7, bottom: 7 },
+-  contentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'space-between', gap: 6 },
++  contentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 9, justifyContent: 'space-between', gap: 5 },
+   topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+   kindBadge: { flexShrink: 1 },
+-  mainCopy: { gap: 3 },
++  mainCopy: { gap: 2 },
+   title: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
+   meta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+-  footerRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
++  footerRow: { minHeight: 18, flexDirection: 'row', alignItems: 'center', gap: 5 },
+   footerText: { flex: 1, fontSize: 11, fontWeight: '900', letterSpacing: 0.25, textTransform: 'uppercase' },
+ });
+diff --git a/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx b/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+index bd38cac..f77230d 100644
+--- a/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
++++ b/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+@@ -227,12 +227,14 @@ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disa
+           {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}
+         </View>
+         <View style={styles.templateFooterRow}>
+-          <View style={styles.templateFooterMeta}>
+-            <MobileIcon name="image" size={14} color={theme.color.muted} />
+-            <AppText style={[styles.templateFooterText, { color: theme.color.muted }]} numberOfLines={1}>
+-              {media.length > 0 ? `${media.length} ${t('inventory.labels.images').toLowerCase()}` : t('inventory.labels.noImages')}
+-            </AppText>
+-          </View>
++          {media.length > 0 ? (
++            <View style={styles.templateFooterMeta}>
++              <MobileIcon name="image" size={14} color={theme.color.muted} />
++              <AppText style={[styles.templateFooterText, { color: theme.color.muted }]} numberOfLines={1}>
++                {`${media.length} ${t('inventory.labels.images').toLowerCase()}`}
++              </AppText>
++            </View>
++          ) : null}
+           <View style={[styles.usePill, { backgroundColor: semantic.bg }]}>
+             <AppText style={[styles.usePillText, { color: theme.color.background }]} numberOfLines={1}>{cloning ? t('common.states.saving') : actionLabel}</AppText>
+           </View>
+@@ -253,18 +255,18 @@ const styles = StyleSheet.create({
+   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   sectionTitle: { fontSize: 19, fontWeight: '900', letterSpacing: -0.2 },
+   sectionCount: { fontSize: 12, fontWeight: '900' },
+-  templateCard: { flexDirection: 'row', overflow: 'hidden', borderRadius: 24, borderWidth: 1 },
+-  templateMediaZone: { width: '33.333%', aspectRatio: 1, position: 'relative' },
++  templateCard: { flexDirection: 'row', overflow: 'hidden', borderRadius: 24, borderWidth: 1, aspectRatio: 3 },
++  templateMediaZone: { width: '33.333%', height: '100%', position: 'relative' },
+   templateMediaImage: { width: '100%', height: '100%' },
+   templateMediaFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+-  templateContentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'space-between', gap: 6 },
++  templateContentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 9, justifyContent: 'space-between', gap: 5 },
+   templateTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
+   kindBadge: { flexShrink: 0 },
+   sourceBadge: { flexShrink: 1 },
+-  templateMainCopy: { gap: 3 },
++  templateMainCopy: { gap: 2 },
+   templateTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
+   templateMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+-  templateFooterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
++  templateFooterRow: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+   templateFooterMeta: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
+   templateFooterText: { flex: 1, fontSize: 11, fontWeight: '900', letterSpacing: 0.25, textTransform: 'uppercase' },
+   usePill: { flexShrink: 0, maxWidth: 104, minHeight: 28, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6 },

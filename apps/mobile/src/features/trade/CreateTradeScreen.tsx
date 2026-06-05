@@ -13,6 +13,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
+import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppHeader } from '../../components/AppHeader';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppText } from '../../components/AppText';
@@ -162,7 +163,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
   const previewCardCount = useMemo(() => buildTradeSquareDeckCards(previewTrade).length, [previewTrade]);
   const hasDraft = Boolean(postType || needSelection || offerSelection || expiryDays !== 14);
 
-  useUnsavedChangesWarning({
+  const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
     enabled: hasDraft && !submitting,
     title: t('inventory.form.unsavedTitle'),
@@ -299,6 +300,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('common.actions.cancel')}</AppText></Pressable>
         </View>
       </ScrollView>
+      <AppConfirmSheet {...unsavedChangesConfirm} />
     </AppFixedHeaderScreen>
   );
 }

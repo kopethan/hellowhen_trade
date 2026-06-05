@@ -1,0 +1,142 @@
+diff --git a/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx b/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+index 166bdc0..bd38cac 100644
+--- a/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
++++ b/apps/mobile/src/features/trade/components/StarterInventoryLibrary.tsx
+@@ -1,5 +1,5 @@
+ import React, { useMemo, useState } from 'react';
+-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
++import { Image, Pressable, StyleSheet, TextInput, View } from 'react-native';
+ import type { InventoryItemType, InventoryTemplateDto, TradeExchangeMode } from '@hellowhen/contracts';
+ import type { ThemeTokens } from '@hellowhen/theme';
+ import { AppCard } from '../../../components/AppCard';
+@@ -9,6 +9,7 @@ import { InfoNotice, SemanticBadge } from '../../../components/SemanticUI';
+ import { useThemeTokens } from '../../../providers/ThemeProvider';
+ import { useTranslation } from '../../../providers/MobileI18nProvider';
+ import { itemTypeLabel, itemTypePluralLabel, modeLabel } from './InventoryFormFields';
++import { resolveMediaUrl } from '../mediaUrls';
+ 
+ type TemplateKind = 'need' | 'offer';
+ type ItemTypeFilter = 'all' | InventoryItemType;
+@@ -177,37 +178,67 @@ export function StarterInventoryLibrary({
+   );
+ }
+ 
++function visibleTemplateMedia(template: InventoryTemplateDto) {
++  return (template.media ?? []).filter((asset) => asset.status !== 'removed');
++}
++
++function templateThumbnailUrl(template: InventoryTemplateDto) {
++  const first = visibleTemplateMedia(template)[0];
++  return first?.url ? resolveMediaUrl(first.url) : '';
++}
++
+ function StarterTemplateCard({ template, theme, kind, actionLabel, cloning, disabled, onPress }: { template: InventoryTemplateDto; theme: ThemeTokens; kind: TemplateKind; actionLabel: string; cloning: boolean; disabled: boolean; onPress: () => void }) {
+   const tone = kind === 'need' ? 'need' : 'offer';
+   const { t } = useTranslation();
++  const semantic = theme.semantic[tone];
+   const meta = templateMeta(template, t);
++  const media = visibleTemplateMedia(template);
++  const thumbnailUrl = templateThumbnailUrl(template);
++
+   return (
+-    <AppCard style={styles.templateCard}>
+-      <View style={styles.templateHeader}>
+-        <View style={styles.templateTitleWrap}>
+-          <SemanticBadge label={sourceLabel(template, t)} tone="instruction" size="sm" />
++    <Pressable
++      accessibilityRole="button"
++      accessibilityLabel={`${cloning ? t('common.states.saving') : actionLabel}: ${template.title}`}
++      disabled={disabled}
++      onPress={onPress}
++      style={({ pressed }) => [
++        styles.templateCard,
++        { backgroundColor: theme.color.surface, borderColor: theme.color.border },
++        disabled && styles.disabled,
++        pressed && styles.pressed,
++      ]}
++    >
++      <View style={[styles.templateMediaZone, { backgroundColor: semantic.softBg }]}>
++        {thumbnailUrl ? (
++          <Image source={{ uri: thumbnailUrl }} resizeMode="cover" style={styles.templateMediaImage} />
++        ) : (
++          <View style={[styles.templateMediaFallback, { backgroundColor: semantic.softBg }]}>
++            <MobileIcon name={kind} size={28} color={semantic.text} />
++          </View>
++        )}
++      </View>
++      <View style={styles.templateContentZone}>
++        <View style={styles.templateTopRow}>
++          <SemanticBadge label={t(`inventory.labels.${kind}`)} tone={tone} size="sm" style={styles.kindBadge} />
++          <SemanticBadge label={sourceLabel(template, t)} tone="instruction" size="sm" style={styles.sourceBadge} />
++        </View>
++        <View style={styles.templateMainCopy}>
+           <AppText style={styles.templateTitle} numberOfLines={2}>{template.title}</AppText>
++          {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}
++        </View>
++        <View style={styles.templateFooterRow}>
++          <View style={styles.templateFooterMeta}>
++            <MobileIcon name="image" size={14} color={theme.color.muted} />
++            <AppText style={[styles.templateFooterText, { color: theme.color.muted }]} numberOfLines={1}>
++              {media.length > 0 ? `${media.length} ${t('inventory.labels.images').toLowerCase()}` : t('inventory.labels.noImages')}
++            </AppText>
++          </View>
++          <View style={[styles.usePill, { backgroundColor: semantic.bg }]}>
++            <AppText style={[styles.usePillText, { color: theme.color.background }]} numberOfLines={1}>{cloning ? t('common.states.saving') : actionLabel}</AppText>
++          </View>
+         </View>
+-        <SemanticBadge label={itemTypeLabel(template.itemType ?? 'service', t)} tone={tone} size="sm" />
+       </View>
+-      {meta ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}
+-      <AppText style={[styles.templateDescription, { color: theme.color.muted }]} numberOfLines={2}>{template.description}</AppText>
+-      {template.includes?.length ? <AppText style={[styles.templateMeta, { color: theme.color.muted }]}>{t('inventory.labels.includes')}: {template.includes.join(', ')}</AppText> : null}
+-      {template.tags?.length ? <View style={styles.tagRow}>{template.tags.slice(0, 4).map((tag) => <SemanticBadge key={tag} label={tag} tone="muted" size="sm" />)}</View> : null}
+-      <Pressable
+-        accessibilityRole="button"
+-        disabled={disabled}
+-        onPress={onPress}
+-        style={({ pressed }) => [
+-          styles.useButton,
+-          { backgroundColor: theme.semantic[tone].bg },
+-          disabled && styles.disabled,
+-          pressed && styles.pressed,
+-        ]}
+-      >
+-        <AppText style={[styles.useButtonText, { color: theme.color.background }]}>{cloning ? t('common.states.saving') : actionLabel}</AppText>
+-      </Pressable>
+-    </AppCard>
++    </Pressable>
+   );
+ }
+ 
+@@ -222,15 +253,22 @@ const styles = StyleSheet.create({
+   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   sectionTitle: { fontSize: 19, fontWeight: '900', letterSpacing: -0.2 },
+   sectionCount: { fontSize: 12, fontWeight: '900' },
+-  templateCard: { gap: 10 },
+-  templateHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+-  templateTitleWrap: { flex: 1, gap: 7 },
+-  templateTitle: { fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: -0.35 },
+-  templateMeta: { fontSize: 13, lineHeight: 18, fontWeight: '900' },
+-  templateDescription: { lineHeight: 20, fontWeight: '600' },
+-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+-  useButton: { minHeight: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 11, marginTop: 2 },
+-  useButtonText: { fontWeight: '900' },
++  templateCard: { flexDirection: 'row', overflow: 'hidden', borderRadius: 24, borderWidth: 1 },
++  templateMediaZone: { width: '33.333%', aspectRatio: 1, position: 'relative' },
++  templateMediaImage: { width: '100%', height: '100%' },
++  templateMediaFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
++  templateContentZone: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, justifyContent: 'space-between', gap: 6 },
++  templateTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
++  kindBadge: { flexShrink: 0 },
++  sourceBadge: { flexShrink: 1 },
++  templateMainCopy: { gap: 3 },
++  templateTitle: { fontSize: 16, lineHeight: 20, fontWeight: '900', letterSpacing: -0.15 },
++  templateMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
++  templateFooterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
++  templateFooterMeta: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
++  templateFooterText: { flex: 1, fontSize: 11, fontWeight: '900', letterSpacing: 0.25, textTransform: 'uppercase' },
++  usePill: { flexShrink: 0, maxWidth: 104, minHeight: 28, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6 },
++  usePillText: { fontSize: 11, fontWeight: '900' },
+   emptyCard: { gap: 10 },
+   emptyTitle: { fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: -0.25 },
+   emptyBody: { lineHeight: 20, fontWeight: '700' },

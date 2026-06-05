@@ -1,0 +1,21 @@
+diff --git a/apps/mobile/src/components/AppCollapsibleHeaderScreen.tsx b/apps/mobile/src/components/AppCollapsibleHeaderScreen.tsx
+index 6a5a605..8ee2c04 100644
+--- a/apps/mobile/src/components/AppCollapsibleHeaderScreen.tsx
++++ b/apps/mobile/src/components/AppCollapsibleHeaderScreen.tsx
+@@ -41,12 +41,10 @@ export function AppCollapsibleHeaderScreen({ header, children, style, headerStyl
+     setHeaderHeight((current) => (nextHeight > current + 1 || current === 0 ? nextHeight : current));
+   }, []);
+ 
+-  const handleScroll = useMemo(
+-    () =>
+-      Animated.event(
+-        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+-        { useNativeDriver: true },
+-      ),
++  const handleScroll = useCallback<NonNullable<ScrollViewProps['onScroll']>>(
++    (event) => {
++      scrollY.setValue(Math.max(0, event.nativeEvent.contentOffset.y));
++    },
+     [scrollY],
+   );
+ 

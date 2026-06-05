@@ -49,6 +49,11 @@ export const inventory = {
     updated: 'Mis à jour',
     usedInTrade: 'Utilisé dans un échange',
   },
+  permissions: {
+    imagePickerTitle: 'Choisir des images',
+    imagePickerBody: 'Hellowhen ouvrira votre sélecteur de photos pour choisir les images de cet élément. Nous utilisons uniquement les images que vous sélectionnez.',
+    imagePickerHelper: 'Aucun accès complet à toute la photothèque n’est nécessaire.',
+  },
   side: {
     need: 'J’ai besoin',
     offer: 'Je propose',

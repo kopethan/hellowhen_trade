@@ -3,9 +3,19 @@ import { Animated, ScrollView, StyleSheet, View, type LayoutChangeEvent, type St
 import { AppScreen } from './AppScreen';
 import { useThemeTokens } from '../providers/ThemeProvider';
 
-export type AppCollapsibleHeaderScrollProps = {
-  onScroll: NonNullable<React.ComponentProps<typeof ScrollView>['onScroll']>;
+const FALLBACK_HEADER_INSET = 132;
+
+type ScrollViewProps = React.ComponentProps<typeof ScrollView>;
+
+export type AppCollapsibleHeaderNativeScrollProps = {
+  onScroll: NonNullable<ScrollViewProps['onScroll']>;
   scrollEventThrottle: number;
+};
+
+export type AppCollapsibleHeaderScrollProps = {
+  scrollViewProps: AppCollapsibleHeaderNativeScrollProps;
+  contentInsetStyle: ViewStyle;
+  contentTopInset: number;
 };
 
 type AppCollapsibleHeaderScreenProps = {
@@ -31,32 +41,44 @@ export function AppCollapsibleHeaderScreen({ header, children, style, headerStyl
     setHeaderHeight((current) => (nextHeight > current + 1 || current === 0 ? nextHeight : current));
   }, []);
 
-  const handleScroll = useMemo(
-    () =>
-      Animated.event(
-        [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-        { useNativeDriver: false },
-      ),
+  const handleScroll = useCallback<NonNullable<ScrollViewProps['onScroll']>>(
+    (event) => {
+      scrollY.setValue(Math.max(0, event.nativeEvent.contentOffset.y));
+    },
     [scrollY],
   );
 
-  const scrollProps = useMemo<AppCollapsibleHeaderScrollProps>(() => ({ onScroll: handleScroll, scrollEventThrottle: 16 }), [handleScroll]);
+  const contentTopInset = headerHeight || FALLBACK_HEADER_INSET;
+
+  const scrollProps = useMemo<AppCollapsibleHeaderScrollProps>(
+    () => ({
+      scrollViewProps: {
+        onScroll: handleScroll,
+        scrollEventThrottle: 16,
+      },
+      contentInsetStyle: { paddingTop: contentTopInset },
+      contentTopInset,
+    }),
+    [contentTopInset, handleScroll],
+  );
 
   const headerAnimatedStyle = useMemo(() => {
-    if (!headerHeight) return null;
-    const collapseDistance = Math.max(88, Math.min(160, headerHeight + 28));
-    const collapse = scrollY.interpolate({
-      inputRange: [0, 28, collapseDistance],
-      outputRange: [0, 0, 1],
-      extrapolate: 'clamp',
-    });
+    const measuredHeight = headerHeight || FALLBACK_HEADER_INSET;
+    const collapseDistance = Math.max(72, Math.min(148, measuredHeight));
 
     return {
-      maxHeight: collapse.interpolate({ inputRange: [0, 1], outputRange: [headerHeight, 0] }),
-      opacity: collapse.interpolate({ inputRange: [0, 0.72, 1], outputRange: [1, 0.18, 0] }),
+      opacity: scrollY.interpolate({
+        inputRange: [0, 18, collapseDistance],
+        outputRange: [1, 0.98, 0],
+        extrapolate: 'clamp',
+      }),
       transform: [
         {
-          translateY: collapse.interpolate({ inputRange: [0, 1], outputRange: [0, -24] }),
+          translateY: scrollY.interpolate({
+            inputRange: [0, collapseDistance],
+            outputRange: [0, -(measuredHeight + 18)],
+            extrapolate: 'clamp',
+          }),
         },
       ],
     };
@@ -66,19 +88,26 @@ export function AppCollapsibleHeaderScreen({ header, children, style, headerStyl
 
   return (
     <AppScreen style={[styles.screen, style]}>
-      <Animated.View style={[styles.headerClip, headerAnimatedStyle]}>
+      <View style={[styles.body, bodyStyle]}>{renderedChildren}</View>
+      <Animated.View pointerEvents="box-none" style={[styles.headerOverlay, headerAnimatedStyle]}>
         <View onLayout={handleHeaderLayout} style={[styles.header, { backgroundColor: theme.color.background }, headerStyle]}>
           {header}
         </View>
       </Animated.View>
-      <View style={[styles.body, bodyStyle]}>{renderedChildren}</View>
     </AppScreen>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { gap: 0 },
-  headerClip: { overflow: 'hidden', zIndex: 10 },
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    elevation: 10,
+  },
   header: { paddingBottom: 14 },
   body: { flex: 1, minHeight: 0 },
 });

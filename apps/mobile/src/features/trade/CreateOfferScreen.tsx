@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { AppCard } from '../../components/AppCard';
+import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
@@ -47,7 +48,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
     images.length > 0,
   ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
 
-  useUnsavedChangesWarning({
+  const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
     enabled: hasDraft && !submitting,
     title: t('inventory.form.unsavedTitle'),
@@ -208,6 +209,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
           </Pressable>
         </View>
       </ScrollView>
+      <AppConfirmSheet {...unsavedChangesConfirm} />
     </AppScreen>
   );
 }

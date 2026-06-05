@@ -1,0 +1,509 @@
+diff --git a/apps/mobile/src/components/AppConfirmSheet.tsx b/apps/mobile/src/components/AppConfirmSheet.tsx
+new file mode 100644
+index 0000000..980967e
+--- /dev/null
++++ b/apps/mobile/src/components/AppConfirmSheet.tsx
+@@ -0,0 +1,142 @@
++import React from 'react';
++import { Modal, Pressable, StyleSheet, View } from 'react-native';
++import { useThemeTokens } from '../providers/ThemeProvider';
++import { AppText } from './AppText';
++
++export type AppConfirmSheetTone = 'default' | 'danger';
++
++type AppConfirmSheetProps = {
++  visible: boolean;
++  title: string;
++  body?: string;
++  cancelLabel: string;
++  confirmLabel: string;
++  tone?: AppConfirmSheetTone;
++  confirmDisabled?: boolean;
++  onCancel: () => void;
++  onConfirm: () => void;
++};
++
++export function AppConfirmSheet({
++  visible,
++  title,
++  body,
++  cancelLabel,
++  confirmLabel,
++  tone = 'default',
++  confirmDisabled = false,
++  onCancel,
++  onConfirm,
++}: AppConfirmSheetProps) {
++  const theme = useThemeTokens();
++  const confirmColors = tone === 'danger'
++    ? theme.semantic.danger
++    : theme.semantic.proposal;
++
++  return (
++    <Modal animationType="fade" onRequestClose={onCancel} transparent visible={visible}>
++      <Pressable accessibilityRole="button" onPress={onCancel} style={styles.backdrop}>
++        <Pressable
++          accessibilityRole="alert"
++          onPress={(event) => event.stopPropagation()}
++          style={[styles.sheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}
++        >
++          <View style={styles.copy}>
++            <AppText style={[styles.title, { color: theme.color.text }]}>{title}</AppText>
++            {body ? <AppText style={[styles.body, { color: theme.color.muted }]}>{body}</AppText> : null}
++          </View>
++
++          <View style={styles.actions}>
++            <Pressable
++              accessibilityRole="button"
++              onPress={onCancel}
++              style={({ pressed }) => [
++                styles.button,
++                styles.cancelButton,
++                { backgroundColor: theme.color.surface, borderColor: theme.color.border },
++                pressed && styles.pressed,
++              ]}
++            >
++              <AppText style={[styles.cancelText, { color: theme.color.text }]}>{cancelLabel}</AppText>
++            </Pressable>
++            <Pressable
++              accessibilityRole="button"
++              disabled={confirmDisabled}
++              onPress={onConfirm}
++              style={({ pressed }) => [
++                styles.button,
++                styles.confirmButton,
++                { backgroundColor: confirmColors.softBg, borderColor: confirmColors.border },
++                pressed && !confirmDisabled && styles.pressed,
++                confirmDisabled && styles.disabled,
++              ]}
++            >
++              <AppText style={[styles.confirmText, { color: confirmColors.text }]}>{confirmLabel}</AppText>
++            </Pressable>
++          </View>
++        </Pressable>
++      </Pressable>
++    </Modal>
++  );
++}
++
++const styles = StyleSheet.create({
++  backdrop: {
++    flex: 1,
++    justifyContent: 'flex-end',
++    backgroundColor: 'rgba(2, 6, 23, 0.66)',
++    padding: 14,
++  },
++  sheet: {
++    borderWidth: 1,
++    borderRadius: 28,
++    padding: 18,
++    gap: 18,
++  },
++  copy: {
++    gap: 8,
++    paddingHorizontal: 2,
++  },
++  title: {
++    fontSize: 20,
++    fontWeight: '900',
++    letterSpacing: -0.2,
++  },
++  body: {
++    fontSize: 14,
++    lineHeight: 20,
++    fontWeight: '700',
++  },
++  actions: {
++    flexDirection: 'row',
++    gap: 10,
++  },
++  button: {
++    minHeight: 50,
++    borderWidth: 1,
++    borderRadius: 18,
++    alignItems: 'center',
++    justifyContent: 'center',
++    paddingHorizontal: 14,
++  },
++  cancelButton: {
++    flex: 0.9,
++  },
++  confirmButton: {
++    flex: 1.1,
++  },
++  cancelText: {
++    fontSize: 14,
++    fontWeight: '900',
++  },
++  confirmText: {
++    fontSize: 14,
++    fontWeight: '900',
++  },
++  pressed: {
++    opacity: 0.72,
++  },
++  disabled: {
++    opacity: 0.5,
++  },
++});
+diff --git a/apps/mobile/src/features/trade/CreateNeedScreen.tsx b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+index c5d77ca..dc8262f 100644
+--- a/apps/mobile/src/features/trade/CreateNeedScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateNeedScreen.tsx
+@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppCard } from '../../components/AppCard';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+@@ -47,7 +48,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+     images.length > 0,
+   ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
+ 
+-  useUnsavedChangesWarning({
++  const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+     enabled: hasDraft && !submitting,
+     title: t('inventory.form.unsavedTitle'),
+@@ -207,6 +208,7 @@ export function CreateNeedScreen({ route, navigation }: Props) {
+           </Pressable>
+         </View>
+       </ScrollView>
++      <AppConfirmSheet {...unsavedChangesConfirm} />
+     </AppScreen>
+   );
+ }
+diff --git a/apps/mobile/src/features/trade/CreateOfferScreen.tsx b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+index a7289b4..221c59f 100644
+--- a/apps/mobile/src/features/trade/CreateOfferScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateOfferScreen.tsx
+@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppCard } from '../../components/AppCard';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+@@ -47,7 +48,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+     images.length > 0,
+   ), [category, description, images.length, locationLabel, title, translationDescription, translationTitle]);
+ 
+-  useUnsavedChangesWarning({
++  const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+     enabled: hasDraft && !submitting,
+     title: t('inventory.form.unsavedTitle'),
+@@ -208,6 +209,7 @@ export function CreateOfferScreen({ route, navigation }: Props) {
+           </Pressable>
+         </View>
+       </ScrollView>
++      <AppConfirmSheet {...unsavedChangesConfirm} />
+     </AppScreen>
+   );
+ }
+diff --git a/apps/mobile/src/features/trade/CreateProposalScreen.tsx b/apps/mobile/src/features/trade/CreateProposalScreen.tsx
+index d55e482..792b273 100644
+--- a/apps/mobile/src/features/trade/CreateProposalScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateProposalScreen.tsx
+@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppCard } from '../../components/AppCard';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+@@ -27,7 +28,7 @@ export function CreateProposalScreen({ route, navigation }: Props) {
+   const hasDraft = useMemo(() => message.trim().length > 0 && message.trim() !== placeholder.trim(), [message, placeholder]);
+   const messageError = attemptedSubmit && message.trim().length < 3 ? t('trade.proposals.messageTooShort') : null;
+ 
+-  useUnsavedChangesWarning({
++  const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+     enabled: hasDraft && !submitting,
+     title: t('inventory.form.unsavedTitle'),
+@@ -60,6 +61,6 @@ export function CreateProposalScreen({ route, navigation }: Props) {
+     }
+     finally { setSubmitting(false); }
+   }
+-  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppHeader title={t('trade.proposals.askToTrade')} onBack={() => navigation.goBack()} /><AppCard><SemanticBadge label={t('trade.proposals.proposalConversation')} tone="proposal" /><AppText style={styles.title}>{t('trade.proposals.tradeRequest')}</AppText><InfoNotice tone="instruction" title={t('trade.labels.message')} body={route.params.title ?? t('trade.proposals.helperNeedOffer')} /><TextInput value={message} onChangeText={(nextMessage) => { setMessage(nextMessage); if (error) setError(null); }} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { backgroundColor: theme.color.surface, borderColor: messageError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />{messageError ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{messageError}</AppText> : null}{error ? <InfoNotice tone="danger" title={t('trade.filters.error')} body={error} /> : null}<Button title={submitting ? t('trade.proposals.sending') : t('trade.proposals.sendProposal')} disabled={submitting || message.trim().length < 3} onPress={() => { void submit(); }} /><Button title={t('common.actions.cancel')} color="#64748B" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView></AppScreen>;
++  return <AppScreen><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"><AppHeader title={t('trade.proposals.askToTrade')} onBack={() => navigation.goBack()} /><AppCard><SemanticBadge label={t('trade.proposals.proposalConversation')} tone="proposal" /><AppText style={styles.title}>{t('trade.proposals.tradeRequest')}</AppText><InfoNotice tone="instruction" title={t('trade.labels.message')} body={route.params.title ?? t('trade.proposals.helperNeedOffer')} /><TextInput value={message} onChangeText={(nextMessage) => { setMessage(nextMessage); if (error) setError(null); }} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { backgroundColor: theme.color.surface, borderColor: messageError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />{messageError ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{messageError}</AppText> : null}{error ? <InfoNotice tone="danger" title={t('trade.filters.error')} body={error} /> : null}<Button title={submitting ? t('trade.proposals.sending') : t('trade.proposals.sendProposal')} disabled={submitting || message.trim().length < 3} onPress={() => { void submit(); }} /><Button title={t('common.actions.cancel')} color="#64748B" disabled={submitting} onPress={() => navigation.goBack()} /></AppCard></ScrollView><AppConfirmSheet {...unsavedChangesConfirm} /></AppScreen>;
+ }
+ const styles = StyleSheet.create({ content: { paddingBottom: 28 }, kicker: { color: '#0F766E', fontSize: 12, fontWeight: '900', letterSpacing: 1.2, textTransform: 'uppercase' }, title: { fontSize: 32, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { color: '#64748B', lineHeight: 20, fontWeight: '700' }, textArea: { minHeight: 180, borderRadius: 18, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22 }, fieldError: { fontSize: 12, fontWeight: '800', lineHeight: 17 }, error: { color: '#B91C1C', backgroundColor: '#FEE2E2', borderColor: '#FECACA', borderWidth: 1, borderRadius: 16, padding: 12, fontWeight: '700' } });
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 9f96507..9190123 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -13,6 +13,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+ import { AppCard } from '../../components/AppCard';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppText } from '../../components/AppText';
+@@ -162,7 +163,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+   const previewCardCount = useMemo(() => buildTradeSquareDeckCards(previewTrade).length, [previewTrade]);
+   const hasDraft = Boolean(postType || needSelection || offerSelection || expiryDays !== 14);
+ 
+-  useUnsavedChangesWarning({
++  const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+     enabled: hasDraft && !submitting,
+     title: t('inventory.form.unsavedTitle'),
+@@ -299,6 +300,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+           <Pressable disabled={submitting} onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, submitting && styles.disabled, pressed && styles.pressed]}><AppText style={[styles.secondaryButtonText, { color: theme.color.text }]}>{t('common.actions.cancel')}</AppText></Pressable>
+         </View>
+       </ScrollView>
++      <AppConfirmSheet {...unsavedChangesConfirm} />
+     </AppFixedHeaderScreen>
+   );
+ }
+diff --git a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+index f00b9a8..f0d2029 100644
+--- a/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryDetailScreen.tsx
+@@ -1,6 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useState } from 'react';
+ import {
+-  Alert,
+   RefreshControl,
+   ScrollView,
+   StyleSheet,
+@@ -11,6 +10,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+@@ -217,7 +217,7 @@ export function InventoryDetailScreen({
+     );
+   }, [category, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
+ 
+-  useUnsavedChangesWarning({
++  const unsavedChangesConfirm = useUnsavedChangesWarning({
+     navigation,
+     enabled: hasUnsavedEditing && !saving,
+     title: t('inventory.form.unsavedTitle'),
+@@ -400,23 +400,12 @@ export function InventoryDetailScreen({
+   }
+ 
+   function confirmDelete() {
+-    Alert.alert(
+-      t('inventory.delete.deleteTitle', { item: labelLower }),
+-      t('inventory.delete.deleteNativeBody', {
+-        item: label,
+-        items: labelsLower,
+-      }),
+-      [
+-        { text: t('common.actions.cancel'), style: 'cancel' },
+-        {
+-          text: t('inventory.actions.delete'),
+-          style: 'destructive',
+-          onPress: () => {
+-            void deleteItem();
+-          },
+-        },
+-      ],
+-    );
++    setDeleteConfirmVisible(true);
++  }
++
++  function handleConfirmDelete() {
++    setDeleteConfirmVisible(false);
++    void deleteItem();
+   }
+ 
+   async function deleteItem() {
+@@ -853,6 +842,18 @@ export function InventoryDetailScreen({
+           </>
+         ) : null}
+       </ScrollView>
++      <AppConfirmSheet {...unsavedChangesConfirm} />
++      <AppConfirmSheet
++        visible={deleteConfirmVisible}
++        title={t('inventory.delete.deleteTitle', { item: labelLower })}
++        body={t('inventory.delete.deleteNativeBody', { item: label, items: labelsLower })}
++        cancelLabel={t('common.actions.cancel')}
++        confirmLabel={t('inventory.actions.delete')}
++        tone="danger"
++        confirmDisabled={saving}
++        onCancel={() => setDeleteConfirmVisible(false)}
++        onConfirm={handleConfirmDelete}
++      />
+     </AppFixedHeaderScreen>
+   );
+ }
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index e7627c5..3ede92e 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+@@ -10,6 +10,7 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { betaFeatures } from '../../lib/betaFeatures';
+ import { AppCard } from '../../components/AppCard';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { AppCollapsibleHeaderScreen, type AppCollapsibleHeaderScrollProps } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon } from '../../components/MobileIcon';
+@@ -436,6 +437,7 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
+   const [statusFilter, setStatusFilter] = useState('all');
+   const [busyTradeId, setBusyTradeId] = useState<string | null>(null);
+   const [notice, setNotice] = useState<string | null>(null);
++  const [tradeToClose, setTradeToClose] = useState<TradeWithCounts | null>(null);
+ 
+   const loadMine = useCallback(async () => {
+     if (!auth.isAuthenticated) return;
+@@ -473,27 +475,25 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
+ 
+   const closeTrade = useCallback((trade: TradeWithCounts) => {
+     if (!isTradeOwnerCloseAllowed(trade)) return;
+-    Alert.alert(t('trade.mine.close'), t('trade.mine.closeConfirm'), [
+-      { text: t('common.actions.cancel'), style: 'cancel' },
+-      {
+-        text: t('trade.mine.close'),
+-        style: 'destructive',
+-        onPress: async () => {
+-          setBusyTradeId(trade.id);
+-          setNotice(null);
+-          try {
+-            const result = await api.trades.close(trade.id) as { trade?: TradeWithCounts };
+-            if (result.trade) replaceTrade(result.trade);
+-            setNotice(t('trade.mine.closedNotice'));
+-          } catch (caughtError) {
+-            setNotice(getFriendlyApiErrorMessage(caughtError) || t('trade.mine.closeError'));
+-          } finally {
+-            setBusyTradeId(null);
+-          }
+-        }
+-      }
+-    ]);
+-  }, [replaceTrade, t]);
++    setTradeToClose(trade);
++  }, []);
++
++  const confirmCloseTrade = useCallback(async () => {
++    const trade = tradeToClose;
++    if (!trade) return;
++    setTradeToClose(null);
++    setBusyTradeId(trade.id);
++    setNotice(null);
++    try {
++      const result = await api.trades.close(trade.id) as { trade?: TradeWithCounts };
++      if (result.trade) replaceTrade(result.trade);
++      setNotice(t('trade.mine.closedNotice'));
++    } catch (caughtError) {
++      setNotice(getFriendlyApiErrorMessage(caughtError) || t('trade.mine.closeError'));
++    } finally {
++      setBusyTradeId(null);
++    }
++  }, [replaceTrade, t, tradeToClose]);
+ 
+   useFocusEffect(useCallback(() => { void loadMine(); }, [loadMine]));
+ 
+@@ -516,7 +516,8 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
+   }
+ 
+   return (
+-    <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMine} />}>
++    <>
++      <ScrollView {...scrollProps} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={loadMine} />}>
+       <AppCard style={styles.mineHeaderCard}>
+         <View style={styles.mineHeaderCopy}>
+           <SemanticBadge label={t('trade.mine.ownerArea')} tone="trade" />
+@@ -545,7 +546,19 @@ function MyCreatedTradesPanel({ scrollProps, onCreate, onOpenTrade, onOpenPropos
+       {error ? <InfoNotice tone="danger" title={t('trade.mine.couldNotLoad')} body={error} /> : null}
+       {!error && !loading && visibleTrades.length === 0 ? <MyCreatedTradesEmpty hasFilter={statusFilter !== 'all'} onCreate={onCreate} /> : null}
+       {visibleTrades.length ? <View style={styles.mineList}>{visibleTrades.map((trade) => <MyCreatedTradeRow key={trade.id} trade={trade} busy={busyTradeId === trade.id} onOpen={() => onOpenTrade(trade)} onOpenProposals={() => onOpenProposals(trade)} onRenew={() => renewTrade(trade)} onClose={() => closeTrade(trade)} />)}</View> : null}
+-    </ScrollView>
++      </ScrollView>
++      <AppConfirmSheet
++        visible={Boolean(tradeToClose)}
++        title={t('trade.mine.close')}
++        body={t('trade.mine.closeConfirm')}
++        cancelLabel={t('common.actions.cancel')}
++        confirmLabel={t('trade.mine.close')}
++        tone="danger"
++        confirmDisabled={Boolean(busyTradeId)}
++        onCancel={() => setTradeToClose(null)}
++        onConfirm={() => { void confirmCloseTrade(); }}
++      />
++    </>
+   );
+ }
+ 
+diff --git a/apps/mobile/src/hooks/useUnsavedChangesWarning.ts b/apps/mobile/src/hooks/useUnsavedChangesWarning.ts
+index f4e16dc..ba8a45a 100644
+--- a/apps/mobile/src/hooks/useUnsavedChangesWarning.ts
++++ b/apps/mobile/src/hooks/useUnsavedChangesWarning.ts
+@@ -1,7 +1,8 @@
+-import { useEffect } from 'react';
+-import { Alert } from 'react-native';
++import { useCallback, useEffect, useState } from 'react';
+ import type { NavigationProp, ParamListBase } from '@react-navigation/native';
+ 
++type DispatchAction<ParamList extends ParamListBase> = Parameters<Pick<NavigationProp<ParamList>, 'dispatch'>['dispatch']>[0];
++
+ export function useUnsavedChangesWarning<ParamList extends ParamListBase>({
+   navigation,
+   enabled,
+@@ -17,22 +18,38 @@ export function useUnsavedChangesWarning<ParamList extends ParamListBase>({
+   stayLabel: string;
+   discardLabel: string;
+ }) {
++  const [pendingAction, setPendingAction] = useState<DispatchAction<ParamList> | null>(null);
++
+   useEffect(() => {
+     if (!enabled) return undefined;
+ 
+     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+       if (!enabled) return;
+       event.preventDefault();
+-      Alert.alert(title, body, [
+-        { text: stayLabel, style: 'cancel' },
+-        {
+-          text: discardLabel,
+-          style: 'destructive',
+-          onPress: () => navigation.dispatch(event.data.action),
+-        },
+-      ]);
++      setPendingAction(() => event.data.action as DispatchAction<ParamList>);
+     });
+ 
+     return unsubscribe;
+-  }, [body, discardLabel, enabled, navigation, stayLabel, title]);
++  }, [enabled, navigation]);
++
++  const cancel = useCallback(() => {
++    setPendingAction(null);
++  }, []);
++
++  const confirm = useCallback(() => {
++    const action = pendingAction;
++    setPendingAction(null);
++    if (action) navigation.dispatch(action);
++  }, [navigation, pendingAction]);
++
++  return {
++    visible: Boolean(pendingAction),
++    title,
++    body,
++    cancelLabel: stayLabel,
++    confirmLabel: discardLabel,
++    tone: 'danger' as const,
++    onCancel: cancel,
++    onConfirm: confirm,
++  };
+ }

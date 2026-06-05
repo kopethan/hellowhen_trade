@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +10,7 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
@@ -160,6 +160,7 @@ export function InventoryDetailScreen({
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
 
   const isNeed = kind === 'need';
   const label = isNeed
@@ -217,7 +218,7 @@ export function InventoryDetailScreen({
     );
   }, [category, description, editing, isNeed, item, itemType, language, locationLabel, mode, newImages.length, timingOrAvailability, title, translationDescription, translationEnabled, translationTitle]);
 
-  useUnsavedChangesWarning({
+  const unsavedChangesConfirm = useUnsavedChangesWarning({
     navigation,
     enabled: hasUnsavedEditing && !saving,
     title: t('inventory.form.unsavedTitle'),
@@ -400,23 +401,12 @@ export function InventoryDetailScreen({
   }
 
   function confirmDelete() {
-    Alert.alert(
-      t('inventory.delete.deleteTitle', { item: labelLower }),
-      t('inventory.delete.deleteNativeBody', {
-        item: label,
-        items: labelsLower,
-      }),
-      [
-        { text: t('common.actions.cancel'), style: 'cancel' },
-        {
-          text: t('inventory.actions.delete'),
-          style: 'destructive',
-          onPress: () => {
-            void deleteItem();
-          },
-        },
-      ],
-    );
+    setDeleteConfirmVisible(true);
+  }
+
+  function handleConfirmDelete() {
+    setDeleteConfirmVisible(false);
+    void deleteItem();
   }
 
   async function deleteItem() {
@@ -853,6 +843,18 @@ export function InventoryDetailScreen({
           </>
         ) : null}
       </ScrollView>
+      <AppConfirmSheet {...unsavedChangesConfirm} />
+      <AppConfirmSheet
+        visible={deleteConfirmVisible}
+        title={t('inventory.delete.deleteTitle', { item: labelLower })}
+        body={t('inventory.delete.deleteNativeBody', { item: label, items: labelsLower })}
+        cancelLabel={t('common.actions.cancel')}
+        confirmLabel={t('inventory.actions.delete')}
+        tone="danger"
+        confirmDisabled={saving}
+        onCancel={() => setDeleteConfirmVisible(false)}
+        onConfirm={handleConfirmDelete}
+      />
     </AppFixedHeaderScreen>
   );
 }

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import type { MediaAssetDto } from '@hellowhen/contracts/src/media';
-import { tradeSchema, type TradeDto } from '@hellowhen/contracts/src/trade';
+import { tradeSchema, type MediaAssetDto, type TradeDto } from '@hellowhen/contracts';
 import { isWebDemoDataEnabled } from './demoMode';
 import { mockTrades } from './mockData';
 import { getSeoUrl, publicPageMetadata, seoSiteName } from './seo';
