@@ -90,6 +90,17 @@ function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needI
   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
 }
 
+function chooseSourcePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string; returnTo?: 'full' | '' }) {
+  if (context?.mode === 'proposal') return choosePageHref(side, next, undefined, context);
+  const params = new URLSearchParams();
+  if (next.postType) params.set('postType', next.postType);
+  if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
+  if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+  if (context?.returnTo === 'full') params.set('returnTo', 'full');
+  const query = params.toString();
+  return `/trades/create/choose-${side}-source${query ? `?${query}` : ''}`;
+}
+
 function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string; returnTo?: 'full' | '' }) {
   const params = new URLSearchParams();
   if (context?.mode === 'proposal' && context.tradeId) {
@@ -254,7 +265,7 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
   const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
   const context = { mode, tradeId, returnTo };
   const backHref = mode === 'proposal' && tradeId ? tradeProposalHref(tradeId, { needId: currentNeedId, offerId: currentOfferId }) : createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId }, returnTo === 'full');
-  const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, undefined, context);
+  const sourceChoiceHref = chooseSourcePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, context);
   const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, context);
 
   useEffect(() => {
@@ -397,6 +408,11 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
               <span><WebIcon name="trade" size={22} decorative /></span>
               <strong>{t('trade.sidePicker.useStarter')}</strong>
               <small>{t('trade.sidePicker.useStarterBody')}</small>
+            </Link>
+            <Link href={createHref} className="trade-side-source-card trade-side-source-card--dashed">
+              <span><WebIcon name="add" size={22} decorative /></span>
+              <strong>{t('trade.sidePicker.createNew', { item: label })}</strong>
+              <small>{t('trade.sidePicker.createNewBody')}</small>
             </Link>
           </div>
         </section>

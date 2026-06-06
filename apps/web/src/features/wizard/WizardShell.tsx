@@ -15,6 +15,7 @@ type WizardShellProps<TStepId extends string> = {
   activeStepId: TStepId;
   children: ReactNode;
   footer?: ReactNode;
+  className?: string;
   stepLabel?: string;
   ofLabel?: string;
 };
@@ -29,13 +30,14 @@ export function WizardShell<TStepId extends string>({
   activeStepId,
   children,
   footer,
+  className,
   stepLabel,
   ofLabel,
 }: WizardShellProps<TStepId>) {
   const activeStep = getWizardActiveStep(steps, activeStepId);
 
   return (
-    <div className="wizard-shell">
+    <div className={className ? `wizard-shell ${className}` : 'wizard-shell'}>
       <header className="wizard-shell__header">
         <div className="wizard-shell__title-row">
           {backHref ? <Link className="web-back-button" href={backHref} aria-label={backLabel}>‹</Link> : null}

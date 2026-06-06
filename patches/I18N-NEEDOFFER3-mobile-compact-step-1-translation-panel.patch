@@ -1,0 +1,212 @@
+diff --git a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+index 37e341f..2bc45ba 100644
+--- a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+@@ -25,8 +25,11 @@ import { useAuth } from '../../providers/AuthProvider';
+ import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
+ import { ImagePickerField } from './components/ImagePickerField';
+ import {
++  AddTranslationButton,
+   CategoryPicker,
+   InventoryTextField,
++  ManualTranslationFields,
++  OriginalLanguageSummary,
+   buildManualTranslation,
+   ModePicker,
+   categoryLabel,
+@@ -129,6 +132,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+   const [menuSheetVisible, setMenuSheetVisible] = useState(false);
+   const [helpSheetVisible, setHelpSheetVisible] = useState(false);
+   const [aiAssistExpanded, setAiAssistExpanded] = useState(false);
++  const [translationPanelExpanded, setTranslationPanelExpanded] = useState(false);
+   const [optionalDetailsExpanded, setOptionalDetailsExpanded] = useState(false);
+   const [themePickerExpanded, setThemePickerExpanded] = useState(false);
+ 
+@@ -164,9 +168,13 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+     setLocationLabel(typeof savedDraft.locationLabel === 'string' ? savedDraft.locationLabel : '');
+     setPreviewTheme(['default', 'blue', 'green', 'purple', 'amber', 'rose'].includes(savedDraft.previewTheme) ? savedDraft.previewTheme : 'default');
+     setImages(Array.isArray(savedDraft.images) ? savedDraft.images : []);
+-    setTranslationTitle(typeof savedDraft.translationTitle === 'string' ? savedDraft.translationTitle : '');
+-    setTranslationDescription(typeof savedDraft.translationDescription === 'string' ? savedDraft.translationDescription : '');
+-    setTranslationEnabled(Boolean(savedDraft.translationEnabled));
++    const restoredTranslationTitle = typeof savedDraft.translationTitle === 'string' ? savedDraft.translationTitle : '';
++    const restoredTranslationDescription = typeof savedDraft.translationDescription === 'string' ? savedDraft.translationDescription : '';
++    const restoredTranslationEnabled = Boolean(savedDraft.translationEnabled);
++    setTranslationTitle(restoredTranslationTitle);
++    setTranslationDescription(restoredTranslationDescription);
++    setTranslationEnabled(restoredTranslationEnabled);
++    setTranslationPanelExpanded(restoredTranslationEnabled || Boolean(restoredTranslationTitle.trim() || restoredTranslationDescription.trim()));
+     setActiveStepId(stepIds.includes(savedDraft.activeStepId) ? savedDraft.activeStepId : (savedDraft.activeStepId === 'review' ? 'images' : 'idea'));
+   }, []);
+ 
+@@ -217,6 +225,16 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+     discardLabel: t('inventory.form.discardDraft'),
+   });
+ 
++  function hasTranslationFieldIssue() {
++    if (!translationEnabled) return false;
++    const cleanTranslationTitle = translationTitle.trim();
++    const cleanTranslationDescription = translationDescription.trim();
++    if ((cleanTranslationTitle && !cleanTranslationDescription) || (!cleanTranslationTitle && cleanTranslationDescription)) return true;
++    if (cleanTranslationTitle && cleanTranslationTitle.length < INVENTORY_TITLE_MIN_LENGTH) return true;
++    if (cleanTranslationDescription && cleanTranslationDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return true;
++    return false;
++  }
++
+   function validateIdeaStep() {
+     const cleanTitle = title.trim();
+     const cleanDescription = description.trim();
+@@ -224,6 +242,13 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+     if (cleanTitle.length > INVENTORY_TITLE_MAX_LENGTH) return t('validation.titleTooLong', { max: INVENTORY_TITLE_MAX_LENGTH });
+     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return isNeed ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort');
+     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
++    if (translationEnabled) {
++      const cleanTranslationTitle = translationTitle.trim();
++      const cleanTranslationDescription = translationDescription.trim();
++      if ((cleanTranslationTitle && !cleanTranslationDescription) || (!cleanTranslationTitle && cleanTranslationDescription)) return t('inventory.errors.translationIncomplete');
++      if (cleanTranslationTitle && cleanTranslationTitle.length < INVENTORY_TITLE_MIN_LENGTH) return t('inventory.errors.translationTitleTooShort');
++      if (cleanTranslationDescription && cleanTranslationDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return t('inventory.errors.translationDescriptionTooShort');
++    }
+     return null;
+   }
+ 
+@@ -234,6 +259,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+       setAttemptedStepId('idea');
+       const validationError = validateIdeaStep();
+       if (validationError) {
++        if (hasTranslationFieldIssue()) setTranslationPanelExpanded(true);
+         setError(validationError);
+         return;
+       }
+@@ -251,6 +277,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+ 
+   function applyAiTranslation(_languageCode: DiscoveryLanguage, titleText: string, descriptionText: string) {
+     setTranslationEnabled(true);
++    setTranslationPanelExpanded(true);
+     setTranslationTitle(titleText);
+     setTranslationDescription(descriptionText);
+   }
+@@ -282,6 +309,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+     setTranslationTitle('');
+     setTranslationDescription('');
+     setTranslationEnabled(false);
++    setTranslationPanelExpanded(false);
+     setMode('remote');
+     setPreviewTheme('default');
+     setCategory('');
+@@ -384,6 +412,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+     const cleanDescription = description.trim();
+     const validationError = validateIdeaStep();
+     if (validationError) {
++      if (hasTranslationFieldIssue()) setTranslationPanelExpanded(true);
+       setError(validationError);
+       setActiveStepId('idea');
+       return;
+@@ -458,6 +487,35 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+               error={descriptionError}
+             />
+           </AppCard>
++          {renderCompactToggle({
++            title: translationPanelExpanded ? t('inventory.wizard.hideManualTranslation') : t('inventory.wizard.showManualTranslation'),
++            body: translationEnabled ? t('inventory.wizard.translationPreparedShort') : t('inventory.form.languageBody'),
++            icon: 'edit',
++            expanded: translationPanelExpanded,
++            onPress: () => setTranslationPanelExpanded((value) => !value),
++            disabled: submitting,
++          })}
++          {translationPanelExpanded ? (
++            <AppCard style={styles.compactCard}>
++              <AppText style={[styles.translationBody, { color: theme.color.muted }]}>{t('inventory.form.languageBody')}</AppText>
++              <OriginalLanguageSummary languageCode={defaultLanguage} />
++              {translationEnabled ? (
++                <ManualTranslationFields
++                  defaultLanguage={defaultLanguage}
++                  title={translationTitle}
++                  description={translationDescription}
++                  onChangeTitle={setTranslationTitle}
++                  onChangeDescription={setTranslationDescription}
++                  onRemove={() => { setTranslationEnabled(false); setTranslationTitle(''); setTranslationDescription(''); }}
++                  titleMaxLength={INVENTORY_TITLE_MAX_LENGTH}
++                  descriptionMaxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
++                  disabled={submitting}
++                />
++              ) : (
++                <AddTranslationButton defaultLanguage={defaultLanguage} onAdd={() => setTranslationEnabled(true)} disabled={submitting} />
++              )}
++            </AppCard>
++          ) : null}
+           {betaFeatures.plusSubscriptionFeatures.aiAssistEnabled ? (
+             <>
+               {renderCompactToggle({
+@@ -715,6 +773,7 @@ const styles = StyleSheet.create({
+   compactToggleCopy: { flex: 1, gap: 2 },
+   compactToggleTitle: { fontSize: 14, fontWeight: '900' },
+   compactToggleBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
++  translationBody: { fontSize: 13, lineHeight: 19, fontWeight: '600' },
+   reviewCard: { gap: 0, overflow: 'hidden', padding: 0 },
+   reviewCoverWrap: { position: 'relative' },
+   reviewCover: { width: '100%', height: 172 },
+diff --git a/packages/i18n/src/locales/en/inventory.ts b/packages/i18n/src/locales/en/inventory.ts
+index d56b607..fbad3b5 100644
+--- a/packages/i18n/src/locales/en/inventory.ts
++++ b/packages/i18n/src/locales/en/inventory.ts
+@@ -254,15 +254,15 @@ export const inventory = {
+     menuBody: 'Use advanced controls, clear this draft, or open a short guide.',
+     resetDraft: 'Reset draft',
+     helpTitle: 'Wizard help',
+-    needHelpBody: 'Create a reusable Need when you want something from someone else. Keep it clear, add only useful details, and use the full form for manual translations or advanced controls.',
+-    offerHelpBody: 'Create a reusable Offer when you can provide something to someone else. Keep it clear, add only useful limits, and use the full form for manual translations or advanced controls.',
++    needHelpBody: 'Create a reusable Need when you want something from someone else. Keep it clear, add only useful details, and use Step 1 for optional manual translations.',
++    offerHelpBody: 'Create a reusable Offer when you can provide something to someone else. Keep it clear, add only useful limits, and use Step 1 for optional manual translations.',
+     skipToReview: 'Review now',
+     stepLabel: 'Step',
+     ofLabel: 'of',
+     imageCount: '{{count}} images',
+     reviewNoticeTitle: 'Saved as active',
+     translationPreparedTitle: 'Translation prepared',
+-    translationPreparedBody: 'An AI translation is ready and will be saved with this item. Use the full form if you want to edit translations manually before saving.',
++    translationPreparedBody: 'A translation is ready and will be saved with this item. You can edit or remove it from Step 1 before saving.',
+     translationPreparedShort: 'Translation ready',
+     reviewNoticeBody: 'Wizard-created items are saved as active so you can use them in trades immediately. Use the full form when you want advanced draft controls.',
+     saveActiveHelper: 'This will save an active inventory item.',
+@@ -272,6 +272,8 @@ export const inventory = {
+     showAiAssist: 'AI assist',
+     hideAiAssist: 'Hide AI assist',
+     aiAssistBody: 'Optional writing help.',
++    showManualTranslation: 'Manual translation',
++    hideManualTranslation: 'Hide translation',
+     showOptionalDetails: 'More details',
+     hideOptionalDetails: 'Hide details',
+     showCardTheme: 'Card theme',
+diff --git a/packages/i18n/src/locales/fr/inventory.ts b/packages/i18n/src/locales/fr/inventory.ts
+index 29b557d..81c3d7d 100644
+--- a/packages/i18n/src/locales/fr/inventory.ts
++++ b/packages/i18n/src/locales/fr/inventory.ts
+@@ -254,15 +254,15 @@ export const inventory = {
+     menuBody: 'Utilisez les contrôles avancés, effacez ce brouillon ou ouvrez une aide courte.',
+     resetDraft: 'Réinitialiser le brouillon',
+     helpTitle: 'Aide du parcours',
+-    needHelpBody: 'Créez un besoin réutilisable lorsque vous recherchez quelque chose auprès d’une autre personne. Restez clair, ajoutez seulement les détails utiles et utilisez le formulaire complet pour les traductions manuelles ou les contrôles avancés.',
+-    offerHelpBody: 'Créez une offre réutilisable lorsque vous pouvez fournir quelque chose à une autre personne. Restez clair, ajoutez seulement les limites utiles et utilisez le formulaire complet pour les traductions manuelles ou les contrôles avancés.',
++    needHelpBody: 'Créez un besoin réutilisable lorsque vous recherchez quelque chose auprès d’une autre personne. Restez clair, ajoutez seulement les détails utiles et utilisez l’étape 1 pour les traductions manuelles optionnelles.',
++    offerHelpBody: 'Créez une offre réutilisable lorsque vous pouvez fournir quelque chose à une autre personne. Restez clair, ajoutez seulement les limites utiles et utilisez l’étape 1 pour les traductions manuelles optionnelles.',
+     skipToReview: 'Vérifier maintenant',
+     stepLabel: 'Étape',
+     ofLabel: 'sur',
+     imageCount: '{{count}} images',
+     reviewNoticeTitle: 'Enregistré comme actif',
+     translationPreparedTitle: 'Traduction préparée',
+-    translationPreparedBody: 'Une traduction IA est prête et sera enregistrée avec cet élément. Utilisez le formulaire complet si vous voulez modifier les traductions manuellement avant l’enregistrement.',
++    translationPreparedBody: 'Une traduction est prête et sera enregistrée avec cet élément. Vous pouvez la modifier ou la supprimer à l’étape 1 avant l’enregistrement.',
+     translationPreparedShort: 'Traduction prête',
+     reviewNoticeBody: 'Les éléments créés avec le parcours guidé sont enregistrés comme actifs pour être utilisés immédiatement dans les échanges. Utilisez le formulaire complet pour les brouillons et les options avancées.',
+     saveActiveHelper: 'Cela enregistrera un élément actif dans votre inventaire.',
+@@ -272,6 +272,8 @@ export const inventory = {
+     showAiAssist: 'Aide IA',
+     hideAiAssist: 'Masquer l’aide IA',
+     aiAssistBody: 'Aide d’écriture optionnelle.',
++    showManualTranslation: 'Traduction manuelle',
++    hideManualTranslation: 'Masquer la traduction',
+     showOptionalDetails: 'Plus de détails',
+     hideOptionalDetails: 'Masquer les détails',
+     showCardTheme: 'Thème de carte',

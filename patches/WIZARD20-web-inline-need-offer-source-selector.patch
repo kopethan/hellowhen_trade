@@ -1,0 +1,83 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index ad092e0..7c57ca0 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2027,6 +2027,10 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .inventory-delete-warning span { font-weight: 750; }
+ .inventory-delete-warning .button { justify-self: start; }
+ .trade-side-choice-state { display: grid; gap: 10px; }
++.trade-side-inline-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
++.trade-side-inline-action { display: grid; place-items: center; min-height: 40px; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); font-size: 12px; font-weight: 950; text-align: center; text-decoration: none; }
++.trade-side-inline-action--starter { border-color: color-mix(in srgb, var(--info-border) 55%, var(--app-border)); background: color-mix(in srgb, var(--info-bg) 34%, var(--app-surface)); color: var(--info-text); }
++.trade-side-inline-action--create { border-style: dashed; }
+ .trade-side-choice-card, .trade-side-placeholder { width: 100%; text-align: left; color: var(--app-text); border: 1px dashed var(--app-border-strong); border-radius: 24px; background: color-mix(in srgb, var(--app-surface-soft) 88%, var(--app-surface)); padding: 10px; }
+ .trade-side-choice-card { border-style: solid; background: var(--app-surface-soft); }
+ .trade-side-choice-card__inner { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+@@ -2062,6 +2066,7 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+   .trade-side-choice-card__inner { grid-template-columns: 54px minmax(0, 1fr); }
+   .trade-side-choice-card em { grid-column: 2; }
+   .trade-side-choice-card__media { width: 54px; height: 54px; }
++  .trade-side-inline-actions { grid-template-columns: 1fr; }
+ }
+ 
+ /* Phase 23.3: create-trade feed preview parity and trade delete flow */
+@@ -2120,6 +2125,7 @@ html[data-theme="dark"] .inventory-empty-state__plus {
+ .trade-side-option,
+ .trade-side-create-link { text-decoration: none; }
+ .trade-side-choice-card:focus-visible,
++.trade-side-inline-action:focus-visible,
+ .trade-side-placeholder:focus-visible,
+ .trade-side-option:focus-visible,
+ .trade-side-create-link:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); outline-offset: 3px; }
+diff --git a/apps/web/src/features/trade/TradeSidePicker.tsx b/apps/web/src/features/trade/TradeSidePicker.tsx
+index 1523cd3..e501abe 100644
+--- a/apps/web/src/features/trade/TradeSidePicker.tsx
++++ b/apps/web/src/features/trade/TradeSidePicker.tsx
+@@ -65,12 +65,19 @@ function SourceButton({ onClick, iconLabel, title, body, warning = false }: { on
+   );
+ }
+ 
++function SourceActionLink({ href, label, ariaLabel, tone = 'default' }: { href: string; label: string; ariaLabel: string; tone?: 'default' | 'starter' | 'create' }) {
++  return (
++    <Link href={href} aria-label={ariaLabel} className={`trade-side-inline-action trade-side-inline-action--${tone}`}>
++      {label}
++    </Link>
++  );
++}
++
+ export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, newHref, emptyTitle, emptyBody, moneyEnabled = false, cashPromiseEnabled = false }: TradeSidePickerProps) {
+   const { t } = useWebTranslation();
+   const sideClass = side === 'need' ? 'need' : 'offer';
+   const moneyText = side === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
+   const savedText = side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer');
+-  const chooseText = side === 'need' ? t('trade.sidePicker.searchSaved', { items: t('inventory.labels.needs').toLowerCase() }) : t('trade.sidePicker.searchSaved', { items: t('inventory.labels.offers').toLowerCase() });
+   const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+   const itemLabel = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
+   const selected = items.find((item) => item.id === selectedId) ?? null;
+@@ -102,7 +109,25 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
+           <Link href={sourceHref(chooseHref, 'mine')} className="trade-side-choice-card" aria-label={t('trade.sidePicker.changeSource')}>
+             <InventoryPreview item={selected} side={side} />
+           </Link>
+-          <Link href={sourceHref(chooseHref, 'mine')} className="button secondary trade-side-change-button">{t('common.actions.edit')}</Link>
++          <div className="trade-side-inline-actions" role="group" aria-label={t('trade.sidePicker.changeSource')}>
++            <SourceActionLink
++              href={sourceHref(chooseHref, 'mine')}
++              label={t('trade.sidePicker.sourceMineShort')}
++              ariaLabel={t('trade.sidePicker.useMine')}
++            />
++            <SourceActionLink
++              href={sourceHref(chooseHref, 'starter')}
++              label={t('trade.sidePicker.sourceStarterShort')}
++              ariaLabel={t('trade.sidePicker.useStarter')}
++              tone="starter"
++            />
++            <SourceActionLink
++              href={newHref}
++              label={t('common.actions.create')}
++              ariaLabel={t('trade.sidePicker.createNew', { item: itemLabel })}
++              tone="create"
++            />
++          </div>
+         </div>
+       ) : (
+         <div className="trade-side-source-step trade-side-source-step--inline">

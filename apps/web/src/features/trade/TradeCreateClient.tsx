@@ -9,7 +9,7 @@ import { buildWebWizardDraftKey, useWebWizardDraft, WizardFooter, WizardShell } 
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
-import { formatWebMoney } from '../../lib/webFormat';
+import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
 import { isSupportedCurrency, type SupportedCurrency } from '../../lib/webMoneyPreferences';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers, mockTrades } from '../../lib/mockData';
@@ -26,7 +26,7 @@ type InventoryLoadState = 'idle' | 'loading' | 'live' | 'demo';
 
 type SideMode = 'saved' | 'money' | 'cash_promise';
 type PublishMode = TradePostType | '';
-type TradeWizardStepId = 'type' | 'need' | 'offer' | 'review';
+type TradeWizardStepId = 'type' | 'exchange' | 'details' | 'review';
 
 type TradeCreateValues = {
   postType: PublishMode;
@@ -116,12 +116,15 @@ function postTypeLabel(postType: PublishMode, t: Translator) {
 
 function getInitialWizardStep(postType: PublishMode, needId: string, offerId: string): TradeWizardStepId {
   if (!postType) return 'type';
-  if (postType === 'open_need') return needId ? 'review' : 'need';
-  if (postType === 'open_offer') return offerId ? 'review' : 'offer';
-  if (needId && offerId) return 'review';
-  if (needId) return 'offer';
-  if (offerId) return 'need';
-  return 'need';
+  if (postType === 'open_need') return needId ? 'details' : 'exchange';
+  if (postType === 'open_offer') return offerId ? 'details' : 'exchange';
+  return needId && offerId ? 'details' : 'exchange';
+}
+
+function normalizeTradeWizardStepId(value: unknown): TradeWizardStepId {
+  if (value === 'type' || value === 'exchange' || value === 'details' || value === 'review') return value;
+  if (value === 'need' || value === 'offer') return 'exchange';
+  return 'type';
 }
 
 function createTradeHrefWithPostType(next: { postType?: PublishMode; needId?: string; offerId?: string }) {
@@ -159,6 +162,15 @@ function createSideChooseHref(side: 'need' | 'offer', values: TradeCreateValues)
   if (values.offerId && values.postType !== 'open_need') params.set('offerId', values.offerId);
   const query = params.toString();
   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
+}
+
+function createSideSourceHref(side: 'need' | 'offer', values: TradeCreateValues) {
+  const params = new URLSearchParams();
+  if (values.postType) params.set('postType', values.postType);
+  if (values.needId && values.postType !== 'open_offer') params.set('needId', values.needId);
+  if (values.offerId && values.postType !== 'open_need') params.set('offerId', values.offerId);
+  const query = params.toString();
+  return `/trades/create/choose-${side}-source${query ? `?${query}` : ''}`;
 }
 
 function createSideNewHref(side: 'need' | 'offer', values: TradeCreateValues) {
@@ -330,7 +342,7 @@ function buildPreviewTrade(input: {
 
 export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', initialPostType = '' }: { initialNeedId?: string; initialOfferId?: string; initialPostType?: string }) {
   const auth = useWebAuth();
-  const { t } = useWebTranslation();
+  const { t, language } = useWebTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
   const routeNeedId = searchParams.get('needId') ?? initialNeedId;
@@ -362,6 +374,9 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const [notice, setNotice] = useState('');
   const [duplicateConflict, setDuplicateConflict] = useState<DuplicateTradeConflict | null>(null);
   const [limits, setLimits] = useState<WalletLimitsDto | null>(null);
+  const [expiryHelpOpen, setExpiryHelpOpen] = useState(false);
+  const [wizardMenuOpen, setWizardMenuOpen] = useState(false);
+  const [wizardHelpOpen, setWizardHelpOpen] = useState(false);
 
   const persistedDraft = useMemo<TradeCreateWizardPersistedDraft>(() => ({
     activeStepId,
@@ -375,7 +390,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       currency: getPreferredCurrency(savedDraft.values?.currency),
       cashPromiseCurrency: getPreferredCurrency(savedDraft.values?.cashPromiseCurrency),
     }));
-    setActiveStepId(['type', 'need', 'offer', 'review'].includes(savedDraft.activeStepId) ? savedDraft.activeStepId : 'type');
+    setActiveStepId(normalizeTradeWizardStepId(savedDraft.activeStepId));
   }, []);
   const tradeWizardDraft = useWebWizardDraft({
     storageKey: draftStorageKey,
@@ -626,48 +641,44 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
 
   const chooseNeedHref = createSideChooseHref('need', values);
   const chooseOfferHref = createSideChooseHref('offer', values);
+  const needSourceHref = createSideSourceHref('need', values);
+  const offerSourceHref = createSideSourceHref('offer', values);
   const newNeedHref = createSideNewHref('need', values);
   const newOfferHref = createSideNewHref('offer', values);
   const currentCreateHref = createTradeHrefWithPostType({ postType: values.postType, needId: values.needId, offerId: values.offerId });
+  const fullCreateHref = createTradeFullHrefWithPostType({ postType: values.postType, needId: values.needId, offerId: values.offerId });
+  const previewCardCount = previewTrade ? 1 + (previewTrade.need?.media?.length ?? 0) + (previewTrade.offer?.media?.length ?? 0) : 0;
+  const previewExpiryLabel = previewTrade?.expiresAt
+    ? formatWebShortDate(previewTrade.expiresAt, t('trade.expiry.noExpiry'), language)
+    : t('trade.expiry.noExpiry');
+  const previewSummaryItems = previewTrade
+    ? [
+      postTypeLabel(values.postType, t),
+      previewExpiryLabel,
+      t('trade.create.previewCards', { count: previewCardCount }),
+    ]
+    : [];
 
-  const shouldShowNeedStep = values.postType !== 'open_offer';
-  const shouldShowOfferStep = values.postType !== 'open_need';
+  const showNeedSide = values.postType !== 'open_offer';
+  const showOfferSide = values.postType !== 'open_need';
+  const needPickerLabel = values.postType === 'need_offer' ? `2.1 ${t('trade.labels.iNeed')}` : t('trade.create.chooseNeedTitle');
+  const offerPickerLabel = values.postType === 'need_offer' ? `2.2 ${t('trade.labels.iOffer')}` : t('trade.create.chooseOfferTitle');
   const wizardSteps = useMemo<WizardStepDefinition<TradeWizardStepId>[]>(() => [
-    {
-      id: 'type',
-      title: t('trade.create.publishQuestion'),
-      description: t('trade.create.chooseKindBody'),
-    },
-    ...(shouldShowNeedStep ? [{
-      id: 'need' as const,
-      title: t('trade.labels.iNeed'),
-      description: values.postType === 'open_need' ? t('trade.create.chooseOpenNeedBody') : t('trade.create.chooseSavedNeedBody'),
-    }] : []),
-    ...(shouldShowOfferStep ? [{
-      id: 'offer' as const,
-      title: t('trade.labels.iOffer'),
-      description: values.postType === 'open_offer' ? t('trade.create.chooseOpenOfferBody') : t('trade.create.chooseSavedOfferBody'),
-    }] : []),
-    {
-      id: 'review',
-      title: t('trade.create.previewReadyTitle'),
-      description: t('trade.create.previewReuseBody'),
-    },
-  ], [shouldShowNeedStep, shouldShowOfferStep, t, values.postType]);
-
-  const activeStepIsVisible = wizardSteps.some((step) => step.id === activeStepId);
+    { id: 'type', title: t('trade.create.publishQuestion') },
+    { id: 'exchange', title: t('trade.create.exchangeTitle') },
+    { id: 'details', title: t('trade.create.detailsTitle') },
+    { id: 'review', title: t('trade.create.previewTitle') },
+  ], [t]);
 
   useEffect(() => {
-    if (activeStepIsVisible) return;
-    if (values.postType === 'open_offer') setActiveStepId('offer');
-    else if (values.postType === 'open_need') setActiveStepId('need');
-    else setActiveStepId('type');
-  }, [activeStepIsVisible, values.postType]);
-
-  function firstSideStepForPostType(postType: PublishMode): TradeWizardStepId {
-    if (postType === 'open_offer') return 'offer';
-    return 'need';
-  }
+    if (!values.postType && activeStepId !== 'type') {
+      setActiveStepId('type');
+      return;
+    }
+    if (values.postType && (activeStepId === 'details' || activeStepId === 'review') && !hasRequiredSides) {
+      setActiveStepId('exchange');
+    }
+  }, [activeStepId, hasRequiredSides, values.postType]);
 
   function choosePostType(postType: TradePostType) {
     setValues((current) => ({
@@ -684,18 +695,29 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     }));
     setError('');
     setDuplicateConflict(null);
-    setActiveStepId(firstSideStepForPostType(postType));
+    setActiveStepId('exchange');
   }
 
   function validateActiveStep() {
     if (!auth.hydrated) return t('trade.create.checkingSession');
     if (!auth.isAuthenticated) return t('trade.create.validationSignedOut');
     if (activeStepId === 'type' && !values.postType) return t('trade.create.choosePublishType');
-    if (activeStepId === 'need' && (values.postType === 'need_offer' || values.postType === 'open_need') && values.needMode === 'saved' && !selectedNeed) {
-      return values.postType === 'open_need' ? t('trade.create.validationOpenNeed') : t('trade.create.validationNeed');
+    if (activeStepId === 'exchange') {
+      if ((values.postType === 'need_offer' || values.postType === 'open_need') && values.needMode === 'saved' && !selectedNeed) {
+        return values.postType === 'open_need' ? t('trade.create.validationOpenNeed') : t('trade.create.validationNeed');
+      }
+      if ((values.postType === 'need_offer' || values.postType === 'open_offer') && values.offerMode === 'saved' && !selectedOffer) {
+        return values.postType === 'open_offer' ? t('trade.create.validationOpenOffer') : t('trade.create.validationOffer');
+      }
+      if (blocksMoneyMoney) return t('trade.create.validationSavedSidesOnly');
+      if (blocksCashPromiseBothSides) return t('trade.cashPromise.oneSideOnly');
     }
-    if (activeStepId === 'offer' && (values.postType === 'need_offer' || values.postType === 'open_offer') && values.offerMode === 'saved' && !selectedOffer) {
-      return values.postType === 'open_offer' ? t('trade.create.validationOpenOffer') : t('trade.create.validationOffer');
+    if (activeStepId === 'details') {
+      if (usesMoney && (!Number.isFinite(amountCents) || amountCents < 100)) return t('trade.create.validationMoneyMinimum');
+      if (usesMoney && limits && !limits.moneyTradesEnabled) return t('trade.create.validationMoneyDisabled');
+      if (usesMoney && limits && amountCents > limits.perTradeMoneyCapCents) return t('trade.create.validationMoneyLimit', { amount: formatWebMoney(limits.perTradeMoneyCapCents, values.currency) });
+      if (usesCashPromise && (!Number.isFinite(cashPromiseAmountCents) || cashPromiseAmountCents < 100)) return t('trade.cashPromise.validationAmount');
+      if (usesCashPromise && !values.cashPromiseAcknowledged) return t('trade.cashPromise.validationAcknowledgement');
     }
     if (activeStepId === 'review') return validate();
     return '';
@@ -737,8 +759,35 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     goNext();
   }
 
+  function resetWizardDraft() {
+    tradeWizardDraft.clearDraft();
+    setValues({
+      postType: '',
+      needMode: 'saved',
+      offerMode: 'saved',
+      needId: '',
+      offerId: '',
+      amount: '',
+      currency: preferredCurrency,
+      cashPromiseAmount: '',
+      cashPromiseCurrency: preferredCurrency,
+      cashPromiseNote: '',
+      cashPromiseAcknowledged: false,
+      expiresAt: '',
+    });
+    setActiveStepId('type');
+    setError('');
+    setNotice('');
+    setDuplicateConflict(null);
+    setExpiryHelpOpen(false);
+    setWizardHelpOpen(false);
+    setWizardMenuOpen(false);
+    router.replace('/trades/create');
+  }
+
   return (
     <WizardShell
+      className="wizard-shell--trade-create"
       title={t('trade.create.title')}
       backHref="/trades"
       backLabel={t('common.actions.back')}
@@ -746,6 +795,36 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       activeStepId={activeStepId}
       stepLabel={t('inventory.wizard.stepLabel')}
       ofLabel={t('inventory.wizard.ofLabel')}
+      rightSlot={(
+        <div className="trade-create-menu">
+          <button
+            type="button"
+            className="trade-create-menu__trigger"
+            aria-haspopup="menu"
+            aria-expanded={wizardMenuOpen}
+            aria-label={t('trade.create.wizardMenuTitle')}
+            onClick={() => setWizardMenuOpen((open) => !open)}
+          >
+            <span className="trade-create-menu__trigger-dot" aria-hidden="true" />
+          </button>
+          {wizardMenuOpen ? (
+            <div className="trade-create-menu__panel" role="menu" aria-label={t('trade.create.wizardMenuTitle')}>
+              <Link role="menuitem" href={fullCreateHref} onClick={() => setWizardMenuOpen(false)}>{t('inventory.wizard.openFullForm')}</Link>
+              <button role="menuitem" type="button" onClick={resetWizardDraft}>{t('trade.create.resetDraft')}</button>
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => {
+                  setWizardHelpOpen((open) => !open);
+                  setWizardMenuOpen(false);
+                }}
+              >
+                {wizardHelpOpen ? t('common.actions.hide') : t('trade.create.wizardHelpTitle')}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
       footer={(
         <WizardFooter
           primaryLabel={footerPrimaryLabel}
@@ -755,9 +834,6 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
           primaryLoadingLabel={t('trade.create.publishing')}
           secondaryLabel={t('common.actions.back')}
           onSecondary={goBack}
-          tertiaryLabel={t('inventory.wizard.openFullForm')}
-          tertiaryHref={createTradeFullHrefWithPostType({ postType: values.postType, needId: values.needId, offerId: values.offerId })}
-          helperText={activeStepId === 'review' ? t('trade.create.previewReuseBody') : undefined}
         />
       )}
     >
@@ -784,6 +860,17 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
           {amountPreview && (usesMoney || usesCashPromise) ? <span className="semantic-badge money">{amountPreview}</span> : <span className="semantic-badge instruction">{t('trade.create.beta')}</span>}
         </div>
 
+        {wizardHelpOpen ? (
+          <section className="mobile-card mobile-card--soft trade-create-help-panel" role="note">
+            <div>
+              <span className="semantic-badge instruction">{t('inventory.wizard.menuTitle')}</span>
+              <h3>{t('trade.create.wizardHelpTitle')}</h3>
+              <p>{t('trade.create.wizardHelpBody')}</p>
+            </div>
+            <Link href={fullCreateHref} className="button secondary compact">{t('inventory.wizard.openFullForm')}</Link>
+          </section>
+        ) : null}
+
         {activeStepId === 'type' ? (
           <section className="mobile-card trade-post-type-step">
             <div className="trade-post-type-grid">
@@ -799,59 +886,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
           </section>
         ) : null}
 
-        {activeStepId === 'need' && values.postType !== 'open_offer' ? (
-          <section className="trade-create-wizard__step-stack">
-            <TradeSidePicker
-              label={t('trade.labels.iNeed')}
-              side="need"
-              mode={values.needMode}
-              onModeChange={(mode) => updateValue('needMode', mode)}
-              items={selectableNeeds}
-              selectedId={values.needId}
-              chooseHref={chooseNeedHref}
-              newHref={newNeedHref}
-              emptyTitle={t('inventory.empty.createFirstNeed')}
-              emptyBody={t('inventory.empty.needBody')}
-              moneyEnabled={values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled}
-              cashPromiseEnabled={values.postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible}
-            />
-            {values.postType === 'open_need' ? (
-              <section className="mobile-card mobile-card--soft trade-create-open-side-note">
-                <span className="semantic-badge offer">{t('trade.create.missingSide')}</span>
-                <h3>{t('trade.create.othersProposeOffers')}</h3>
-                <p>{t('trade.proposals.inviteOpenNeedBody')}</p>
-              </section>
-            ) : null}
-          </section>
-        ) : null}
-
-        {activeStepId === 'offer' && values.postType !== 'open_need' ? (
-          <section className="trade-create-wizard__step-stack">
-            <TradeSidePicker
-              label={t('trade.labels.iOffer')}
-              side="offer"
-              mode={values.offerMode}
-              onModeChange={(mode) => updateValue('offerMode', mode)}
-              items={selectableOffers}
-              selectedId={values.offerId}
-              chooseHref={chooseOfferHref}
-              newHref={newOfferHref}
-              emptyTitle={t('inventory.empty.createFirstOffer')}
-              emptyBody={t('inventory.empty.offerBody')}
-              moneyEnabled={values.postType === 'need_offer' && betaFeatures.moneyTradesEnabled}
-              cashPromiseEnabled={values.postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible}
-            />
-            {values.postType === 'open_offer' ? (
-              <section className="mobile-card mobile-card--soft trade-create-open-side-note">
-                <span className="semantic-badge need">{t('trade.create.missingSide')}</span>
-                <h3>{t('trade.create.othersProposeNeeds')}</h3>
-                <p>{t('trade.proposals.inviteOpenOfferBody')}</p>
-              </section>
-            ) : null}
-          </section>
-        ) : null}
-
-        {activeStepId === 'review' ? (
+        {activeStepId === 'exchange' && values.postType ? (
           <section className="trade-create-wizard__step-stack">
             <section className="trade-create-mode-summary">
               <div>
@@ -862,15 +897,16 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
             </section>
 
             <div className={values.postType === 'need_offer' ? 'trade-create-side-grid' : 'trade-create-side-grid trade-create-side-grid--single'}>
-              {values.postType !== 'open_offer' ? (
+              {showNeedSide ? (
                 <TradeSidePicker
-                  label={t('trade.labels.iNeed')}
+                  label={needPickerLabel}
                   side="need"
                   mode={values.needMode}
                   onModeChange={(mode) => updateValue('needMode', mode)}
                   items={selectableNeeds}
                   selectedId={values.needId}
                   chooseHref={chooseNeedHref}
+                  sourceChoiceHref={needSourceHref}
                   newHref={newNeedHref}
                   emptyTitle={t('inventory.empty.createFirstNeed')}
                   emptyBody={t('inventory.empty.needBody')}
@@ -878,15 +914,16 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
                   cashPromiseEnabled={values.postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible}
                 />
               ) : null}
-              {values.postType !== 'open_need' ? (
+              {showOfferSide ? (
                 <TradeSidePicker
-                  label={t('trade.labels.iOffer')}
+                  label={offerPickerLabel}
                   side="offer"
                   mode={values.offerMode}
                   onModeChange={(mode) => updateValue('offerMode', mode)}
                   items={selectableOffers}
                   selectedId={values.offerId}
                   chooseHref={chooseOfferHref}
+                  sourceChoiceHref={offerSourceHref}
                   newHref={newOfferHref}
                   emptyTitle={t('inventory.empty.createFirstOffer')}
                   emptyBody={t('inventory.empty.offerBody')}
@@ -896,29 +933,62 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
               ) : null}
             </div>
 
-            {blocksMoneyMoney ? <p className="form-message form-message--error">{t('trade.create.validationSavedSidesOnly')}</p> : null}
-            {blocksCashPromiseBothSides ? <p className="form-message form-message--error">{t('trade.cashPromise.oneSideOnly')}</p> : null}
-
-            {visibleDuplicateTrade ? (
-              <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--warning" role="alert">
-                <span className="semantic-badge warning">{t('common.states.required')}</span>
-                <h3>{duplicateTradeMessage(visibleDuplicateTrade, t)}</h3>
-                <p>{t('trade.create.duplicateResolution')}</p>
-                <Link href={`/trades/${visibleDuplicateTrade.id}`} className="button secondary">{t('common.actions.open')}</Link>
-              </section>
-            ) : inventoryCheckingPair ? (
-              <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--info">
-                <span className="semantic-badge info">{t('common.states.working')}</span>
-                <h3>{t('trade.create.checkingAccount')}</h3>
-                <p>{t('trade.create.sessionBody')}</p>
-              </section>
-            ) : selectedPairReady || selectedOpenNeedReady || selectedOpenOfferReady ? (
-              <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--success">
-                <span className="semantic-badge success">{t('trade.labels.available')}</span>
-                <h3>{t('common.states.done')}</h3>
-                <p>{t('trade.create.needOfferBody')}</p>
+            {values.postType === 'open_need' ? (
+              <section className="mobile-card mobile-card--soft trade-create-open-side-note">
+                <span className="semantic-badge offer">{t('trade.create.missingSide')}</span>
+                <h3>{t('trade.create.othersProposeOffers')}</h3>
+                <p>{t('trade.proposals.inviteOpenNeedBody')}</p>
               </section>
             ) : null}
+            {values.postType === 'open_offer' ? (
+              <section className="mobile-card mobile-card--soft trade-create-open-side-note">
+                <span className="semantic-badge need">{t('trade.create.missingSide')}</span>
+                <h3>{t('trade.create.othersProposeNeeds')}</h3>
+                <p>{t('trade.proposals.inviteOpenOfferBody')}</p>
+              </section>
+            ) : null}
+
+            {blocksMoneyMoney ? <p className="form-message form-message--error">{t('trade.create.validationSavedSidesOnly')}</p> : null}
+            {blocksCashPromiseBothSides ? <p className="form-message form-message--error">{t('trade.cashPromise.oneSideOnly')}</p> : null}
+          </section>
+        ) : null}
+
+        {activeStepId === 'details' ? (
+          <section className="trade-create-wizard__step-stack">
+            <section className="mobile-card trade-create-details trade-create-details--compact">
+              <div className="trade-create-details__summary" aria-live="polite">
+                <div>
+                  <p className="eyebrow">{t('trade.create.generatedFromSidesEyebrow')}</p>
+                  <h3>{autoTitle}</h3>
+                </div>
+                <button type="button" className="trade-side-source-back" onClick={() => setActiveStepId('exchange')}>{t('common.actions.edit')}</button>
+              </div>
+
+              <div className="trade-create-expiry-panel">
+                <div className="trade-create-expiry-panel__header">
+                  <div>
+                    <p className="eyebrow">{t('trade.create.detailsTitle')}</p>
+                    <h3>{t('trade.labels.expires')}</h3>
+                    <p>{t('inventory.labels.optional')}</p>
+                  </div>
+                  <button type="button" className="trade-side-source-back" onClick={() => setExpiryHelpOpen((open) => !open)}>
+                    {expiryHelpOpen ? t('common.actions.hide') : t('common.actions.show')}
+                  </button>
+                </div>
+
+                <label className="field-label trade-create-expiry-field">
+                  <span>{t('trade.labels.expires')} · {t('inventory.labels.optional')}</span>
+                  <input type="date" value={values.expiresAt} onChange={(event) => updateValue('expiresAt', event.target.value)} />
+                </label>
+
+                {expiryHelpOpen ? (
+                  <div className="trade-expiry-callout trade-expiry-callout--compact" role="note">
+                    <span className="trade-expiry-callout__icon" aria-hidden="true">!</span>
+                    <span>{t('trade.create.expiryUrgencyBody')}</span>
+                  </div>
+                ) : null}
+              </div>
+            </section>
 
             {limits && betaFeatures.moneyFeaturesVisible ? (
               <section className="mobile-card mobile-card--soft">
@@ -983,40 +1053,48 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
                 </label>
               </section>
             ) : null}
+          </section>
+        ) : null}
 
-            <section className="mobile-card trade-create-preview trade-create-preview--deck">
-              <div className="trade-create-preview__intro">
-                <p className="eyebrow">{t('common.actions.preview')}</p>
-                <h3>{previewTrade ? t('trade.create.previewReadyTitle') : values.postType ? t('trade.create.previewMissingSideTitle') : t('trade.create.previewMissingTypeTitle')}</h3>
-                <p>{previewTrade ? t('trade.create.previewReadyBody') : values.postType === 'open_need' ? t('trade.create.previewOpenNeedBody') : values.postType === 'open_offer' ? t('trade.create.previewOpenOfferBody') : values.postType === 'need_offer' ? t('trade.create.previewNeedOfferBody') : t('trade.create.previewChooseTypeBody')}</p>
+        {activeStepId === 'review' ? (
+          <section className="trade-create-wizard__step-stack trade-create-wizard__step-stack--preview">
+            {visibleDuplicateTrade ? (
+              <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--warning" role="alert">
+                <span className="semantic-badge warning">{t('common.states.required')}</span>
+                <h3>{duplicateTradeMessage(visibleDuplicateTrade, t)}</h3>
+                <p>{t('trade.create.duplicateResolution')}</p>
+                <Link href={`/trades/${visibleDuplicateTrade.id}`} className="button secondary">{t('common.actions.open')}</Link>
+              </section>
+            ) : inventoryCheckingPair ? (
+              <section className="mobile-card mobile-card--soft trade-create-pair-status trade-create-pair-status--info">
+                <span className="semantic-badge info">{t('common.states.working')}</span>
+                <h3>{t('trade.create.checkingAccount')}</h3>
+                <p>{t('trade.create.sessionBody')}</p>
+              </section>
+            ) : null}
+
+            <section className="mobile-card trade-create-preview trade-create-preview--deck trade-create-preview--final">
+              <div className="trade-create-preview__intro trade-create-preview__intro--final">
+                <div>
+                  <p className="eyebrow">{t('trade.create.deckPreview')}</p>
+                  <h3>{previewTrade ? t('trade.create.previewReadyTitle') : values.postType ? t('trade.create.previewMissingSideTitle') : t('trade.create.previewMissingTypeTitle')}</h3>
+                </div>
+                {previewTrade ? (
+                  <p className="trade-create-preview__summary">{previewSummaryItems.join(' · ')}</p>
+                ) : null}
               </div>
+
               {previewTrade ? (
-                <div className="trade-create-preview__deck">
+                <div className="trade-create-preview__deck" aria-label={t('trade.create.deckPreview')}>
                   <TradeStackDeck trade={previewTrade} preview className="trade-stack-deck--create-preview" />
                 </div>
               ) : (
                 <div className="trade-create-preview__empty">
                   <span className="semantic-badge instruction">{t('common.actions.preview')}</span>
                   <strong>{values.postType ? t('trade.create.previewMissingInventory') : t('trade.create.publishQuestion')}</strong>
-                  <small>{t('trade.create.previewReuseBody')}</small>
+                  <small>{values.postType === 'open_need' ? t('trade.create.previewOpenNeedBody') : values.postType === 'open_offer' ? t('trade.create.previewOpenOfferBody') : values.postType === 'need_offer' ? t('trade.create.previewNeedOfferBody') : t('trade.create.previewChooseTypeBody')}</small>
                 </div>
               )}
-            </section>
-
-            <section className="mobile-card trade-create-details">
-              <div className="trade-create-generated-copy" aria-live="polite">
-                <p className="eyebrow">{t('trade.create.generatedFromSidesEyebrow')}</p>
-                <h3>{autoTitle}</h3>
-                <p>{autoDescription || t('trade.create.previewReuseBody')}</p>
-              </div>
-              <label className="field-label">
-                {t('trade.labels.expires')} · {t('inventory.labels.optional')}
-                <input type="date" value={values.expiresAt} onChange={(event) => updateValue('expiresAt', event.target.value)} />
-                <div className="trade-expiry-callout" role="note">
-                  <span className="trade-expiry-callout__icon" aria-hidden="true">!</span>
-                  <span>{t('trade.create.expiryUrgencyBody')}</span>
-                </div>
-              </label>
             </section>
           </section>
         ) : null}

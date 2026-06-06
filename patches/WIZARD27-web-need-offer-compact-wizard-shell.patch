@@ -1,0 +1,241 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 7bff4e5..32d581a 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -4256,3 +4256,52 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .trade-side-source-trigger small { align-self: start; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+ .trade-side-choice-card--link:focus-visible,
+ .trade-side-source-trigger:focus-visible { outline: 3px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); outline-offset: 3px; }
++
++/* WIZARD27: web Need/Offer compact wizard shell */
++.wizard-shell--inventory-create {
++  width: min(100%, 640px);
++  margin-right: auto;
++  margin-left: auto;
++}
++
++.wizard-shell--inventory-create .wizard-shell__step-intro p {
++  display: none;
++}
++
++.wizard-shell--inventory-create .wizard-shell__footer-wrap {
++  position: static;
++  z-index: auto;
++  bottom: auto;
++  margin: 2px 0 0;
++  padding: 0;
++  background: transparent;
++}
++
++.wizard-shell--inventory-create .wizard-footer {
++  border-radius: 22px;
++}
++
++.inventory-wizard-full-link {
++  white-space: nowrap;
++}
++
++@media (max-width: 520px) {
++  .wizard-shell--inventory-create {
++    width: 100%;
++  }
++
++  .wizard-shell--inventory-create .wizard-shell__footer-wrap {
++    margin-top: 4px;
++  }
++
++  .wizard-shell--inventory-create .wizard-footer {
++    padding: 12px 13px;
++  }
++
++  .inventory-wizard-full-link {
++    min-height: 38px;
++    padding-right: 11px;
++    padding-left: 11px;
++    font-size: 11px;
++  }
++}
+diff --git a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+index 070b99c..71a1e92 100644
+--- a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
++++ b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+@@ -4,7 +4,7 @@ import Link from 'next/link';
+ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+ import type { ChangeEvent } from 'react';
+ import { useCallback, useEffect, useMemo, useState } from 'react';
+-import type { CreateNeedRequest, CreateOfferRequest, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode } from '@hellowhen/contracts';
++import type { CreateNeedRequest, CreateOfferRequest, MediaAssetDto, TradeExchangeMode } from '@hellowhen/contracts';
+ import type { TranslationValues } from '@hellowhen/i18n';
+ import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
+ import { findInventoryCategoryOption, getNextWizardStepId, getPreviousWizardStepId, inventoryCategoryOptions, type WizardStepDefinition } from '@hellowhen/shared';
+@@ -17,10 +17,8 @@ import { InventoryMediaOrderPanel } from './InventoryMediaOrderPanel';
+ import { InventoryPreviewThemePicker } from './InventoryPreviewThemePicker';
+ import {
+   emptyInventoryFormValues,
+-  getInventoryMetadata,
+   itemTypeLabel,
+   kindLabel,
+-  mediaSrc,
+   modeLabel,
+   normalizeInventoryItem,
+   normalizeInventoryTranslationsForPayload,
+@@ -48,9 +46,10 @@ type InventoryCreateWizardClientProps = {
+   afterCreateRedirect?: InventoryCreateRedirect;
+ };
+ 
+-type InventoryWizardStepId = 'idea' | 'details' | 'images' | 'review';
++type InventoryWizardStepId = 'idea' | 'details' | 'images';
++type LegacyInventoryWizardStepId = InventoryWizardStepId | 'review';
+ type InventoryWizardPersistedDraft = {
+-  activeStepId: InventoryWizardStepId;
++  activeStepId: LegacyInventoryWizardStepId;
+   values: InventoryFormValues;
+   media: MediaAssetDto[];
+ };
+@@ -140,50 +139,6 @@ function validateDetails(values: InventoryFormValues, t: (key: string) => string
+   return '';
+ }
+ 
+-function WizardReviewCard({ kind, values, media, i18n }: { kind: InventoryKind; values: InventoryFormValues; media: MediaAssetDto[]; i18n: InventoryI18n }) {
+-  const previewItem = useMemo(() => {
+-    const base = {
+-      id: 'preview',
+-      title: values.title.trim() || (kind === 'need' ? i18n.t?.('inventory.form.titleNeedExample') ?? 'Landing page design' : i18n.t?.('inventory.form.titleOfferExample') ?? 'Product photography'),
+-      description: values.description.trim(),
+-      status: 'active',
+-      itemType: values.itemType,
+-      category: values.category,
+-      mode: parseMode(values.mode),
+-      locationLabel: values.locationLabel,
+-      tags: parseCsvList(values.tags),
+-      expiresAt: null,
+-      defaultLanguage: values.defaultLanguage,
+-      translations: [],
+-      previewTheme: values.previewTheme,
+-      media,
+-      createdAt: new Date().toISOString(),
+-      updatedAt: new Date().toISOString(),
+-      ownerId: '',
+-    };
+-    return kind === 'need'
+-      ? ({ ...base, timing: values.timing } as unknown as NeedDto)
+-      : ({ ...base, availability: values.availability, includes: parseLineList(values.includes) } as unknown as OfferDto);
+-  }, [i18n, kind, media, values]);
+-  const metadata = getInventoryMetadata(previewItem, i18n);
+-  const image = media[0] ?? null;
+-
+-  return (
+-    <article className={`inventory-wizard-review inventory-wizard-review--${sideClassName(kind)}`}>
+-      <div className="inventory-wizard-review__media" aria-hidden="true">
+-        {image ? <img src={mediaSrc(image)} alt="" /> : <span>{sideLabel(kind, i18n)}</span>}
+-      </div>
+-      <div className="inventory-wizard-review__body">
+-        <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
+-        <h3>{previewItem.title}</h3>
+-        {values.description.trim() ? <p>{values.description.trim()}</p> : null}
+-        {metadata ? <small>{metadata}</small> : null}
+-        {media.length ? <em>{i18n.t?.('inventory.wizard.imageCount', { count: media.length }) ?? `${media.length} images`}</em> : <em>{i18n.t?.('inventory.labels.noImagesSelected') ?? 'No images selected yet.'}</em>}
+-      </div>
+-    </article>
+-  );
+-}
+-
+ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedirect }: InventoryCreateWizardClientProps) {
+   const auth = useWebAuth();
+   const router = useRouter();
+@@ -199,7 +154,6 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+   const [error, setError] = useState('');
+   const i18n = useMemo(() => ({ t, language }), [language, t]);
+   const noun = kindLabel(kind, i18n);
+-  const lowerNoun = noun.toLowerCase();
+   const baseHref = kind === 'need' ? '/needs' : '/offers';
+   const formCancelHref = cancelHref ?? baseHref;
+   const fullFormHref = buildFullFormHref(pathname, searchParams);
+@@ -214,7 +168,8 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+   const restoreDraft = useCallback((savedDraft: InventoryWizardPersistedDraft) => {
+     setValues({ ...emptyInventoryFormValues, ...(savedDraft.values ?? {}) });
+     setMedia(Array.isArray(savedDraft.media) ? normalizeMediaOrder(savedDraft.media) : []);
+-    setActiveStepId(['idea', 'details', 'images', 'review'].includes(savedDraft.activeStepId) ? savedDraft.activeStepId : 'idea');
++    const restoredStepId = savedDraft.activeStepId === 'review' ? 'images' : savedDraft.activeStepId;
++    setActiveStepId(['idea', 'details', 'images'].includes(restoredStepId) ? restoredStepId : 'idea');
+   }, []);
+   const inventoryWizardDraft = useWebWizardDraft({
+     storageKey: draftStorageKey,
+@@ -254,16 +209,11 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+     },
+     {
+       id: 'images',
+-      title: t('inventory.wizard.imagesTitle'),
++      title: `${t('inventory.wizard.imagesTitle')} + ${t('common.actions.save')}`,
+       description: kind === 'need' ? t('inventory.wizard.needImagesBody') : t('inventory.wizard.offerImagesBody'),
+       optional: true,
+       completed: media.length > 0,
+     },
+-    {
+-      id: 'review',
+-      title: t('inventory.wizard.reviewTitle'),
+-      description: t('inventory.wizard.reviewBody'),
+-    },
+   ]), [kind, media.length, t, values]);
+ 
+   useEffect(() => {
+@@ -395,7 +345,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+   }
+ 
+   const isFirstStep = activeStepId === steps[0]?.id;
+-  const isReviewStep = activeStepId === 'review';
++  const isFinalStep = activeStepId === 'images';
+ 
+   if (!auth.isAuthenticated && auth.hydrated) {
+     return (
+@@ -414,27 +364,27 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+     <section className="mobile-page">
+       <WizardShell
+         title={kind === 'need' ? t('inventory.wizard.createNeedTitle') : t('inventory.wizard.createOfferTitle')}
+-        subtitle={kind === 'need' ? t('inventory.wizard.createNeedBody') : t('inventory.wizard.createOfferBody')}
+         backHref={formCancelHref}
+         backLabel={t('common.actions.back')}
+         steps={steps}
+         activeStepId={activeStepId}
+         stepLabel={t('inventory.wizard.stepLabel')}
+         ofLabel={t('inventory.wizard.ofLabel')}
+-        rightSlot={<Link className="button secondary compact" href={fullFormHref}>{t('inventory.wizard.fullFormShort')}</Link>}
++        className="wizard-shell--inventory-create"
++        rightSlot={<Link className="button secondary compact inventory-wizard-full-link" href={fullFormHref}>{t('inventory.wizard.fullFormShort')}</Link>}
+         footer={(
+           <WizardFooter
+-            primaryLabel={isReviewStep ? `${t('common.actions.create')} ${noun}` : t('common.actions.continue')}
++            primaryLabel={isFinalStep ? `${t('common.actions.create')} ${noun}` : t('common.actions.continue')}
+             primaryLoading={saving}
+             primaryLoadingLabel={t('common.states.saving')}
+             primaryDisabled={uploading || !auth.hydrated || saving}
+-            onPrimary={isReviewStep ? () => void saveItem() : goNext}
++            onPrimary={isFinalStep ? () => void saveItem() : goNext}
+             secondaryLabel={isFirstStep ? t('common.actions.cancel') : t('common.actions.back')}
+             secondaryHref={isFirstStep ? formCancelHref : undefined}
+             onSecondary={isFirstStep ? undefined : goBack}
+             tertiaryLabel={t('inventory.wizard.openFullForm')}
+             tertiaryHref={fullFormHref}
+-            helperText={isReviewStep ? t('inventory.wizard.saveActiveHelper') : undefined}
++            helperText={isFinalStep ? t('inventory.wizard.saveActiveHelper') : undefined}
+           />
+         )}
+       >
+@@ -539,17 +489,6 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+           </section>
+         ) : null}
+ 
+-        {activeStepId === 'review' ? (
+-          <section className="inventory-wizard-review-stack">
+-            <WizardReviewCard kind={kind} values={values} media={media} i18n={i18n} />
+-            <section className="notice-box neutral inventory-wizard-advanced-note">
+-              <strong>{t('inventory.wizard.reviewNoticeTitle')}</strong>
+-              <span>{t('inventory.wizard.reviewNoticeBody')}</span>
+-              <Link href={fullFormHref}>{t('inventory.wizard.openFullForm')}</Link>
+-            </section>
+-          </section>
+-        ) : null}
+-
+         {message ? <p className="form-message form-message--success">{message}</p> : null}
+         {error ? <p className="form-message form-message--error">{error}</p> : null}
+         {!auth.hydrated ? <p className="form-message">{t('inventory.labels.checkingSession')}</p> : null}

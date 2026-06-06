@@ -1,0 +1,206 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 88f5495..48a0b21 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -4669,3 +4669,188 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     grid-template-columns: 1fr;
+   }
+ }
++
++/* WIZARD32: web Need/Offer mobile-web polish pass */
++.inventory-create-page {
++  gap: 14px;
++}
++
++.wizard-shell--inventory-create .wizard-shell__title-row {
++  align-items: center;
++}
++
++.wizard-shell--inventory-create .wizard-shell__right-slot {
++  display: grid;
++  place-items: center;
++}
++
++.wizard-shell--inventory-create .wizard-footer__actions {
++  align-items: stretch;
++}
++
++@media (max-width: 520px) {
++  .inventory-create-page {
++    gap: 12px;
++  }
++
++  .wizard-shell--inventory-create {
++    gap: 12px;
++  }
++
++  .wizard-shell--inventory-create .wizard-shell__header {
++    gap: 9px;
++    border-radius: 21px;
++    padding: 10px;
++  }
++
++  .wizard-shell--inventory-create .wizard-shell__title-row {
++    gap: 9px;
++  }
++
++  .wizard-shell--inventory-create .web-back-button,
++  .wizard-shell--inventory-create .inventory-create-menu__trigger {
++    flex: 0 0 38px;
++    width: 38px;
++    height: 38px;
++  }
++
++  .wizard-shell--inventory-create .web-back-button {
++    font-size: 28px;
++  }
++
++  .wizard-shell--inventory-create .wizard-shell__title-copy h1 {
++    overflow: hidden;
++    font-size: 20px;
++    line-height: 1.06;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .wizard-shell--inventory-create .wizard-shell__body {
++    gap: 12px;
++  }
++
++  .wizard-shell--inventory-create .wizard-shell__step-intro h2 {
++    font-size: 21px;
++    line-height: 1.08;
++  }
++
++  .wizard-shell--inventory-create .wizard-progress {
++    gap: 6px;
++  }
++
++  .wizard-shell--inventory-create .wizard-progress__track {
++    height: 4px;
++  }
++
++  .wizard-shell--inventory-create .mobile-card,
++  .wizard-shell--inventory-create .app-card,
++  .wizard-shell--inventory-create .card {
++    border-radius: 22px;
++    padding: 14px;
++  }
++
++  .wizard-shell--inventory-create .field-label {
++    gap: 6px;
++  }
++
++  .wizard-shell--inventory-create .field-label__row {
++    align-items: flex-start;
++    gap: 8px;
++  }
++
++  .wizard-shell--inventory-create .field-label__row small {
++    font-size: 11px;
++    line-height: 1.25;
++    text-align: right;
++  }
++
++  .inventory-wizard-card--idea {
++    gap: 11px;
++  }
++
++  .inventory-wizard-card--idea textarea {
++    min-height: 118px;
++  }
++
++  .inventory-wizard-card--details,
++  .inventory-details-primary,
++  .inventory-details-optional {
++    gap: 10px;
++  }
++
++  .inventory-details-toggle {
++    min-height: 44px;
++    border-radius: 16px;
++    padding-inline: 12px;
++  }
++
++  .inventory-save-summary-card {
++    gap: 12px;
++  }
++
++  .inventory-save-summary-card__header {
++    align-items: flex-start;
++  }
++
++  .inventory-save-summary-card h3 {
++    font-size: 21px;
++  }
++
++  .inventory-save-summary-card p {
++    -webkit-line-clamp: 2;
++  }
++
++  .inventory-save-summary-card__details {
++    grid-template-columns: 1fr;
++  }
++
++  .inventory-save-summary-card__details div {
++    padding: 9px 10px;
++  }
++
++  .inventory-save-summary-card__edit-details {
++    min-height: 42px;
++    border-radius: 16px;
++  }
++
++  .inventory-media-panel__header h3 {
++    font-size: 20px;
++  }
++
++  .inventory-media-panel__empty {
++    border-radius: 16px;
++    padding: 12px;
++  }
++
++  .image-upload-button--full {
++    min-height: 46px;
++  }
++
++  .wizard-shell--inventory-create .wizard-footer {
++    border-radius: 20px;
++    padding: 11px;
++  }
++
++  .wizard-shell--inventory-create .wizard-footer__actions {
++    gap: 8px;
++  }
++
++  .wizard-shell--inventory-create .wizard-footer__button {
++    min-height: 46px;
++    border-radius: 15px;
++    padding-inline: 12px;
++    font-size: 14px;
++  }
++}
++
++@media (max-width: 360px) {
++  .wizard-shell--inventory-create .wizard-footer__actions {
++    display: grid;
++    grid-template-columns: 1fr;
++  }
++
++  .wizard-shell--inventory-create .wizard-footer__button--primary {
++    order: -1;
++  }
++}
+diff --git a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+index 0fa8b63..6b1f29e 100644
+--- a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
++++ b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+@@ -410,7 +410,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+   }
+ 
+   return (
+-    <section className="mobile-page">
++    <section className="mobile-page inventory-create-page">
+       <WizardShell
+         title={kind === 'need' ? t('inventory.wizard.createNeedTitle') : t('inventory.wizard.createOfferTitle')}
+         backHref={formCancelHref}

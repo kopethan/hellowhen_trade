@@ -18,6 +18,7 @@ type TradeSidePickerProps = {
   items: Inventory[];
   selectedId: string;
   chooseHref: string;
+  sourceChoiceHref?: string;
   newHref: string;
   emptyTitle: string;
   emptyBody: string;
@@ -45,35 +46,25 @@ function InventoryPreview({ item, side }: { item: Inventory; side: Side }) {
   );
 }
 
-function SourceCard({ href, icon, title, body, dashed = false }: { href: string; icon: 'need' | 'offer' | 'trade' | 'add'; title: string; body: string; dashed?: boolean }) {
+function SourceActionLink({ href, label, ariaLabel, tone = 'default' }: { href: string; label: string; ariaLabel: string; tone?: 'default' | 'starter' | 'create' }) {
   return (
-    <Link href={href} className={`trade-side-source-card${dashed ? ' trade-side-source-card--dashed' : ''}`}>
-      <span><WebIcon name={icon} size={22} decorative /></span>
-      <strong>{title}</strong>
-      <small>{body}</small>
+    <Link href={href} aria-label={ariaLabel} className={`trade-side-inline-action trade-side-inline-action--${tone}`}>
+      {label}
     </Link>
   );
 }
 
-function SourceButton({ onClick, iconLabel, title, body, warning = false }: { onClick: () => void; iconLabel: string; title: string; body: string; warning?: boolean }) {
-  return (
-    <button type="button" className={`trade-side-source-card trade-side-source-card--button${warning ? ' trade-side-source-card--warning' : ''}`} onClick={onClick}>
-      <span>{iconLabel}</span>
-      <strong>{title}</strong>
-      <small>{body}</small>
-    </button>
-  );
-}
-
-export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, newHref, emptyTitle, emptyBody, moneyEnabled = false, cashPromiseEnabled = false }: TradeSidePickerProps) {
+export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, sourceChoiceHref, newHref, emptyTitle, emptyBody, moneyEnabled = false, cashPromiseEnabled = false }: TradeSidePickerProps) {
   const { t } = useWebTranslation();
   const sideClass = side === 'need' ? 'need' : 'offer';
   const moneyText = side === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
   const savedText = side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer');
-  const chooseText = side === 'need' ? t('trade.sidePicker.searchSaved', { items: t('inventory.labels.needs').toLowerCase() }) : t('trade.sidePicker.searchSaved', { items: t('inventory.labels.offers').toLowerCase() });
   const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const itemLabel = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
   const selected = items.find((item) => item.id === selectedId) ?? null;
+  const sourceTitle = t('trade.sidePicker.chooseSourceTitle', { item: itemLabel.toLowerCase() });
+  const sourceBody = t('trade.sidePicker.chooseSourceBody', { items: pluralLabel, item: itemLabel.toLowerCase() });
+  const sourceRouteHref = sourceChoiceHref ?? chooseHref;
 
   return (
     <section className="mobile-card trade-side-picker">
@@ -99,21 +90,37 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
         </div>
       ) : selected ? (
         <div className="trade-side-choice-state">
-          <Link href={sourceHref(chooseHref, 'mine')} className="trade-side-choice-card" aria-label={t('trade.sidePicker.changeSource')}>
+          <Link href={sourceRouteHref} className="trade-side-choice-card trade-side-choice-card--link" aria-label={t('trade.sidePicker.changeSource')}>
             <InventoryPreview item={selected} side={side} />
           </Link>
-          <Link href={sourceHref(chooseHref, 'mine')} className="button secondary trade-side-change-button">{t('common.actions.edit')}</Link>
+          <div className="trade-side-inline-actions" role="group" aria-label={t('trade.sidePicker.changeSource')}>
+            <SourceActionLink
+              href={sourceHref(chooseHref, 'mine')}
+              label={t('trade.sidePicker.sourceMineShort')}
+              ariaLabel={t('trade.sidePicker.useMine')}
+            />
+            <SourceActionLink
+              href={sourceHref(chooseHref, 'starter')}
+              label={t('trade.sidePicker.sourceStarterShort')}
+              ariaLabel={t('trade.sidePicker.useStarter')}
+              tone="starter"
+            />
+            <SourceActionLink
+              href={newHref}
+              label={t('common.actions.create')}
+              ariaLabel={t('trade.sidePicker.createNew', { item: itemLabel })}
+              tone="create"
+            />
+          </div>
         </div>
       ) : (
         <div className="trade-side-source-step trade-side-source-step--inline">
           <p className="trade-side-source-inline-copy">{items.length ? t('inventory.messages.visibleItems', { count: items.length, items: pluralLabel }) : emptyTitle || emptyBody}</p>
-          <div className="trade-side-source-grid trade-side-source-grid--inline">
-            <SourceCard href={sourceHref(chooseHref, 'mine')} icon={side === 'need' ? 'need' : 'offer'} title={t('trade.sidePicker.useMine')} body={t('trade.sidePicker.useMineBody', { items: pluralLabel })} />
-            <SourceCard href={sourceHref(chooseHref, 'starter')} icon="trade" title={t('trade.sidePicker.useStarter')} body={t('trade.sidePicker.useStarterBody')} />
-            <SourceCard href={newHref} icon="add" title={t('trade.sidePicker.createNew', { item: itemLabel })} body={t('trade.sidePicker.createNewBody')} dashed />
-            {moneyEnabled ? <SourceButton iconLabel="€" title={t('account.walletMoney')} body={t('account.wallet.optionalWalletBody')} onClick={() => onModeChange('money')} /> : null}
-            {cashPromiseEnabled ? <SourceButton iconLabel="€" title={t('trade.cashPromise.title')} body={t('trade.cashPromise.notProcessed')} warning onClick={() => onModeChange('cash_promise')} /> : null}
-          </div>
+          <Link href={sourceRouteHref} className="trade-side-source-trigger">
+            <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={20} decorative /></span>
+            <strong>{sourceTitle}</strong>
+            <small>{sourceBody}</small>
+          </Link>
         </div>
       )}
     </section>

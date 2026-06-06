@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CreateNeedRequest, CreateOfferRequest, MediaAssetDto, NeedDto, OfferDto, TradeExchangeMode } from '@hellowhen/contracts';
+import type { CreateNeedRequest, CreateOfferRequest, MediaAssetDto, TradeExchangeMode } from '@hellowhen/contracts';
 import type { TranslationValues } from '@hellowhen/i18n';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { findInventoryCategoryOption, getNextWizardStepId, getPreviousWizardStepId, inventoryCategoryOptions, type WizardStepDefinition } from '@hellowhen/shared';
@@ -17,10 +17,8 @@ import { InventoryMediaOrderPanel } from './InventoryMediaOrderPanel';
 import { InventoryPreviewThemePicker } from './InventoryPreviewThemePicker';
 import {
   emptyInventoryFormValues,
-  getInventoryMetadata,
   itemTypeLabel,
   kindLabel,
-  mediaSrc,
   modeLabel,
   normalizeInventoryItem,
   normalizeInventoryTranslationsForPayload,
@@ -48,9 +46,10 @@ type InventoryCreateWizardClientProps = {
   afterCreateRedirect?: InventoryCreateRedirect;
 };
 
-type InventoryWizardStepId = 'idea' | 'details' | 'images' | 'review';
+type InventoryWizardStepId = 'idea' | 'details' | 'images';
+type LegacyInventoryWizardStepId = InventoryWizardStepId | 'review';
 type InventoryWizardPersistedDraft = {
-  activeStepId: InventoryWizardStepId;
+  activeStepId: LegacyInventoryWizardStepId;
   values: InventoryFormValues;
   media: MediaAssetDto[];
 };
@@ -140,50 +139,6 @@ function validateDetails(values: InventoryFormValues, t: (key: string) => string
   return '';
 }
 
-function WizardReviewCard({ kind, values, media, i18n }: { kind: InventoryKind; values: InventoryFormValues; media: MediaAssetDto[]; i18n: InventoryI18n }) {
-  const previewItem = useMemo(() => {
-    const base = {
-      id: 'preview',
-      title: values.title.trim() || (kind === 'need' ? i18n.t?.('inventory.form.titleNeedExample') ?? 'Landing page design' : i18n.t?.('inventory.form.titleOfferExample') ?? 'Product photography'),
-      description: values.description.trim(),
-      status: 'active',
-      itemType: values.itemType,
-      category: values.category,
-      mode: parseMode(values.mode),
-      locationLabel: values.locationLabel,
-      tags: parseCsvList(values.tags),
-      expiresAt: null,
-      defaultLanguage: values.defaultLanguage,
-      translations: [],
-      previewTheme: values.previewTheme,
-      media,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      ownerId: '',
-    };
-    return kind === 'need'
-      ? ({ ...base, timing: values.timing } as unknown as NeedDto)
-      : ({ ...base, availability: values.availability, includes: parseLineList(values.includes) } as unknown as OfferDto);
-  }, [i18n, kind, media, values]);
-  const metadata = getInventoryMetadata(previewItem, i18n);
-  const image = media[0] ?? null;
-
-  return (
-    <article className={`inventory-wizard-review inventory-wizard-review--${sideClassName(kind)}`}>
-      <div className="inventory-wizard-review__media" aria-hidden="true">
-        {image ? <img src={mediaSrc(image)} alt="" /> : <span>{sideLabel(kind, i18n)}</span>}
-      </div>
-      <div className="inventory-wizard-review__body">
-        <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
-        <h3>{previewItem.title}</h3>
-        {values.description.trim() ? <p>{values.description.trim()}</p> : null}
-        {metadata ? <small>{metadata}</small> : null}
-        {media.length ? <em>{i18n.t?.('inventory.wizard.imageCount', { count: media.length }) ?? `${media.length} images`}</em> : <em>{i18n.t?.('inventory.labels.noImagesSelected') ?? 'No images selected yet.'}</em>}
-      </div>
-    </article>
-  );
-}
-
 export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedirect }: InventoryCreateWizardClientProps) {
   const auth = useWebAuth();
   const router = useRouter();
@@ -197,9 +152,12 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [attemptedStepId, setAttemptedStepId] = useState<InventoryWizardStepId | null>(null);
+  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
+  const [wizardMenuOpen, setWizardMenuOpen] = useState(false);
+  const [wizardHelpOpen, setWizardHelpOpen] = useState(false);
   const i18n = useMemo(() => ({ t, language }), [language, t]);
   const noun = kindLabel(kind, i18n);
-  const lowerNoun = noun.toLowerCase();
   const baseHref = kind === 'need' ? '/needs' : '/offers';
   const formCancelHref = cancelHref ?? baseHref;
   const fullFormHref = buildFullFormHref(pathname, searchParams);
@@ -214,7 +172,8 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   const restoreDraft = useCallback((savedDraft: InventoryWizardPersistedDraft) => {
     setValues({ ...emptyInventoryFormValues, ...(savedDraft.values ?? {}) });
     setMedia(Array.isArray(savedDraft.media) ? normalizeMediaOrder(savedDraft.media) : []);
-    setActiveStepId(['idea', 'details', 'images', 'review'].includes(savedDraft.activeStepId) ? savedDraft.activeStepId : 'idea');
+    const restoredStepId = savedDraft.activeStepId === 'review' ? 'images' : savedDraft.activeStepId;
+    setActiveStepId(['idea', 'details', 'images'].includes(restoredStepId) ? restoredStepId : 'idea');
   }, []);
   const inventoryWizardDraft = useWebWizardDraft({
     storageKey: draftStorageKey,
@@ -242,7 +201,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   const steps = useMemo<WizardStepDefinition<InventoryWizardStepId>[]>(() => ([
     {
       id: 'idea',
-      title: kind === 'need' ? t('inventory.wizard.needIdeaTitle') : t('inventory.wizard.offerIdeaTitle'),
+      title: kind === 'need' ? t('inventory.form.needQuestion') : t('inventory.form.offerQuestion'),
       description: kind === 'need' ? t('inventory.wizard.needIdeaBody') : t('inventory.wizard.offerIdeaBody'),
       completed: !validateIdea(values, kind, t),
     },
@@ -254,15 +213,10 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
     },
     {
       id: 'images',
-      title: t('inventory.wizard.imagesTitle'),
+      title: `${t('inventory.wizard.imagesTitle')} + ${t('common.actions.save')}`,
       description: kind === 'need' ? t('inventory.wizard.needImagesBody') : t('inventory.wizard.offerImagesBody'),
       optional: true,
       completed: media.length > 0,
-    },
-    {
-      id: 'review',
-      title: t('inventory.wizard.reviewTitle'),
-      description: t('inventory.wizard.reviewBody'),
     },
   ]), [kind, media.length, t, values]);
 
@@ -286,10 +240,12 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
 
   function goNext() {
     const validationError = currentStepValidationError();
+    setAttemptedStepId(activeStepId);
     if (validationError) {
       setError(validationError);
       return;
     }
+    setAttemptedStepId(null);
     setError('');
     setMessage('');
     const nextStepId = getNextWizardStepId(steps, activeStepId);
@@ -301,6 +257,26 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
     setMessage('');
     const previousStepId = getPreviousWizardStepId(steps, activeStepId);
     if (previousStepId) setActiveStepId(previousStepId);
+  }
+
+  function editStep(stepId: InventoryWizardStepId) {
+    setAttemptedStepId(null);
+    setError('');
+    setMessage('');
+    setActiveStepId(stepId);
+  }
+
+  function resetWizardDraft() {
+    inventoryWizardDraft.clearDraft();
+    setValues({ ...emptyInventoryFormValues, defaultLanguage: language });
+    setMedia([]);
+    setActiveStepId('idea');
+    setAttemptedStepId(null);
+    setShowOptionalDetails(false);
+    setWizardHelpOpen(false);
+    setWizardMenuOpen(false);
+    setError('');
+    setMessage('');
   }
 
   async function uploadFiles(files: FileList | null) {
@@ -364,10 +340,14 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   async function saveItem() {
     const validationError = validateAll();
     if (validationError) {
+      const detailsError = validateDetails(values, t);
+      const nextStepId: InventoryWizardStepId = validationError === detailsError ? 'details' : 'idea';
+      setAttemptedStepId(nextStepId);
       setError(validationError);
-      setActiveStepId(validationError === validateDetails(values, t) ? 'details' : 'idea');
+      setActiveStepId(nextStepId);
       return;
     }
+    setAttemptedStepId(null);
     setSaving(true);
     setError('');
     setMessage('');
@@ -394,8 +374,27 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
     }
   }
 
+  const timingOrAvailabilityValue = kind === 'need' ? values.timing : values.availability;
+  const timingOrAvailabilityPlaceholder = kind === 'need' ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder');
+  const locationPlaceholder = kind === 'need' ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder');
+  const tagsPlaceholder = kind === 'need' ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder');
+  const finalPrimaryLabel = kind === 'need' ? t('inventory.actions.saveNeed') : t('inventory.actions.saveOffer');
+  const finalImagesBody = kind === 'need' ? t('inventory.wizard.needImagesBody') : t('inventory.wizard.offerImagesBody');
+  const finalTimingOrAvailabilityLabel = kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability');
+  const finalTimingOrAvailabilityValue = timingOrAvailabilityValue.trim() || t('inventory.labels.notSpecified');
+  const finalCategoryOption = values.category ? findInventoryCategoryOption(values.category) : undefined;
+  const finalCategoryLabel = values.category ? (finalCategoryOption ? t(finalCategoryOption.labelKey) : values.category) : t('inventory.labels.notSpecified');
+  const finalLocationLabel = values.locationLabel.trim() || t('inventory.labels.notSpecified');
+  const finalDescription = values.description.trim() || t('inventory.form.previewDescriptionFallback');
+  const titleError = activeStepId === 'idea' && attemptedStepId === 'idea' && values.title.trim().length < INVENTORY_TITLE_MIN_LENGTH
+    ? (kind === 'need' ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'))
+    : '';
+  const descriptionError = activeStepId === 'idea' && attemptedStepId === 'idea' && values.description.trim().length < INVENTORY_DESCRIPTION_MIN_LENGTH
+    ? (kind === 'need' ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort'))
+    : '';
+
   const isFirstStep = activeStepId === steps[0]?.id;
-  const isReviewStep = activeStepId === 'review';
+  const isFinalStep = activeStepId === 'images';
 
   if (!auth.isAuthenticated && auth.hydrated) {
     return (
@@ -411,141 +410,246 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   }
 
   return (
-    <section className="mobile-page">
+    <section className="mobile-page inventory-create-page">
       <WizardShell
         title={kind === 'need' ? t('inventory.wizard.createNeedTitle') : t('inventory.wizard.createOfferTitle')}
-        subtitle={kind === 'need' ? t('inventory.wizard.createNeedBody') : t('inventory.wizard.createOfferBody')}
         backHref={formCancelHref}
         backLabel={t('common.actions.back')}
         steps={steps}
         activeStepId={activeStepId}
         stepLabel={t('inventory.wizard.stepLabel')}
         ofLabel={t('inventory.wizard.ofLabel')}
-        rightSlot={<Link className="button secondary compact" href={fullFormHref}>{t('inventory.wizard.fullFormShort')}</Link>}
+        className="wizard-shell--inventory-create"
+        rightSlot={(
+          <div className="inventory-create-menu">
+            <button
+              type="button"
+              className="inventory-create-menu__trigger"
+              aria-haspopup="menu"
+              aria-expanded={wizardMenuOpen}
+              aria-label={t('inventory.wizard.menuTitle')}
+              onClick={() => setWizardMenuOpen((open) => !open)}
+            >
+              <span className="inventory-create-menu__trigger-dot" aria-hidden="true" />
+            </button>
+            {wizardMenuOpen ? (
+              <div className="inventory-create-menu__panel" role="menu" aria-label={t('inventory.wizard.menuTitle')}>
+                <Link role="menuitem" href={fullFormHref} onClick={() => setWizardMenuOpen(false)}>{t('inventory.wizard.openFullForm')}</Link>
+                <button role="menuitem" type="button" onClick={resetWizardDraft}>{t('inventory.wizard.resetDraft')}</button>
+                <button
+                  role="menuitem"
+                  type="button"
+                  onClick={() => {
+                    setWizardHelpOpen((open) => !open);
+                    setWizardMenuOpen(false);
+                  }}
+                >
+                  {wizardHelpOpen ? t('common.actions.hide') : t('inventory.wizard.helpTitle')}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        )}
         footer={(
           <WizardFooter
-            primaryLabel={isReviewStep ? `${t('common.actions.create')} ${noun}` : t('common.actions.continue')}
+            primaryLabel={isFinalStep ? finalPrimaryLabel : t('common.actions.continue')}
             primaryLoading={saving}
             primaryLoadingLabel={t('common.states.saving')}
             primaryDisabled={uploading || !auth.hydrated || saving}
-            onPrimary={isReviewStep ? () => void saveItem() : goNext}
+            onPrimary={isFinalStep ? () => void saveItem() : goNext}
             secondaryLabel={isFirstStep ? t('common.actions.cancel') : t('common.actions.back')}
             secondaryHref={isFirstStep ? formCancelHref : undefined}
             onSecondary={isFirstStep ? undefined : goBack}
-            tertiaryLabel={t('inventory.wizard.openFullForm')}
-            tertiaryHref={fullFormHref}
-            helperText={isReviewStep ? t('inventory.wizard.saveActiveHelper') : undefined}
+            helperText={isFinalStep ? t('inventory.wizard.saveActiveHelper') : undefined}
           />
         )}
       >
         {inventoryWizardDraft.restored ? <p className="form-message">{t('inventory.wizard.draftRestoredTitle')} · {t('inventory.wizard.draftRestoredBody')}</p> : null}
 
+        {wizardHelpOpen ? (
+          <section className="mobile-card mobile-card--soft inventory-create-help-panel" role="note">
+            <div>
+              <span className="semantic-badge instruction">{t('inventory.wizard.menuTitle')}</span>
+              <h3>{t('inventory.wizard.helpTitle')}</h3>
+              <p>{kind === 'need' ? t('inventory.wizard.needHelpBody') : t('inventory.wizard.offerHelpBody')}</p>
+            </div>
+            <Link href={fullFormHref} className="button secondary compact">{t('inventory.wizard.openFullForm')}</Link>
+          </section>
+        ) : null}
+
         {activeStepId === 'idea' ? (
-          <section className="mobile-card inventory-wizard-card">
+          <section className="mobile-card inventory-wizard-card inventory-wizard-card--idea">
             <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
             <label className="field-label">
               <span className="field-label__row"><span>{t('inventory.labels.title')}</span><small>{t('inventory.form.textCounter', { count: values.title.length, max: INVENTORY_TITLE_MAX_LENGTH })}</small></span>
-              <input value={values.title} onChange={(event) => updateField('title', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.titleNeedPlaceholder') : t('inventory.form.titleOfferPlaceholder')} required minLength={INVENTORY_TITLE_MIN_LENGTH} maxLength={INVENTORY_TITLE_MAX_LENGTH} />
+              <input
+                value={values.title}
+                onChange={(event) => updateField('title', event.target.value)}
+                placeholder={kind === 'need' ? t('inventory.form.titleNeedExample') : t('inventory.form.titleOfferExample')}
+                required
+                minLength={INVENTORY_TITLE_MIN_LENGTH}
+                maxLength={INVENTORY_TITLE_MAX_LENGTH}
+                aria-invalid={Boolean(titleError)}
+                aria-describedby={titleError ? 'inventory-idea-title-error' : undefined}
+              />
             </label>
+            {titleError ? <p id="inventory-idea-title-error" className="field-error" role="alert">{titleError}</p> : null}
             <label className="field-label">
               <span className="field-label__row"><span>{t('inventory.labels.description')}</span><small>{t('inventory.form.textCounter', { count: values.description.length, max: INVENTORY_DESCRIPTION_MAX_LENGTH })}</small></span>
-              <textarea value={values.description} onChange={(event) => updateField('description', event.target.value)} placeholder={kind === 'need' ? t('inventory.form.descriptionNeedPlaceholder') : t('inventory.form.descriptionOfferPlaceholder')} required minLength={INVENTORY_DESCRIPTION_MIN_LENGTH} maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH} rows={6} />
+              <textarea
+                value={values.description}
+                onChange={(event) => updateField('description', event.target.value)}
+                placeholder={kind === 'need' ? t('inventory.form.descriptionNeedMobile') : t('inventory.form.descriptionOfferMobile')}
+                required
+                minLength={INVENTORY_DESCRIPTION_MIN_LENGTH}
+                maxLength={INVENTORY_DESCRIPTION_MAX_LENGTH}
+                rows={4}
+                aria-invalid={Boolean(descriptionError)}
+                aria-describedby={descriptionError ? 'inventory-idea-description-error' : undefined}
+              />
             </label>
-            <aside className="notice-box neutral inventory-wizard-advanced-note">
-              <strong>{t('inventory.wizard.languageAdvancedTitle')}</strong>
-              <span>{t('inventory.wizard.languageAdvancedBody')}</span>
-              <Link href={fullFormHref}>{t('inventory.wizard.openFullForm')}</Link>
-            </aside>
+            {descriptionError ? <p id="inventory-idea-description-error" className="field-error" role="alert">{descriptionError}</p> : null}
           </section>
         ) : null}
 
         {activeStepId === 'details' ? (
-          <section className="mobile-card mobile-card--soft inventory-form__grid inventory-form__grid--simple inventory-wizard-card">
-            <label className="field-label inventory-form__wide">
-              {t('inventory.labels.type')}
-              <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryFormValues['itemType'])}>
-                <option value="service">{itemTypeLabel('service', i18n)}</option>
-                <option value="goods">{itemTypeLabel('goods', i18n)}</option>
-                <option value="other">{itemTypeLabel('other', i18n)}</option>
-              </select>
-            </label>
-            <label className="field-label inventory-form__wide">
-              <span className="field-label__row"><span>{t('inventory.labels.category')}</span><small>{t('inventory.labels.optional')}</small></span>
-              <select value={values.category} onChange={(event) => updateField('category', event.target.value)}>
-                <option value="">{t('inventory.labels.optional')}</option>
-                {values.category && !findInventoryCategoryOption(values.category) ? <option value={values.category}>{values.category}</option> : null}
-                {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
-              </select>
-              <small>{t('inventory.form.categoryHelp')}</small>
-            </label>
-            <label className="field-label inventory-form__wide">
-              {kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}
-              <input
-                value={kind === 'need' ? values.timing : values.availability}
-                onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)}
-                placeholder={kind === 'need' ? t('inventory.form.timingPlaceholder') : t('inventory.form.availabilityPlaceholder')}
-                maxLength={120}
-              />
-            </label>
-            <label className="field-label inventory-form__wide">
-              <span className="field-label__row"><span>{t('inventory.labels.tags')}</span><small>{t('inventory.labels.optional')}</small></span>
-              <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} maxLength={160} />
-              <small>{t('inventory.form.separateWithCommas')}</small>
-            </label>
-            <label className="field-label">
-              {t('inventory.labels.mode')}
-              <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
-                <option value="remote">{modeLabel('remote', i18n)}</option>
-                <option value="local">{modeLabel('local', i18n)}</option>
-                <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
-              </select>
-            </label>
-            <label className="field-label">
-              {t('inventory.labels.locationLabel')}
-              <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={t('inventory.form.locationPlaceholder')} maxLength={120} />
-            </label>
-            {kind === 'offer' ? (
-              <label className="field-label inventory-form__wide">
-                <span className="field-label__row"><span>{t('inventory.labels.includes')}</span><small>{t('inventory.labels.optional')}</small></span>
-                <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesPlaceholder')} rows={4} />
-                <small>{t('inventory.form.separateWithCommas')}</small>
+          <section className="mobile-card mobile-card--soft inventory-wizard-card inventory-wizard-card--details">
+            <div className="inventory-details-primary">
+              <label className="field-label">
+                {t('inventory.labels.type')}
+                <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryFormValues['itemType'])}>
+                  <option value="service">{itemTypeLabel('service', i18n)}</option>
+                  <option value="goods">{itemTypeLabel('goods', i18n)}</option>
+                  <option value="other">{itemTypeLabel('other', i18n)}</option>
+                </select>
               </label>
-            ) : null}
-            <div className="inventory-form__wide">
-              <InventoryPreviewThemePicker value={values.previewTheme} disabled={saving || uploading} onChange={(nextTheme) => updateField('previewTheme', nextTheme)} />
+              <label className="field-label">
+                <span className="field-label__row"><span>{t('inventory.labels.category')}</span><small>{t('inventory.labels.optional')}</small></span>
+                <select value={values.category} onChange={(event) => updateField('category', event.target.value)}>
+                  <option value="">{t('inventory.labels.optional')}</option>
+                  {values.category && !findInventoryCategoryOption(values.category) ? <option value={values.category}>{values.category}</option> : null}
+                  {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
+                </select>
+              </label>
+              <label className="field-label inventory-details-primary__wide">
+                <span className="field-label__row"><span>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</span><small>{t('inventory.labels.optional')}</small></span>
+                <input
+                  value={timingOrAvailabilityValue}
+                  onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)}
+                  placeholder={timingOrAvailabilityPlaceholder}
+                  maxLength={120}
+                />
+              </label>
+              <label className="field-label">
+                {t('inventory.labels.mode')}
+                <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
+                  <option value="remote">{modeLabel('remote', i18n)}</option>
+                  <option value="local">{modeLabel('local', i18n)}</option>
+                  <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
+                </select>
+              </label>
+              <label className="field-label">
+                <span className="field-label__row"><span>{t('inventory.labels.locationLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
+                <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={locationPlaceholder} maxLength={120} />
+              </label>
             </div>
+
+            <button
+              className="inventory-details-toggle"
+              type="button"
+              aria-expanded={showOptionalDetails}
+              onClick={() => setShowOptionalDetails((current) => !current)}
+            >
+              <span>{showOptionalDetails ? t('inventory.wizard.hideOptionalDetails') : t('inventory.wizard.showOptionalDetails')}</span>
+              <strong>{values.tags ? t('inventory.wizard.tagCount', { count: parseCsvList(values.tags).length }) : t('inventory.labels.optional')}</strong>
+            </button>
+
+            {showOptionalDetails ? (
+              <div className="inventory-details-optional">
+                <label className="field-label">
+                  <span className="field-label__row"><span>{t('inventory.labels.tags')}</span><small>{t('inventory.labels.optional')}</small></span>
+                  <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={tagsPlaceholder} maxLength={160} />
+                  <small>{t('inventory.form.separateWithCommas')}</small>
+                </label>
+                {kind === 'offer' ? (
+                  <label className="field-label">
+                    <span className="field-label__row"><span>{t('inventory.labels.includes')}</span><small>{t('inventory.labels.optional')}</small></span>
+                    <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesMobilePlaceholder')} rows={3} />
+                    <small>{t('inventory.form.separateWithCommas')}</small>
+                  </label>
+                ) : null}
+                <InventoryPreviewThemePicker value={values.previewTheme} disabled={saving || uploading} onChange={(nextTheme) => updateField('previewTheme', nextTheme)} />
+              </div>
+            ) : null}
           </section>
         ) : null}
 
         {activeStepId === 'images' ? (
-          <section className="mobile-card inventory-media-panel inventory-wizard-card">
-            <div>
-              <p className="eyebrow">{t('inventory.labels.images')}</p>
-              <h3>{media.length ? t('inventory.form.selectedCount', { count: media.length, max: 5 }) : kind === 'need' ? t('inventory.form.addNeedImages') : t('inventory.form.addOfferImages')}</h3>
-              <p>{t('inventory.form.imagePanelBody')}</p>
-            </div>
-            <label className="image-upload-button">
-              <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleFileChange} disabled={uploading || media.length >= 5} />
-              {uploading ? t('media.states.uploading') : media.length >= 5 ? t('inventory.actions.imageLimitReached') : t('inventory.actions.uploadImages')}
-            </label>
-            <InventoryMediaOrderPanel
-              media={media}
-              disabled={saving || uploading}
-              label={noun}
-              onMove={moveMedia}
-              onSetCover={setCoverMedia}
-              onRemove={removeMedia}
-            />
-          </section>
-        ) : null}
+          <section className="inventory-final-step">
+            <section className="mobile-card inventory-save-summary-card inventory-wizard-card">
+              <div className="inventory-save-summary-card__header">
+                <span className={`semantic-badge ${sideClassName(kind)}`}>{sideLabel(kind, i18n)}</span>
+                <button className="secondary compact" type="button" onClick={() => editStep('idea')}>{t('common.actions.edit')}</button>
+              </div>
+              <div>
+                <p className="eyebrow">{t('common.states.review')}</p>
+                <h3>{values.title.trim() || t('inventory.form.previewTitleFallback')}</h3>
+                <p>{finalDescription}</p>
+              </div>
+              <dl className="inventory-save-summary-card__details">
+                <div>
+                  <dt>{t('inventory.labels.type')}</dt>
+                  <dd>{itemTypeLabel(values.itemType, i18n)}</dd>
+                </div>
+                <div>
+                  <dt>{t('inventory.labels.mode')}</dt>
+                  <dd>{modeLabel(parseMode(values.mode) ?? 'remote', i18n)}</dd>
+                </div>
+                <div>
+                  <dt>{t('inventory.labels.category')}</dt>
+                  <dd>{finalCategoryLabel}</dd>
+                </div>
+                <div>
+                  <dt>{finalTimingOrAvailabilityLabel}</dt>
+                  <dd>{finalTimingOrAvailabilityValue}</dd>
+                </div>
+                <div>
+                  <dt>{t('inventory.labels.locationLabel')}</dt>
+                  <dd>{finalLocationLabel}</dd>
+                </div>
+                <div>
+                  <dt>{t('inventory.labels.images')}</dt>
+                  <dd>{media.length ? t('inventory.form.selectedCount', { count: media.length, max: 5 }) : t('inventory.labels.noImagesSelected')}</dd>
+                </div>
+              </dl>
+              <button className="inventory-save-summary-card__edit-details" type="button" onClick={() => editStep('details')}>
+                <span>{t('common.actions.edit')} {t('inventory.labels.details').toLowerCase()}</span>
+                <strong>{t('inventory.wizard.stepLabel')} 2</strong>
+              </button>
+            </section>
 
-        {activeStepId === 'review' ? (
-          <section className="inventory-wizard-review-stack">
-            <WizardReviewCard kind={kind} values={values} media={media} i18n={i18n} />
-            <section className="notice-box neutral inventory-wizard-advanced-note">
-              <strong>{t('inventory.wizard.reviewNoticeTitle')}</strong>
-              <span>{t('inventory.wizard.reviewNoticeBody')}</span>
-              <Link href={fullFormHref}>{t('inventory.wizard.openFullForm')}</Link>
+            <section className="mobile-card inventory-media-panel inventory-media-panel--final inventory-wizard-card">
+              <div className="inventory-media-panel__header">
+                <div>
+                  <p className="eyebrow">{t('inventory.labels.images')}</p>
+                  <h3>{media.length ? t('inventory.form.selectedCount', { count: media.length, max: 5 }) : kind === 'need' ? t('inventory.form.addNeedImages') : t('inventory.form.addOfferImages')}</h3>
+                  <p>{finalImagesBody}</p>
+                </div>
+                <span className="semantic-badge muted">{t('inventory.form.imagePickerHint', { count: 5 })}</span>
+              </div>
+              <label className="image-upload-button image-upload-button--full">
+                <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleFileChange} disabled={uploading || media.length >= 5} />
+                {uploading ? t('media.states.uploading') : media.length >= 5 ? t('inventory.actions.imageLimitReached') : t('inventory.actions.uploadImages')}
+              </label>
+              {!media.length ? <p className="inventory-media-panel__empty">{t('inventory.labels.noImagesSelected')}</p> : null}
+              <InventoryMediaOrderPanel
+                media={media}
+                disabled={saving || uploading}
+                label={noun}
+                onMove={moveMedia}
+                onSetCover={setCoverMedia}
+                onRemove={removeMedia}
+              />
             </section>
           </section>
         ) : null}

@@ -1,0 +1,222 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 4390877..fc7a996 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -4324,3 +4324,67 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .inventory-wizard-card--idea .field-error {
+   margin-top: -6px;
+ }
++
++/* WIZARD29: web Need/Offer details step cleanup */
++.inventory-wizard-card--details {
++  gap: 13px;
++}
++
++.inventory-details-primary,
++.inventory-details-optional {
++  display: grid;
++  gap: 12px;
++}
++
++.inventory-details-toggle {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  width: 100%;
++  min-height: 46px;
++  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
++  border-radius: 18px;
++  background: color-mix(in srgb, var(--app-bg-muted) 72%, transparent);
++  color: var(--app-text);
++  padding: 0 13px;
++  font: inherit;
++  cursor: pointer;
++}
++
++.inventory-details-toggle span {
++  font-size: 13px;
++  font-weight: 950;
++}
++
++.inventory-details-toggle strong {
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 950;
++  text-transform: uppercase;
++  letter-spacing: 0.06em;
++}
++
++.inventory-details-toggle[aria-expanded="true"] {
++  border-color: color-mix(in srgb, var(--proposal-border) 50%, var(--app-border));
++  background: color-mix(in srgb, var(--proposal-bg) 18%, var(--app-surface));
++}
++
++.inventory-details-optional {
++  border-top: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
++  padding-top: 13px;
++}
++
++.inventory-details-optional textarea {
++  min-height: 104px;
++}
++
++@media (min-width: 620px) {
++  .inventory-details-primary {
++    grid-template-columns: repeat(2, minmax(0, 1fr));
++  }
++
++  .inventory-details-primary__wide {
++    grid-column: 1 / -1;
++  }
++}
+diff --git a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+index 49ef520..6a168b4 100644
+--- a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
++++ b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+@@ -153,6 +153,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+   const [message, setMessage] = useState('');
+   const [error, setError] = useState('');
+   const [attemptedStepId, setAttemptedStepId] = useState<InventoryWizardStepId | null>(null);
++  const [showOptionalDetails, setShowOptionalDetails] = useState(false);
+   const i18n = useMemo(() => ({ t, language }), [language, t]);
+   const noun = kindLabel(kind, i18n);
+   const baseHref = kind === 'need' ? '/needs' : '/offers';
+@@ -351,6 +352,10 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+     }
+   }
+ 
++  const timingOrAvailabilityValue = kind === 'need' ? values.timing : values.availability;
++  const timingOrAvailabilityPlaceholder = kind === 'need' ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder');
++  const locationPlaceholder = kind === 'need' ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder');
++  const tagsPlaceholder = kind === 'need' ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder');
+   const titleError = activeStepId === 'idea' && attemptedStepId === 'idea' && values.title.trim().length < INVENTORY_TITLE_MIN_LENGTH
+     ? (kind === 'need' ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'))
+     : '';
+@@ -440,60 +445,74 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+         ) : null}
+ 
+         {activeStepId === 'details' ? (
+-          <section className="mobile-card mobile-card--soft inventory-form__grid inventory-form__grid--simple inventory-wizard-card">
+-            <label className="field-label inventory-form__wide">
+-              {t('inventory.labels.type')}
+-              <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryFormValues['itemType'])}>
+-                <option value="service">{itemTypeLabel('service', i18n)}</option>
+-                <option value="goods">{itemTypeLabel('goods', i18n)}</option>
+-                <option value="other">{itemTypeLabel('other', i18n)}</option>
+-              </select>
+-            </label>
+-            <label className="field-label inventory-form__wide">
+-              <span className="field-label__row"><span>{t('inventory.labels.category')}</span><small>{t('inventory.labels.optional')}</small></span>
+-              <select value={values.category} onChange={(event) => updateField('category', event.target.value)}>
+-                <option value="">{t('inventory.labels.optional')}</option>
+-                {values.category && !findInventoryCategoryOption(values.category) ? <option value={values.category}>{values.category}</option> : null}
+-                {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
+-              </select>
+-              <small>{t('inventory.form.categoryHelp')}</small>
+-            </label>
+-            <label className="field-label inventory-form__wide">
+-              {kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}
+-              <input
+-                value={kind === 'need' ? values.timing : values.availability}
+-                onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)}
+-                placeholder={kind === 'need' ? t('inventory.form.timingPlaceholder') : t('inventory.form.availabilityPlaceholder')}
+-                maxLength={120}
+-              />
+-            </label>
+-            <label className="field-label inventory-form__wide">
+-              <span className="field-label__row"><span>{t('inventory.labels.tags')}</span><small>{t('inventory.labels.optional')}</small></span>
+-              <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={t('inventory.form.tagsPlaceholder')} maxLength={160} />
+-              <small>{t('inventory.form.separateWithCommas')}</small>
+-            </label>
+-            <label className="field-label">
+-              {t('inventory.labels.mode')}
+-              <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
+-                <option value="remote">{modeLabel('remote', i18n)}</option>
+-                <option value="local">{modeLabel('local', i18n)}</option>
+-                <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
+-              </select>
+-            </label>
+-            <label className="field-label">
+-              {t('inventory.labels.locationLabel')}
+-              <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={t('inventory.form.locationPlaceholder')} maxLength={120} />
+-            </label>
+-            {kind === 'offer' ? (
+-              <label className="field-label inventory-form__wide">
+-                <span className="field-label__row"><span>{t('inventory.labels.includes')}</span><small>{t('inventory.labels.optional')}</small></span>
+-                <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesPlaceholder')} rows={4} />
+-                <small>{t('inventory.form.separateWithCommas')}</small>
++          <section className="mobile-card mobile-card--soft inventory-wizard-card inventory-wizard-card--details">
++            <div className="inventory-details-primary">
++              <label className="field-label">
++                {t('inventory.labels.type')}
++                <select value={values.itemType} onChange={(event) => updateField('itemType', event.target.value as InventoryFormValues['itemType'])}>
++                  <option value="service">{itemTypeLabel('service', i18n)}</option>
++                  <option value="goods">{itemTypeLabel('goods', i18n)}</option>
++                  <option value="other">{itemTypeLabel('other', i18n)}</option>
++                </select>
++              </label>
++              <label className="field-label">
++                <span className="field-label__row"><span>{t('inventory.labels.category')}</span><small>{t('inventory.labels.optional')}</small></span>
++                <select value={values.category} onChange={(event) => updateField('category', event.target.value)}>
++                  <option value="">{t('inventory.labels.optional')}</option>
++                  {values.category && !findInventoryCategoryOption(values.category) ? <option value={values.category}>{values.category}</option> : null}
++                  {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
++                </select>
++              </label>
++              <label className="field-label inventory-details-primary__wide">
++                <span className="field-label__row"><span>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</span><small>{t('inventory.labels.optional')}</small></span>
++                <input
++                  value={timingOrAvailabilityValue}
++                  onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)}
++                  placeholder={timingOrAvailabilityPlaceholder}
++                  maxLength={120}
++                />
++              </label>
++              <label className="field-label">
++                {t('inventory.labels.mode')}
++                <select value={values.mode} onChange={(event) => updateField('mode', event.target.value)} required>
++                  <option value="remote">{modeLabel('remote', i18n)}</option>
++                  <option value="local">{modeLabel('local', i18n)}</option>
++                  <option value="hybrid">{modeLabel('hybrid', i18n)}</option>
++                </select>
++              </label>
++              <label className="field-label">
++                <span className="field-label__row"><span>{t('inventory.labels.locationLabel')}</span><small>{t('inventory.labels.optional')}</small></span>
++                <input value={values.locationLabel} onChange={(event) => updateField('locationLabel', event.target.value)} placeholder={locationPlaceholder} maxLength={120} />
+               </label>
+-            ) : null}
+-            <div className="inventory-form__wide">
+-              <InventoryPreviewThemePicker value={values.previewTheme} disabled={saving || uploading} onChange={(nextTheme) => updateField('previewTheme', nextTheme)} />
+             </div>
++
++            <button
++              className="inventory-details-toggle"
++              type="button"
++              aria-expanded={showOptionalDetails}
++              onClick={() => setShowOptionalDetails((current) => !current)}
++            >
++              <span>{showOptionalDetails ? t('inventory.wizard.hideOptionalDetails') : t('inventory.wizard.showOptionalDetails')}</span>
++              <strong>{values.tags ? t('inventory.wizard.tagCount', { count: parseCsvList(values.tags).length }) : t('inventory.labels.optional')}</strong>
++            </button>
++
++            {showOptionalDetails ? (
++              <div className="inventory-details-optional">
++                <label className="field-label">
++                  <span className="field-label__row"><span>{t('inventory.labels.tags')}</span><small>{t('inventory.labels.optional')}</small></span>
++                  <input value={values.tags} onChange={(event) => updateField('tags', event.target.value)} placeholder={tagsPlaceholder} maxLength={160} />
++                  <small>{t('inventory.form.separateWithCommas')}</small>
++                </label>
++                {kind === 'offer' ? (
++                  <label className="field-label">
++                    <span className="field-label__row"><span>{t('inventory.labels.includes')}</span><small>{t('inventory.labels.optional')}</small></span>
++                    <textarea value={values.includes} onChange={(event) => updateField('includes', event.target.value)} placeholder={t('inventory.form.includesMobilePlaceholder')} rows={3} />
++                    <small>{t('inventory.form.separateWithCommas')}</small>
++                  </label>
++                ) : null}
++                <InventoryPreviewThemePicker value={values.previewTheme} disabled={saving || uploading} onChange={(nextTheme) => updateField('previewTheme', nextTheme)} />
++              </div>
++            ) : null}
+           </section>
+         ) : null}
+ 
