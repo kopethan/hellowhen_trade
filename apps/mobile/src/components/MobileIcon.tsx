@@ -3,6 +3,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
 export type MobileIconName =
+  | 'activity'
   | 'add'
   | 'back'
   | 'bell'
@@ -47,6 +48,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
   const strokeProps = { stroke: color, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
   switch (name) {
+    case 'activity':
+      return <><Path d="M6 6.5H18" strokeWidth={2} {...strokeProps} /><Path d="M6 12H18" strokeWidth={2} {...strokeProps} /><Path d="M6 17.5H14" strokeWidth={2} {...strokeProps} /><Circle cx={3.5} cy={6.5} r={1.2} fill={color} /><Circle cx={3.5} cy={12} r={1.2} fill={color} /><Circle cx={3.5} cy={17.5} r={1.2} fill={color} /><Path d="M17 16.5L18.5 18L21 15.5" strokeWidth={2} {...strokeProps} /></>;
     case 'add':
       return <><Path d="M12 3V21" strokeWidth={2} {...strokeProps} /><Path d="M3 12H21" strokeWidth={2} {...strokeProps} /></>;
     case 'back':

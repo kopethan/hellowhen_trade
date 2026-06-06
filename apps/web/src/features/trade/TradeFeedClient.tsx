@@ -24,7 +24,7 @@ type FeedFilters = {
   postType: '' | TradePostType;
 };
 
-type TradeFeedTab = 'discover' | 'mine' | 'involved';
+type TradeActivityTab = 'mine' | 'involved';
 type TradeWithCounts = TradeDto & { _count?: { proposals?: number } };
 type TradeWithViewerProposal = TradeWithCounts & { viewerProposal?: { id: string; status: string; createdAt?: string; respondedAt?: string | null } | null; viewerInvolvement?: 'owner' | 'provider' | 'applicant' };
 
@@ -92,7 +92,7 @@ function localFilter(trades: TradeDto[], filters: FeedFilters) {
 type TradeFeedClientProps = { showHomeIntro?: boolean };
 
 export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps = {}) {
-  const [activeTab, setActiveTab] = useState<TradeFeedTab>('discover');
+  const [activityTab, setActivityTab] = useState<TradeActivityTab>('mine');
   const [filters, setFilters] = useState<FeedFilters>(initialFilters);
   const [appliedFilters, setAppliedFilters] = useState<FeedFilters>(initialFilters);
   const [trades, setTrades] = useState<TradeDto[]>([]);
@@ -101,8 +101,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const [loadError, setLoadError] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<TradeSearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [searchInputFocused, setSearchInputFocused] = useState(false);
-  const [activeToolPanel, setActiveToolPanel] = useState<'search' | 'filter' | null>(null);
+  const [activeToolPanel, setActiveToolPanel] = useState<'filter' | 'activity' | null>(null);
   const [refreshSeed, setRefreshSeed] = useState(() => createFeedRefreshSeed());
   const [seenTradeIds, setSeenTradeIds] = useState<string[]>([]);
   const pendingSearchRecordRef = useRef<{ q: string; source: TradeSearchKeywordSource } | null>(null);
@@ -165,7 +164,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   }
 
   useEffect(() => {
-    if (activeTab !== 'discover') return undefined;
     let mounted = true;
     async function loadTrades() {
       setLoading(true);
@@ -209,11 +207,11 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     }
     void loadTrades();
     return () => { mounted = false; };
-  }, [activeTab, appliedFilters, auth.user?.profile?.countryCode, demoDataEnabled, language, recordSearchKeyword, refreshSeed, seenTradeIds, t]);
+  }, [appliedFilters, auth.user?.profile?.countryCode, demoDataEnabled, language, recordSearchKeyword, refreshSeed, seenTradeIds, t]);
 
   const filteredTrades = useMemo(() => usingFallback ? localFilter(trades, appliedFilters) : trades, [appliedFilters, trades, usingFallback]);
   const hasAppliedFilters = Boolean(appliedFilters.q.trim() || appliedFilters.mode || appliedFilters.hasImages || appliedFilters.hasMoney || appliedFilters.postType);
-  const shouldShowSuggestions = activeTab === 'discover' && canUseSearchSuggestions(filters.q) && (activeToolPanel === 'search' || searchInputFocused);
+  const shouldShowSuggestions = canUseSearchSuggestions(filters.q) && activeToolPanel === 'filter';
 
   useEffect(() => {
     const q = normalizeSearchText(filters.q);
@@ -240,7 +238,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [activeTab, activeToolPanel, auth.user?.profile?.countryCode, filters.q, language, searchInputFocused, shouldShowSuggestions]);
+  }, [activeToolPanel, auth.user?.profile?.countryCode, filters.q, language, shouldShowSuggestions]);
 
   function refreshDiscoveryOrder() {
     setSeenTradeIds((current) => compactSeenTradeIds([...current, ...trades.map((trade) => trade.id)]));
@@ -255,7 +253,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     setRefreshSeed(createFeedRefreshSeed());
     setAppliedFilters(normalizedFilters);
     setActiveToolPanel(null);
-    setSearchInputFocused(false);
   }
 
   function applySearch(event: FormEvent<HTMLFormElement>) {
@@ -271,7 +268,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     setFilters(initialFilters);
     setAppliedFilters(initialFilters);
     setSearchSuggestions([]);
-    setSearchInputFocused(false);
     pendingSearchRecordRef.current = null;
     setSeenTradeIds([]);
     setRefreshSeed(createFeedRefreshSeed());
@@ -295,135 +291,122 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
     <section className="mobile-page trade-feed-page">
       {shouldShowHomeIntro ? <HomeTradeIntroBanner onDismiss={dismissHomeIntro} /> : null}
 
-      <div className="trade-feed-tabs" role="tablist" aria-label={t('trade.mine.tabsLabel')}>
-        <button type="button" role="tab" aria-selected={activeTab === 'discover'} className={activeTab === 'discover' ? 'is-active' : ''} onClick={() => setActiveTab('discover')}>{t('trade.mine.discoverTab')}</button>
-        <button type="button" role="tab" aria-selected={activeTab === 'mine'} className={activeTab === 'mine' ? 'is-active' : ''} onClick={() => setActiveTab('mine')}>{t('trade.mine.myTradesTab')}</button>
-        <button type="button" role="tab" aria-selected={activeTab === 'involved'} className={activeTab === 'involved' ? 'is-active' : ''} onClick={() => setActiveTab('involved')}>{t('trade.involved.tab')}</button>
-      </div>
-
-      {activeTab === 'discover' ? (
-        <>
-          <form className={`trade-feed-controls${activeToolPanel ? ' is-tools-open' : ''}`} aria-label={t('trade.filters.controls')} onSubmit={applySearch}>
-            <button type="button" className="trade-search-open-pill" onClick={() => setActiveToolPanel('search')}>
-              <WebIcon name="search" size={17} decorative />
+      <form className={`trade-feed-controls${activeToolPanel ? ' is-tools-open' : ''}`} aria-label={t('trade.filters.controls')} onSubmit={applySearch}>
+        <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value === 'filter' ? null : 'filter')} aria-expanded={activeToolPanel === 'filter'} aria-label={t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
+          <WebIcon name="filter" size={17} decorative />
+          <span>{t('trade.filters.searchAndFilters')}</span>
+        </button>
+        <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'activity' ? null : 'activity')} aria-expanded={activeToolPanel === 'activity'} aria-label={t('trade.activity.open')} title={t('trade.activity.open')}>
+          <WebIcon name="activity" size={18} decorative />
+          <span>{t('trade.activity.title')}</span>
+        </button>
+        <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')} title={t('trade.create.title')}>
+          <WebIcon name="add" size={21} decorative />
+          <span>{t('trade.create.title')}</span>
+        </Link>
+        {activeToolPanel === 'filter' ? (
+          <div className="trade-filter-panel trade-filter-panel--filter" role="dialog" aria-modal="true" aria-labelledby="trade-filter-panel-title">
+            <div className="trade-filter-panel__header">
+              <div>
+                <span className="eyebrow">{t('trade.filters.controls')}</span>
+                <h2 id="trade-filter-panel-title">{t('trade.filters.searchAndFilters')}</h2>
+              </div>
+              <button type="button" className="trade-filter-panel__close" onClick={() => setActiveToolPanel(null)} aria-label={t('common.actions.close')}>×</button>
+            </div>
+            <div className="trade-filter-panel__search">
               <span>{t('trade.filters.searchTrades')}</span>
-            </button>
-            <div className="trade-search-combobox trade-search-combobox--desktop">
-              <label className="trade-search-field trade-search-field--desktop">
+              <label className="trade-filter-panel__search-input">
                 <span className="sr-only">{t('trade.filters.searchTrades')}</span>
                 <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
                 <input
                   value={filters.q}
                   onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
-                  onFocus={() => setSearchInputFocused(true)}
-                  onBlur={() => window.setTimeout(() => setSearchInputFocused(false), 140)}
                   placeholder={t('trade.filters.searchTrades')}
                   type="search"
                 />
               </label>
-              <TradeSearchSuggestionList visible={shouldShowSuggestions && searchInputFocused} suggestions={searchSuggestions} loading={suggestionsLoading} query={filters.q} onSelect={applySuggestionSearch} />
+              <TradeSearchSuggestionList visible={shouldShowSuggestions} suggestions={searchSuggestions} loading={suggestionsLoading} query={filters.q} onSelect={applySuggestionSearch} />
             </div>
-            <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value ? null : 'filter')} aria-expanded={Boolean(activeToolPanel)}>
-              <WebIcon name="filter" size={17} decorative />
-              <span>{t('trade.filters.filter')}</span>
-            </button>
-            <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')}>
-              <WebIcon name="add" size={21} decorative />
-            </Link>
-            {activeToolPanel ? (
-              <div className={`trade-filter-panel trade-filter-panel--${activeToolPanel}`} role="dialog" aria-modal="true" aria-labelledby="trade-filter-panel-title">
-                <div className="trade-filter-panel__header">
-                  <div>
-                    <span className="eyebrow">{t('trade.filters.controls')}</span>
-                    <h2 id="trade-filter-panel-title">{t('trade.filters.searchAndFilters')}</h2>
-                  </div>
-                  <button type="button" className="trade-filter-panel__close" onClick={() => setActiveToolPanel(null)} aria-label={t('common.actions.close')}>×</button>
-                </div>
-                <div className="trade-filter-panel__search">
-                  <span>{t('trade.filters.searchTrades')}</span>
-                  <label className="trade-filter-panel__search-input">
-                    <span className="sr-only">{t('trade.filters.searchTrades')}</span>
-                    <WebIcon name="search" size={17} decorative className="trade-search-field__icon" />
-                    <input
-                      value={filters.q}
-                      onChange={(event) => setFilters((current) => ({ ...current, q: event.target.value }))}
-                      placeholder={t('trade.filters.searchTrades')}
-                      type="search"
-                    />
-                  </label>
-                  <TradeSearchSuggestionList visible={shouldShowSuggestions && activeToolPanel === 'search'} suggestions={searchSuggestions} loading={suggestionsLoading} query={filters.q} onSelect={applySuggestionSearch} />
-                </div>
-                <label>
-                  <span>{t('trade.filters.mode')}</span>
-                  <select value={filters.mode} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value }))}>
-                    <option value="">{t('trade.filters.anyMode')}</option>
-                    <option value="remote">{t('trade.modes.remote')}</option>
-                    <option value="local">{t('trade.modes.local')}</option>
-                    <option value="hybrid">{t('trade.modes.hybrid')}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>{t('trade.filters.postType')}</span>
-                  <select value={filters.postType} onChange={(event) => setFilters((current) => ({ ...current, postType: event.target.value as FeedFilters['postType'] }))}>
-                    <option value="">{t('trade.filters.anyPostType')}</option>
-                    <option value="need_offer">{t('trade.postTypes.needOffer')}</option>
-                    <option value="open_need">{t('trade.postTypes.openNeed')}</option>
-                    <option value="open_offer">{t('trade.postTypes.openOffer')}</option>
-                  </select>
-                </label>
-                <label className="checkbox-row">
-                  <input type="checkbox" checked={filters.hasImages} onChange={(event) => setFilters((current) => ({ ...current, hasImages: event.target.checked }))} />
-                  {t('trade.filters.hasImages')}
-                </label>
-                {betaFeatures.moneyTradesEnabled ? (
-                  <label className="checkbox-row">
-                    <input type="checkbox" checked={filters.hasMoney} onChange={(event) => setFilters((current) => ({ ...current, hasMoney: event.target.checked }))} />
-                    {t('trade.filters.includesWalletMoney')}
-                  </label>
-                ) : null}
-                <div className="trade-filter-actions">
-                  <button type="submit">{t('trade.filters.apply')}</button>
-                  <button type="button" className="secondary" onClick={resetFilters}>{t('trade.filters.reset')}</button>
-                </div>
-              </div>
+            <label>
+              <span>{t('trade.filters.mode')}</span>
+              <select value={filters.mode} onChange={(event) => setFilters((current) => ({ ...current, mode: event.target.value }))}>
+                <option value="">{t('trade.filters.anyMode')}</option>
+                <option value="remote">{t('trade.modes.remote')}</option>
+                <option value="local">{t('trade.modes.local')}</option>
+                <option value="hybrid">{t('trade.modes.hybrid')}</option>
+              </select>
+            </label>
+            <label>
+              <span>{t('trade.filters.postType')}</span>
+              <select value={filters.postType} onChange={(event) => setFilters((current) => ({ ...current, postType: event.target.value as FeedFilters['postType'] }))}>
+                <option value="">{t('trade.filters.anyPostType')}</option>
+                <option value="need_offer">{t('trade.postTypes.needOffer')}</option>
+                <option value="open_need">{t('trade.postTypes.openNeed')}</option>
+                <option value="open_offer">{t('trade.postTypes.openOffer')}</option>
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={filters.hasImages} onChange={(event) => setFilters((current) => ({ ...current, hasImages: event.target.checked }))} />
+              {t('trade.filters.hasImages')}
+            </label>
+            {betaFeatures.moneyTradesEnabled ? (
+              <label className="checkbox-row">
+                <input type="checkbox" checked={filters.hasMoney} onChange={(event) => setFilters((current) => ({ ...current, hasMoney: event.target.checked }))} />
+                {t('trade.filters.includesWalletMoney')}
+              </label>
             ) : null}
-          </form>
-
-          <section className="feed-status-row" aria-live="polite">
-            <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
-            <div className="feed-status-actions">
-              {!loading && !loadError ? <button type="button" className="semantic-badge instruction feed-refresh-button" onClick={refreshDiscoveryOrder}>{t('trade.filters.refresh')}</button> : null}
-              {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.demoFeed')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
+            <div className="trade-filter-actions">
+              <button type="submit">{t('trade.filters.apply')}</button>
+              <button type="button" className="secondary" onClick={resetFilters}>{t('trade.filters.reset')}</button>
             </div>
+          </div>
+        ) : null}
+      </form>
+
+      {activeToolPanel ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
+
+      {activeToolPanel === 'activity' ? (
+        <TradeActivityPanel
+          activeTab={activityTab}
+          createTradeHref={createTradeHref}
+          onClose={() => setActiveToolPanel(null)}
+          onSelectTab={setActivityTab}
+        />
+      ) : null}
+
+      <section className="feed-status-row" aria-live="polite">
+        <p>{loading ? t('trade.filters.loadingTrades') : filteredTrades.length === 1 ? t('trade.filters.activeTradeOne') : t('trade.filters.activeTrades', { count: filteredTrades.length })}</p>
+        <div className="feed-status-actions">
+          {!loading && !loadError ? <button type="button" className="semantic-badge instruction feed-refresh-button" onClick={refreshDiscoveryOrder}>{t('trade.filters.refresh')}</button> : null}
+          {loading ? <span className="semantic-badge instruction">{t('common.states.loading')}</span> : loadError ? <span className="semantic-badge danger">{t('trade.filters.error')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('trade.filters.demoFeed')}</span> : <span className="semantic-badge success">{t('trade.filters.liveFeed')}</span>}
+        </div>
+      </section>
+
+      {loadError ? (
+        <section className="mobile-card mobile-card--soft">
+          <h3>{t('trade.filters.couldNotLoadTrades')}</h3>
+          <p>{loadError}</p>
+        </section>
+      ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
+
+      {!loading && !loadError && !filteredTrades.length ? (
+        hasAppliedFilters ? (
+          <section className="mobile-card mobile-card--soft">
+            <h3>{t('trade.filters.noTradesFound')}</h3>
+            <p>{t('trade.filters.noTradesBody')}</p>
+            <button type="button" className="secondary" onClick={resetFilters}>{t('trade.filters.clearFilters')}</button>
           </section>
-
-          {loadError ? (
-            <section className="mobile-card mobile-card--soft">
-              <h3>{t('trade.filters.couldNotLoadTrades')}</h3>
-              <p>{loadError}</p>
-            </section>
-          ) : loading ? <TradeFeedSkeleton /> : <TradeDeckGrid trades={filteredTrades} />}
-
-          {!loading && !loadError && !filteredTrades.length ? (
-            hasAppliedFilters ? (
-              <section className="mobile-card mobile-card--soft">
-                <h3>{t('trade.filters.noTradesFound')}</h3>
-                <p>{t('trade.filters.noTradesBody')}</p>
-                <button type="button" className="secondary" onClick={resetFilters}>{t('trade.filters.clearFilters')}</button>
-              </section>
-            ) : (
-              <TradeEmptyFeedOnboarding
-                createTradeHref={createTradeHref}
-                needsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs' : '/needs'}
-                offersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers' : '/offers'}
-                starterNeedsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs%3Fsource%3Dstarter' : '/needs?source=starter'}
-                starterOffersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers%3Fsource%3Dstarter' : '/offers?source=starter'}
-                t={t}
-              />
-            )
-          ) : null}
-        </>
-      ) : activeTab === 'mine' ? <MyTradesPanel createTradeHref={createTradeHref} /> : <InvolvedTradesPanel />}
+        ) : (
+          <TradeEmptyFeedOnboarding
+            createTradeHref={createTradeHref}
+            needsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs' : '/needs'}
+            offersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers' : '/offers'}
+            starterNeedsHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs%3Fsource%3Dstarter' : '/needs?source=starter'}
+            starterOffersHref={!auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers%3Fsource%3Dstarter' : '/offers?source=starter'}
+            t={t}
+          />
+        )
+      ) : null}
     </section>
   );
 }
@@ -473,6 +456,38 @@ function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
       <div className="home-guide-entry__actions">
         <Link href="/onboarding-guide?replay=1&next=/trades" className="button primary">{t('trade.homeIntro.guideAction')}</Link>
         <button type="button" className="button secondary" onClick={onDismiss}>{t('trade.homeIntro.dismissShort')}</button>
+      </div>
+    </section>
+  );
+}
+
+
+type TradeActivityPanelProps = {
+  activeTab: TradeActivityTab;
+  createTradeHref: string;
+  onClose: () => void;
+  onSelectTab: (tab: TradeActivityTab) => void;
+};
+
+function TradeActivityPanel({ activeTab, createTradeHref, onClose, onSelectTab }: TradeActivityPanelProps) {
+  const { t } = useWebTranslation();
+
+  return (
+    <section className="trade-activity-panel" role="dialog" aria-modal="true" aria-labelledby="trade-activity-panel-title">
+      <div className="trade-filter-panel__header trade-activity-panel__header">
+        <div>
+          <span className="eyebrow">{t('trade.activity.badge')}</span>
+          <h2 id="trade-activity-panel-title">{t('trade.activity.title')}</h2>
+          <p>{t('trade.activity.body')}</p>
+        </div>
+        <button type="button" className="trade-filter-panel__close" onClick={onClose} aria-label={t('trade.activity.close')}>×</button>
+      </div>
+      <div className="trade-activity-tabs" role="tablist" aria-label={t('trade.mine.tabsLabel')}>
+        <button type="button" role="tab" aria-selected={activeTab === 'mine'} className={activeTab === 'mine' ? 'is-active' : ''} onClick={() => onSelectTab('mine')}>{t('trade.mine.myTradesTab')}</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'involved'} className={activeTab === 'involved' ? 'is-active' : ''} onClick={() => onSelectTab('involved')}>{t('trade.involved.tab')}</button>
+      </div>
+      <div className="trade-activity-panel__body">
+        {activeTab === 'mine' ? <MyTradesPanel createTradeHref={createTradeHref} /> : <InvolvedTradesPanel />}
       </div>
     </section>
   );

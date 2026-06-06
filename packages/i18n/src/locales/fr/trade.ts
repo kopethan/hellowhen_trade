@@ -568,6 +568,13 @@ export const trade = {
     couldNotUse: 'Impossible d’utiliser la promesse en espèces',
     use: 'Utiliser la promesse en espèces',
   },
+  activity: {
+    open: 'Ouvrir l’activité des échanges',
+    close: 'Fermer l’activité des échanges',
+    badge: 'Activité',
+    title: 'Activité des échanges',
+    body: 'Gérez vos échanges créés et suivez ceux où vous êtes impliqué.',
+  },
   mine: {
     tabsLabel: 'Sections des échanges',
     discoverTab: 'Découvrir',

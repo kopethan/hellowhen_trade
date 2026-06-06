@@ -1,0 +1,240 @@
+diff --git a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+index c7cc56d..0ae2c1e 100644
+--- a/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDeckFeedScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
++import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+ import { useFocusEffect, useNavigation } from '@react-navigation/native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+@@ -346,6 +346,8 @@ type TradeActivityModalProps = {
+ function TradeActivityModal({ activeTab, visible, onChangeTab, onClose, onCreate, onOpenTrade, onOpenProposals, onOpenProposal }: TradeActivityModalProps) {
+   const theme = useThemeTokens();
+   const insets = useSafeAreaInsets();
++  const { width } = useWindowDimensions();
++  const isWideLayout = width >= 720;
+   const { t } = useTranslation();
+   const scrollProps = useMemo<AppCollapsibleHeaderScrollProps>(() => ({
+     scrollViewProps: {
+@@ -357,9 +359,10 @@ function TradeActivityModal({ activeTab, visible, onChangeTab, onClose, onCreate
+   }), []);
+ 
+   return (
+-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+-      <View style={[styles.activityModalScreen, { backgroundColor: theme.color.background, paddingTop: insets.top + 18, paddingBottom: Math.max(insets.bottom, 10) }] }>
+-        <View style={styles.activityHeaderRow}>
++    <Modal visible={visible} animationType={isWideLayout ? "fade" : "slide"} onRequestClose={onClose} presentationStyle={isWideLayout ? "overFullScreen" : "fullScreen"} transparent={isWideLayout}>
++      <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
++        <View style={[styles.activityModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.activityModalSheet, { borderColor: theme.color.border }]] }>
++          <View style={styles.activityHeaderRow}>
+           <View style={styles.activityHeaderCopy}>
+             <AppText style={styles.activityTitle}>{t('trade.activity.title')}</AppText>
+             <AppText style={[styles.activityBody, { color: theme.color.muted }]}>{t('trade.activity.body')}</AppText>
+@@ -378,12 +381,13 @@ function TradeActivityModal({ activeTab, visible, onChangeTab, onClose, onCreate
+             );
+           })}
+         </View>
+-        <View style={styles.activityBodyWrap}>
+-          {activeTab === 'mine' ? (
+-            <MyCreatedTradesPanel scrollProps={scrollProps} onCreate={onCreate} onOpenTrade={onOpenTrade} onOpenProposals={onOpenProposals} />
+-          ) : (
+-            <InvolvedTradesPanel scrollProps={scrollProps} onOpenTrade={onOpenTrade} onOpenProposal={onOpenProposal} />
+-          )}
++          <View style={styles.activityBodyWrap}>
++            {activeTab === 'mine' ? (
++              <MyCreatedTradesPanel scrollProps={scrollProps} onCreate={onCreate} onOpenTrade={onOpenTrade} onOpenProposals={onOpenProposals} />
++            ) : (
++              <InvolvedTradesPanel scrollProps={scrollProps} onOpenTrade={onOpenTrade} onOpenProposal={onOpenProposal} />
++            )}
++          </View>
+         </View>
+       </View>
+     </Modal>
+@@ -420,13 +424,16 @@ type TradeDiscoveryToolsModalProps = {
+ function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, hasFilters, activeFilterCount, suggestions, suggestionsLoading, onChangeQuery, onSelectSuggestion, onChangeMode, onChangePostType, onChangeCategory, onToggleImagesOnly, onToggleMoneyOnly, onClear, onApply, onSubmitSearch, onClose }: TradeDiscoveryToolsModalProps) {
+   const theme = useThemeTokens();
+   const insets = useSafeAreaInsets();
++  const { width } = useWindowDimensions();
++  const isWideLayout = width >= 720;
+   const { t } = useTranslation();
+ 
+   return (
+-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
+-      <KeyboardAvoidingView style={[styles.toolsKeyboardRoot, { backgroundColor: theme.color.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+-        <View style={[styles.toolsModalScreen, { backgroundColor: theme.color.background, paddingTop: insets.top + 18, paddingBottom: Math.max(insets.bottom, 10) }]}>
+-          <View style={styles.toolsHeaderRow}>
++    <Modal visible={visible} animationType={isWideLayout ? "fade" : "slide"} onRequestClose={onClose} presentationStyle={isWideLayout ? "overFullScreen" : "fullScreen"} transparent={isWideLayout}>
++      <KeyboardAvoidingView style={[styles.toolsKeyboardRoot, { backgroundColor: isWideLayout ? 'transparent' : theme.color.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
++        <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
++          <View style={[styles.toolsModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.toolsModalSheet, { borderColor: theme.color.border }]]}>
++            <View style={styles.toolsHeaderRow}>
+             <View style={styles.toolsTitleWrap}>
+               <AppText style={styles.toolsTitle}>{t('trade.filters.controls')}</AppText>
+               <AppText style={[styles.toolsSubtitle, { color: theme.color.muted }]}>{hasFilters ? `${activeFilterCount} · ${t('trade.filters.filters')}` : t('trade.filters.searchTrades')}</AppText>
+@@ -519,13 +526,14 @@ function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, po
+             </View>
+           </ScrollView>
+ 
+-          <View style={[styles.toolsBottomBar, { borderTopColor: theme.color.border }] }>
+-            <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-              <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{hasFilters ? t('trade.filters.clearFilters') : t('trade.filters.reset')}</AppText>
+-            </Pressable>
+-            <Pressable accessibilityRole="button" onPress={onApply} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+-              <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
+-            </Pressable>
++            <View style={[styles.toolsBottomBar, { borderTopColor: theme.color.border }] }>
++              <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++                <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{hasFilters ? t('trade.filters.clearFilters') : t('trade.filters.reset')}</AppText>
++              </Pressable>
++              <Pressable accessibilityRole="button" onPress={onApply} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
++                <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
++              </Pressable>
++            </View>
+           </View>
+         </View>
+       </KeyboardAvoidingView>
+@@ -918,9 +926,12 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
+ 
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 30, gap: 16 },
++  modalPlainRoot: { flex: 1 },
++  modalDesktopBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.28)', padding: 24 },
+   fixedHeaderStack: { gap: 12 },
+   activityContentInset: { paddingTop: 0 },
+   activityModalScreen: { flex: 1, paddingHorizontal: 18 },
++  activityModalSheet: { width: '100%', maxWidth: 620, height: '86%', borderRadius: 32, borderWidth: 1, paddingHorizontal: 18 },
+   activityHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, paddingBottom: 12 },
+   activityHeaderCopy: { flex: 1, minWidth: 0, gap: 4 },
+   activityTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+@@ -987,6 +998,7 @@ const styles = StyleSheet.create({
+   emptySecondaryButtonText: { fontWeight: '900' },
+   toolsKeyboardRoot: { flex: 1 },
+   toolsModalScreen: { flex: 1, paddingHorizontal: 18 },
++  toolsModalSheet: { width: '100%', maxWidth: 560, maxHeight: '88%', borderRadius: 32, borderWidth: 1, paddingHorizontal: 18 },
+   toolsHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14, paddingBottom: 16 },
+   toolsTitleWrap: { flex: 1, minWidth: 0, gap: 4 },
+   toolsTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 0f58aa3..ee5b538 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -172,12 +172,15 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .inventory-empty-state span { color: var(--app-text-muted); }
+ .inventory-empty-state em { color: var(--app-text); font-style: normal; font-weight: 900; }
+ 
+-.trade-feed-controls { position: relative; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 8px; margin: 0; padding: 0 0 4px; background: transparent; }
++.trade-feed-controls { position: relative; z-index: 185; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; gap: 8px; margin: 0; padding: 0 0 4px; background: transparent; }
+ .trade-search-pill, .trade-search-open-pill, .trade-filter-pill, .trade-activity-pill { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; border: 1px solid color-mix(in srgb, var(--app-border-strong) 78%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-surface) 96%, transparent); color: var(--app-text-muted); padding: 0 14px; font-size: 13px; font-weight: 900; box-shadow: var(--app-control-shadow); backdrop-filter: blur(14px); }
+ .trade-search-open-pill { display: none; }
+ .trade-activity-pill { width: 44px; padding: 0; cursor: pointer; }
++.trade-activity-pill span { display: none; }
+ .trade-activity-pill[aria-expanded="true"] { background: var(--app-text); color: var(--app-bg); border-color: var(--app-text); }
+-.trade-create-pill { display: inline-grid; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; border-radius: 999px; background: var(--app-text); color: var(--app-bg); line-height: 1; box-shadow: var(--app-control-shadow); }
++.trade-create-pill { display: inline-flex; place-items: center; align-items: center; justify-content: center; gap: 7px; flex: 0 0 auto; width: 44px; height: 44px; border-radius: 999px; background: var(--app-text); color: var(--app-bg); line-height: 1; box-shadow: var(--app-control-shadow); }
++.trade-create-pill span { display: none; font-size: 13px; font-weight: 900; }
++.trade-tools-backdrop { position: fixed; z-index: 170; inset: 0; border: 0; background: rgba(15, 23, 42, 0.20); padding: 0; cursor: default; backdrop-filter: blur(3px); }
+ .trade-card { display: grid; gap: 12px; aspect-ratio: 1 / 1; border: 0; border-radius: 34px; background: var(--app-surface); padding: 22px; box-shadow: var(--app-card-shadow-strong); }
+ .trade-card p { margin-bottom: 0; }
+ .trade-card__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+@@ -437,7 +440,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-feed-tabs button, .trade-activity-tabs button { min-height: 40px; border-radius: 999px; background: transparent; color: var(--app-text-muted); padding: 0 14px; box-shadow: none; }
+ .trade-feed-tabs button.is-active, .trade-activity-tabs button.is-active { background: var(--app-text); color: var(--app-bg); }
+ .trade-activity-tabs { grid-template-columns: repeat(2, 1fr); width: 100%; margin: 0; }
+-.trade-activity-panel { position: fixed; inset: 0; z-index: 180; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; overflow-y: auto; background: var(--app-bg); padding: calc(14px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
++.trade-activity-panel { position: fixed; inset: 0; z-index: 190; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; overflow-y: auto; background: var(--app-bg); padding: calc(14px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+ .trade-activity-panel__header p { margin: 4px 0 0; max-width: 44rem; }
+ .trade-activity-panel__body { min-height: 0; }
+ .trade-mine-panel { display: grid; gap: 14px; width: min(880px, 100%); margin: 0 auto; }
+@@ -482,7 +485,7 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .trade-search-field__icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+ .trade-search-field input { min-height: 44px; border-radius: 999px; padding: 0 14px 0 40px; font-size: 14px; font-weight: 850; background: color-mix(in srgb, var(--app-surface) 96%, transparent); box-shadow: var(--app-control-shadow); backdrop-filter: blur(14px); }
+ .trade-filter-pill { cursor: pointer; }
+-.trade-feed-controls .trade-filter-panel { grid-column: 1 / -1; display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 24px; background: color-mix(in srgb, var(--app-surface) 96%, transparent); padding: 14px; box-shadow: var(--app-card-shadow); backdrop-filter: blur(18px); }
++.trade-feed-controls .trade-filter-panel { position: relative; z-index: 185; grid-column: 1 / -1; display: grid; gap: 12px; border: 1px solid var(--app-border); border-radius: 24px; background: color-mix(in srgb, var(--app-surface) 96%, transparent); padding: 14px; box-shadow: var(--app-card-shadow); backdrop-filter: blur(18px); }
+ .trade-filter-panel__header, .trade-filter-panel__search { display: none; }
+ .trade-filter-panel label { display: grid; gap: 7px; color: var(--app-text); font-size: 13px; font-weight: 900; }
+ .trade-filter-panel__search-input { position: relative; display: block; }
+@@ -801,13 +804,15 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ }
+ 
+ 
++html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
++
+ @media (max-width: 759px) {
+-  html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
+   .trade-feed-controls { grid-template-columns: auto auto auto; align-items: center; justify-content: end; }
+   .trade-search-open-pill { display: inline-flex; min-width: 0; justify-content: flex-start; }
+   .trade-search-open-pill span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+   .trade-search-combobox--desktop { display: none; }
+   .trade-search-field--desktop { display: none; }
++  .trade-tools-backdrop { z-index: 170; background: color-mix(in srgb, var(--app-bg) 78%, rgba(15, 23, 42, 0.20)); backdrop-filter: blur(6px); }
+   .trade-feed-controls .trade-filter-panel { position: fixed; inset: 0; z-index: 180; display: grid; grid-template-rows: auto auto auto auto auto 1fr auto; align-content: start; gap: 14px; overflow-y: auto; border: 0; border-radius: 0; background: var(--app-bg); padding: calc(14px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom)); box-shadow: none; overscroll-behavior: contain; }
+   .trade-filter-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 2px; }
+   .trade-filter-panel__header h2 { margin: 3px 0 0; color: var(--app-text); font-size: 25px; line-height: 1; letter-spacing: -0.05em; }
+@@ -818,6 +823,11 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+   .trade-filter-panel .checkbox-row { align-items: center; grid-template-columns: auto minmax(0, 1fr); min-height: 52px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface); padding: 0 13px; box-shadow: var(--app-control-shadow); }
+   .trade-filter-panel .checkbox-row input { width: 20px; height: 20px; margin: 0; box-shadow: none; }
+   .trade-filter-actions { position: sticky; bottom: 0; margin-top: auto; border-top: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); background: color-mix(in srgb, var(--app-bg) 92%, transparent); padding-top: 12px; backdrop-filter: blur(16px); }
++  .trade-activity-panel { overflow: hidden; }
++  .trade-activity-panel__header { position: sticky; top: 0; z-index: 1; background: var(--app-bg); padding-bottom: 8px; }
++  .trade-activity-tabs { position: sticky; top: 68px; z-index: 1; }
++  .trade-activity-panel__body { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
++  .trade-create-pill span { display: none; }
+ }
+ 
+ @media (max-width: 380px) {
+@@ -1434,10 +1444,15 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
+   .support-mobile-page > .notice-box { grid-column: 1 / -1; }
+   .support-compose-card, .support-thread-card { min-width: 0; }
+   .trade-feed-page { gap: 22px; max-width: none; }
+-  .trade-feed-controls { grid-template-columns: minmax(280px, 520px) auto auto; justify-content: center; gap: 10px; width: min(880px, 100%); margin: 0 auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
++  .trade-feed-controls { grid-template-columns: minmax(280px, 520px) auto auto; justify-content: center; gap: 10px; width: min(960px, 100%); margin: 0 auto; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
++  .trade-activity-pill { width: auto; padding: 0 14px; }
++  .trade-activity-pill span { display: inline; }
++  .trade-create-pill { width: auto; min-width: 44px; padding: 0 14px; }
++  .trade-create-pill span { display: inline; }
+   .inventory-controls { width: 100%; margin-right: auto; margin-left: auto; padding: 0 0 4px; background: transparent; }
+-  .trade-feed-controls .trade-filter-panel { position: absolute; top: calc(100% + 10px); right: 0; width: min(360px, 100%); grid-column: auto; border-radius: 28px; }
+-  .trade-activity-panel { position: absolute; inset: auto; top: calc(var(--app-header-height) + 74px); left: 50%; width: min(880px, calc(100vw - 32px)); max-height: calc(100dvh - var(--app-header-height) - 108px); transform: translateX(-50%); border: 1px solid var(--app-border); border-radius: 30px; background: color-mix(in srgb, var(--app-surface) 98%, transparent); padding: 16px; box-shadow: var(--app-card-shadow-strong); backdrop-filter: blur(20px); }
++  .trade-feed-controls .trade-filter-panel { position: absolute; top: calc(100% + 10px); right: 0; width: min(390px, calc(100vw - 32px)); grid-column: auto; border-radius: 28px; }
++  .trade-activity-panel { position: fixed; inset: calc(var(--app-header-height) + 18px) max(24px, calc((100vw - var(--web-content-width)) / 2 + 24px)) 24px auto; z-index: 190; display: grid; grid-template-rows: auto auto minmax(0, 1fr); width: min(460px, calc(100vw - 48px)); max-height: none; overflow: hidden; border: 1px solid var(--app-border); border-radius: 30px; background: color-mix(in srgb, var(--app-surface) 98%, transparent); padding: 16px; box-shadow: var(--app-card-shadow-strong); backdrop-filter: blur(20px); }
++  .trade-activity-panel__body { overflow-y: auto; padding-right: 2px; overscroll-behavior: contain; }
+   .feed-status-row { width: min(880px, 100%); margin: 0 auto; }
+   .trade-deck-grid { --trade-deck-max: 360px; --trade-deck-pad-left: 16px; --trade-deck-pad-right: 36px; --trade-deck-col: calc(var(--trade-deck-max) + var(--trade-deck-pad-left) + var(--trade-deck-pad-right)); display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--trade-deck-col)), var(--trade-deck-col))); justify-content: center; align-items: start; column-gap: clamp(22px, 3vw, 48px); row-gap: clamp(26px, 4vw, 56px); width: 100%; margin: 2px auto 0; padding: 6px 0 24px; }
+   .trade-stack-deck { width: 100%; max-width: var(--trade-deck-col); padding: 16px 36px 38px 16px; }
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index eff6393..cfe5a5f 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -292,15 +292,17 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+       {shouldShowHomeIntro ? <HomeTradeIntroBanner onDismiss={dismissHomeIntro} /> : null}
+ 
+       <form className={`trade-feed-controls${activeToolPanel ? ' is-tools-open' : ''}`} aria-label={t('trade.filters.controls')} onSubmit={applySearch}>
+-        <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value === 'filter' ? null : 'filter')} aria-expanded={activeToolPanel === 'filter'} aria-label={t('trade.filters.searchAndFilters')}>
++        <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value === 'filter' ? null : 'filter')} aria-expanded={activeToolPanel === 'filter'} aria-label={t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
+           <WebIcon name="filter" size={17} decorative />
+           <span>{t('trade.filters.searchAndFilters')}</span>
+         </button>
+-        <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'activity' ? null : 'activity')} aria-expanded={activeToolPanel === 'activity'} aria-label={t('trade.activity.open')}>
++        <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'activity' ? null : 'activity')} aria-expanded={activeToolPanel === 'activity'} aria-label={t('trade.activity.open')} title={t('trade.activity.open')}>
+           <WebIcon name="activity" size={18} decorative />
++          <span>{t('trade.activity.title')}</span>
+         </button>
+-        <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')}>
++        <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')} title={t('trade.create.title')}>
+           <WebIcon name="add" size={21} decorative />
++          <span>{t('trade.create.title')}</span>
+         </Link>
+         {activeToolPanel === 'filter' ? (
+           <div className="trade-filter-panel trade-filter-panel--filter" role="dialog" aria-modal="true" aria-labelledby="trade-filter-panel-title">
+@@ -361,6 +363,8 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+         ) : null}
+       </form>
+ 
++      {activeToolPanel ? <button type="button" className="trade-tools-backdrop" aria-label={t('common.actions.close')} onClick={() => setActiveToolPanel(null)} /> : null}
++
+       {activeToolPanel === 'activity' ? (
+         <TradeActivityPanel
+           activeTab={activityTab}

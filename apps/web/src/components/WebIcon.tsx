@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 
 export type WebIconName =
+  | 'activity'
   | 'add'
   | 'arrow-right'
   | 'back'

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,7 +22,7 @@ import { TradeSquareDeck } from './components/TradeSquareDeck';
 import type { TradeDeckItem } from './types';
 
 type FeedResponse = { trades: TradeDeckItem[] };
-type TradeFeedTab = 'discover' | 'mine' | 'involved';
+type TradeActivityTab = 'mine' | 'involved';
 type TradeWithCounts = TradeDeckItem & { _count?: { proposals?: number } };
 type TradeWithViewerProposal = TradeWithCounts & { viewerProposal?: { id: string; status: string; createdAt?: string; respondedAt?: string | null } | null; viewerInvolvement?: 'owner' | 'provider' | 'applicant' };
 type MineResponse = { trades: TradeWithCounts[] };
@@ -89,13 +89,14 @@ export function TradeDeckFeedScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const auth = useAuth();
   const { t, language } = useTranslation();
-  const [activeTab, setActiveTab] = useState<TradeFeedTab>('discover');
+  const [activityTab, setActivityTab] = useState<TradeActivityTab>('mine');
+  const [activityModalVisible, setActivityModalVisible] = useState(false);
   const [trades, setTrades] = useState<TradeDeckItem[]>([]);
   const [query, setQuery] = useState('');
   const [draftQuery, setDraftQuery] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<TradeSearchSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const [toolsModal, setToolsModal] = useState<'search' | 'filters' | null>(null);
+  const [toolsModal, setToolsModal] = useState<'filters' | null>(null);
   const [modeFilter, setModeFilter] = useState<ModeFilter>('all');
   const [postTypeFilter, setPostTypeFilter] = useState<PostTypeFilter>('all');
   const [category, setCategory] = useState('');
@@ -151,21 +152,16 @@ export function TradeDeckFeedScreen() {
     }
   }, [feedQuery, recordSearchKeyword]);
 
-  useFocusEffect(useCallback(() => { if (activeTab === 'discover') void loadFeed(); }, [activeTab, loadFeed]));
+  useFocusEffect(useCallback(() => { void loadFeed(); }, [loadFeed]));
 
   useEffect(() => {
-    if (activeTab !== 'discover') return undefined;
     const handle = setTimeout(() => { void loadFeed(); }, 275);
     return () => clearTimeout(handle);
-  }, [activeTab, loadFeed]);
-
-  useEffect(() => {
-    if (activeTab !== 'discover') setToolsModal(null);
-  }, [activeTab]);
+  }, [loadFeed]);
 
   useEffect(() => {
     const draft = normalizeSearchText(draftQuery);
-    if (toolsModal !== 'search' || !canUseSearchSuggestions(draft)) {
+    if (toolsModal === null || !canUseSearchSuggestions(draft)) {
       setSearchSuggestions([]);
       setSuggestionsLoading(false);
       return undefined;
@@ -264,51 +260,45 @@ export function TradeDeckFeedScreen() {
       <View style={styles.headerRow}>
         <AppText style={styles.title}>{t('navigation.tabs.trades')}</AppText>
         <View style={styles.headerActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchAndFilters')} onPress={() => { setDraftQuery(query); setToolsModal('filters'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (toolsModal === 'filters' || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
+            <MobileIcon name="filter" size={18} color={(toolsModal === 'filters' || hasFilters) ? theme.semantic.info.text : theme.color.text} />
+            {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.activity.open')} onPress={() => setActivityModalVisible(true)} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+            <MobileIcon name="activity" size={19} color={theme.color.text} />
+          </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={t('trade.create.title')} onPress={createTrade} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
             <MobileIcon name="add" size={23} color={theme.color.background} />
           </Pressable>
-          {activeTab === 'discover' ? (
-            <>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.searchTrades')} onPress={() => { setDraftQuery(query); setToolsModal('search'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, toolsModal === 'search' && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-                <MobileIcon name="search" size={18} color={toolsModal === 'search' ? theme.semantic.info.text : theme.color.text} />
-              </Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={t('trade.filters.filter')} onPress={() => { setDraftQuery(query); setToolsModal('filters'); }} style={({ pressed }) => [styles.iconButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, (toolsModal === 'filters' || hasFilters) && { backgroundColor: theme.semantic.info.softBg, borderColor: theme.semantic.info.border }, pressed && styles.pressed]}>
-                <MobileIcon name="filter" size={18} color={(toolsModal === 'filters' || hasFilters) ? theme.semantic.info.text : theme.color.text} />
-                {hasFilters ? <View style={styles.filterDot}><AppText style={styles.filterDotText}>{activeFilterCount}</AppText></View> : null}
-              </Pressable>
-            </>
-          ) : null}
         </View>
-      </View>
-      <View style={[styles.segmentedTabs, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-        {(['discover', 'mine', 'involved'] as const).map((tab) => {
-          const selected = activeTab === tab;
-          return (
-            <Pressable key={tab} accessibilityRole="button" onPress={() => setActiveTab(tab)} style={({ pressed }) => [styles.segmentedTab, selected && { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-              <AppText style={[styles.segmentedTabText, { color: selected ? theme.color.background : theme.color.muted }]}>{tab === 'discover' ? t('trade.mine.discoverTab') : tab === 'mine' ? t('trade.mine.myTradesTab') : t('trade.involved.tab')}</AppText>
-            </Pressable>
-          );
-        })}
       </View>
     </View>
   );
 
   return (
-    <AppCollapsibleHeaderScreen header={header} resetKey={activeTab}>
+    <AppCollapsibleHeaderScreen header={header} resetKey="discover">
       {(scrollProps) => (
         <>
-          {activeTab === 'discover' ? (
-            <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
-              {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
-              {hasVisibleTrades ? (
-                <View style={styles.feedList}>
-                  {visibleTrades.map((trade, index) => <TradeDeckSection key={trade.id} trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />)}
-                </View>
-              ) : (
-                <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
-              )}
-            </ScrollView>
-          ) : activeTab === 'mine' ? <MyCreatedTradesPanel scrollProps={scrollProps} onCreate={createTrade} onOpenTrade={openTrade} onOpenProposals={(trade) => navigation.navigate('TradePrivateProposals', { tradeId: trade.id, title: getMineTradeTitle(trade), status: trade.status })} /> : <InvolvedTradesPanel scrollProps={scrollProps} onOpenTrade={openTrade} onOpenProposal={(proposalId) => navigation.navigate('ProposalDetail', { proposalId })} />}
+          <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={refreshDiscoveryOrder} />}>
+            {error ? <InfoNotice tone="danger" title={t('trade.filters.couldNotLoadTrades')} body={error} /> : null}
+            {hasVisibleTrades ? (
+              <View style={styles.feedList}>
+                {visibleTrades.map((trade, index) => <TradeDeckSection key={trade.id} trade={trade} index={index} total={visibleTrades.length} onOpen={() => openTrade(trade)} />)}
+              </View>
+            ) : (
+              <EmptyTradesState loading={loading} hasTrades={hasTrades} hasFilters={hasFilters} onCreate={createTrade} onRefresh={refreshDiscoveryOrder} onClear={clearFilters} />
+            )}
+          </ScrollView>
+          <TradeActivityModal
+            activeTab={activityTab}
+            visible={activityModalVisible}
+            onChangeTab={setActivityTab}
+            onClose={() => setActivityModalVisible(false)}
+            onCreate={createTrade}
+            onOpenTrade={(trade) => { setActivityModalVisible(false); openTrade(trade); }}
+            onOpenProposals={(trade) => { setActivityModalVisible(false); navigation.navigate('TradePrivateProposals', { tradeId: trade.id, title: getMineTradeTitle(trade), status: trade.status }); }}
+            onOpenProposal={(proposalId) => { setActivityModalVisible(false); navigation.navigate('ProposalDetail', { proposalId }); }}
+          />
           <TradeDiscoveryToolsModal
             visible={toolsModal !== null}
             initialFocus={toolsModal ?? 'filters'}
@@ -342,6 +332,69 @@ export function TradeDeckFeedScreen() {
 
 
 
+type TradeActivityModalProps = {
+  activeTab: TradeActivityTab;
+  visible: boolean;
+  onChangeTab: (tab: TradeActivityTab) => void;
+  onClose: () => void;
+  onCreate: () => void;
+  onOpenTrade: (trade: TradeWithCounts) => void;
+  onOpenProposals: (trade: TradeWithCounts) => void;
+  onOpenProposal: (proposalId: string) => void;
+};
+
+function TradeActivityModal({ activeTab, visible, onChangeTab, onClose, onCreate, onOpenTrade, onOpenProposals, onOpenProposal }: TradeActivityModalProps) {
+  const theme = useThemeTokens();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= 720;
+  const { t } = useTranslation();
+  const scrollProps = useMemo<AppCollapsibleHeaderScrollProps>(() => ({
+    scrollViewProps: {
+      onScroll: () => undefined,
+      scrollEventThrottle: 16,
+    },
+    contentInsetStyle: styles.activityContentInset,
+    contentTopInset: 0,
+  }), []);
+
+  return (
+    <Modal visible={visible} animationType={isWideLayout ? "fade" : "slide"} onRequestClose={onClose} presentationStyle={isWideLayout ? "overFullScreen" : "fullScreen"} transparent={isWideLayout}>
+      <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
+        <View style={[styles.activityModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.activityModalSheet, { borderColor: theme.color.border }]] }>
+          <View style={styles.activityHeaderRow}>
+          <View style={styles.activityHeaderCopy}>
+            <AppText style={styles.activityTitle}>{t('trade.activity.title')}</AppText>
+            <AppText style={[styles.activityBody, { color: theme.color.muted }]}>{t('trade.activity.body')}</AppText>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.activity.close')} onPress={onClose} style={({ pressed }) => [styles.toolsCloseButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+            <MobileIcon name="close" size={18} color={theme.color.text} />
+          </Pressable>
+        </View>
+        <View style={[styles.activityTabs, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+          {(['mine', 'involved'] as const).map((tab) => {
+            const selected = activeTab === tab;
+            return (
+              <Pressable key={tab} accessibilityRole="button" onPress={() => onChangeTab(tab)} style={({ pressed }) => [styles.activityTab, selected && { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+                <AppText style={[styles.activityTabText, { color: selected ? theme.color.background : theme.color.muted }]}>{tab === 'mine' ? t('trade.mine.myTradesTab') : t('trade.involved.tab')}</AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+          <View style={styles.activityBodyWrap}>
+            {activeTab === 'mine' ? (
+              <MyCreatedTradesPanel scrollProps={scrollProps} onCreate={onCreate} onOpenTrade={onOpenTrade} onOpenProposals={onOpenProposals} />
+            ) : (
+              <InvolvedTradesPanel scrollProps={scrollProps} onOpenTrade={onOpenTrade} onOpenProposal={onOpenProposal} />
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+
 type TradeDiscoveryToolsModalProps = {
   visible: boolean;
   initialFocus: 'search' | 'filters';
@@ -371,13 +424,16 @@ type TradeDiscoveryToolsModalProps = {
 function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, postTypeFilter, category, imagesOnly, moneyOnly, hasFilters, activeFilterCount, suggestions, suggestionsLoading, onChangeQuery, onSelectSuggestion, onChangeMode, onChangePostType, onChangeCategory, onToggleImagesOnly, onToggleMoneyOnly, onClear, onApply, onSubmitSearch, onClose }: TradeDiscoveryToolsModalProps) {
   const theme = useThemeTokens();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= 720;
   const { t } = useTranslation();
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose} presentationStyle="fullScreen">
-      <KeyboardAvoidingView style={[styles.toolsKeyboardRoot, { backgroundColor: theme.color.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[styles.toolsModalScreen, { backgroundColor: theme.color.background, paddingTop: insets.top + 18, paddingBottom: Math.max(insets.bottom, 10) }]}>
-          <View style={styles.toolsHeaderRow}>
+    <Modal visible={visible} animationType={isWideLayout ? "fade" : "slide"} onRequestClose={onClose} presentationStyle={isWideLayout ? "overFullScreen" : "fullScreen"} transparent={isWideLayout}>
+      <KeyboardAvoidingView style={[styles.toolsKeyboardRoot, { backgroundColor: isWideLayout ? 'transparent' : theme.color.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={isWideLayout ? styles.modalDesktopBackdrop : styles.modalPlainRoot}>
+          <View style={[styles.toolsModalScreen, { backgroundColor: theme.color.background, paddingTop: isWideLayout ? 18 : insets.top + 18, paddingBottom: isWideLayout ? 18 : Math.max(insets.bottom, 10) }, isWideLayout && [styles.toolsModalSheet, { borderColor: theme.color.border }]]}>
+            <View style={styles.toolsHeaderRow}>
             <View style={styles.toolsTitleWrap}>
               <AppText style={styles.toolsTitle}>{t('trade.filters.controls')}</AppText>
               <AppText style={[styles.toolsSubtitle, { color: theme.color.muted }]}>{hasFilters ? `${activeFilterCount} · ${t('trade.filters.filters')}` : t('trade.filters.searchTrades')}</AppText>
@@ -470,13 +526,14 @@ function TradeDiscoveryToolsModal({ visible, initialFocus, query, modeFilter, po
             </View>
           </ScrollView>
 
-          <View style={[styles.toolsBottomBar, { borderTopColor: theme.color.border }] }>
-            <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-              <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{hasFilters ? t('trade.filters.clearFilters') : t('trade.filters.reset')}</AppText>
-            </Pressable>
-            <Pressable accessibilityRole="button" onPress={onApply} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
-              <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
-            </Pressable>
+            <View style={[styles.toolsBottomBar, { borderTopColor: theme.color.border }] }>
+              <Pressable accessibilityRole="button" onPress={onClear} style={({ pressed }) => [styles.toolsSecondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+                <AppText style={[styles.toolsSecondaryButtonText, { color: theme.color.text }]}>{hasFilters ? t('trade.filters.clearFilters') : t('trade.filters.reset')}</AppText>
+              </Pressable>
+              <Pressable accessibilityRole="button" onPress={onApply} style={({ pressed }) => [styles.toolsPrimaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}>
+                <AppText style={[styles.toolsPrimaryButtonText, { color: theme.color.background }]}>{t('trade.filters.apply')}</AppText>
+              </Pressable>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -869,11 +926,21 @@ function EmptyTradesState({ loading, hasTrades, hasFilters, onCreate, onRefresh,
 
 const styles = StyleSheet.create({
   content: { paddingBottom: 30, gap: 16 },
+  modalPlainRoot: { flex: 1 },
+  modalDesktopBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.28)', padding: 24 },
   fixedHeaderStack: { gap: 12 },
+  activityContentInset: { paddingTop: 0 },
+  activityModalScreen: { flex: 1, paddingHorizontal: 18 },
+  activityModalSheet: { width: '100%', maxWidth: 620, height: '86%', borderRadius: 32, borderWidth: 1, paddingHorizontal: 18 },
+  activityHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, paddingBottom: 12 },
+  activityHeaderCopy: { flex: 1, minWidth: 0, gap: 4 },
+  activityTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },
+  activityBody: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  activityTabs: { flexDirection: 'row', gap: 6, borderRadius: 999, borderWidth: 1, padding: 5, marginBottom: 12 },
+  activityTab: { flex: 1, minHeight: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  activityTabText: { fontSize: 13, fontWeight: '900' },
+  activityBodyWrap: { flex: 1, minHeight: 0 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 },
-  segmentedTabs: { flexDirection: 'row', gap: 6, borderRadius: 999, borderWidth: 1, padding: 5 },
-  segmentedTab: { flex: 1, minHeight: 38, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
-  segmentedTabText: { fontSize: 13, fontWeight: '900' },
   title: { fontSize: 36, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   iconButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
@@ -931,6 +998,7 @@ const styles = StyleSheet.create({
   emptySecondaryButtonText: { fontWeight: '900' },
   toolsKeyboardRoot: { flex: 1 },
   toolsModalScreen: { flex: 1, paddingHorizontal: 18 },
+  toolsModalSheet: { width: '100%', maxWidth: 560, maxHeight: '88%', borderRadius: 32, borderWidth: 1, paddingHorizontal: 18 },
   toolsHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14, paddingBottom: 16 },
   toolsTitleWrap: { flex: 1, minWidth: 0, gap: 4 },
   toolsTitle: { fontSize: 28, fontWeight: '900', letterSpacing: -0.7 },

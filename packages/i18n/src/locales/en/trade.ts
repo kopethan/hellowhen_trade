@@ -568,6 +568,13 @@ export const trade = {
     couldNotUse: 'Could not use Cash Promise',
     use: 'Use Cash Promise',
   },
+  activity: {
+    open: 'Open trade activity',
+    close: 'Close trade activity',
+    badge: 'Activity',
+    title: 'Trade activity',
+    body: 'Manage your created trades and follow trades where you are involved.',
+  },
   mine: {
     tabsLabel: 'Trade feed sections',
     discoverTab: 'Discover',
