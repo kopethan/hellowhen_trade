@@ -5,6 +5,7 @@ import { inventory } from './inventory';
 import { media } from './media';
 import { legal } from './legal';
 import { navigation } from './navigation';
+import { onboarding } from './onboarding';
 import { profile } from './profile';
 import { report } from './report';
 import { settings } from './settings';
@@ -20,6 +21,7 @@ export const fr = {
   media,
   legal,
   navigation,
+  onboarding,
   profile,
   report,
   settings,

@@ -1,20 +1,46 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import type { AppSettings } from '@hellowhen/contracts';
+import type { LanguagePreference } from '@hellowhen/i18n';
+
 import type { RootStackParamList } from '../../navigation/RootNavigator';
+import { useAppSettings } from '../../providers/AppSettingsProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
+import { useTranslation } from '../../providers/MobileI18nProvider';
 import { getOnboardingImageBackground, OnboardingSlideIllustration } from './OnboardingSlideIllustration';
 import { markOnboardingGuideCompleted } from './onboardingGuideStorage';
 import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OnboardingGuide'>;
+type AppearancePreference = AppSettings['appearance'];
+
+type PreferenceOption<T extends string> = {
+  value: T;
+  labelKey: string;
+};
+
+const languageOptions: Array<PreferenceOption<LanguagePreference>> = [
+  { value: 'system', labelKey: 'onboarding.preferences.languageOptions.system' },
+  { value: 'en', labelKey: 'onboarding.preferences.languageOptions.en' },
+  { value: 'fr', labelKey: 'onboarding.preferences.languageOptions.fr' },
+];
+
+const appearanceOptions: Array<PreferenceOption<AppearancePreference>> = [
+  { value: 'system', labelKey: 'onboarding.preferences.appearanceOptions.system' },
+  { value: 'light', labelKey: 'onboarding.preferences.appearanceOptions.light' },
+  { value: 'dark', labelKey: 'onboarding.preferences.appearanceOptions.dark' },
+];
 
 export function OnboardingGuideScreen({ navigation, route }: Props) {
   const theme = useThemeTokens();
+  const { settings, setSettings } = useAppSettings();
+  const { t } = useTranslation();
   const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
   const slide = ONBOARDING_GUIDE_SLIDES[currentIndex];
   const isCompactHeight = height < 700;
   const imageMode = theme.mode;
@@ -22,7 +48,10 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
   const surfaceForPrimaryText = imageMode === 'dark' ? '#050506' : '#FFFFFF';
   const isLastSlide = currentIndex === ONBOARDING_GUIDE_SLIDES.length - 1;
   const isReplay = route.params?.replay === true;
-  const progressLabel = `${currentIndex + 1} / ${ONBOARDING_GUIDE_SLIDES.length}`;
+  const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: ONBOARDING_GUIDE_SLIDES.length });
+  const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? languageOptions[0].labelKey);
+  const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? appearanceOptions[0].labelKey);
+  const preferencesSummary = t('onboarding.preferences.summary', { language: currentLanguageLabel, appearance: currentAppearanceLabel });
   const illustrationSize = useMemo(
     () => Math.max(210, Math.min(width - 40, isCompactHeight ? 250 : 330, height * 0.38)),
     [height, isCompactHeight, width]
@@ -53,12 +82,54 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
     setCurrentIndex((value) => Math.max(value - 1, 0));
   }
 
+  function updateOnboardingPreferences(patch: Partial<AppSettings>) {
+    setSettings({ ...settings, ...patch });
+  }
+
+  function renderPreferenceOption<T extends string>(option: PreferenceOption<T>, selected: boolean, onPress: () => void) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ selected }}
+        key={option.value}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.preferenceOption,
+          {
+            backgroundColor: selected ? theme.color.text : theme.color.surface,
+            borderColor: selected ? theme.color.text : theme.color.border,
+          },
+          pressed ? styles.pressed : null,
+        ]}
+      >
+        <Text style={[styles.preferenceOptionText, { color: selected ? surfaceForPrimaryText : theme.color.text }]}>
+          {t(option.labelKey)}
+        </Text>
+      </Pressable>
+    );
+  }
+
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: onboardingBackground }]}>
+    <SafeAreaView accessibilityLabel={t('onboarding.ariaLabel')} style={[styles.screen, { backgroundColor: onboardingBackground }]}>
       <View style={[styles.topBar, { backgroundColor: onboardingBackground }]}>
         <Text style={[styles.brand, { color: theme.color.text }]}>Hellowhen</Text>
         <Pressable accessibilityRole="button" hitSlop={10} onPress={() => { void closeGuide(); }} style={({ pressed }) => [styles.skipButton, pressed && styles.pressed]}>
-          <Text style={[styles.skipText, { color: theme.color.muted }]}>Skip</Text>
+          <Text style={[styles.skipText, { color: theme.color.muted }]}>{t('onboarding.actions.skip')}</Text>
+        </Pressable>
+      </View>
+
+      <View style={[styles.preferenceBar, { backgroundColor: onboardingBackground }]}>
+        <Pressable
+          accessibilityLabel={t('onboarding.preferences.openAccessibilityLabel')}
+          accessibilityRole="button"
+          onPress={() => setPreferencesOpen(true)}
+          style={({ pressed }) => [
+            styles.preferencePill,
+            { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+            pressed ? styles.pressed : null,
+          ]}
+        >
+          <Text style={[styles.preferencePillText, { color: theme.color.text }]}>{preferencesSummary}</Text>
         </Pressable>
       </View>
 
@@ -75,10 +146,10 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
             frameSize={illustrationSize}
           />
 
-          <Text style={[styles.caption, { color: theme.color.muted }]}>{slide.illustrationCaption}</Text>
+          <Text style={[styles.caption, { color: theme.color.muted }]}>{t(slide.illustrationCaptionKey)}</Text>
           <Text style={[styles.stepLabel, { color: theme.color.text }]}>{progressLabel}</Text>
-          <Text style={[styles.title, { color: theme.color.text }]}>{slide.title}</Text>
-          <Text style={[styles.body, { color: theme.color.muted }]}>{slide.body}</Text>
+          <Text style={[styles.title, { color: theme.color.text }]}>{t(slide.titleKey)}</Text>
+          <Text style={[styles.body, { color: theme.color.muted }]}>{t(slide.bodyKey)}</Text>
 
           <View accessibilityLabel={progressLabel} style={styles.dotsRow}>
             {ONBOARDING_GUIDE_SLIDES.map((item, index) => {
@@ -100,6 +171,52 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
         </View>
       </ScrollView>
 
+      <Modal animationType="fade" onRequestClose={() => setPreferencesOpen(false)} transparent visible={preferencesOpen}>
+        <Pressable accessibilityRole="button" onPress={() => setPreferencesOpen(false)} style={styles.modalBackdrop}>
+          <Pressable
+            accessibilityLabel={t('onboarding.preferences.title')}
+            onPress={() => undefined}
+            style={[styles.preferenceSheet, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}
+          >
+            <View style={styles.preferenceSheetHeader}>
+              <View>
+                <Text style={[styles.preferenceSheetTitle, { color: theme.color.text }]}>{t('onboarding.preferences.title')}</Text>
+                <Text style={[styles.preferenceSheetBody, { color: theme.color.muted }]}>{t('onboarding.preferences.body')}</Text>
+              </View>
+              <Pressable accessibilityRole="button" hitSlop={10} onPress={() => setPreferencesOpen(false)} style={({ pressed }) => [styles.closeButton, pressed ? styles.pressed : null]}>
+                <Text style={[styles.closeButtonText, { color: theme.color.muted }]}>{t('common.actions.close')}</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.preferenceGroup}>
+              <Text style={[styles.preferenceGroupTitle, { color: theme.color.text }]}>{t('onboarding.preferences.languageTitle')}</Text>
+              <View style={styles.preferenceOptionsRow}>
+                {languageOptions.map((option) => renderPreferenceOption(
+                  option,
+                  settings.language === option.value,
+                  () => updateOnboardingPreferences({ language: option.value }),
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.preferenceGroup}>
+              <Text style={[styles.preferenceGroupTitle, { color: theme.color.text }]}>{t('onboarding.preferences.appearanceTitle')}</Text>
+              <View style={styles.preferenceOptionsRow}>
+                {appearanceOptions.map((option) => renderPreferenceOption(
+                  option,
+                  settings.appearance === option.value,
+                  () => updateOnboardingPreferences({ appearance: option.value }),
+                ))}
+              </View>
+            </View>
+
+            <Pressable accessibilityRole="button" onPress={() => setPreferencesOpen(false)} style={({ pressed }) => [styles.doneButton, { backgroundColor: theme.color.text }, pressed ? styles.pressed : null]}>
+              <Text style={[styles.doneButtonText, { color: surfaceForPrimaryText }]}>{t('onboarding.preferences.done')}</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <View style={[styles.bottomBar, { backgroundColor: onboardingBackground, borderTopColor: theme.color.border }]}>
         <Pressable
           accessibilityRole="button"
@@ -113,7 +230,7 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
             pressed ? styles.pressed : null,
           ]}
         >
-          <Text style={[styles.secondaryButtonText, { color: currentIndex === 0 ? theme.color.border : theme.color.text }]}>Back</Text>
+          <Text style={[styles.secondaryButtonText, { color: currentIndex === 0 ? theme.color.border : theme.color.text }]}>{t('onboarding.actions.back')}</Text>
         </Pressable>
 
         <Pressable
@@ -121,7 +238,7 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
           onPress={goNext}
           style={({ pressed }) => [styles.primaryButton, { backgroundColor: theme.color.text }, pressed && styles.pressed]}
         >
-          <Text style={[styles.primaryButtonText, { color: surfaceForPrimaryText }]}>{isLastSlide ? 'Get started' : 'Next'}</Text>
+          <Text style={[styles.primaryButtonText, { color: surfaceForPrimaryText }]}>{isLastSlide ? t('onboarding.actions.getStarted') : t('onboarding.actions.next')}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -155,6 +272,25 @@ const styles = StyleSheet.create({
   skipText: {
     fontSize: 14,
     lineHeight: 18,
+    fontWeight: '900',
+  },
+  preferenceBar: {
+    paddingHorizontal: 20,
+    paddingBottom: 4,
+    alignItems: 'center',
+  },
+  preferencePill: {
+    maxWidth: '100%',
+    minHeight: 34,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  preferencePillText: {
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '900',
   },
   scrollContent: {
@@ -219,6 +355,90 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.38)',
+    padding: 16,
+  },
+  preferenceSheet: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 28,
+    padding: 20,
+    gap: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 8,
+  },
+  preferenceSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  preferenceSheetTitle: {
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  preferenceSheetBody: {
+    maxWidth: 270,
+    marginTop: 5,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  closeButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  closeButtonText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  preferenceGroup: {
+    gap: 10,
+  },
+  preferenceGroupTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  preferenceOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  preferenceOption: {
+    minHeight: 42,
+    borderWidth: 1,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 13,
+  },
+  preferenceOptionText: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  doneButton: {
+    minHeight: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  doneButtonText: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
   },
   bottomBar: {
     borderTopWidth: StyleSheet.hairlineWidth,

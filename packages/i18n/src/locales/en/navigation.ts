@@ -27,6 +27,7 @@ export const navigation = {
     editOffer: 'Edit offer',
     offer: 'Offer',
     settings: 'Settings',
+    onboardingGuide: 'Guide',
     support: 'Support',
     legal: 'Legal & safety',
     terms: 'Terms',

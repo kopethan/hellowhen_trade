@@ -61,7 +61,8 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
   }
 
   if (utility) {
-    return <main className="utility-shell">{children}</main>;
+    const utilityClassName = pathname === '/onboarding-guide' ? 'utility-shell utility-shell--full' : 'utility-shell';
+    return <main className={utilityClassName}>{children}</main>;
   }
 
   return (
