@@ -18,11 +18,16 @@ type TradeSidePickerProps = {
   items: Inventory[];
   selectedId: string;
   chooseHref: string;
+  newHref: string;
   emptyTitle: string;
   emptyBody: string;
   moneyEnabled?: boolean;
   cashPromiseEnabled?: boolean;
 };
+
+function sourceHref(href: string, source: 'mine' | 'starter') {
+  return `${href}${href.includes('?') ? '&' : '?'}source=${source}`;
+}
 
 function InventoryPreview({ item, side }: { item: Inventory; side: Side }) {
   const image = item.media?.[0] ?? null;
@@ -40,12 +45,34 @@ function InventoryPreview({ item, side }: { item: Inventory; side: Side }) {
   );
 }
 
-export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, emptyTitle, emptyBody, moneyEnabled = false, cashPromiseEnabled = false }: TradeSidePickerProps) {
+function SourceCard({ href, icon, title, body, dashed = false }: { href: string; icon: 'need' | 'offer' | 'trade' | 'add'; title: string; body: string; dashed?: boolean }) {
+  return (
+    <Link href={href} className={`trade-side-source-card${dashed ? ' trade-side-source-card--dashed' : ''}`}>
+      <span><WebIcon name={icon} size={22} decorative /></span>
+      <strong>{title}</strong>
+      <small>{body}</small>
+    </Link>
+  );
+}
+
+function SourceButton({ onClick, iconLabel, title, body, warning = false }: { onClick: () => void; iconLabel: string; title: string; body: string; warning?: boolean }) {
+  return (
+    <button type="button" className={`trade-side-source-card trade-side-source-card--button${warning ? ' trade-side-source-card--warning' : ''}`} onClick={onClick}>
+      <span>{iconLabel}</span>
+      <strong>{title}</strong>
+      <small>{body}</small>
+    </button>
+  );
+}
+
+export function TradeSidePicker({ label, side, mode, onModeChange, items, selectedId, chooseHref, newHref, emptyTitle, emptyBody, moneyEnabled = false, cashPromiseEnabled = false }: TradeSidePickerProps) {
   const { t } = useWebTranslation();
   const sideClass = side === 'need' ? 'need' : 'offer';
   const moneyText = side === 'need' ? t('trade.labels.iNeed') : t('trade.labels.iOffer');
   const savedText = side === 'need' ? t('inventory.labels.savedNeed') : t('inventory.labels.savedOffer');
   const chooseText = side === 'need' ? t('trade.sidePicker.searchSaved', { items: t('inventory.labels.needs').toLowerCase() }) : t('trade.sidePicker.searchSaved', { items: t('inventory.labels.offers').toLowerCase() });
+  const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
+  const itemLabel = side === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer');
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
   return (
@@ -53,42 +80,41 @@ export function TradeSidePicker({ label, side, mode, onModeChange, items, select
       <div className="trade-side-picker__header">
         <div>
           <p className="eyebrow">{label}</p>
-          <h3>{mode === 'money' ? moneyText : mode === 'cash_promise' ? t('trade.cashPromise.title') : selected ? selected.title : chooseText}</h3>
+          <h3>{mode === 'money' ? moneyText : mode === 'cash_promise' ? t('trade.cashPromise.title') : selected ? selected.title : t('trade.sidePicker.chooseSourceTitle', { item: itemLabel.toLowerCase() })}</h3>
         </div>
         <span className={`semantic-badge ${sideClass}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}</span>
       </div>
-
-      {moneyEnabled || cashPromiseEnabled ? (
-        <div className="trade-side-mode-toggle" role="group" aria-label={`${label} ${t('trade.labels.type')}`}>
-          <button type="button" className={mode === 'saved' ? 'is-active' : ''} onClick={() => onModeChange('saved')}>{savedText}</button>
-          {moneyEnabled ? <button type="button" className={mode === 'money' ? 'is-active' : ''} onClick={() => onModeChange('money')}>{t('account.walletMoney')}</button> : null}
-          {cashPromiseEnabled ? <button type="button" className={mode === 'cash_promise' ? 'is-active' : ''} onClick={() => onModeChange('cash_promise')}>{t('trade.cashPromise.title')}</button> : null}
-        </div>
-      ) : null}
 
       {mode === 'money' && moneyEnabled ? (
         <div className="trade-side-money-state">
           <strong>{moneyText}</strong>
           <span>{t('account.wallet.optionalWalletBody')}</span>
+          <button type="button" className="trade-side-source-back" onClick={() => onModeChange('saved')}>{savedText}</button>
         </div>
       ) : mode === 'cash_promise' && cashPromiseEnabled ? (
         <div className="trade-side-money-state trade-side-money-state--cash-promise">
           <strong>{t('trade.cashPromise.title')}</strong>
           <span>{t('trade.cashPromise.notProcessed')}</span>
+          <button type="button" className="trade-side-source-back" onClick={() => onModeChange('saved')}>{savedText}</button>
         </div>
       ) : selected ? (
         <div className="trade-side-choice-state">
-          <Link href={chooseHref} className="trade-side-choice-card" aria-label={t('trade.sidePicker.changeSource')}>
+          <Link href={sourceHref(chooseHref, 'mine')} className="trade-side-choice-card" aria-label={t('trade.sidePicker.changeSource')}>
             <InventoryPreview item={selected} side={side} />
           </Link>
-          <Link href={chooseHref} className="button secondary trade-side-change-button">{t('common.actions.edit')}</Link>
+          <Link href={sourceHref(chooseHref, 'mine')} className="button secondary trade-side-change-button">{t('common.actions.edit')}</Link>
         </div>
       ) : (
-        <Link href={chooseHref} className="trade-side-placeholder">
-          <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={22} decorative /></span>
-          <strong>{chooseText}</strong>
-          <small>{items.length ? t('inventory.messages.visibleItems', { count: items.length, items: side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase() }) : emptyTitle || emptyBody}</small>
-        </Link>
+        <div className="trade-side-source-step trade-side-source-step--inline">
+          <p className="trade-side-source-inline-copy">{items.length ? t('inventory.messages.visibleItems', { count: items.length, items: pluralLabel }) : emptyTitle || emptyBody}</p>
+          <div className="trade-side-source-grid trade-side-source-grid--inline">
+            <SourceCard href={sourceHref(chooseHref, 'mine')} icon={side === 'need' ? 'need' : 'offer'} title={t('trade.sidePicker.useMine')} body={t('trade.sidePicker.useMineBody', { items: pluralLabel })} />
+            <SourceCard href={sourceHref(chooseHref, 'starter')} icon="trade" title={t('trade.sidePicker.useStarter')} body={t('trade.sidePicker.useStarterBody')} />
+            <SourceCard href={newHref} icon="add" title={t('trade.sidePicker.createNew', { item: itemLabel })} body={t('trade.sidePicker.createNewBody')} dashed />
+            {moneyEnabled ? <SourceButton iconLabel="€" title={t('account.walletMoney')} body={t('account.wallet.optionalWalletBody')} onClick={() => onModeChange('money')} /> : null}
+            {cashPromiseEnabled ? <SourceButton iconLabel="€" title={t('trade.cashPromise.title')} body={t('trade.cashPromise.notProcessed')} warning onClick={() => onModeChange('cash_promise')} /> : null}
+          </div>
+        </div>
       )}
     </section>
   );

@@ -5,6 +5,8 @@ export * from './ai.js';
 export * from './subscriptions.js';
 export * from './tradePackages.js';
 
+export * from './wizard.js';
+
 export * from './inventoryCategories.js';
 export * from './inventoryTranslations.js';
 

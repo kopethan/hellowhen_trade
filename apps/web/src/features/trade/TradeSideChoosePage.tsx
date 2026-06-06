@@ -29,6 +29,7 @@ type TradeSideChoosePageProps = {
   postType?: TradePostType | '';
   mode?: 'createTrade' | 'proposal';
   tradeId?: string;
+  returnTo?: 'full' | '';
 };
 
 type TemplateSection = {
@@ -54,13 +55,13 @@ function itemSearchText(item: Inventory) {
   return [item.title, item.description, item.category, getInventoryMetadata(item), ...(item.tags ?? [])].filter(Boolean).join(' ').toLowerCase();
 }
 
-function createTradeHref(next: { postType?: TradePostType | ''; needId?: string; offerId?: string }) {
+function createTradeHref(next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, returnToFull = false) {
   const params = new URLSearchParams();
   if (next.postType) params.set('postType', next.postType);
   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
   const query = params.toString();
-  return `/trades/create${query ? `?${query}` : ''}`;
+  return `/trades/create${returnToFull ? '/full' : ''}${query ? `?${query}` : ''}`;
 }
 
 function tradeProposalHref(tradeId: string, next: { needId?: string; offerId?: string }) {
@@ -71,7 +72,7 @@ function tradeProposalHref(tradeId: string, next: { needId?: string; offerId?: s
   return `/trades/${tradeId}/proposals${query ? `?${query}` : ''}`;
 }
 
-function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
+function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, source?: SourceMode, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string; returnTo?: 'full' | '' }) {
   const params = new URLSearchParams();
   if (context?.mode === 'proposal' && context.tradeId) {
     if (next.needId) params.set('proposalNeedId', next.needId);
@@ -84,11 +85,12 @@ function choosePageHref(side: Side, next: { postType?: TradePostType | ''; needI
   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
   if (source) params.set('source', source);
+  if (context?.returnTo === 'full') params.set('returnTo', 'full');
   const query = params.toString();
   return `/trades/create/choose-${side}${query ? `?${query}` : ''}`;
 }
 
-function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
+function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?: string; offerId?: string }, context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string; returnTo?: 'full' | '' }) {
   const params = new URLSearchParams();
   if (context?.mode === 'proposal' && context.tradeId) {
     if (next.needId) params.set('proposalNeedId', next.needId);
@@ -99,19 +101,20 @@ function newItemHref(side: Side, next: { postType?: TradePostType | ''; needId?:
   if (next.postType) params.set('postType', next.postType);
   if (next.needId && next.postType !== 'open_offer') params.set('needId', next.needId);
   if (next.offerId && next.postType !== 'open_need') params.set('offerId', next.offerId);
+  if (context?.returnTo === 'full') params.set('returnTo', 'full');
   const query = params.toString();
   return `/trades/create/choose-${side}/new${query ? `?${query}` : ''}`;
 }
 
-function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '', context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string }) {
+function selectHref(side: Side, itemId: string, currentNeedId?: string, currentOfferId?: string, postType?: TradePostType | '', context?: { mode?: 'createTrade' | 'proposal'; tradeId?: string; returnTo?: 'full' | '' }) {
   if (context?.mode === 'proposal' && context.tradeId) {
     return side === 'need'
       ? tradeProposalHref(context.tradeId, { needId: itemId, offerId: currentOfferId })
       : tradeProposalHref(context.tradeId, { needId: currentNeedId, offerId: itemId });
   }
   return side === 'need'
-    ? createTradeHref({ postType, needId: itemId, offerId: currentOfferId })
-    : createTradeHref({ postType, needId: currentNeedId, offerId: itemId });
+    ? createTradeHref({ postType, needId: itemId, offerId: currentOfferId }, context?.returnTo === 'full')
+    : createTradeHref({ postType, needId: currentNeedId, offerId: itemId }, context?.returnTo === 'full');
 }
 
 function selectedIdForSide(side: Side, currentNeedId?: string, currentOfferId?: string) {
@@ -230,7 +233,7 @@ function StarterTemplateOption({
   );
 }
 
-export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer', mode = 'createTrade', tradeId }: TradeSideChoosePageProps) {
+export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId = '', initialSource = '', postType = 'need_offer', mode = 'createTrade', tradeId, returnTo = '' }: TradeSideChoosePageProps) {
   const router = useRouter();
   const auth = useWebAuth();
   const { t, language } = useWebTranslation();
@@ -249,8 +252,8 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
   const lowerLabel = label.toLowerCase();
   const pluralLabel = side === 'need' ? t('inventory.labels.needs').toLowerCase() : t('inventory.labels.offers').toLowerCase();
   const selectedId = selectedIdForSide(side, currentNeedId, currentOfferId) ?? '';
-  const context = { mode, tradeId };
-  const backHref = mode === 'proposal' && tradeId ? tradeProposalHref(tradeId, { needId: currentNeedId, offerId: currentOfferId }) : createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId });
+  const context = { mode, tradeId, returnTo };
+  const backHref = mode === 'proposal' && tradeId ? tradeProposalHref(tradeId, { needId: currentNeedId, offerId: currentOfferId }) : createTradeHref({ postType, needId: currentNeedId, offerId: currentOfferId }, returnTo === 'full');
   const sourceChoiceHref = choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, undefined, context);
   const createHref = newItemHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, context);
 

@@ -43,7 +43,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
   const auth = useAuth();
   const side = route.params.side;
   const existing = route.params.selection;
-  const [sourceMode, setSourceMode] = useState<SourceMode>(null);
+  const [sourceMode, setSourceMode] = useState<SourceMode>(route.params.initialSourceMode ?? null);
   const [query, setQuery] = useState('');
   const [needs, setNeeds] = useState<NeedItem[]>([]);
   const [offers, setOffers] = useState<OfferItem[]>([]);
@@ -103,7 +103,7 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
   const activeLoading = sourceMode === 'starter' ? templateLoading : loading;
   const hasSavedItems = side === 'need' ? usableNeeds.length > 0 : usableOffers.length > 0;
   const returnTarget = route.params.returnTo ?? 'createTrade';
-  const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible && ((returnTarget === 'createTrade' && route.params.postType === 'need_offer') || returnTarget === 'tradeProposal' || returnTarget === 'proposalDetail');
+  const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible && (((returnTarget === 'createTrade' || returnTarget === 'createTradeFull') && route.params.postType === 'need_offer') || returnTarget === 'tradeProposal' || returnTarget === 'proposalDetail');
 
   const filteredNeeds = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -146,6 +146,10 @@ export function TradeSidePickerScreen({ route, navigation }: Props) {
         selectedProposalNeedId,
         selectedProposalOfferId,
       });
+      return;
+    }
+    if (route.params.returnTo === 'createTradeFull') {
+      navigation.navigate('CreateTradeFull', { selectedTradeSide: selection });
       return;
     }
     navigation.navigate('CreateTrade', { selectedTradeSide: selection });

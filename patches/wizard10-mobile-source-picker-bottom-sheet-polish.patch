@@ -1,0 +1,263 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 3a6b72c..7676052 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -168,6 +168,7 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+   const [error, setError] = useState<string | null>(null);
+   const [menuSheetVisible, setMenuSheetVisible] = useState(false);
+   const [helpSheetVisible, setHelpSheetVisible] = useState(false);
++  const [sourceSheetSide, setSourceSheetSide] = useState<TradeCreateSide | null>(null);
+   const processedSelectionRef = useRef<TradeCreateSideSelection | null>(null);
+ 
+   const usableNeeds = useMemo(() => needs.filter(isNeedAvailable), [needs]);
+@@ -308,6 +309,23 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+     navigation.navigate('TradeSidePicker', { side, selection: side === 'need' ? needSelection : offerSelection, postType: postType ?? undefined, returnTo: 'createTrade', initialSourceMode });
+   }
+ 
++  function openSourceSheet(side: TradeCreateSide) {
++    setSourceSheetSide(side);
++  }
++
++  function closeSourceSheet() {
++    setSourceSheetSide(null);
++  }
++
++  function chooseSourceFromSheet(side: TradeCreateSide, sourceMode: InlineSourceMode | 'new') {
++    closeSourceSheet();
++    if (sourceMode === 'new') {
++      createNewSide(side);
++      return;
++    }
++    openSidePicker(side, sourceMode);
++  }
++
+   function createNewSide(side: TradeCreateSide) {
+     const params = { returnTo: 'createTrade' as const };
+     if (side === 'need') {
+@@ -446,6 +464,41 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+     },
+   ];
+ 
++  const sourceSheetItem = sourceSheetSide === 'offer' ? t('inventory.labels.offer').toLowerCase() : t('inventory.labels.need').toLowerCase();
++  const sourceSheetItems = sourceSheetSide === 'offer' ? t('inventory.labels.offers').toLowerCase() : t('inventory.labels.needs').toLowerCase();
++  const sourceSheetCashAllowed = Boolean(sourceSheetSide && postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible);
++  const sourceSheetActions: AppActionSheetAction[] = sourceSheetSide ? [
++    {
++      key: 'mine',
++      label: t('trade.sidePicker.useMine'),
++      helper: t('trade.sidePicker.useMineBody', { items: sourceSheetItems }),
++      icon: sourceSheetSide,
++      tone: 'primary',
++      onPress: () => chooseSourceFromSheet(sourceSheetSide, 'mine'),
++    },
++    {
++      key: 'starter',
++      label: t('trade.sidePicker.useStarter'),
++      helper: t('trade.sidePicker.useStarterBody'),
++      icon: 'search',
++      onPress: () => chooseSourceFromSheet(sourceSheetSide, 'starter'),
++    },
++    {
++      key: 'new',
++      label: t('trade.sidePicker.createNew', { item: sourceSheetItem }),
++      helper: t('trade.sidePicker.createNewBody', { item: sourceSheetItem }),
++      icon: 'add',
++      onPress: () => chooseSourceFromSheet(sourceSheetSide, 'new'),
++    },
++    ...(sourceSheetCashAllowed ? [{
++      key: 'cash-promise',
++      label: t('trade.sidePicker.useCashPromise'),
++      helper: t('trade.sidePicker.useCashPromiseBody', { item: sourceSheetItem }),
++      icon: 'warning' as const,
++      onPress: () => chooseSourceFromSheet(sourceSheetSide, 'cashPromise'),
++    }] : []),
++  ] : [];
++
+   const headerMenuButton = (
+     <Pressable
+       accessibilityRole="button"
+@@ -494,14 +547,8 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+           offerSelection={offerSelection}
+           selectedNeed={selectedNeed}
+           selectedOffer={selectedOffer}
+-          onMineNeed={() => openSidePicker('need', 'mine')}
+-          onStarterNeed={() => openSidePicker('need', 'starter')}
+-          onCashPromiseNeed={() => openSidePicker('need', 'cashPromise')}
+-          onCreateNeed={() => createNewSide('need')}
+-          onMineOffer={() => openSidePicker('offer', 'mine')}
+-          onStarterOffer={() => openSidePicker('offer', 'starter')}
+-          onCashPromiseOffer={() => openSidePicker('offer', 'cashPromise')}
+-          onCreateOffer={() => createNewSide('offer')}
++          onOpenNeedSourceSheet={() => openSourceSheet('need')}
++          onOpenOfferSourceSheet={() => openSourceSheet('offer')}
+         />
+       ) : activeStepId === 'details' ? (
+         <DetailsStep theme={theme} expiryDays={expiryDays} onExpiryChange={setExpiryDays} />
+@@ -523,6 +570,13 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+         cancelLabel={t('common.actions.cancel')}
+         onClose={() => setMenuSheetVisible(false)}
+       />
++      <AppActionSheet
++        visible={Boolean(sourceSheetSide)}
++        title={t('trade.sidePicker.chooseSourceTitle', { item: sourceSheetItem })}
++        actions={sourceSheetActions}
++        cancelLabel={t('common.actions.cancel')}
++        onClose={closeSourceSheet}
++      />
+       <AppActionSheet
+         visible={helpSheetVisible}
+         title={t('trade.create.wizardHelpTitle')}
+@@ -550,14 +604,8 @@ function ExchangeStep({
+   offerSelection,
+   selectedNeed,
+   selectedOffer,
+-  onMineNeed,
+-  onStarterNeed,
+-  onCashPromiseNeed,
+-  onCreateNeed,
+-  onMineOffer,
+-  onStarterOffer,
+-  onCashPromiseOffer,
+-  onCreateOffer,
++  onOpenNeedSourceSheet,
++  onOpenOfferSourceSheet,
+ }: {
+   theme: ThemeTokens;
+   postType: TradePostType | null;
+@@ -565,21 +613,13 @@ function ExchangeStep({
+   offerSelection: TradeCreateSideSelection | null;
+   selectedNeed: NeedItem | null;
+   selectedOffer: OfferItem | null;
+-  onMineNeed: () => void;
+-  onStarterNeed: () => void;
+-  onCashPromiseNeed: () => void;
+-  onCreateNeed: () => void;
+-  onMineOffer: () => void;
+-  onStarterOffer: () => void;
+-  onCashPromiseOffer: () => void;
+-  onCreateOffer: () => void;
++  onOpenNeedSourceSheet: () => void;
++  onOpenOfferSourceSheet: () => void;
+ }) {
+   const { t } = useTranslation();
+   const isFullTrade = postType === 'need_offer';
+   const showNeed = postType !== 'open_offer';
+   const showOffer = postType !== 'open_need';
+-  const cashPromiseAvailable = postType === 'need_offer' && betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible;
+-
+   return (
+     <View style={styles.exchangeStack}>
+       {showNeed ? (
+@@ -592,11 +632,7 @@ function ExchangeStep({
+           selection={needSelection}
+           need={selectedNeed}
+           offer={null}
+-          cashPromiseAvailable={cashPromiseAvailable}
+-          onMine={onMineNeed}
+-          onStarter={onStarterNeed}
+-          onCashPromise={onCashPromiseNeed}
+-          onCreate={onCreateNeed}
++          onOpenSourceSheet={onOpenNeedSourceSheet}
+         />
+       ) : null}
+       {showOffer ? (
+@@ -609,26 +645,21 @@ function ExchangeStep({
+           selection={offerSelection}
+           need={null}
+           offer={selectedOffer}
+-          cashPromiseAvailable={cashPromiseAvailable}
+-          onMine={onMineOffer}
+-          onStarter={onStarterOffer}
+-          onCashPromise={onCashPromiseOffer}
+-          onCreate={onCreateOffer}
++          onOpenSourceSheet={onOpenOfferSourceSheet}
+         />
+       ) : null}
+     </View>
+   );
+ }
+ 
+-function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selection, need, offer, cashPromiseAvailable, onMine, onStarter, onCashPromise, onCreate }: { theme: ThemeTokens; side: TradeCreateSide; stepPrefix?: string; title: string; emptyTitle: string; selection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; cashPromiseAvailable: boolean; onMine: () => void; onStarter: () => void; onCashPromise: () => void; onCreate: () => void }) {
++function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selection, need, offer, onOpenSourceSheet }: { theme: ThemeTokens; side: TradeCreateSide; stepPrefix?: string; title: string; emptyTitle: string; selection: TradeCreateSideSelection | null; need: NeedItem | null; offer: OfferItem | null; onOpenSourceSheet: () => void }) {
+   const { t } = useTranslation();
+   const item = need ?? offer;
+   const meta = need ? needMeta(need, t) : offer ? offerMeta(offer, t) : '';
+   const isCashPromise = selection?.kind === 'cash_promise';
+   const selected = isCashPromise || Boolean(item);
+   const tone = side === 'need' ? 'need' : 'offer';
+-  const label = side === 'need' ? t('inventory.labels.need').toLowerCase() : t('inventory.labels.offer').toLowerCase();
+-  const createLabel = t('trade.sidePicker.createNew', { item: label });
++  const launcherLabel = selected ? t('trade.sidePicker.changeSource') : emptyTitle;
+ 
+   return (
+     <AppCard style={styles.exchangeSideCard}>
+@@ -645,15 +676,18 @@ function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selecti
+           item={item}
+           meta={meta}
+         />
+-      ) : (
+-        <AppText style={[styles.exchangeEmptyHint, { color: theme.color.muted }]}>{emptyTitle}</AppText>
+-      )}
+-      <View style={styles.inlineSourceList}>
+-        <InlineSourceButton theme={theme} icon={side} tone={tone} title={t('trade.sidePicker.useMine')} onPress={onMine} />
+-        <InlineSourceButton theme={theme} icon="search" tone="instruction" title={t('trade.sidePicker.useStarter')} onPress={onStarter} />
+-        <InlineSourceButton theme={theme} icon="add" tone="proposal" title={createLabel} onPress={onCreate} />
+-        {cashPromiseAvailable ? <InlineSourceButton theme={theme} icon="cash" tone="warning" title={t('trade.sidePicker.useCashPromise')} onPress={onCashPromise} /> : null}
+-      </View>
++      ) : null}
++      <Pressable
++        accessibilityRole="button"
++        onPress={onOpenSourceSheet}
++        style={({ pressed }) => [styles.sourceLauncherButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++      >
++        <View style={[styles.sourceLauncherIcon, { backgroundColor: theme.semantic[tone].softBg, borderColor: theme.semantic[tone].border }]}>
++          <MobileIcon name={side} size={17} color={theme.semantic[tone].text} />
++        </View>
++        <AppText style={styles.sourceLauncherTitle} numberOfLines={1}>{launcherLabel}</AppText>
++        <MobileIcon name="chevron-right" size={15} color={theme.color.muted} />
++      </Pressable>
+     </AppCard>
+   );
+ }
+@@ -684,21 +718,6 @@ function SelectedExchangeSide({ theme, tone, emptyTitle, selection, item, meta }
+   );
+ }
+ 
+-function InlineSourceButton({ theme, icon, tone, title, onPress }: { theme: ThemeTokens; icon: 'need' | 'offer' | 'search' | 'add' | 'cash'; tone: 'need' | 'offer' | 'instruction' | 'proposal' | 'warning'; title: string; onPress: () => void }) {
+-  const semantic = theme.semantic[tone];
+-  const iconNode = icon === 'cash'
+-    ? <AppText style={[styles.inlineSourceCashIcon, { color: semantic.text }]}>€</AppText>
+-    : <MobileIcon name={icon} size={17} color={semantic.text} />;
+-
+-  return (
+-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.inlineSourceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-      <View style={[styles.inlineSourceIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>{iconNode}</View>
+-      <AppText style={styles.inlineSourceTitle} numberOfLines={1}>{title}</AppText>
+-      <MobileIcon name="chevron-right" size={15} color={theme.color.muted} />
+-    </Pressable>
+-  );
+-}
+-
+ function DetailsStep({ theme, expiryDays, onExpiryChange }: { theme: ThemeTokens; expiryDays: number | null; onExpiryChange: (days: number | null) => void }) {
+   const { t } = useTranslation();
+   const [expiryExpanded, setExpiryExpanded] = useState(false);
+@@ -784,16 +803,13 @@ const styles = StyleSheet.create({
+   exchangeSideCard: { gap: 10 },
+   exchangeSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+   exchangeSelectedFlag: { fontSize: 11, fontWeight: '900', letterSpacing: 0.45, textTransform: 'uppercase' },
+-  exchangeEmptyHint: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+   exchangeSelectedBox: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   exchangeSelectionCopy: { flex: 1, minWidth: 0, gap: 3 },
+   exchangeSelectionTitle: { fontSize: 16, fontWeight: '900' },
+   exchangeSelectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+-  inlineSourceList: { gap: 7 },
+-  inlineSourceButton: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 9 },
+-  inlineSourceIcon: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+-  inlineSourceTitle: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '900' },
+-  inlineSourceCashIcon: { fontSize: 15, fontWeight: '950' },
++  sourceLauncherButton: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 9 },
++  sourceLauncherIcon: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  sourceLauncherTitle: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '900' },
+   detailsStack: { gap: 9 },
+   detailsCompactRow: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   detailsCompactCopy: { flex: 1, minWidth: 0, gap: 3 },

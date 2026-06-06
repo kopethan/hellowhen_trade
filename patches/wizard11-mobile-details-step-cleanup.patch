@@ -1,0 +1,83 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 4408c5e..0477b7f 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -632,17 +632,47 @@ function InlineSourceButton({ theme, icon, tone, title, onPress }: { theme: Them
+ 
+ function DetailsStep({ theme, expiryDays, onExpiryChange }: { theme: ThemeTokens; expiryDays: number | null; onExpiryChange: (days: number | null) => void }) {
+   const { t } = useTranslation();
++  const [expiryExpanded, setExpiryExpanded] = useState(false);
++  const selectedExpiryLabel = t(expiryOptions.find((option) => option.days === expiryDays)?.labelKey ?? 'trade.expiry.noExpiry');
+ 
+   return (
+-    <AppCard style={styles.detailsCard}>
+-      <View style={styles.detailsRowHeader}>
+-        <AppText style={styles.sectionTitle}>{t('trade.create.expiryTitle')}</AppText>
+-      </View>
+-      <View style={styles.expiryRow}>{expiryOptions.map((option) => {
+-        const selected = expiryDays === option.days;
+-        return <Pressable key={option.labelKey} onPress={() => onExpiryChange(option.days)} style={({ pressed }) => [styles.expiryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, pressed && styles.pressed]}><AppText style={[styles.expiryButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{t(option.labelKey)}</AppText></Pressable>;
+-      })}</View>
+-    </AppCard>
++    <View style={styles.detailsStack}>
++      <Pressable
++        accessibilityRole="button"
++        onPress={() => setExpiryExpanded((expanded) => !expanded)}
++        style={({ pressed }) => [styles.detailsCompactRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}
++      >
++        <View style={styles.detailsCompactCopy}>
++          <AppText style={styles.detailsCompactLabel}>{t('trade.create.expiryTitle')}</AppText>
++          <AppText style={[styles.detailsCompactValue, { color: theme.color.muted }]}>{selectedExpiryLabel}</AppText>
++        </View>
++        <MobileIcon name="chevron-right" size={17} color={theme.color.muted} style={expiryExpanded ? styles.chevronExpanded : undefined} />
++      </Pressable>
++
++      {expiryExpanded ? (
++        <View style={styles.expiryOptionList}>{expiryOptions.map((option) => {
++          const selected = expiryDays === option.days;
++          return (
++            <Pressable
++              key={option.labelKey}
++              accessibilityRole="button"
++              onPress={() => {
++                onExpiryChange(option.days);
++                setExpiryExpanded(false);
++              }}
++              style={({ pressed }) => [
++                styles.expiryOptionRow,
++                { backgroundColor: selected ? theme.semantic.proposal.softBg : theme.color.surface, borderColor: selected ? theme.semantic.proposal.border : theme.color.border },
++                pressed && styles.pressed,
++              ]}
++            >
++              <AppText style={[styles.expiryOptionText, { color: selected ? theme.semantic.proposal.text : theme.color.text }]}>{t(option.labelKey)}</AppText>
++              {selected ? <MobileIcon name="proposal-accepted" size={17} color={theme.semantic.proposal.text} /> : null}
++            </Pressable>
++          );
++        })}</View>
++      ) : null}
++    </View>
+   );
+ }
+ 
+@@ -692,12 +722,16 @@ const styles = StyleSheet.create({
+   inlineSourceIcon: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   inlineSourceTitle: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '900' },
+   inlineSourceCashIcon: { fontSize: 15, fontWeight: '950' },
+-  detailsCard: { gap: 12 },
+-  detailsRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
++  detailsStack: { gap: 9 },
++  detailsCompactRow: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  detailsCompactCopy: { flex: 1, minWidth: 0, gap: 3 },
++  detailsCompactLabel: { fontSize: 15, fontWeight: '900' },
++  detailsCompactValue: { fontSize: 12, fontWeight: '800' },
++  expiryOptionList: { gap: 7 },
++  expiryOptionRow: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
++  expiryOptionText: { fontSize: 13, fontWeight: '900' },
++  chevronExpanded: { transform: [{ rotate: '90deg' }] },
+   sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' },
+-  expiryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+-  expiryButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 9 },
+-  expiryButtonText: { fontWeight: '900' },
+   previewWrap: { gap: 10 },
+   deckPreviewCard: { paddingHorizontal: 0, overflow: 'visible' },
+   deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18 },

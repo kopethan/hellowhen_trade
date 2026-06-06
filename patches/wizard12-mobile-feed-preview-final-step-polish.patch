@@ -1,0 +1,50 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 0477b7f..5b1c649 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -679,18 +679,20 @@ function DetailsStep({ theme, expiryDays, onExpiryChange }: { theme: ThemeTokens
+ function PreviewStep({ theme, postType, expiryDays, previewTrade, previewCardCount }: { theme: ThemeTokens; postType: TradePostType | null; expiryDays: number | null; previewTrade: TradeDeckItem; previewCardCount: number }) {
+   const { t } = useTranslation();
+   const expirySummary = expiryDays ? t('trade.create.expiryDaysSummary', { days: expiryDays }) : t('trade.expiry.noExpiry');
+-  const summary = `${postType ? postTypeLabel(postType, t) : t('trade.labels.trade')} · ${expirySummary}`;
++  const postTypeSummary = postType ? postTypeLabel(postType, t) : t('trade.labels.trade');
++  const previewCountSummary = previewCardCount > 1 ? t('trade.create.previewCards', { count: previewCardCount }) : null;
++  const tone = postType === 'open_need' ? 'need' : postType === 'open_offer' ? 'offer' : 'trade';
+ 
+   return (
+     <View style={styles.previewWrap}>
+-      <AppCard style={styles.deckPreviewCard}>
+-        <View style={styles.deckPreviewHeader}>
+-          <AppText style={styles.sectionTitle}>{t('trade.create.deckPreview')}</AppText>
+-          {previewCardCount > 1 ? <AppText style={[styles.deckPreviewCount, { color: theme.color.muted }]}>{t('trade.create.previewCards', { count: previewCardCount })}</AppText> : null}
+-        </View>
++      <View style={styles.previewDeckStage}>
+         <TradeSquareDeck trade={previewTrade} />
+-      </AppCard>
+-      <AppText style={[styles.previewSummary, { color: theme.color.muted }]}>{summary}</AppText>
++      </View>
++      <View style={[styles.previewSummaryBar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++        <SemanticBadge label={postTypeSummary} tone={tone} size="sm" />
++        <AppText style={[styles.previewSummaryText, { color: theme.color.muted }]} numberOfLines={1}>{expirySummary}</AppText>
++        {previewCountSummary ? <AppText style={[styles.previewSummaryText, { color: theme.color.muted }]} numberOfLines={1}>{previewCountSummary}</AppText> : null}
++      </View>
+     </View>
+   );
+ }
+@@ -731,12 +733,10 @@ const styles = StyleSheet.create({
+   expiryOptionRow: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+   expiryOptionText: { fontSize: 13, fontWeight: '900' },
+   chevronExpanded: { transform: [{ rotate: '90deg' }] },
+-  sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' },
+-  previewWrap: { gap: 10 },
+-  deckPreviewCard: { paddingHorizontal: 0, overflow: 'visible' },
+-  deckPreviewHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingHorizontal: 18 },
+-  deckPreviewCount: { fontSize: 12, fontWeight: '900', letterSpacing: 0.4 },
+-  previewSummary: { fontSize: 12, fontWeight: '900', textAlign: 'center', letterSpacing: 0.2 },
++  previewWrap: { gap: 9 },
++  previewDeckStage: { alignItems: 'center', justifyContent: 'center', marginHorizontal: -8 },
++  previewSummaryBar: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, flexWrap: 'wrap' },
++  previewSummaryText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.2 },
+   disabled: { opacity: 0.55 },
+   pressed: { opacity: 0.78 },
+ });

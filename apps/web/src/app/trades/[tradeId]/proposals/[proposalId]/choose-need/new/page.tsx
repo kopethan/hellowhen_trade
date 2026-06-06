@@ -1,4 +1,4 @@
-import { InventoryFormClient } from '../../../../../../../features/inventory/InventoryFormClient';
+import { InventoryCreateWizardClient } from '../../../../../../../features/inventory/InventoryCreateWizardClient';
 
 type NewProposalEditNeedPageProps = {
   params: Promise<{ tradeId: string; proposalId: string }>;
@@ -18,9 +18,8 @@ export default async function NewProposalEditNeedPage({ params, searchParams }: 
   const { tradeId, proposalId } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : {};
   return (
-    <InventoryFormClient
+    <InventoryCreateWizardClient
       kind="need"
-      mode="create"
       cancelHref={chooseNeedHref(tradeId, proposalId, resolvedSearchParams)}
       afterCreateRedirect={{
         pathname: `/trades/${tradeId}/proposals/${proposalId}`,

@@ -23,8 +23,11 @@ import { SecurityPasswordScreen } from '../features/settings/SecurityPasswordScr
 import { TwoFactorSecurityScreen } from '../features/settings/TwoFactorSecurityScreen';
 import { PublicUserProfileScreen } from '../features/users/PublicUserProfileScreen';
 import { CreateNeedScreen } from '../features/trade/CreateNeedScreen';
+import { CreateNeedFullScreen } from '../features/trade/CreateNeedFullScreen';
 import { CreateOfferScreen } from '../features/trade/CreateOfferScreen';
+import { CreateOfferFullScreen } from '../features/trade/CreateOfferFullScreen';
 import { CreateProposalScreen } from '../features/trade/CreateProposalScreen';
+import { CreateTradeFullScreen } from '../features/trade/CreateTradeFullScreen';
 import { CreateTradeScreen, type TradeCreateReturnParams, type TradeCreateSideSelection, type TradeSidePickerParams } from '../features/trade/CreateTradeScreen';
 import { TradeSidePickerScreen } from '../features/trade/TradeSidePickerScreen';
 import { MyNeedsScreen } from '../features/trade/MyNeedsScreen';
@@ -49,6 +52,9 @@ import { AppText } from '../components/AppText';
 import { useTranslation } from '../providers/MobileI18nProvider';
 import type { LegalPolicyKey } from '@hellowhen/i18n';
 
+type InventoryCreateReturnTarget = 'createTrade' | 'createTradeFull' | 'tradeProposal' | 'proposalDetail';
+type InventoryCreateParams = { returnTo?: InventoryCreateReturnTarget; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string } | undefined;
+
 export type RootStackParamList = {
   TradeTabs: undefined;
   AccountProfile: undefined;
@@ -65,11 +71,14 @@ export type RootStackParamList = {
   AccountDeletion: undefined;
   SupportTicketDetail: { ticketId: string; subject?: string };
   LegalPolicy: { policy?: LegalPolicyKey } | undefined;
-  CreateNeed: { returnTo?: 'createTrade' | 'tradeProposal' | 'proposalDetail'; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string } | undefined;
+  CreateNeed: InventoryCreateParams;
+  CreateNeedFull: InventoryCreateParams;
   NeedDetail: { needId: string; title?: string };
-  CreateOffer: { returnTo?: 'createTrade' | 'tradeProposal' | 'proposalDetail'; tradeId?: string; tradeTitle?: string; proposalId?: string; proposalNeedId?: string; proposalOfferId?: string } | undefined;
+  CreateOffer: InventoryCreateParams;
+  CreateOfferFull: InventoryCreateParams;
   OfferDetail: { offerId: string; title?: string };
   CreateTrade: TradeCreateReturnParams;
+  CreateTradeFull: TradeCreateReturnParams;
   TradeSidePicker: TradeSidePickerParams;
   CreateProposal: { tradeId: string; title?: string };
   ProposalDetail: { proposalId: string; selectedProposalSide?: TradeCreateSideSelection; selectedProposalNeedId?: string; selectedProposalOfferId?: string };
@@ -139,10 +148,13 @@ const ProtectedSupportCenterScreen = withAuth(SupportCenterScreen);
 const ProtectedAccountDeletionScreen = withAuth(AccountDeletionScreen);
 const ProtectedSupportTicketDetailScreen = withAuth(SupportTicketDetailScreen);
 const ProtectedCreateNeedScreen = withAuth(CreateNeedScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
+const ProtectedCreateNeedFullScreen = withAuth(CreateNeedFullScreen, 'Login to create a need', 'Create needs after signing in so they stay attached to your account.');
 const ProtectedNeedDetailScreen = withAuth(NeedDetailScreen);
 const ProtectedCreateOfferScreen = withAuth(CreateOfferScreen, 'Login to create an offer', 'Create offers after signing in so they stay attached to your account.');
+const ProtectedCreateOfferFullScreen = withAuth(CreateOfferFullScreen, 'Login to create an offer', 'Create offers after signing in so they stay attached to your account.');
 const ProtectedOfferDetailScreen = withAuth(OfferDetailScreen);
 const ProtectedCreateTradeScreen = withAuth(CreateTradeScreen, 'Login to create a trade', 'Browse the public feed now. Sign in when you are ready to publish a trade.');
+const ProtectedCreateTradeFullScreen = withAuth(CreateTradeFullScreen, 'Login to create a trade', 'Browse the public feed now. Sign in when you are ready to publish a trade.');
 const ProtectedTradeSidePickerScreen = withAuth(TradeSidePickerScreen);
 const ProtectedCreateProposalScreen = withAuth(CreateProposalScreen, 'Login to send a proposal', 'Proposal messages are private, so you need an account before asking to trade.');
 const ProtectedProposalDetailScreen = withAuth(ProposalDetailScreen);
@@ -231,10 +243,13 @@ export function RootNavigator() {
       <Stack.Screen name="AccountDeletion" component={ProtectedAccountDeletionScreen} />
       <Stack.Screen name="SupportTicketDetail" component={ProtectedSupportTicketDetailScreen} />
       <Stack.Screen name="CreateNeed" component={ProtectedCreateNeedScreen} />
+      <Stack.Screen name="CreateNeedFull" component={ProtectedCreateNeedFullScreen} />
       <Stack.Screen name="NeedDetail" component={ProtectedNeedDetailScreen} />
       <Stack.Screen name="CreateOffer" component={ProtectedCreateOfferScreen} />
+      <Stack.Screen name="CreateOfferFull" component={ProtectedCreateOfferFullScreen} />
       <Stack.Screen name="OfferDetail" component={ProtectedOfferDetailScreen} />
       <Stack.Screen name="CreateTrade" component={ProtectedCreateTradeScreen} />
+      <Stack.Screen name="CreateTradeFull" component={ProtectedCreateTradeFullScreen} />
       <Stack.Screen name="TradeSidePicker" component={ProtectedTradeSidePickerScreen} />
       <Stack.Screen name="CreateProposal" component={ProtectedCreateProposalScreen} />
       <Stack.Screen name="TradePublicDiscussion" component={ProtectedTradePublicDiscussionScreen} />

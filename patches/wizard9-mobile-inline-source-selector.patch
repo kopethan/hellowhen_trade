@@ -1,0 +1,128 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 3b9336f..4408c5e 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -558,7 +558,8 @@ function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selecti
+   const isCashPromise = selection?.kind === 'cash_promise';
+   const selected = isCashPromise || Boolean(item);
+   const tone = side === 'need' ? 'need' : 'offer';
+-  const createLabel = side === 'need' ? t('trade.create.quickNewNeed') : t('trade.create.quickNewOffer');
++  const label = side === 'need' ? t('inventory.labels.need').toLowerCase() : t('inventory.labels.offer').toLowerCase();
++  const createLabel = t('trade.sidePicker.createNew', { item: label });
+ 
+   return (
+     <AppCard style={styles.exchangeSideCard}>
+@@ -566,40 +567,65 @@ function ExchangeSideBlock({ theme, side, stepPrefix, title, emptyTitle, selecti
+         <SemanticBadge label={stepPrefix ? `${stepPrefix} · ${title}` : title} tone={tone} size="sm" />
+         {selected ? <AppText style={[styles.exchangeSelectedFlag, { color: theme.semantic[tone].text }]}>{t('inventory.labels.selected')}</AppText> : null}
+       </View>
+-      <Pressable accessibilityRole="button" onPress={onMine} style={({ pressed }) => [styles.exchangeSelectionBox, { backgroundColor: selected ? theme.color.surface : theme.color.subtleSurface, borderColor: selected ? theme.semantic[tone].border : theme.color.border }, pressed && styles.pressed]}>
+-        {isCashPromise ? (
+-          <View style={styles.exchangeSelectionCopy}>
+-            <AppText style={styles.exchangeSelectionTitle} numberOfLines={1}>{t('trade.cashPromise.title')}</AppText>
+-            <AppText style={[styles.exchangeSelectionMeta, { color: theme.semantic.warning.text }]} numberOfLines={1}>{formatMoney(selection.amountCents, selection.currency)} · {t('trade.cashPromise.notProcessed')}</AppText>
+-          </View>
+-        ) : item ? (
+-          <View style={styles.exchangeSelectionCopy}>
+-            <AppText style={styles.exchangeSelectionTitle} numberOfLines={1}>{item.title}</AppText>
+-            {meta ? <AppText style={[styles.exchangeSelectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}
+-          </View>
+-        ) : (
+-          <View style={styles.exchangeSelectionCopy}>
+-            <AppText style={styles.exchangeSelectionTitle} numberOfLines={1}>{emptyTitle}</AppText>
+-            <AppText style={[styles.exchangeSelectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{t('trade.create.sourceMiniHint')}</AppText>
+-          </View>
+-        )}
+-        <MobileIcon name="chevron-right" size={17} color={theme.color.muted} />
+-      </Pressable>
+-      <View style={styles.miniSourceRow}>
+-        <MiniSourceButton theme={theme} label={t('trade.sidePicker.sourceMineShort')} onPress={onMine} />
+-        <MiniSourceButton theme={theme} label={t('trade.sidePicker.sourceStarterShort')} onPress={onStarter} />
+-        <MiniSourceButton theme={theme} label={createLabel} onPress={onCreate} />
+-        {cashPromiseAvailable ? <MiniSourceButton theme={theme} label={t('trade.sidePicker.sourceCashShort')} onPress={onCashPromise} tone="warning" /> : null}
++      {selected ? (
++        <SelectedExchangeSide
++          theme={theme}
++          tone={tone}
++          emptyTitle={emptyTitle}
++          selection={selection}
++          item={item}
++          meta={meta}
++        />
++      ) : (
++        <AppText style={[styles.exchangeEmptyHint, { color: theme.color.muted }]}>{emptyTitle}</AppText>
++      )}
++      <View style={styles.inlineSourceList}>
++        <InlineSourceButton theme={theme} icon={side} tone={tone} title={t('trade.sidePicker.useMine')} onPress={onMine} />
++        <InlineSourceButton theme={theme} icon="search" tone="instruction" title={t('trade.sidePicker.useStarter')} onPress={onStarter} />
++        <InlineSourceButton theme={theme} icon="add" tone="proposal" title={createLabel} onPress={onCreate} />
++        {cashPromiseAvailable ? <InlineSourceButton theme={theme} icon="cash" tone="warning" title={t('trade.sidePicker.useCashPromise')} onPress={onCashPromise} /> : null}
+       </View>
+     </AppCard>
+   );
+ }
+ 
+-function MiniSourceButton({ theme, label, tone = 'proposal', onPress }: { theme: ThemeTokens; label: string; tone?: 'proposal' | 'warning'; onPress: () => void }) {
++function SelectedExchangeSide({ theme, tone, emptyTitle, selection, item, meta }: { theme: ThemeTokens; tone: 'need' | 'offer'; emptyTitle: string; selection: TradeCreateSideSelection | null; item: NeedItem | OfferItem | null; meta: string }) {
++  const { t } = useTranslation();
++  const isCashPromise = selection?.kind === 'cash_promise';
++
++  return (
++    <View style={[styles.exchangeSelectedBox, { backgroundColor: theme.color.surface, borderColor: theme.semantic[tone].border }]}>
++      {isCashPromise ? (
++        <View style={styles.exchangeSelectionCopy}>
++          <AppText style={styles.exchangeSelectionTitle} numberOfLines={1}>{t('trade.cashPromise.title')}</AppText>
++          <AppText style={[styles.exchangeSelectionMeta, { color: theme.semantic.warning.text }]} numberOfLines={1}>{formatMoney(selection.amountCents, selection.currency)} · {t('trade.cashPromise.notProcessed')}</AppText>
++        </View>
++      ) : item ? (
++        <View style={styles.exchangeSelectionCopy}>
++          <AppText style={styles.exchangeSelectionTitle} numberOfLines={1}>{item.title}</AppText>
++          {meta ? <AppText style={[styles.exchangeSelectionMeta, { color: theme.color.muted }]} numberOfLines={1}>{meta}</AppText> : null}
++        </View>
++      ) : (
++        <View style={styles.exchangeSelectionCopy}>
++          <AppText style={styles.exchangeSelectionTitle} numberOfLines={1}>{emptyTitle}</AppText>
++        </View>
++      )}
++      <MobileIcon name="proposal-accepted" size={17} color={theme.semantic[tone].text} />
++    </View>
++  );
++}
++
++function InlineSourceButton({ theme, icon, tone, title, onPress }: { theme: ThemeTokens; icon: 'need' | 'offer' | 'search' | 'add' | 'cash'; tone: 'need' | 'offer' | 'instruction' | 'proposal' | 'warning'; title: string; onPress: () => void }) {
+   const semantic = theme.semantic[tone];
++  const iconNode = icon === 'cash'
++    ? <AppText style={[styles.inlineSourceCashIcon, { color: semantic.text }]}>€</AppText>
++    : <MobileIcon name={icon} size={17} color={semantic.text} />;
++
+   return (
+-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.miniSourceButton, { backgroundColor: semantic.softBg, borderColor: semantic.border }, pressed && styles.pressed]}>
+-      <AppText style={[styles.miniSourceButtonText, { color: semantic.text }]} numberOfLines={1}>{label}</AppText>
++    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.inlineSourceButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <View style={[styles.inlineSourceIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>{iconNode}</View>
++      <AppText style={styles.inlineSourceTitle} numberOfLines={1}>{title}</AppText>
++      <MobileIcon name="chevron-right" size={15} color={theme.color.muted} />
+     </Pressable>
+   );
+ }
+@@ -656,13 +682,16 @@ const styles = StyleSheet.create({
+   exchangeSideCard: { gap: 10 },
+   exchangeSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+   exchangeSelectedFlag: { fontSize: 11, fontWeight: '900', letterSpacing: 0.45, textTransform: 'uppercase' },
+-  exchangeSelectionBox: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  exchangeEmptyHint: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
++  exchangeSelectedBox: { borderRadius: 18, borderWidth: 1, paddingHorizontal: 13, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   exchangeSelectionCopy: { flex: 1, minWidth: 0, gap: 3 },
+   exchangeSelectionTitle: { fontSize: 16, fontWeight: '900' },
+   exchangeSelectionMeta: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
+-  miniSourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+-  miniSourceButton: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 7 },
+-  miniSourceButtonText: { fontSize: 12, fontWeight: '900' },
++  inlineSourceList: { gap: 7 },
++  inlineSourceButton: { borderRadius: 16, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 9 },
++  inlineSourceIcon: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  inlineSourceTitle: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '900' },
++  inlineSourceCashIcon: { fontSize: 15, fontWeight: '950' },
+   detailsCard: { gap: 12 },
+   detailsRowHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+   sectionTitle: { flex: 1, fontSize: 18, fontWeight: '900' },

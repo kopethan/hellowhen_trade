@@ -1,5 +1,5 @@
-import { InventoryFormClient } from '../../../features/inventory/InventoryFormClient';
+import { InventoryCreateWizardClient } from '../../../features/inventory/InventoryCreateWizardClient';
 
 export default function NewNeedPage() {
-  return <InventoryFormClient kind="need" mode="create" />;
+  return <InventoryCreateWizardClient kind="need" />;
 }
