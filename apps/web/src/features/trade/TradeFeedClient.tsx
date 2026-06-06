@@ -294,15 +294,15 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
       <form className={`trade-feed-controls${activeToolPanel ? ' is-tools-open' : ''}`} aria-label={t('trade.filters.controls')} onSubmit={applySearch}>
         <button type="button" className="trade-filter-pill" onClick={() => setActiveToolPanel((value) => value === 'filter' ? null : 'filter')} aria-expanded={activeToolPanel === 'filter'} aria-label={t('trade.filters.searchAndFilters')} title={t('trade.filters.searchAndFilters')}>
           <WebIcon name="filter" size={17} decorative />
-          <span>{t('trade.filters.searchAndFilters')}</span>
+          <span className="trade-action-label">{t('trade.filters.searchAndFilters')}</span>
         </button>
         <button type="button" className="trade-activity-pill" onClick={() => setActiveToolPanel((value) => value === 'activity' ? null : 'activity')} aria-expanded={activeToolPanel === 'activity'} aria-label={t('trade.activity.open')} title={t('trade.activity.open')}>
           <WebIcon name="activity" size={18} decorative />
-          <span>{t('trade.activity.title')}</span>
+          <span className="trade-action-label">{t('trade.activity.title')}</span>
         </button>
         <Link href={createTradeHref} className="trade-create-pill" aria-label={t('trade.create.title')} title={t('trade.create.title')}>
           <WebIcon name="add" size={21} decorative />
-          <span>{t('trade.create.title')}</span>
+          <span className="trade-action-label">{t('trade.create.title')}</span>
         </Link>
         {activeToolPanel === 'filter' ? (
           <div className="trade-filter-panel trade-filter-panel--filter" role="dialog" aria-modal="true" aria-labelledby="trade-filter-panel-title">

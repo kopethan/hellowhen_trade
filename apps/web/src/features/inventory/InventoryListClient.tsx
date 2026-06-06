@@ -37,7 +37,7 @@ function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: Invent
   const image = item.media?.[0];
 
   return (
-    <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card" aria-label={`${i18n.t?.('common.actions.open') ?? 'Open'} ${item.title}`}>
+    <Link href={`/${kind === 'need' ? 'needs' : 'offers'}/${item.id}`} className="inventory-card inventory-card--owner" aria-label={`${i18n.t?.('common.actions.open') ?? 'Open'} ${item.title}`}>
       <div className="inventory-card__media" aria-hidden="true">
         {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={38} decorative />}
       </div>
@@ -135,9 +135,32 @@ function StarterTemplateCard({
   const label = kindLabel(kind, i18n);
   const image = template.media?.[0] ?? null;
   const imageCount = template.media?.length ?? 0;
+  const isDisabled = disabled || cloning;
+  const actionLabel = cloning
+    ? (i18n.t?.('common.states.saving') ?? 'Saving...')
+    : kind === 'need'
+      ? (i18n.t?.('inventory.actions.useThisNeed') ?? `Use this ${label}`)
+      : (i18n.t?.('inventory.actions.useThisOffer') ?? `Use this ${label}`);
+
+  function handleUse() {
+    if (isDisabled) return;
+    onUse(template);
+  }
 
   return (
-    <article className="inventory-template-card">
+    <article
+      className={`inventory-template-card${isDisabled ? ' is-disabled' : ''}`}
+      role="button"
+      tabIndex={isDisabled ? -1 : 0}
+      aria-disabled={isDisabled}
+      aria-label={actionLabel}
+      onClick={handleUse}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        handleUse();
+      }}
+    >
       <div className="inventory-template-card__media" aria-hidden="true">
         {image ? <img src={mediaSrc(image)} alt="" loading="lazy" /> : <WebIcon name={kind === 'need' ? 'need' : 'offer'} size={34} decorative />}
       </div>
@@ -159,10 +182,11 @@ function StarterTemplateCard({
             <strong>{i18n.t?.('media.labels.image') ?? 'image'} × {imageCount}</strong>
           </div>
         ) : null}
-        <button type="button" className="button secondary inventory-template-card__button" disabled={disabled || cloning} onClick={() => onUse(template)}>
-          {cloning ? (i18n.t?.('common.states.saving') ?? 'Saving...') : kind === 'need' ? (i18n.t?.('inventory.actions.useThisNeed') ?? `Use this ${label}`) : (i18n.t?.('inventory.actions.useThisOffer') ?? `Use this ${label}`)}
+        <button type="button" className="button secondary inventory-template-card__button" disabled={isDisabled} onClick={(event) => { event.stopPropagation(); handleUse(); }}>
+          {actionLabel}
         </button>
       </div>
+      <span className="inventory-template-card__chevron" aria-hidden="true">›</span>
     </article>
   );
 }
