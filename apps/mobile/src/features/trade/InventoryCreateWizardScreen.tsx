@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { getNextWizardStepId, getPreviousWizardStepId, type WizardStepDefinition } from '@hellowhen/shared';
 import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
@@ -13,11 +13,14 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
 import { AppCard } from '../../components/AppCard';
 import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppText } from '../../components/AppText';
-import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
+import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+import { InfoNotice } from '../../components/SemanticUI';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useAuth } from '../../providers/AuthProvider';
 import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardShell } from './create';
 import { ImagePickerField } from './components/ImagePickerField';
@@ -59,6 +62,7 @@ type InventoryWizardDraft = {
   title: string;
   description: string;
   category: string;
+  timingOrAvailability: string;
   tags: string;
   mode: TradeExchangeMode;
   locationLabel: string;
@@ -73,7 +77,7 @@ type InventoryWizardPersistedDraft = InventoryWizardDraft & {
   translationEnabled: boolean;
 };
 
-const stepIds: InventoryWizardStepId[] = ['idea', 'details', 'images', 'review'];
+const stepIds: InventoryWizardStepId[] = ['idea', 'details', 'images'];
 
 function safeWizardText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
@@ -86,6 +90,7 @@ function hasDraftContent(draft: InventoryWizardDraft, translationTitle: string, 
     safeWizardText(translationTitle) ||
     safeWizardText(translationDescription) ||
     safeWizardText(draft.category) ||
+    safeWizardText(draft.timingOrAvailability) ||
     safeWizardText(draft.tags) ||
     safeWizardText(draft.locationLabel) ||
     draft.previewTheme !== 'default' ||
@@ -100,6 +105,7 @@ function getStepIndex(stepId: InventoryWizardStepId) {
 
 export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: InventoryCreateWizardScreenProps) {
   const { t, language } = useTranslation();
+  const theme = useThemeTokens();
   const auth = useAuth();
   const isNeed = kind === 'need';
   const [activeStepId, setActiveStepId] = useState<InventoryWizardStepId>('idea');
@@ -112,6 +118,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [previewTheme, setPreviewTheme] = useState<PreviewCardTheme>('default');
   const [category, setCategory] = useState('');
+  const [timingOrAvailability, setTimingOrAvailability] = useState('');
   const [tags, setTags] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
@@ -119,17 +126,23 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const [attemptedStepId, setAttemptedStepId] = useState<InventoryWizardStepId | null>(null);
   const [uploadProgress, setUploadProgress] = useState<SelectedImageUploadProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [menuSheetVisible, setMenuSheetVisible] = useState(false);
+  const [helpSheetVisible, setHelpSheetVisible] = useState(false);
+  const [aiAssistExpanded, setAiAssistExpanded] = useState(false);
+  const [optionalDetailsExpanded, setOptionalDetailsExpanded] = useState(false);
+  const [themePickerExpanded, setThemePickerExpanded] = useState(false);
 
   const draft = useMemo<InventoryWizardDraft>(() => ({
     title,
     description,
     category,
+    timingOrAvailability,
     tags,
     mode,
     locationLabel,
     previewTheme,
     images,
-  }), [category, description, images, locationLabel, mode, previewTheme, tags, title]);
+  }), [category, description, images, locationLabel, mode, previewTheme, tags, timingOrAvailability, title]);
 
   const persistedDraft = useMemo<InventoryWizardPersistedDraft>(() => ({
     ...draft,
@@ -145,6 +158,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setTitle(typeof savedDraft.title === 'string' ? savedDraft.title : '');
     setDescription(typeof savedDraft.description === 'string' ? savedDraft.description : '');
     setCategory(typeof savedDraft.category === 'string' ? savedDraft.category : '');
+    setTimingOrAvailability(typeof savedDraft.timingOrAvailability === 'string' ? savedDraft.timingOrAvailability : '');
     setTags(typeof savedDraft.tags === 'string' ? savedDraft.tags : '');
     setMode(savedDraft.mode === 'local' || savedDraft.mode === 'hybrid' || savedDraft.mode === 'remote' ? savedDraft.mode : 'remote');
     setLocationLabel(typeof savedDraft.locationLabel === 'string' ? savedDraft.locationLabel : '');
@@ -153,7 +167,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setTranslationTitle(typeof savedDraft.translationTitle === 'string' ? savedDraft.translationTitle : '');
     setTranslationDescription(typeof savedDraft.translationDescription === 'string' ? savedDraft.translationDescription : '');
     setTranslationEnabled(Boolean(savedDraft.translationEnabled));
-    setActiveStepId(stepIds.includes(savedDraft.activeStepId) ? savedDraft.activeStepId : 'idea');
+    setActiveStepId(stepIds.includes(savedDraft.activeStepId) ? savedDraft.activeStepId : (savedDraft.activeStepId === 'review' ? 'images' : 'idea'));
   }, []);
 
   const inventoryWizardDraft = useMobileWizardDraft({
@@ -167,34 +181,26 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const steps = useMemo<WizardStepDefinition<InventoryWizardStepId>[]>(() => [
     {
       id: 'idea',
-      title: isNeed ? t('inventory.wizard.needIdeaTitle') : t('inventory.wizard.offerIdeaTitle'),
-      description: isNeed ? t('inventory.wizard.needIdeaBody') : t('inventory.wizard.offerIdeaBody'),
+      title: isNeed ? t('inventory.form.needQuestion') : t('inventory.form.offerQuestion'),
       completed: title.trim().length >= INVENTORY_TITLE_MIN_LENGTH && description.trim().length >= INVENTORY_DESCRIPTION_MIN_LENGTH,
     },
     {
       id: 'details',
-      title: t('inventory.wizard.detailsTitle'),
-      description: t('inventory.wizard.detailsBody'),
-      completed: Boolean(category.trim() || tags.trim() || locationLabel.trim() || mode !== 'remote' || previewTheme !== 'default'),
+      title: t('inventory.wizard.compactDetailsTitle'),
+      completed: Boolean(category.trim() || timingOrAvailability.trim() || tags.trim() || locationLabel.trim() || mode !== 'remote' || previewTheme !== 'default'),
     },
     {
       id: 'images',
-      title: t('inventory.wizard.imagesTitle'),
-      description: isNeed ? t('inventory.wizard.needImagesBody') : t('inventory.wizard.offerImagesBody'),
+      title: t('inventory.wizard.compactImagesTitle'),
       optional: true,
       completed: images.length > 0,
     },
-    {
-      id: 'review',
-      title: t('inventory.wizard.reviewTitle'),
-      description: t('inventory.wizard.reviewBody'),
-    },
-  ], [category, description, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, title]);
+  ], [category, description, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, timingOrAvailability, title]);
 
   const hasDraft = hasDraftContent(draft, translationTitle, translationDescription);
   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
   const activeStepIndex = getStepIndex(activeStepId);
-  const shouldShowIdeaErrors = attemptedStepId === 'idea' || activeStepId === 'review';
+  const shouldShowIdeaErrors = attemptedStepId === 'idea';
   const titleError = shouldShowIdeaErrors && title.trim().length < INVENTORY_TITLE_MIN_LENGTH
     ? (isNeed ? t('validation.needTitleTooShort') : t('validation.offerTitleTooShort'))
     : null;
@@ -219,24 +225,6 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     if (cleanDescription.length < INVENTORY_DESCRIPTION_MIN_LENGTH) return isNeed ? t('validation.needDescriptionTooShort') : t('validation.offerDescriptionTooShort');
     if (cleanDescription.length > INVENTORY_DESCRIPTION_MAX_LENGTH) return t('validation.descriptionTooLong', { max: INVENTORY_DESCRIPTION_MAX_LENGTH });
     return null;
-  }
-
-  function validateBeforeStep(targetStepId: InventoryWizardStepId) {
-    if (getStepIndex(targetStepId) > getStepIndex('idea')) return validateIdeaStep();
-    return null;
-  }
-
-  function goToStep(targetStepId: InventoryWizardStepId) {
-    if (submitting) return;
-    const validationError = validateBeforeStep(targetStepId);
-    if (validationError) {
-      setAttemptedStepId('idea');
-      setError(validationError);
-      setActiveStepId('idea');
-      return;
-    }
-    setError(null);
-    setActiveStepId(targetStepId);
   }
 
   function handleNext() {
@@ -283,6 +271,30 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     else navigation.navigate('CreateOfferFull');
   }
 
+  async function resetWizardDraft() {
+    setMenuSheetVisible(false);
+    setHelpSheetVisible(false);
+    setError(null);
+    setAttemptedStepId(null);
+    setActiveStepId('idea');
+    setTitle('');
+    setDescription('');
+    setTranslationTitle('');
+    setTranslationDescription('');
+    setTranslationEnabled(false);
+    setMode('remote');
+    setPreviewTheme('default');
+    setCategory('');
+    setTimingOrAvailability('');
+    setTags('');
+    setLocationLabel('');
+    setImages([]);
+    setAiAssistExpanded(false);
+    setOptionalDetailsExpanded(false);
+    setThemePickerExpanded(false);
+    await inventoryWizardDraft.clearDraft();
+  }
+
   function buildCreatedSideSelection(id: string): TradeCreateSideSelection {
     return isNeed ? { side: 'need', kind: 'need', id } : { side: 'offer', kind: 'offer', id };
   }
@@ -324,6 +336,47 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     navigation.goBack();
   }
 
+
+  function renderCompactToggle({
+    title: rowTitle,
+    body,
+    icon,
+    expanded,
+    onPress,
+    disabled,
+  }: {
+    title: string;
+    body?: string;
+    icon: MobileIconName;
+    expanded: boolean;
+    onPress: () => void;
+    disabled?: boolean;
+  }) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded, disabled }}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.compactToggle,
+          { backgroundColor: theme.color.surface, borderColor: theme.color.border },
+          disabled && styles.disabled,
+          pressed && styles.pressed,
+        ]}
+      >
+        <View style={styles.compactToggleIcon}>
+          <MobileIcon name={icon} size={17} color={theme.color.muted} />
+        </View>
+        <View style={styles.compactToggleCopy}>
+          <AppText style={[styles.compactToggleTitle, { color: theme.color.text }]}>{rowTitle}</AppText>
+          {body ? <AppText style={[styles.compactToggleBody, { color: theme.color.muted }]} numberOfLines={1}>{body}</AppText> : null}
+        </View>
+        <MobileIcon name="chevron-right" size={17} color={theme.color.muted} />
+      </Pressable>
+    );
+  }
+
   async function handleCreate() {
     if (submitting) return;
     setAttemptedStepId('idea');
@@ -349,6 +402,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
         translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
         itemType: 'service' as const,
         category: optionalText(category),
+        ...(isNeed ? { timing: optionalText(timingOrAvailability) } : { availability: optionalText(timingOrAvailability) }),
         mode,
         locationLabel: optionalText(locationLabel),
         tags: parseInventoryList(tags),
@@ -376,14 +430,14 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   }
 
   function renderStep() {
+    const timingLabel = timingOrAvailability.trim();
+    const previewMeta = [categoryLabel(category, t), timingLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
+    const tagList = parseInventoryList(tags);
+
     if (activeStepId === 'idea') {
       return (
         <>
-          <AppCard>
-            <View style={styles.sectionHeader}>
-              <SemanticBadge label={isNeed ? t('inventory.labels.need') : t('inventory.labels.offer')} tone={isNeed ? 'need' : 'offer'} />
-              <AppText style={styles.sectionBody}>{isNeed ? t('inventory.form.saveNeedBody') : t('inventory.form.saveOfferBody')}</AppText>
-            </View>
+          <AppCard style={styles.compactCard}>
             <InventoryTextField
               label={t('inventory.labels.title')}
               value={title}
@@ -404,19 +458,33 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
               error={descriptionError}
             />
           </AppCard>
-          <InventoryAiAssistCard
-            kind={kind}
-            title={title}
-            description={description}
-            defaultLanguage={defaultLanguage}
-            category={category}
-            tags={tags}
-            disabled={submitting}
-            onApplyTitle={setTitle}
-            onApplyDescription={setDescription}
-            onApplyTranslation={applyAiTranslation}
-            onApplyCategoryTags={applyAiCategoryTags}
-          />
+          {betaFeatures.plusSubscriptionFeatures.aiAssistEnabled ? (
+            <>
+              {renderCompactToggle({
+                title: aiAssistExpanded ? t('inventory.wizard.hideAiAssist') : t('inventory.wizard.showAiAssist'),
+                body: t('inventory.wizard.aiAssistBody'),
+                icon: 'help',
+                expanded: aiAssistExpanded,
+                onPress: () => setAiAssistExpanded((value) => !value),
+                disabled: submitting,
+              })}
+              {aiAssistExpanded ? (
+                <InventoryAiAssistCard
+                  kind={kind}
+                  title={title}
+                  description={description}
+                  defaultLanguage={defaultLanguage}
+                  category={category}
+                  tags={tags}
+                  disabled={submitting}
+                  onApplyTitle={setTitle}
+                  onApplyDescription={setDescription}
+                  onApplyTranslation={applyAiTranslation}
+                  onApplyCategoryTags={applyAiCategoryTags}
+                />
+              ) : null}
+            </>
+          ) : null}
         </>
       );
     }
@@ -424,39 +492,67 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     if (activeStepId === 'details') {
       return (
         <>
-          <AppCard>
-            <AppText style={styles.sectionTitle}>{t('inventory.form.simplifiedDetailsTitle')}</AppText>
-            <AppText style={styles.sectionBody}>{t('inventory.form.simplifiedDetailsBody')}</AppText>
+          <AppCard style={styles.compactCard}>
             <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
-            <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={t('inventory.form.tagsPlaceholder')} disabled={submitting} />
             <ModePicker value={mode} onChange={setMode} disabled={submitting} />
             <InventoryTextField
-              label={t('inventory.labels.location')}
+              label={isNeed ? t('inventory.labels.timing') : t('inventory.labels.availability')}
               hint={t('inventory.labels.optional')}
-              value={locationLabel}
-              onChangeText={setLocationLabel}
-              placeholder={isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder')}
+              value={timingOrAvailability}
+              onChangeText={setTimingOrAvailability}
+              placeholder={isNeed ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder')}
+              maxLength={80}
               disabled={submitting}
             />
           </AppCard>
-          <PreviewThemePickerCard value={previewTheme} onChange={setPreviewTheme} disabled={submitting} />
-          <AppCard>
-            <AppText style={styles.sectionTitle}>{t('inventory.wizard.languageAdvancedTitle')}</AppText>
-            <AppText style={styles.sectionBody}>{t('inventory.wizard.languageAdvancedBody')}</AppText>
-            {translationEnabled ? <InfoNotice tone="success" title={t('inventory.wizard.translationPreparedTitle')} body={t('inventory.wizard.translationPreparedBody')} /> : null}
-            <Pressable disabled={submitting} onPress={navigateToFullForm} style={({ pressed }) => [styles.linkButton, pressed && styles.pressed]}>
-              <AppText style={styles.linkButtonText}>{t('inventory.wizard.openFullForm')}</AppText>
-            </Pressable>
-          </AppCard>
+          {renderCompactToggle({
+            title: optionalDetailsExpanded ? t('inventory.wizard.hideOptionalDetails') : t('inventory.wizard.showOptionalDetails'),
+            body: [
+              tags.trim() || t('inventory.labels.tags'),
+              locationLabel.trim() || t('inventory.labels.location'),
+              betaFeatures.plusSubscriptionFeatures.customizationEnabled ? (previewTheme === 'default' ? t('inventory.wizard.defaultCardTheme') : previewTheme) : null,
+            ].filter(Boolean).join(' · '),
+            icon: 'activity',
+            expanded: optionalDetailsExpanded,
+            onPress: () => setOptionalDetailsExpanded((value) => !value),
+            disabled: submitting,
+          })}
+          {optionalDetailsExpanded ? (
+            <>
+              <AppCard style={styles.compactCard}>
+                <InventoryTextField label={t('inventory.labels.tags')} hint={t('inventory.form.separateWithCommas')} value={tags} onChangeText={setTags} placeholder={isNeed ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder')} disabled={submitting} />
+                <InventoryTextField
+                  label={t('inventory.labels.location')}
+                  hint={t('inventory.labels.optional')}
+                  value={locationLabel}
+                  onChangeText={setLocationLabel}
+                  placeholder={isNeed ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder')}
+                  disabled={submitting}
+                />
+              </AppCard>
+              {betaFeatures.plusSubscriptionFeatures.customizationEnabled ? (
+                <>
+                  {renderCompactToggle({
+                    title: themePickerExpanded ? t('inventory.wizard.hideCardTheme') : t('inventory.wizard.showCardTheme'),
+                    body: previewTheme === 'default' ? t('inventory.wizard.defaultCardTheme') : previewTheme,
+                    icon: 'settings',
+                    expanded: themePickerExpanded,
+                    onPress: () => setThemePickerExpanded((value) => !value),
+                    disabled: submitting,
+                  })}
+                  {themePickerExpanded ? <PreviewThemePickerCard value={previewTheme} onChange={setPreviewTheme} disabled={submitting} /> : null}
+                </>
+              ) : null}
+            </>
+          ) : null}
+          {translationEnabled ? <InfoNotice tone="success" title={t('inventory.wizard.translationPreparedTitle')} body={t('inventory.wizard.translationPreparedBody')} /> : null}
         </>
       );
     }
 
     if (activeStepId === 'images') {
       return (
-        <AppCard>
-          <AppText style={styles.sectionTitle}>{isNeed ? t('inventory.form.needImageSection') : t('inventory.form.offerImageSection')}</AppText>
-          <AppText style={styles.sectionBody}>{isNeed ? t('inventory.form.needImageHint') : t('inventory.form.offerImageHint')}</AppText>
+        <AppCard style={styles.compactCard}>
           <ImagePickerField
             images={images}
             onChange={setImages}
@@ -469,68 +565,120 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
       );
     }
 
+    const coverImage = images[0];
+
     return (
       <>
-        <AppCard>
-          <View style={styles.reviewHeader}>
-            <SemanticBadge label={isNeed ? t('inventory.labels.need') : t('inventory.labels.offer')} tone={isNeed ? 'need' : 'offer'} />
-            <AppText style={styles.reviewTitle}>{title.trim() || t('inventory.form.previewTitleFallback')}</AppText>
-          </View>
-          <AppText style={styles.reviewDescription}>{description.trim() || t('inventory.form.previewDescriptionFallback')}</AppText>
-          <View style={styles.metaWrap}>
-            <View style={styles.metaChip}><AppText style={styles.metaChipText}>{modeLabel(mode, t)}</AppText></View>
-            {category.trim() ? <View style={styles.metaChip}><AppText style={styles.metaChipText}>{categoryLabel(category, t)}</AppText></View> : null}
-            {locationLabel.trim() ? <View style={styles.metaChip}><AppText style={styles.metaChipText}>{locationLabel.trim()}</AppText></View> : null}
-            <View style={styles.metaChip}><AppText style={styles.metaChipText}>{t('inventory.wizard.imageCount', { count: images.length })}</AppText></View>
-            {translationEnabled ? <View style={styles.metaChip}><AppText style={styles.metaChipText}>{t('inventory.wizard.translationPreparedShort')}</AppText></View> : null}
+        <AppCard style={styles.reviewCard}>
+          {coverImage ? (
+            <View style={styles.reviewCoverWrap}>
+              <Image source={{ uri: coverImage.uri }} style={styles.reviewCover} resizeMode="cover" />
+              <View style={[styles.reviewCoverBadge, { backgroundColor: theme.color.inverseBackground }]}>
+                <AppText style={styles.reviewCoverBadgeText}>{t('inventory.wizard.imageCount', { count: images.length })}</AppText>
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.reviewCoverFallback, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+              <MobileIcon name="image" size={26} color={theme.color.muted} />
+            </View>
+          )}
+          <View style={styles.reviewCopy}>
+            <View style={styles.reviewEyebrowRow}>
+              <View style={[styles.reviewKindChip, { backgroundColor: theme.color.subtleSurface }]}>
+                <AppText style={[styles.reviewKindText, { color: theme.color.muted }]}>{isNeed ? t('inventory.labels.need') : t('inventory.labels.offer')}</AppText>
+              </View>
+              {translationEnabled ? (
+                <View style={[styles.reviewKindChip, { backgroundColor: theme.color.subtleSurface }]}>
+                  <AppText style={[styles.reviewKindText, { color: theme.color.muted }]}>{t('inventory.wizard.translationPreparedShort')}</AppText>
+                </View>
+              ) : null}
+            </View>
+            <AppText style={[styles.reviewTitle, { color: theme.color.text }]} numberOfLines={2}>{title.trim() || t('inventory.form.previewTitleFallback')}</AppText>
+            <AppText style={[styles.reviewMeta, { color: theme.color.muted }]} numberOfLines={2}>{previewMeta || t('inventory.form.previewMetaFallback')}</AppText>
+            <AppText style={[styles.reviewDescription, { color: theme.color.muted }]} numberOfLines={4}>{description.trim() || t('inventory.form.previewDescriptionFallback')}</AppText>
           </View>
         </AppCard>
-        {parseInventoryList(tags).length > 0 ? (
-          <AppCard>
-            <AppText style={styles.sectionTitle}>{t('inventory.labels.tags')}</AppText>
-            <View style={styles.metaWrap}>
-              {parseInventoryList(tags).map((tag) => <View key={tag} style={styles.metaChip}><AppText style={styles.metaChipText}>#{tag}</AppText></View>)}
-            </View>
-          </AppCard>
-        ) : null}
-        <InfoNotice tone="info" title={t('inventory.wizard.reviewNoticeTitle')} body={t('inventory.wizard.reviewNoticeBody')} />
+        <View style={styles.reviewSummaryRow}>
+          <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{modeLabel(mode, t)}</AppText></View>
+          <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{t('inventory.wizard.imageCount', { count: images.length })}</AppText></View>
+          {tagList.length > 0 ? <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{t('inventory.wizard.tagCount', { count: tagList.length })}</AppText></View> : null}
+        </View>
       </>
     );
   }
 
-  const primaryLabel = activeStepId === 'review'
+  const primaryLabel = activeStepId === 'images'
     ? (isNeed ? t('inventory.actions.saveNeed') : t('inventory.actions.saveOffer'))
     : t('common.actions.continue');
   const primaryLoadingLabel = uploadProgress ? t('common.states.uploading') : t('common.states.saving');
   const secondaryLabel = activeStepIndex > 0 ? t('common.actions.back') : t('common.actions.cancel');
   const onSecondary = activeStepIndex > 0 ? handlePrevious : () => navigation.goBack();
 
+  const menuActions: AppActionSheetAction[] = [
+    {
+      key: 'full-form',
+      label: t('inventory.wizard.openFullForm'),
+      icon: 'edit',
+      onPress: () => {
+        setMenuSheetVisible(false);
+        navigateToFullForm();
+      },
+    },
+    {
+      key: 'reset-draft',
+      label: t('inventory.wizard.resetDraft'),
+      icon: 'refresh',
+      tone: 'danger',
+      disabled: submitting || !hasDraft,
+      onPress: () => { void resetWizardDraft(); },
+    },
+    {
+      key: 'help',
+      label: t('inventory.wizard.helpTitle'),
+      icon: 'help',
+      onPress: () => {
+        setMenuSheetVisible(false);
+        setHelpSheetVisible(true);
+      },
+    },
+  ];
+
+  const headerMenuButton = (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={t('inventory.wizard.menuTitle')}
+      disabled={submitting}
+      hitSlop={10}
+      onPress={() => setMenuSheetVisible(true)}
+      style={({ pressed }) => [
+        styles.headerMenuButton,
+        { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border },
+        pressed && styles.pressed,
+        submitting && styles.disabled,
+      ]}
+    >
+      <MobileIcon name="more" size={19} color={theme.color.muted} />
+    </Pressable>
+  );
+
   return (
     <>
       <WizardShell
         title={isNeed ? t('inventory.wizard.createNeedTitle') : t('inventory.wizard.createOfferTitle')}
-        subtitle={isNeed ? t('inventory.wizard.createNeedBody') : t('inventory.wizard.createOfferBody')}
         onBack={() => navigation.goBack()}
         steps={steps}
         activeStepId={activeStepId}
         stepLabel={t('inventory.wizard.stepLabel')}
         ofLabel={t('inventory.wizard.ofLabel')}
-        rightSlot={(
-          <Pressable disabled={submitting} onPress={navigateToFullForm} style={({ pressed }) => [styles.headerLink, pressed && styles.pressed]}>
-            <AppText style={styles.headerLinkText}>{t('inventory.wizard.fullFormShort')}</AppText>
-          </Pressable>
-        )}
+        rightSlot={headerMenuButton}
         footer={(
           <WizardFooter
             primaryLabel={primaryLabel}
             primaryLoading={submitting}
             primaryLoadingLabel={primaryLoadingLabel}
-            onPrimary={activeStepId === 'review' ? handleCreate : handleNext}
+            onPrimary={activeStepId === 'images' ? handleCreate : handleNext}
             secondaryLabel={secondaryLabel}
             onSecondary={onSecondary}
-            tertiaryLabel={activeStepId !== 'review' ? t('inventory.wizard.skipToReview') : t('inventory.wizard.openFullForm')}
-            onTertiary={activeStepId !== 'review' ? () => goToStep('review') : navigateToFullForm}
-            helperText={activeStepId === 'review' ? t('inventory.wizard.saveActiveHelper') : undefined}
           />
         )}
       >
@@ -540,23 +688,50 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
         {renderStep()}
       </WizardShell>
       <AppConfirmSheet {...unsavedChangesConfirm} />
+      <AppActionSheet
+        visible={menuSheetVisible}
+        title={t('inventory.wizard.menuTitle')}
+        body={t('inventory.wizard.menuBody')}
+        actions={menuActions}
+        cancelLabel={t('common.actions.cancel')}
+        onClose={() => setMenuSheetVisible(false)}
+      />
+      <AppActionSheet
+        visible={helpSheetVisible}
+        title={t('inventory.wizard.helpTitle')}
+        body={isNeed ? t('inventory.wizard.needHelpBody') : t('inventory.wizard.offerHelpBody')}
+        actions={[]}
+        cancelLabel={t('common.actions.close')}
+        onClose={() => setHelpSheetVisible(false)}
+      />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  sectionHeader: { gap: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
-  sectionBody: { color: '#64748B', fontWeight: '700', lineHeight: 20 },
-  reviewHeader: { gap: 10 },
-  reviewTitle: { fontSize: 26, fontWeight: '900', letterSpacing: -0.5, lineHeight: 31 },
-  reviewDescription: { color: '#334155', fontWeight: '700', lineHeight: 21 },
-  metaWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  metaChip: { borderRadius: 999, backgroundColor: '#F1F5F9', paddingHorizontal: 10, paddingVertical: 7 },
-  metaChipText: { color: '#334155', fontSize: 12, fontWeight: '900' },
-  headerLink: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999 },
-  headerLinkText: { color: '#2563EB', fontSize: 12, fontWeight: '900' },
-  linkButton: { alignSelf: 'flex-start', borderRadius: 999, backgroundColor: '#EFF6FF', paddingHorizontal: 12, paddingVertical: 9 },
-  linkButtonText: { color: '#2563EB', fontWeight: '900' },
+  compactCard: { gap: 14 },
+  compactToggle: { flexDirection: 'row', alignItems: 'center', gap: 11, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 11 },
+  compactToggleIcon: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  compactToggleCopy: { flex: 1, gap: 2 },
+  compactToggleTitle: { fontSize: 14, fontWeight: '900' },
+  compactToggleBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
+  reviewCard: { gap: 0, overflow: 'hidden', padding: 0 },
+  reviewCoverWrap: { position: 'relative' },
+  reviewCover: { width: '100%', height: 172 },
+  reviewCoverBadge: { position: 'absolute', right: 10, top: 10, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  reviewCoverBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  reviewCoverFallback: { height: 112, borderBottomWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  reviewCopy: { gap: 7, padding: 16 },
+  reviewEyebrowRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  reviewKindChip: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
+  reviewKindText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
+  reviewTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.4 },
+  reviewMeta: { fontSize: 13, fontWeight: '800', lineHeight: 18 },
+  reviewDescription: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
+  reviewSummaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  metaChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+  metaChipText: { fontSize: 12, fontWeight: '900' },
+  headerMenuButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.78 },
+  disabled: { opacity: 0.5 },
 });

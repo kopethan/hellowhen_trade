@@ -1,0 +1,97 @@
+diff --git a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+index 4825e6c..70ebd76 100644
+--- a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+@@ -1,5 +1,5 @@
+ import React, { useCallback, useMemo, useState } from 'react';
+-import { Pressable, StyleSheet, View } from 'react-native';
++import { Image, Pressable, StyleSheet, View } from 'react-native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import { getNextWizardStepId, getPreviousWizardStepId, type WizardStepDefinition } from '@hellowhen/shared';
+ import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
+@@ -26,7 +26,6 @@ import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardSh
+ import { ImagePickerField } from './components/ImagePickerField';
+ import {
+   CategoryPicker,
+-  InventoryPreview,
+   InventoryTextField,
+   buildManualTranslation,
+   ModePicker,
+@@ -570,17 +569,42 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+       );
+     }
+ 
++    const coverImage = images[0];
++
+     return (
+       <>
+-        <InventoryPreview
+-          eyebrow={isNeed ? t('inventory.labels.need') : t('inventory.labels.offer')}
+-          title={title.trim()}
+-          meta={previewMeta || t('inventory.form.previewMetaFallback')}
+-          description={description.trim()}
+-        />
++        <AppCard style={styles.reviewCard}>
++          {coverImage ? (
++            <View style={styles.reviewCoverWrap}>
++              <Image source={{ uri: coverImage.uri }} style={styles.reviewCover} resizeMode="cover" />
++              <View style={[styles.reviewCoverBadge, { backgroundColor: theme.color.inverseBackground }]}>
++                <AppText style={styles.reviewCoverBadgeText}>{t('inventory.wizard.imageCount', { count: images.length })}</AppText>
++              </View>
++            </View>
++          ) : (
++            <View style={[styles.reviewCoverFallback, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++              <MobileIcon name="image" size={26} color={theme.color.muted} />
++            </View>
++          )}
++          <View style={styles.reviewCopy}>
++            <View style={styles.reviewEyebrowRow}>
++              <View style={[styles.reviewKindChip, { backgroundColor: theme.color.subtleSurface }]}>
++                <AppText style={[styles.reviewKindText, { color: theme.color.muted }]}>{isNeed ? t('inventory.labels.need') : t('inventory.labels.offer')}</AppText>
++              </View>
++              {translationEnabled ? (
++                <View style={[styles.reviewKindChip, { backgroundColor: theme.color.subtleSurface }]}>
++                  <AppText style={[styles.reviewKindText, { color: theme.color.muted }]}>{t('inventory.wizard.translationPreparedShort')}</AppText>
++                </View>
++              ) : null}
++            </View>
++            <AppText style={[styles.reviewTitle, { color: theme.color.text }]} numberOfLines={2}>{title.trim() || t('inventory.form.previewTitleFallback')}</AppText>
++            <AppText style={[styles.reviewMeta, { color: theme.color.muted }]} numberOfLines={2}>{previewMeta || t('inventory.form.previewMetaFallback')}</AppText>
++            <AppText style={[styles.reviewDescription, { color: theme.color.muted }]} numberOfLines={4}>{description.trim() || t('inventory.form.previewDescriptionFallback')}</AppText>
++          </View>
++        </AppCard>
+         <View style={styles.reviewSummaryRow}>
++          <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{modeLabel(mode, t)}</AppText></View>
+           <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{t('inventory.wizard.imageCount', { count: images.length })}</AppText></View>
+-          {translationEnabled ? <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{t('inventory.wizard.translationPreparedShort')}</AppText></View> : null}
+           {tagList.length > 0 ? <View style={[styles.metaChip, { backgroundColor: theme.color.subtleSurface }]}><AppText style={[styles.metaChipText, { color: theme.color.muted }]}>{t('inventory.wizard.tagCount', { count: tagList.length })}</AppText></View> : null}
+         </View>
+       </>
+@@ -659,7 +683,6 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+             onPrimary={activeStepId === 'review' ? handleCreate : handleNext}
+             secondaryLabel={secondaryLabel}
+             onSecondary={onSecondary}
+-            helperText={activeStepId === 'review' ? t('inventory.wizard.saveActiveHelper') : undefined}
+           />
+         )}
+       >
+@@ -696,6 +719,19 @@ const styles = StyleSheet.create({
+   compactToggleCopy: { flex: 1, gap: 2 },
+   compactToggleTitle: { fontSize: 14, fontWeight: '900' },
+   compactToggleBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
++  reviewCard: { gap: 0, overflow: 'hidden', padding: 0 },
++  reviewCoverWrap: { position: 'relative' },
++  reviewCover: { width: '100%', height: 172 },
++  reviewCoverBadge: { position: 'absolute', right: 10, top: 10, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
++  reviewCoverBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
++  reviewCoverFallback: { height: 112, borderBottomWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  reviewCopy: { gap: 7, padding: 16 },
++  reviewEyebrowRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
++  reviewKindChip: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
++  reviewKindText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
++  reviewTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.4 },
++  reviewMeta: { fontSize: 13, fontWeight: '800', lineHeight: 18 },
++  reviewDescription: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
+   reviewSummaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   metaChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
+   metaChipText: { fontSize: 12, fontWeight: '900' },
