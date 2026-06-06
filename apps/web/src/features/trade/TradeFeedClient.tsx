@@ -112,8 +112,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
   const demoDataEnabled = isWebDemoDataEnabled();
   const auth = useWebAuth();
   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
-  const createNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs/new' : '/needs/new';
-  const createOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers/new' : '/offers/new';
   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
 
   const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
@@ -295,7 +293,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps 
 
   return (
     <section className="mobile-page trade-feed-page">
-      {shouldShowHomeIntro ? <HomeTradeIntroBanner createTradeHref={createTradeHref} createNeedHref={createNeedHref} createOfferHref={createOfferHref} onDismiss={dismissHomeIntro} /> : null}
+      {shouldShowHomeIntro ? <HomeTradeIntroBanner onDismiss={dismissHomeIntro} /> : null}
 
       <div className="trade-feed-tabs" role="tablist" aria-label={t('trade.mine.tabsLabel')}>
         <button type="button" role="tab" aria-selected={activeTab === 'discover'} className={activeTab === 'discover' ? 'is-active' : ''} onClick={() => setActiveTab('discover')}>{t('trade.mine.discoverTab')}</button>
@@ -458,34 +456,23 @@ function TradeSearchSuggestionList({ visible, suggestions, loading, query, onSel
 }
 
 type HomeTradeIntroBannerProps = {
-  createTradeHref: string;
-  createNeedHref: string;
-  createOfferHref: string;
   onDismiss: () => void;
 };
 
-function HomeTradeIntroBanner({ createTradeHref, createNeedHref, createOfferHref, onDismiss }: HomeTradeIntroBannerProps) {
+function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
   const { t } = useWebTranslation();
 
   return (
-    <section className="home-trade-intro" aria-labelledby="home-trade-intro-title">
-      <button type="button" className="home-trade-intro__dismiss" onClick={onDismiss} aria-label={t('trade.homeIntro.dismiss')}>
-        ×
-      </button>
-      <div className="home-trade-intro__copy">
-        <span className="semantic-badge instruction">{t('trade.homeIntro.badge')}</span>
-        <h2 id="home-trade-intro-title">{t('trade.homeIntro.title')}</h2>
-        <p>{t('trade.homeIntro.body')}</p>
-        <div className="home-trade-intro__points" aria-label={t('trade.homeIntro.pointsLabel')}>
-          <span>{t('trade.homeIntro.pointNeed')}</span>
-          <span>{t('trade.homeIntro.pointOffer')}</span>
-          <span>{t('trade.homeIntro.pointNoMoney')}</span>
-        </div>
+    <section className="home-guide-entry" aria-labelledby="home-guide-entry-title">
+      <div className="home-guide-entry__icon" aria-hidden="true">▶</div>
+      <div className="home-guide-entry__copy">
+        <span className="semantic-badge instruction">{t('trade.homeIntro.guideBadge')}</span>
+        <h2 id="home-guide-entry-title">{t('trade.homeIntro.guideTitle')}</h2>
+        <p>{t('trade.homeIntro.guideBody')}</p>
       </div>
-      <div className="home-trade-intro__actions" aria-label={t('trade.homeIntro.actionsLabel')}>
-        <Link href={createTradeHref} className="button primary"><WebIcon name="trade" size={16} decorative /> {t('trade.emptyFeed.createTrade')}</Link>
-        <Link href={createNeedHref} className="button secondary"><WebIcon name="need" size={16} decorative /> {t('trade.emptyFeed.createNeed')}</Link>
-        <Link href={createOfferHref} className="button secondary"><WebIcon name="offer" size={16} decorative /> {t('trade.emptyFeed.createOffer')}</Link>
+      <div className="home-guide-entry__actions">
+        <Link href="/onboarding-guide?replay=1&next=/trades" className="button primary">{t('trade.homeIntro.guideAction')}</Link>
+        <button type="button" className="button secondary" onClick={onDismiss}>{t('trade.homeIntro.dismissShort')}</button>
       </div>
     </section>
   );

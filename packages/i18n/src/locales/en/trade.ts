@@ -408,6 +408,11 @@ export const trade = {
     pointNoMoney: 'First beta stays service-for-service.',
     actionsLabel: 'Homepage trade actions',
     dismiss: 'Hide this introduction',
+    dismissShort: 'Hide',
+    guideBadge: 'Quick guide',
+    guideTitle: 'New to Hellowhen?',
+    guideBody: 'Watch the short guide to understand Needs, Offers, Trades, proposals, and safety.',
+    guideAction: 'Watch guide',
   },
   create: {
     title: 'Create Trade',

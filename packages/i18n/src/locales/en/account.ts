@@ -433,9 +433,10 @@ export const account = {
     },
     guide: {
       title: 'Guide',
-      body: 'Replay the short Hellowhen onboarding guide.',
+      body: 'Replay the short Hellowhen onboarding guide, including the seven intro slides, language, and appearance controls.',
       bodyNative: 'Replay the onboarding guide anytime.',
       badge: 'Guide',
+      action: 'Replay',
     },
     settings: {
       title: 'Settings',

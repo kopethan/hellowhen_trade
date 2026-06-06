@@ -1,0 +1,108 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 610c3d4..59af5e6 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -155,9 +155,13 @@ h3 { font-size: 17px; line-height: 1.2; letter-spacing: -0.02em; margin-bottom:
+ .mobile-card p:last-child, .card p:last-child { margin-bottom: 0; }
+ .app-loading-logo { display: block; width: 64px; height: 64px; margin-bottom: 10px; border: 1px solid var(--app-border); border-radius: 18px; background: #FFFFFF; object-fit: contain; }
+ .mobile-link-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent); border-radius: 24px; background: var(--app-surface); padding: 16px; box-shadow: var(--app-card-shadow); }
++.mobile-link-card--featured { border-color: color-mix(in srgb, var(--app-border) 62%, var(--app-text) 20%); background: linear-gradient(135deg, color-mix(in srgb, var(--app-surface) 94%, var(--app-text) 6%), color-mix(in srgb, var(--app-surface-soft) 92%, transparent)); }
+ .mobile-link-card span { color: var(--app-text-muted); font-weight: 800; }
+ .mobile-link-card__body { min-width: 0; flex: 1 1 auto; }
++.mobile-link-card__title-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 7px; color: var(--app-text); }
+ .mobile-link-card__icon { color: var(--app-text); }
++.mobile-link-card--featured .mobile-link-card__icon { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent); border-radius: 17px; background: var(--app-surface); box-shadow: var(--app-control-shadow); }
++.mobile-link-card__action-label { flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent); border-radius: 999px; background: var(--app-surface); padding: 7px 10px; color: var(--app-text); font-size: 12px; font-weight: 950; }
+ .mobile-link-card__arrow { color: var(--app-text-soft); }
+ .inventory-empty-state { display: grid; place-items: center; min-height: 240px; gap: 8px; border: 2px dashed var(--app-border-strong); border-radius: 30px; background: var(--app-surface-soft); padding: 22px; text-align: center; }
+ .inventory-empty-state__plus { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--app-border); background: var(--app-surface); color: var(--app-text); font-size: 32px; font-weight: 400; line-height: 1; }
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index eea78b9..4df1a28 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -16,6 +16,9 @@ type AccountHubItem = {
+   bodyKey: string;
+   icon?: WebIconName;
+   publicAccess?: boolean;
++  featured?: boolean;
++  badgeKey?: string;
++  actionKey?: string;
+ };
+ 
+ export function AccountHubClient() {
+@@ -28,7 +31,16 @@ export function AccountHubClient() {
+   const accountItems = useMemo<AccountHubItem[]>(() => [
+     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
+     { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
+-    { href: '/onboarding-guide?replay=1&next=/account', titleKey: 'account.items.guide.title', bodyKey: 'account.items.guide.body', icon: 'help', publicAccess: true },
++    {
++      href: '/onboarding-guide?replay=1&next=/account',
++      titleKey: 'account.items.guide.title',
++      bodyKey: 'account.items.guide.body',
++      icon: 'help',
++      publicAccess: true,
++      featured: true,
++      badgeKey: 'account.items.guide.badge',
++      actionKey: 'account.items.guide.action',
++    },
+     ...(betaFeatures.plusSubscriptionFeatures.plusPublic ? [{ href: '/account/plans', titleKey: 'account.items.plans.title', bodyKey: 'account.items.plans.body', icon: 'profile' as WebIconName }] : []),
+     ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
+     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
+@@ -119,17 +131,22 @@ export function AccountHubClient() {
+       <div className="mobile-list">
+         {accountItems.map((item) => {
+           const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
++          const className = item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card';
+           return (
+-            <Link key={item.href} href={href} className="mobile-link-card">
+-              {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
++            <Link key={item.href} href={href} className={className}>
++              {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
+               <span className="mobile-link-card__body">
+-                <strong>{t(item.titleKey)}</strong>
++                <span className="mobile-link-card__title-row">
++                  <strong>{t(item.titleKey)}</strong>
++                  {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
++                </span>
+                 <br />
+                 {t(item.bodyKey)}
+               </span>
+               {item.href === '/account/notifications' && notificationUnreadCount > 0 ? (
+                 <span className="semantic-badge proposal mobile-link-card__meta-badge">{notificationUnreadCount}</span>
+               ) : null}
++              {item.actionKey ? <span className="mobile-link-card__action-label">{t(item.actionKey)}</span> : null}
+               <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
+             </Link>
+           );
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 95587da..cafb6c0 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -433,9 +433,10 @@ export const account = {
+     },
+     guide: {
+       title: 'Guide',
+-      body: 'Replay the short Hellowhen onboarding guide.',
++      body: 'Replay the short Hellowhen onboarding guide, including the seven intro slides, language, and appearance controls.',
+       bodyNative: 'Replay the onboarding guide anytime.',
+       badge: 'Guide',
++      action: 'Replay',
+     },
+     settings: {
+       title: 'Settings',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index fef0d22..7dcedd6 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -433,9 +433,10 @@ export const account = {
+     },
+     guide: {
+       title: 'Guide',
+-      body: 'Revoir le court guide de démarrage Hellowhen.',
++      body: 'Revoir le court guide de démarrage Hellowhen, avec les sept slides, la langue et l’apparence.',
+       bodyNative: 'Revoir le guide de démarrage à tout moment.',
+       badge: 'Guide',
++      action: 'Revoir',
+     },
+     settings: {
+       title: 'Paramètres',

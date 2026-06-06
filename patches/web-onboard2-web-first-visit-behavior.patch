@@ -1,0 +1,130 @@
+diff --git a/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx b/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx
+index fb7fed1..a1e0560 100644
+--- a/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx
++++ b/apps/web/src/features/onboarding-guide/OnboardingGuideClient.tsx
+@@ -6,6 +6,7 @@ import type { AppSettings } from '@hellowhen/contracts';
+ import type { LanguagePreference } from '@hellowhen/i18n';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { useWebAppSettings } from '../../providers/WebAppSettingsProvider';
++import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { getOnboardingImageBackground, getOnboardingImagePath } from './onboardingGuideAssets';
+ import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
+ import { markWebOnboardingGuideCompleted } from './onboardingGuideStorage';
+@@ -47,6 +48,7 @@ export function OnboardingGuideClient() {
+   const searchParams = useSearchParams();
+   const { t } = useWebTranslation();
+   const { settings, setSettings } = useWebAppSettings();
++  const auth = useWebAuth();
+   const [currentIndex, setCurrentIndex] = useState(0);
+   const [resolvedMode, setResolvedMode] = useState<ResolvedMode>(() => resolveOnboardingMode(settings.appearance));
+   const [preferencesOpen, setPreferencesOpen] = useState(false);
+@@ -72,9 +74,9 @@ export function OnboardingGuideClient() {
+   }, [settings.appearance]);
+ 
+   const closeGuide = useCallback(() => {
+-    if (!isReplay) markWebOnboardingGuideCompleted();
++    if (!isReplay) markWebOnboardingGuideCompleted(auth.user?.id);
+     router.push(nextHref);
+-  }, [isReplay, nextHref, router]);
++  }, [auth.user?.id, isReplay, nextHref, router]);
+ 
+   function goNext() {
+     if (isLastSlide) {
+diff --git a/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts b/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
+index beb1055..b9df119 100644
+--- a/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
++++ b/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
+@@ -1,11 +1,16 @@
+ const ONBOARDING_GUIDE_COMPLETED_KEY = 'hellowhen_web_onboarding_guide_completed_v1';
+ 
+-export function hasCompletedWebOnboardingGuide() {
++function getCompletedKey(userId?: string | null) {
++  const normalizedUserId = typeof userId === 'string' ? userId.trim() : '';
++  return normalizedUserId ? `${ONBOARDING_GUIDE_COMPLETED_KEY}:${normalizedUserId}` : ONBOARDING_GUIDE_COMPLETED_KEY;
++}
++
++export function hasCompletedWebOnboardingGuide(userId?: string | null) {
+   if (typeof window === 'undefined') return true;
+-  return window.localStorage.getItem(ONBOARDING_GUIDE_COMPLETED_KEY) === 'true';
++  return window.localStorage.getItem(getCompletedKey(userId)) === 'true';
+ }
+ 
+-export function markWebOnboardingGuideCompleted() {
++export function markWebOnboardingGuideCompleted(userId?: string | null) {
+   if (typeof window === 'undefined') return;
+-  window.localStorage.setItem(ONBOARDING_GUIDE_COMPLETED_KEY, 'true');
++  window.localStorage.setItem(getCompletedKey(userId), 'true');
+ }
+diff --git a/apps/web/src/providers/WebAppProviders.tsx b/apps/web/src/providers/WebAppProviders.tsx
+index 0c7836d..7d7ea02 100644
+--- a/apps/web/src/providers/WebAppProviders.tsx
++++ b/apps/web/src/providers/WebAppProviders.tsx
+@@ -5,12 +5,13 @@ import { WebAppSettingsProvider } from './WebAppSettingsProvider';
+ import { WebAuthProvider } from './WebAuthProvider';
+ import { WebI18nProvider } from './WebI18nProvider';
+ import { WebUsageHeartbeat } from './WebUsageHeartbeat';
++import { WebOnboardingGate } from './WebOnboardingGate';
+ 
+ export function WebAppProviders({ children }: { children: ReactNode }) {
+   return (
+     <WebAppSettingsProvider>
+       <WebI18nProvider>
+-        <WebAuthProvider><WebUsageHeartbeat />{children}</WebAuthProvider>
++        <WebAuthProvider><WebOnboardingGate /><WebUsageHeartbeat />{children}</WebAuthProvider>
+       </WebI18nProvider>
+     </WebAppSettingsProvider>
+   );
+diff --git a/apps/web/src/providers/WebOnboardingGate.tsx b/apps/web/src/providers/WebOnboardingGate.tsx
+new file mode 100644
+index 0000000..c21d82d
+--- /dev/null
++++ b/apps/web/src/providers/WebOnboardingGate.tsx
+@@ -0,0 +1,48 @@
++'use client';
++
++import { usePathname, useRouter, useSearchParams } from 'next/navigation';
++import { useEffect, useRef } from 'react';
++import { hasCompletedWebOnboardingGuide } from '../features/onboarding-guide/onboardingGuideStorage';
++import { useWebAuth } from './WebAuthProvider';
++
++const ONBOARDING_EXCLUDED_PREFIXES = [
++  '/onboarding-guide',
++  '/auth',
++  '/admin',
++  '/reset-password',
++  '/credits',
++];
++
++function isOnboardingExcludedRoute(pathname: string) {
++  return ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
++}
++
++function buildCurrentPath(pathname: string, search: string) {
++  const query = search ? `?${search}` : '';
++  const hash = typeof window !== 'undefined' ? window.location.hash : '';
++  return `${pathname}${query}${hash}`;
++}
++
++export function WebOnboardingGate() {
++  const router = useRouter();
++  const pathname = usePathname() || '/';
++  const searchParams = useSearchParams();
++  const auth = useWebAuth();
++  const userId = auth.user?.id;
++  const lastRedirectTarget = useRef<string | null>(null);
++
++  useEffect(() => {
++    if (!auth.hydrated || !userId) return;
++    if (isOnboardingExcludedRoute(pathname)) return;
++    if (hasCompletedWebOnboardingGuide(userId)) return;
++
++    const currentPath = buildCurrentPath(pathname, searchParams.toString());
++    const target = `/onboarding-guide?next=${encodeURIComponent(currentPath)}`;
++    if (lastRedirectTarget.current === target) return;
++
++    lastRedirectTarget.current = target;
++    router.replace(target);
++  }, [auth.hydrated, pathname, router, searchParams, userId]);
++
++  return null;
++}

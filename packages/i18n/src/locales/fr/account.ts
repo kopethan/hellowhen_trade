@@ -433,9 +433,10 @@ export const account = {
     },
     guide: {
       title: 'Guide',
-      body: 'Revoir le court guide de démarrage Hellowhen.',
+      body: 'Revoir le court guide de démarrage Hellowhen, avec les sept slides, la langue et l’apparence.',
       bodyNative: 'Revoir le guide de démarrage à tout moment.',
       badge: 'Guide',
+      action: 'Revoir',
     },
     settings: {
       title: 'Paramètres',

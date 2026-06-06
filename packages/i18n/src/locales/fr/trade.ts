@@ -408,6 +408,11 @@ export const trade = {
     pointNoMoney: 'La première bêta reste service contre service.',
     actionsLabel: 'Actions de la page d’accueil',
     dismiss: 'Masquer cette introduction',
+    dismissShort: 'Masquer',
+    guideBadge: 'Guide rapide',
+    guideTitle: 'Nouveau sur Hellowhen ?',
+    guideBody: 'Regardez le guide court pour comprendre les Besoins, Offres, Échanges, propositions et règles de sécurité.',
+    guideAction: 'Voir le guide',
   },
   create: {
     title: 'Créer un échange',

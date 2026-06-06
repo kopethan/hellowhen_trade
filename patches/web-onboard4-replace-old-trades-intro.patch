@@ -1,0 +1,145 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 59af5e6..ee8fdd5 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -2805,29 +2805,19 @@ html.dark .pro-package-prototype__item.selected {
+   .pro-onboarding-actions__row { grid-template-columns: 1fr; }
+ }
+ 
+-/* Phase SEO6C: compact homepage intro for logged-out first-time visitors */
+-.home-trade-intro { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 14px; width: min(820px, 100%); margin: 0 auto; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 22px; background:
+-  radial-gradient(circle at 96% 0%, color-mix(in srgb, var(--trade-bg) 38%, transparent), transparent 15rem),
+-  color-mix(in srgb, var(--app-surface) 88%, transparent); padding: 15px 44px 15px 18px; box-shadow: 0 14px 36px color-mix(in srgb, var(--app-shadow) 44%, transparent); }
+-.home-trade-intro__dismiss { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); background: color-mix(in srgb, var(--app-surface-soft) 84%, transparent); color: var(--app-text-muted); font-size: 18px; line-height: 1; font-weight: 900; cursor: pointer; }
+-.home-trade-intro__dismiss:hover { color: var(--app-text); border-color: var(--app-border-strong); }
+-.home-trade-intro__copy { display: grid; gap: 7px; min-width: 0; }
+-.home-trade-intro h2 { margin: 0; max-width: 700px; font-size: clamp(21px, 3.2vw, 30px); line-height: 1.05; letter-spacing: -0.045em; }
+-.home-trade-intro p { margin: 0; max-width: 690px; color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.45; }
+-.home-trade-intro__points { display: flex; flex-wrap: wrap; gap: 6px; }
+-.home-trade-intro__points span { display: inline-flex; align-items: center; min-height: 25px; border: 1px solid color-mix(in srgb, var(--app-border-strong) 64%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--app-surface-soft) 74%, transparent); color: var(--app-text); padding: 0 9px; font-size: 11px; font-weight: 900; }
+-.home-trade-intro__actions { display: flex; flex-direction: column; gap: 7px; min-width: 172px; }
+-.home-trade-intro__actions .button { width: 100%; min-height: 36px; justify-content: center; padding: 0 12px; font-size: 12px; }
+-
+-@media (max-width: 760px) {
+-  .home-trade-intro { grid-template-columns: 1fr; width: min(640px, 100%); padding: 14px 42px 14px 15px; }
+-  .home-trade-intro__actions { display: grid; grid-template-columns: 1fr; min-width: 0; }
+-}
++/* Compact guide entry for logged-out first-time visitors */
++.home-guide-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; width: min(720px, 100%); margin: 0 auto; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--app-surface) 92%, transparent); padding: 12px; box-shadow: 0 10px 26px color-mix(in srgb, var(--app-shadow) 28%, transparent); }
++.home-guide-entry__icon { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 14px; background: color-mix(in srgb, var(--proposal-border) 14%, var(--app-surface-soft)); color: var(--app-text); font-size: 17px; font-weight: 950; }
++.home-guide-entry__copy { display: grid; gap: 4px; min-width: 0; }
++.home-guide-entry h2 { margin: 0; font-size: 15px; line-height: 1.1; letter-spacing: -0.02em; }
++.home-guide-entry p { margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 760; line-height: 1.35; }
++.home-guide-entry__actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
++.home-guide-entry__actions .button { min-height: 34px; justify-content: center; padding: 0 12px; font-size: 12px; white-space: nowrap; }
+ 
+-@media (max-width: 560px) {
+-  .home-trade-intro { border-radius: 20px; }
+-  .home-trade-intro h2 { font-size: 23px; }
+-  .home-trade-intro__points span { width: 100%; }
++@media (max-width: 700px) {
++  .home-guide-entry { grid-template-columns: auto minmax(0, 1fr); align-items: start; width: 100%; }
++  .home-guide-entry__actions { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
++  .home-guide-entry__actions .button { width: 100%; }
+ }
+ 
+ .notifications-panel { display: grid; gap: 14px; }
+diff --git a/apps/web/src/features/trade/TradeFeedClient.tsx b/apps/web/src/features/trade/TradeFeedClient.tsx
+index c9281ef..03ebac8 100644
+--- a/apps/web/src/features/trade/TradeFeedClient.tsx
++++ b/apps/web/src/features/trade/TradeFeedClient.tsx
+@@ -112,8 +112,6 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+   const demoDataEnabled = isWebDemoDataEnabled();
+   const auth = useWebAuth();
+   const createTradeHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/trades/create' : '/trades/create';
+-  const createNeedHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/needs/new' : '/needs/new';
+-  const createOfferHref = !auth.hydrated || !auth.isAuthenticated ? '/auth?next=/offers/new' : '/offers/new';
+   const shouldShowHomeIntro = showHomeIntro && homeIntroReady && auth.hydrated && !auth.isAuthenticated && !homeIntroDismissed;
+ 
+   const queueSearchKeywordRecord = useCallback((q: string, source: TradeSearchKeywordSource) => {
+@@ -295,7 +293,7 @@ export function TradeFeedClient({ showHomeIntro = false }: TradeFeedClientProps
+ 
+   return (
+     <section className="mobile-page trade-feed-page">
+-      {shouldShowHomeIntro ? <HomeTradeIntroBanner createTradeHref={createTradeHref} createNeedHref={createNeedHref} createOfferHref={createOfferHref} onDismiss={dismissHomeIntro} /> : null}
++      {shouldShowHomeIntro ? <HomeTradeIntroBanner onDismiss={dismissHomeIntro} /> : null}
+ 
+       <div className="trade-feed-tabs" role="tablist" aria-label={t('trade.mine.tabsLabel')}>
+         <button type="button" role="tab" aria-selected={activeTab === 'discover'} className={activeTab === 'discover' ? 'is-active' : ''} onClick={() => setActiveTab('discover')}>{t('trade.mine.discoverTab')}</button>
+@@ -458,34 +456,23 @@ function TradeSearchSuggestionList({ visible, suggestions, loading, query, onSel
+ }
+ 
+ type HomeTradeIntroBannerProps = {
+-  createTradeHref: string;
+-  createNeedHref: string;
+-  createOfferHref: string;
+   onDismiss: () => void;
+ };
+ 
+-function HomeTradeIntroBanner({ createTradeHref, createNeedHref, createOfferHref, onDismiss }: HomeTradeIntroBannerProps) {
++function HomeTradeIntroBanner({ onDismiss }: HomeTradeIntroBannerProps) {
+   const { t } = useWebTranslation();
+ 
+   return (
+-    <section className="home-trade-intro" aria-labelledby="home-trade-intro-title">
+-      <button type="button" className="home-trade-intro__dismiss" onClick={onDismiss} aria-label={t('trade.homeIntro.dismiss')}>
+-        ×
+-      </button>
+-      <div className="home-trade-intro__copy">
+-        <span className="semantic-badge instruction">{t('trade.homeIntro.badge')}</span>
+-        <h2 id="home-trade-intro-title">{t('trade.homeIntro.title')}</h2>
+-        <p>{t('trade.homeIntro.body')}</p>
+-        <div className="home-trade-intro__points" aria-label={t('trade.homeIntro.pointsLabel')}>
+-          <span>{t('trade.homeIntro.pointNeed')}</span>
+-          <span>{t('trade.homeIntro.pointOffer')}</span>
+-          <span>{t('trade.homeIntro.pointNoMoney')}</span>
+-        </div>
++    <section className="home-guide-entry" aria-labelledby="home-guide-entry-title">
++      <div className="home-guide-entry__icon" aria-hidden="true">▶</div>
++      <div className="home-guide-entry__copy">
++        <span className="semantic-badge instruction">{t('trade.homeIntro.guideBadge')}</span>
++        <h2 id="home-guide-entry-title">{t('trade.homeIntro.guideTitle')}</h2>
++        <p>{t('trade.homeIntro.guideBody')}</p>
+       </div>
+-      <div className="home-trade-intro__actions" aria-label={t('trade.homeIntro.actionsLabel')}>
+-        <Link href={createTradeHref} className="button primary"><WebIcon name="trade" size={16} decorative /> {t('trade.emptyFeed.createTrade')}</Link>
+-        <Link href={createNeedHref} className="button secondary"><WebIcon name="need" size={16} decorative /> {t('trade.emptyFeed.createNeed')}</Link>
+-        <Link href={createOfferHref} className="button secondary"><WebIcon name="offer" size={16} decorative /> {t('trade.emptyFeed.createOffer')}</Link>
++      <div className="home-guide-entry__actions">
++        <Link href="/onboarding-guide?replay=1&next=/trades" className="button primary">{t('trade.homeIntro.guideAction')}</Link>
++        <button type="button" className="button secondary" onClick={onDismiss}>{t('trade.homeIntro.dismissShort')}</button>
+       </div>
+     </section>
+   );
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index a316eda..b6119b2 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -408,6 +408,11 @@ export const trade = {
+     pointNoMoney: 'First beta stays service-for-service.',
+     actionsLabel: 'Homepage trade actions',
+     dismiss: 'Hide this introduction',
++    dismissShort: 'Hide',
++    guideBadge: 'Quick guide',
++    guideTitle: 'New to Hellowhen?',
++    guideBody: 'Watch the short guide to understand Needs, Offers, Trades, proposals, and safety.',
++    guideAction: 'Watch guide',
+   },
+   create: {
+     title: 'Create Trade',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index daba95e..0ff3dc8 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -408,6 +408,11 @@ export const trade = {
+     pointNoMoney: 'La première bêta reste service contre service.',
+     actionsLabel: 'Actions de la page d’accueil',
+     dismiss: 'Masquer cette introduction',
++    dismissShort: 'Masquer',
++    guideBadge: 'Guide rapide',
++    guideTitle: 'Nouveau sur Hellowhen ?',
++    guideBody: 'Regardez le guide court pour comprendre les Besoins, Offres, Échanges, propositions et règles de sécurité.',
++    guideAction: 'Voir le guide',
+   },
+   create: {
+     title: 'Créer un échange',

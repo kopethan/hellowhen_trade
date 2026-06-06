@@ -6,9 +6,10 @@ import type { AppSettings } from '@hellowhen/contracts';
 import type { LanguagePreference } from '@hellowhen/i18n';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { useWebAppSettings } from '../../providers/WebAppSettingsProvider';
+import { useWebAuth } from '../../providers/WebAuthProvider';
 import { getOnboardingImageBackground, getOnboardingImagePath } from './onboardingGuideAssets';
 import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
-import { markWebOnboardingGuideCompleted } from './onboardingGuideStorage';
+import { markWebOnboardingGuideCompletedForVisitor } from './onboardingGuideStorage';
 
 type ResolvedMode = 'light' | 'dark';
 type AppearancePreference = AppSettings['appearance'];
@@ -47,6 +48,7 @@ export function OnboardingGuideClient() {
   const searchParams = useSearchParams();
   const { t } = useWebTranslation();
   const { settings, setSettings } = useWebAppSettings();
+  const auth = useWebAuth();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [resolvedMode, setResolvedMode] = useState<ResolvedMode>(() => resolveOnboardingMode(settings.appearance));
   const [preferencesOpen, setPreferencesOpen] = useState(false);
@@ -72,9 +74,9 @@ export function OnboardingGuideClient() {
   }, [settings.appearance]);
 
   const closeGuide = useCallback(() => {
-    if (!isReplay) markWebOnboardingGuideCompleted();
+    if (!isReplay) markWebOnboardingGuideCompletedForVisitor(auth.user?.id);
     router.push(nextHref);
-  }, [isReplay, nextHref, router]);
+  }, [auth.user?.id, isReplay, nextHref, router]);
 
   function goNext() {
     if (isLastSlide) {

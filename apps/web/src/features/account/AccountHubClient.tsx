@@ -16,6 +16,9 @@ type AccountHubItem = {
   bodyKey: string;
   icon?: WebIconName;
   publicAccess?: boolean;
+  featured?: boolean;
+  badgeKey?: string;
+  actionKey?: string;
 };
 
 export function AccountHubClient() {
@@ -28,7 +31,16 @@ export function AccountHubClient() {
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
     { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
-    { href: '/onboarding-guide?replay=1&next=/account', titleKey: 'account.items.guide.title', bodyKey: 'account.items.guide.body', icon: 'help', publicAccess: true },
+    {
+      href: '/onboarding-guide?replay=1&next=/account',
+      titleKey: 'account.items.guide.title',
+      bodyKey: 'account.items.guide.body',
+      icon: 'help',
+      publicAccess: true,
+      featured: true,
+      badgeKey: 'account.items.guide.badge',
+      actionKey: 'account.items.guide.action',
+    },
     ...(betaFeatures.plusSubscriptionFeatures.plusPublic ? [{ href: '/account/plans', titleKey: 'account.items.plans.title', bodyKey: 'account.items.plans.body', icon: 'profile' as WebIconName }] : []),
     ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
@@ -119,17 +131,22 @@ export function AccountHubClient() {
       <div className="mobile-list">
         {accountItems.map((item) => {
           const href = auth.hydrated && !auth.isAuthenticated && !item.publicAccess ? `/auth?next=${encodeURIComponent(item.href)}` : item.href;
+          const className = item.featured ? 'mobile-link-card mobile-link-card--featured' : 'mobile-link-card';
           return (
-            <Link key={item.href} href={href} className="mobile-link-card">
-              {item.icon ? <WebIcon name={item.icon} size={22} decorative className="mobile-link-card__icon" /> : null}
+            <Link key={item.href} href={href} className={className}>
+              {item.icon ? <WebIcon name={item.icon} size={item.featured ? 24 : 22} decorative className="mobile-link-card__icon" /> : null}
               <span className="mobile-link-card__body">
-                <strong>{t(item.titleKey)}</strong>
+                <span className="mobile-link-card__title-row">
+                  <strong>{t(item.titleKey)}</strong>
+                  {item.badgeKey ? <span className="semantic-badge instruction">{t(item.badgeKey)}</span> : null}
+                </span>
                 <br />
                 {t(item.bodyKey)}
               </span>
               {item.href === '/account/notifications' && notificationUnreadCount > 0 ? (
                 <span className="semantic-badge proposal mobile-link-card__meta-badge">{notificationUnreadCount}</span>
               ) : null}
+              {item.actionKey ? <span className="mobile-link-card__action-label">{t(item.actionKey)}</span> : null}
               <WebIcon name="arrow-right" size={17} decorative className="mobile-link-card__arrow" />
             </Link>
           );
