@@ -478,6 +478,13 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
         saved = normalizeInventoryItem(response, kind);
       }
       inventoryWizardDraft.clearDraft();
+      setValues({ ...emptyInventoryFormValues, defaultLanguage: language });
+      setMedia([]);
+      setActiveStepId('idea');
+      setAttemptedStepId(null);
+      setShowOptionalDetails(false);
+      setTranslationPanelOpen(false);
+      setTranslationPickerOpen(false);
       if (afterCreateRedirect && saved?.id) {
         router.push(buildCreateRedirectHref(afterCreateRedirect, saved.id));
       } else {

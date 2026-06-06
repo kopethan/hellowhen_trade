@@ -354,7 +354,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
   const [offers, setOffers] = useState<OfferDto[]>(() => demoDataEnabled ? mockOffers : []);
   const [trades, setTrades] = useState<TradeDto[]>(() => demoDataEnabled ? mockTrades : []);
   const [loadState, setLoadState] = useState<InventoryLoadState>('idle');
-  const [values, setValues] = useState<TradeCreateValues>({
+  const [values, setValues] = useState<TradeCreateValues>(() => ({
     postType: routePostType,
     needMode: 'saved',
     offerMode: 'saved',
@@ -367,7 +367,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
     cashPromiseNote: '',
     cashPromiseAcknowledged: false,
     expiresAt: '',
-  });
+  }));
   const [activeStepId, setActiveStepId] = useState<TradeWizardStepId>(() => getInitialWizardStep(routePostType, routeNeedId, routeOfferId));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -595,6 +595,21 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
       const response = await api.trades.create(payload);
       const tradeId = normalizeCreatedTradeId(response);
       tradeWizardDraft.clearDraft();
+      setValues({
+        postType: '',
+        needMode: 'saved',
+        offerMode: 'saved',
+        needId: '',
+        offerId: '',
+        amount: '',
+        currency: preferredCurrency,
+        cashPromiseAmount: '',
+        cashPromiseCurrency: preferredCurrency,
+        cashPromiseNote: '',
+        cashPromiseAcknowledged: false,
+        expiresAt: '',
+      });
+      setActiveStepId('type');
       router.push(tradeId ? `/trades/${tradeId}` : '/trades');
       router.refresh();
     } catch (cause) {

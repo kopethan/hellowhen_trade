@@ -1,0 +1,26 @@
+diff --git a/apps/web/src/features/trade/tradePresentation.ts b/apps/web/src/features/trade/tradePresentation.ts
+index fb1990a..1ae153f 100644
+--- a/apps/web/src/features/trade/tradePresentation.ts
++++ b/apps/web/src/features/trade/tradePresentation.ts
+@@ -35,16 +35,19 @@ export type DeckImage = {
+   status?: MediaAssetDto['status'];
+ };
+ 
++type NeedDurationSource = Pick<NeedDto, 'estimatedDurationPreset'> | null | undefined;
++type OfferDurationSource = Pick<OfferDto, 'typicalDurationPreset'> | null | undefined;
++
+ function compactJoin(values: Array<string | null | undefined>) {
+   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+ }
+ 
+-export function getNeedTimingBadge(need: NeedDto | null | undefined, i18n?: TradeI18n) {
++export function getNeedTimingBadge(need: NeedDurationSource, i18n?: TradeI18n) {
+   if (!need) return '';
+   return durationPresetLabel(need.estimatedDurationPreset, i18n);
+ }
+ 
+-export function getOfferTimingBadge(offer: OfferDto | null | undefined, i18n?: TradeI18n) {
++export function getOfferTimingBadge(offer: OfferDurationSource, i18n?: TradeI18n) {
+   if (!offer) return '';
+   return durationPresetLabel(offer.typicalDurationPreset, i18n);
+ }

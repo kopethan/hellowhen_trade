@@ -414,6 +414,11 @@ export function CreateTradeScreen({ route, navigation }: Props) {
         expiresAt: buildExpiresAt(expiryDays),
       }) as CreateTradeResponse;
       await tradeWizardDraft.clearDraft();
+      setPostType(null);
+      setNeedSelection(null);
+      setOfferSelection(null);
+      setExpiryDays(14);
+      setActiveStepId('type');
       navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null });
     } catch (caughtError) {
       setError(getFriendlyApiErrorMessage(caughtError));

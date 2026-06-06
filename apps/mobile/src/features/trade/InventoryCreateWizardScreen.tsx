@@ -453,11 +453,11 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
 
       if (isNeed) {
         const response = await api.needs.create(basePayload) as CreateNeedResponse;
-        await inventoryWizardDraft.clearDraft();
+        await resetWizardDraft();
         navigateAfterCreate(response.need.id);
       } else {
         const response = await api.offers.create({ ...basePayload, includes: [] }) as CreateOfferResponse;
-        await inventoryWizardDraft.clearDraft();
+        await resetWizardDraft();
         navigateAfterCreate(response.offer.id);
       }
     } catch (caughtError) {

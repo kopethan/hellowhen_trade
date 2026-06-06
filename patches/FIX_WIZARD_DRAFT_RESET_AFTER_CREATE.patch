@@ -1,0 +1,96 @@
+diff --git a/apps/mobile/src/features/trade/CreateTradeScreen.tsx b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+index 7676052..63c3d6d 100644
+--- a/apps/mobile/src/features/trade/CreateTradeScreen.tsx
++++ b/apps/mobile/src/features/trade/CreateTradeScreen.tsx
+@@ -414,6 +414,11 @@ export function CreateTradeScreen({ route, navigation }: Props) {
+         expiresAt: buildExpiresAt(expiryDays),
+       }) as CreateTradeResponse;
+       await tradeWizardDraft.clearDraft();
++      setPostType(null);
++      setNeedSelection(null);
++      setOfferSelection(null);
++      setExpiryDays(14);
++      setActiveStepId('type');
+       navigation.replace('TradeDetail', { tradeId: result.trade.id, title: result.trade.title, description: result.trade.description, amountCents: result.trade.amountCents ?? 0, currency: result.trade.currency ?? 'eur', creditAmount: result.trade.creditAmount ?? 0, status: result.trade.status, expiresAt: result.trade.expiresAt ?? null });
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError));
+diff --git a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+index ac04c68..a9c0e70 100644
+--- a/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
++++ b/apps/mobile/src/features/trade/InventoryCreateWizardScreen.tsx
+@@ -453,11 +453,11 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
+ 
+       if (isNeed) {
+         const response = await api.needs.create(basePayload) as CreateNeedResponse;
+-        await inventoryWizardDraft.clearDraft();
++        await resetWizardDraft();
+         navigateAfterCreate(response.need.id);
+       } else {
+         const response = await api.offers.create({ ...basePayload, includes: [] }) as CreateOfferResponse;
+-        await inventoryWizardDraft.clearDraft();
++        await resetWizardDraft();
+         navigateAfterCreate(response.offer.id);
+       }
+     } catch (caughtError) {
+diff --git a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+index 0cea6ac..07c4552 100644
+--- a/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
++++ b/apps/web/src/features/inventory/InventoryCreateWizardClient.tsx
+@@ -478,6 +478,13 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
+         saved = normalizeInventoryItem(response, kind);
+       }
+       inventoryWizardDraft.clearDraft();
++      setValues({ ...emptyInventoryFormValues, defaultLanguage: language });
++      setMedia([]);
++      setActiveStepId('idea');
++      setAttemptedStepId(null);
++      setShowOptionalDetails(false);
++      setTranslationPanelOpen(false);
++      setTranslationPickerOpen(false);
+       if (afterCreateRedirect && saved?.id) {
+         router.push(buildCreateRedirectHref(afterCreateRedirect, saved.id));
+       } else {
+diff --git a/apps/web/src/features/trade/TradeCreateClient.tsx b/apps/web/src/features/trade/TradeCreateClient.tsx
+index dcf432d..fd6d6f3 100644
+--- a/apps/web/src/features/trade/TradeCreateClient.tsx
++++ b/apps/web/src/features/trade/TradeCreateClient.tsx
+@@ -354,7 +354,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+   const [offers, setOffers] = useState<OfferDto[]>(() => demoDataEnabled ? mockOffers : []);
+   const [trades, setTrades] = useState<TradeDto[]>(() => demoDataEnabled ? mockTrades : []);
+   const [loadState, setLoadState] = useState<InventoryLoadState>('idle');
+-  const [values, setValues] = useState<TradeCreateValues>({
++  const [values, setValues] = useState<TradeCreateValues>(() => ({
+     postType: routePostType,
+     needMode: 'saved',
+     offerMode: 'saved',
+@@ -367,7 +367,7 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+     cashPromiseNote: '',
+     cashPromiseAcknowledged: false,
+     expiresAt: '',
+-  });
++  }));
+   const [activeStepId, setActiveStepId] = useState<TradeWizardStepId>(() => getInitialWizardStep(routePostType, routeNeedId, routeOfferId));
+   const [saving, setSaving] = useState(false);
+   const [error, setError] = useState('');
+@@ -595,6 +595,21 @@ export function TradeCreateClient({ initialNeedId = '', initialOfferId = '', ini
+       const response = await api.trades.create(payload);
+       const tradeId = normalizeCreatedTradeId(response);
+       tradeWizardDraft.clearDraft();
++      setValues({
++        postType: '',
++        needMode: 'saved',
++        offerMode: 'saved',
++        needId: '',
++        offerId: '',
++        amount: '',
++        currency: preferredCurrency,
++        cashPromiseAmount: '',
++        cashPromiseCurrency: preferredCurrency,
++        cashPromiseNote: '',
++        cashPromiseAcknowledged: false,
++        expiresAt: '',
++      });
++      setActiveStepId('type');
+       router.push(tradeId ? `/trades/${tradeId}` : '/trades');
+       router.refresh();
+     } catch (cause) {
