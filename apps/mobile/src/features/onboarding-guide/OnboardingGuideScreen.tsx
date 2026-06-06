@@ -12,6 +12,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { getOnboardingImageBackground, OnboardingSlideIllustration } from './OnboardingSlideIllustration';
 import { markOnboardingGuideCompleted } from './onboardingGuideStorage';
+import type { OnboardingGuideSlide } from './onboardingGuide.slides';
 import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OnboardingGuide'>;
@@ -34,6 +35,10 @@ const appearanceOptions: Array<PreferenceOption<AppearancePreference>> = [
   { value: 'dark', labelKey: 'onboarding.preferences.appearanceOptions.dark' },
 ];
 
+const fallbackSlide = ONBOARDING_GUIDE_SLIDES[0] as OnboardingGuideSlide;
+const defaultLanguageLabelKey = 'onboarding.preferences.languageOptions.system';
+const defaultAppearanceLabelKey = 'onboarding.preferences.appearanceOptions.system';
+
 export function OnboardingGuideScreen({ navigation, route }: Props) {
   const theme = useThemeTokens();
   const { settings, setSettings } = useAppSettings();
@@ -41,7 +46,7 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
   const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
-  const slide = ONBOARDING_GUIDE_SLIDES[currentIndex];
+  const slide = ONBOARDING_GUIDE_SLIDES[currentIndex] ?? fallbackSlide;
   const isCompactHeight = height < 700;
   const imageMode = theme.mode;
   const onboardingBackground = getOnboardingImageBackground(imageMode, slide.illustrationKey);
@@ -49,8 +54,8 @@ export function OnboardingGuideScreen({ navigation, route }: Props) {
   const isLastSlide = currentIndex === ONBOARDING_GUIDE_SLIDES.length - 1;
   const isReplay = route.params?.replay === true;
   const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: ONBOARDING_GUIDE_SLIDES.length });
-  const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? languageOptions[0].labelKey);
-  const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? appearanceOptions[0].labelKey);
+  const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? defaultLanguageLabelKey);
+  const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? defaultAppearanceLabelKey);
   const preferencesSummary = t('onboarding.preferences.summary', { language: currentLanguageLabel, appearance: currentAppearanceLabel });
   const illustrationSize = useMemo(
     () => Math.max(210, Math.min(width - 40, isCompactHeight ? 250 : 330, height * 0.38)),

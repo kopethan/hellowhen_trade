@@ -1,7 +1,6 @@
 import './globals.css';
 import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
-import Script from 'next/script';
 import { WebMobileShell } from '../components/WebMobileShell';
 import { WebAppProviders } from '../providers/WebAppProviders';
 import { getSeoSiteUrl, seoDefaultDescription, seoDefaultTitle, seoSiteName } from '../lib/seo';
@@ -65,7 +64,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <Script id="hellowhen-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <script id="hellowhen-theme" dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body>
         <WebAppProviders><WebMobileShell>{children}</WebMobileShell></WebAppProviders>

@@ -1,0 +1,126 @@
+diff --git a/apps/web/src/features/onboarding-guide/onboardingGuideConstants.ts b/apps/web/src/features/onboarding-guide/onboardingGuideConstants.ts
+new file mode 100644
+index 0000000..3d9819f
+--- /dev/null
++++ b/apps/web/src/features/onboarding-guide/onboardingGuideConstants.ts
+@@ -0,0 +1,3 @@
++export const WEB_ONBOARDING_GUIDE_COMPLETED_STORAGE_KEY = 'hellowhen_web_onboarding_guide_completed_v1';
++export const WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE = 'hellowhen_web_onboarding_guide_completed';
++export const WEB_ONBOARDING_GUIDE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+diff --git a/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts b/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
+index 547b82a..b1b3eeb 100644
+--- a/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
++++ b/apps/web/src/features/onboarding-guide/onboardingGuideStorage.ts
+@@ -1,28 +1,50 @@
+-const ONBOARDING_GUIDE_COMPLETED_KEY = 'hellowhen_web_onboarding_guide_completed_v1';
++import {
++  WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE,
++  WEB_ONBOARDING_GUIDE_COMPLETED_STORAGE_KEY,
++  WEB_ONBOARDING_GUIDE_COOKIE_MAX_AGE_SECONDS,
++} from './onboardingGuideConstants';
+ 
+ function getCompletedKey(userId?: string | null) {
+   const normalizedUserId = typeof userId === 'string' ? userId.trim() : '';
+-  return normalizedUserId ? `${ONBOARDING_GUIDE_COMPLETED_KEY}:${normalizedUserId}` : ONBOARDING_GUIDE_COMPLETED_KEY;
++  return normalizedUserId ? `${WEB_ONBOARDING_GUIDE_COMPLETED_STORAGE_KEY}:${normalizedUserId}` : WEB_ONBOARDING_GUIDE_COMPLETED_STORAGE_KEY;
++}
++
++function hasCompletedCookie() {
++  if (typeof document === 'undefined') return false;
++  return document.cookie
++    .split(';')
++    .map((item) => item.trim())
++    .some((item) => item === `${WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE}=true`);
++}
++
++function markCompletedCookie() {
++  if (typeof document === 'undefined') return;
++  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
++  document.cookie = `${WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE}=true; Path=/; Max-Age=${WEB_ONBOARDING_GUIDE_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+ }
+ 
+ export function hasCompletedWebOnboardingGuide(userId?: string | null) {
+   if (typeof window === 'undefined') return true;
+-  return window.localStorage.getItem(getCompletedKey(userId)) === 'true';
++  if (window.localStorage.getItem(getCompletedKey(userId)) === 'true') return true;
++  return !userId && hasCompletedCookie();
+ }
+ 
+ export function markWebOnboardingGuideCompleted(userId?: string | null) {
+   if (typeof window === 'undefined') return;
+   window.localStorage.setItem(getCompletedKey(userId), 'true');
++  if (!userId) markCompletedCookie();
+ }
+ 
+ export function hasCompletedWebOnboardingGuideForVisitor(userId?: string | null) {
+   if (typeof window === 'undefined') return true;
+   if (hasCompletedWebOnboardingGuide(userId)) return true;
+-  return Boolean(userId) && hasCompletedWebOnboardingGuide();
++  if (hasCompletedWebOnboardingGuide()) return true;
++  return hasCompletedCookie();
+ }
+ 
+ export function markWebOnboardingGuideCompletedForVisitor(userId?: string | null) {
+   if (typeof window === 'undefined') return;
++  markCompletedCookie();
+   markWebOnboardingGuideCompleted();
+   if (userId) markWebOnboardingGuideCompleted(userId);
+ }
+diff --git a/apps/web/src/middleware.ts b/apps/web/src/middleware.ts
+new file mode 100644
+index 0000000..84601f9
+--- /dev/null
++++ b/apps/web/src/middleware.ts
+@@ -0,0 +1,52 @@
++import { NextResponse, type NextRequest } from 'next/server';
++import { WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE } from './features/onboarding-guide/onboardingGuideConstants';
++
++const ONBOARDING_EXCLUDED_PREFIXES = [
++  '/onboarding-guide',
++  '/auth',
++  '/admin',
++  '/reset-password',
++  '/credits',
++  '/legal',
++  '/support',
++  '/api',
++  '/_next',
++];
++
++const PUBLIC_FILE_PATTERN = /\.(?:avif|ico|jpg|jpeg|png|svg|webp|gif|css|js|map|txt|xml|json|woff2?)$/i;
++const CRAWLER_PATTERN = /bot|crawler|spider|crawling|facebookexternalhit|twitterbot|linkedinbot|slackbot|discordbot|whatsapp|telegrambot/i;
++
++function isOnboardingExcludedRoute(pathname: string) {
++  if (pathname === '/robots.txt' || pathname === '/sitemap.xml' || pathname === '/favicon.ico') return true;
++  if (PUBLIC_FILE_PATTERN.test(pathname)) return true;
++  return ONBOARDING_EXCLUDED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
++}
++
++function isCrawler(request: NextRequest) {
++  const userAgent = request.headers.get('user-agent') ?? '';
++  return CRAWLER_PATTERN.test(userAgent);
++}
++
++function buildNextPath(request: NextRequest) {
++  return `${request.nextUrl.pathname}${request.nextUrl.search}`;
++}
++
++export function middleware(request: NextRequest) {
++  const { pathname } = request.nextUrl;
++
++  if (request.method !== 'GET' && request.method !== 'HEAD') return NextResponse.next();
++  if (isOnboardingExcludedRoute(pathname)) return NextResponse.next();
++  if (isCrawler(request)) return NextResponse.next();
++
++  const hasCompletedOnboarding = request.cookies.get(WEB_ONBOARDING_GUIDE_COMPLETED_COOKIE)?.value === 'true';
++  if (hasCompletedOnboarding) return NextResponse.next();
++
++  const url = request.nextUrl.clone();
++  url.pathname = '/onboarding-guide';
++  url.search = `?next=${encodeURIComponent(buildNextPath(request))}`;
++  return NextResponse.redirect(url);
++}
++
++export const config = {
++  matcher: ['/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml).*)'],
++};

@@ -27,6 +27,15 @@ const appearanceOptions: Array<PreferenceOption<AppearancePreference>> = [
   { value: 'dark', labelKey: 'onboarding.preferences.appearanceOptions.dark' },
 ];
 
+const defaultLanguageLabelKey = 'onboarding.preferences.languageOptions.system';
+const defaultAppearanceLabelKey = 'onboarding.preferences.appearanceOptions.system';
+
+function readBootstrappedMode(): ResolvedMode | null {
+  if (typeof document === 'undefined') return null;
+  const theme = document.documentElement.dataset.theme;
+  return theme === 'dark' || theme === 'light' ? theme : null;
+}
+
 function resolveOnboardingMode(appearance: string | undefined): ResolvedMode {
   if (appearance === 'light' || appearance === 'dark') return appearance;
 
@@ -35,6 +44,11 @@ function resolveOnboardingMode(appearance: string | undefined): ResolvedMode {
   }
 
   return 'light';
+}
+
+function resolveInitialOnboardingMode(appearance: string | undefined, settingsHydrated: boolean): ResolvedMode {
+  if (!settingsHydrated) return readBootstrappedMode() ?? resolveOnboardingMode(appearance);
+  return resolveOnboardingMode(appearance);
 }
 
 function sanitizeNext(value: string | null) {
@@ -47,10 +61,11 @@ export function OnboardingGuideClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useWebTranslation();
-  const { settings, setSettings } = useWebAppSettings();
+  const { settings, hydrated: settingsHydrated, setSettings } = useWebAppSettings();
   const auth = useWebAuth();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [resolvedMode, setResolvedMode] = useState<ResolvedMode>(() => resolveOnboardingMode(settings.appearance));
+  const [resolvedMode, setResolvedMode] = useState<ResolvedMode>('light');
+  const [isAppearanceReady, setIsAppearanceReady] = useState(false);
   const [preferencesOpen, setPreferencesOpen] = useState(false);
   const slide = ONBOARDING_GUIDE_SLIDES[currentIndex] ?? ONBOARDING_GUIDE_SLIDES[0]!;
   const isLastSlide = currentIndex === ONBOARDING_GUIDE_SLIDES.length - 1;
@@ -58,20 +73,24 @@ export function OnboardingGuideClient() {
   const nextHref = useMemo(() => sanitizeNext(searchParams.get('next')), [searchParams]);
   const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: ONBOARDING_GUIDE_SLIDES.length });
   const backgroundColor = getOnboardingImageBackground(resolvedMode, slide.illustrationKey);
-  const imagePath = getOnboardingImagePath(resolvedMode, slide.illustrationKey);
-  const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? languageOptions[0].labelKey);
-  const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? appearanceOptions[0].labelKey);
+  const imagePath = isAppearanceReady ? getOnboardingImagePath(resolvedMode, slide.illustrationKey) : null;
+  const backgroundStyle = isAppearanceReady ? { backgroundColor } : undefined;
+  const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? defaultLanguageLabelKey);
+  const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? defaultAppearanceLabelKey);
   const preferencesSummary = t('onboarding.preferences.summary', { language: currentLanguageLabel, appearance: currentAppearanceLabel });
 
   useEffect(() => {
-    setResolvedMode(resolveOnboardingMode(settings.appearance));
+    setResolvedMode(resolveInitialOnboardingMode(settings.appearance, settingsHydrated));
+    setIsAppearanceReady(true);
 
-    if (settings.appearance !== 'system') return undefined;
+    const shouldFollowSystem = !settingsHydrated || settings.appearance === 'system';
+    if (!shouldFollowSystem) return undefined;
+
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const listener = () => setResolvedMode(resolveOnboardingMode('system'));
     media.addEventListener('change', listener);
     return () => media.removeEventListener('change', listener);
-  }, [settings.appearance]);
+  }, [settings.appearance, settingsHydrated]);
 
   const closeGuide = useCallback(() => {
     if (!isReplay) markWebOnboardingGuideCompletedForVisitor(auth.user?.id);
@@ -95,13 +114,13 @@ export function OnboardingGuideClient() {
   }
 
   return (
-    <section className="onboarding-guide-shell" style={{ backgroundColor }} aria-label={t('onboarding.ariaLabel')}>
-      <header className="onboarding-guide-topbar" style={{ backgroundColor }}>
+    <section className="onboarding-guide-shell" style={backgroundStyle} aria-label={t('onboarding.ariaLabel')}>
+      <header className="onboarding-guide-topbar" style={backgroundStyle}>
         <strong className="onboarding-guide-brand">Hellowhen</strong>
         <button type="button" className="onboarding-guide-skip" onClick={closeGuide}>{t('onboarding.actions.skip')}</button>
       </header>
 
-      <div className="onboarding-guide-preference-bar" style={{ backgroundColor }}>
+      <div className="onboarding-guide-preference-bar" style={backgroundStyle}>
         <button
           type="button"
           className="onboarding-guide-preference-pill"
@@ -112,9 +131,13 @@ export function OnboardingGuideClient() {
         </button>
       </div>
 
-      <div className="onboarding-guide-content" style={{ backgroundColor }}>
-        <figure className="onboarding-guide-figure" style={{ backgroundColor }}>
-          <img src={imagePath} alt="" aria-hidden="true" className="onboarding-guide-image" draggable={false} />
+      <div className="onboarding-guide-content" style={backgroundStyle}>
+        <figure className="onboarding-guide-figure" style={backgroundStyle}>
+          {imagePath ? (
+            <img src={imagePath} alt="" aria-hidden="true" className="onboarding-guide-image" draggable={false} />
+          ) : (
+            <span className="onboarding-guide-image-placeholder" aria-hidden="true" />
+          )}
           <figcaption>{t(slide.illustrationCaptionKey)}</figcaption>
         </figure>
 
@@ -182,7 +205,7 @@ export function OnboardingGuideClient() {
         </div>
       ) : null}
 
-      <footer className="onboarding-guide-actions" style={{ backgroundColor }}>
+      <footer className="onboarding-guide-actions" style={backgroundStyle}>
         <button type="button" className="onboarding-guide-secondary" disabled={currentIndex === 0} onClick={goBack}>
           {t('onboarding.actions.back')}
         </button>
