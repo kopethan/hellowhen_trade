@@ -4525,6 +4525,78 @@ html[data-theme="dark"] .onboarding-guide-primary {
   }
 }
 
+
+/* CHAIN4: web Need/Offer structured availability + duration pickers */
+.inventory-chain-field-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.inventory-preset-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.inventory-preset-field legend {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  color: var(--app-text);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.inventory-preset-field legend small {
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.inventory-preset-field__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inventory-preset-field__option {
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 84%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-bg-muted) 74%, transparent);
+  color: var(--app-text-muted);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.inventory-preset-field__option:hover,
+.inventory-preset-field__option:focus-visible {
+  border-color: color-mix(in srgb, var(--proposal-border) 54%, var(--app-border));
+  color: var(--app-text);
+}
+
+.inventory-preset-field__option--selected {
+  border-color: color-mix(in srgb, var(--proposal-border) 66%, var(--app-border));
+  background: color-mix(in srgb, var(--proposal-bg) 24%, var(--app-surface));
+  color: var(--proposal-text);
+}
+
+@media (min-width: 620px) {
+  .inventory-chain-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* WIZARD30: web Need/Offer images + save step polish */
 .inventory-final-step {
   display: grid;

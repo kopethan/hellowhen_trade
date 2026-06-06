@@ -161,7 +161,7 @@ function canMutateBusinessTemplateProfile(profile: any) {
   return !['disabled', 'rejected', 'restricted'].includes(profile.status);
 }
 
-function normalizeTemplateNullable<T extends string | null | undefined>(value: T) {
+function normalizeTemplateNullable<T>(value: T | undefined) {
   return value === undefined ? undefined : value;
 }
 
@@ -177,6 +177,11 @@ function buildBusinessNeedUpdateData(input: ReturnType<typeof businessUpdateNeed
     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
     ...(input.category !== undefined ? { category: input.category } : {}),
     ...(input.timing !== undefined ? { timing: input.timing } : {}),
+    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
+    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
+    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
+    ...(input.estimatedDurationPreset !== undefined ? { estimatedDurationPreset: input.estimatedDurationPreset } : {}),
+    ...(input.estimatedDurationMinutes !== undefined ? { estimatedDurationMinutes: input.estimatedDurationMinutes } : {}),
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
     ...(input.tags !== undefined ? { tags: cleanList(input.tags) ?? [] } : {}),
@@ -195,6 +200,11 @@ function buildBusinessOfferUpdateData(input: ReturnType<typeof businessUpdateOff
     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
     ...(input.category !== undefined ? { category: input.category } : {}),
     ...(input.availability !== undefined ? { availability: input.availability } : {}),
+    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
+    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
+    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
+    ...(input.typicalDurationPreset !== undefined ? { typicalDurationPreset: input.typicalDurationPreset } : {}),
+    ...(input.typicalDurationMinutes !== undefined ? { typicalDurationMinutes: input.typicalDurationMinutes } : {}),
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
     ...(input.includes !== undefined ? { includes: cleanList(input.includes) ?? [] } : {}),
@@ -260,19 +270,19 @@ async function loadBusinessSponsoredPlacementTarget(businessProfileId: string, t
   if (targetType === 'need') {
     return prisma.need.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'offer') {
     return prisma.offer.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'inventory_template') {
     return prisma.inventoryTemplate.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   return null;
@@ -319,19 +329,19 @@ async function loadBusinessCampaignTarget(businessProfileId: string, targetType:
   if (targetType === 'need') {
     return prisma.need.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'offer') {
     return prisma.offer.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'inventory_template') {
     return prisma.inventoryTemplate.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   return null;
@@ -1075,6 +1085,11 @@ businessRoutes.post('/:businessProfileId/needs', asyncRoute(async (req, res) => 
         itemType: input.itemType ?? 'service',
         category: input.category ?? null,
         timing: input.timing ?? null,
+        availabilityPreset: input.availabilityPreset ?? null,
+        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+        estimatedDurationPreset: input.estimatedDurationPreset ?? null,
+        estimatedDurationMinutes: input.estimatedDurationMinutes ?? null,
         mode: input.mode ?? null,
         locationLabel: input.locationLabel ?? null,
         tags: input.tags ?? [],
@@ -1204,6 +1219,11 @@ businessRoutes.post('/:businessProfileId/offers', asyncRoute(async (req, res) =>
         itemType: input.itemType ?? 'service',
         category: input.category ?? null,
         availability: input.availability ?? null,
+        availabilityPreset: input.availabilityPreset ?? null,
+        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+        typicalDurationPreset: input.typicalDurationPreset ?? null,
+        typicalDurationMinutes: input.typicalDurationMinutes ?? null,
         mode: input.mode ?? null,
         locationLabel: input.locationLabel ?? null,
         includes: input.includes ?? [],
@@ -1896,6 +1916,11 @@ businessRoutes.post('/:businessProfileId/templates', asyncRoute(async (req, res)
         category: input.category ?? null,
         timing: input.kind === 'need' ? input.timing ?? null : null,
         availability: input.kind === 'offer' ? input.availability ?? null : null,
+        availabilityPreset: input.availabilityPreset ?? null,
+        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+        durationPreset: input.durationPreset ?? null,
+        durationMinutes: input.durationMinutes ?? null,
         mode: input.mode ?? null,
         locationLabel: input.locationLabel ?? null,
         tags: input.tags,
@@ -1954,6 +1979,11 @@ businessRoutes.patch('/:businessProfileId/templates/:templateId', asyncRoute(asy
         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
         timing: existing.kind === 'need' ? normalizeTemplateNullable(input.timing) : null,
         availability: existing.kind === 'offer' ? normalizeTemplateNullable(input.availability) : null,
+        availabilityPreset: normalizeTemplateNullable(input.availabilityPreset),
+        availabilityStartAt: input.availabilityStartAt === undefined ? undefined : input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+        availabilityEndAt: input.availabilityEndAt === undefined ? undefined : input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+        durationPreset: normalizeTemplateNullable(input.durationPreset),
+        durationMinutes: normalizeTemplateNullable(input.durationMinutes),
         status: (existing.status === 'active' ? 'pending_review' : existing.status) as any,
       },
       include: businessTemplateInclude,

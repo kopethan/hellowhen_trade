@@ -183,6 +183,11 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
         itemType: template.itemType,
         category: template.category,
         timing: template.timing,
+        availabilityPreset: template.availabilityPreset,
+        availabilityStartAt: template.availabilityStartAt,
+        availabilityEndAt: template.availabilityEndAt,
+        estimatedDurationPreset: template.durationPreset,
+        estimatedDurationMinutes: template.durationMinutes,
         mode: template.mode,
         locationLabel: template.locationLabel,
         tags: template.tags,
@@ -197,7 +202,7 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
       description: need.description,
       userCategory: need.category,
       tags: need.tags,
-      extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
+      extraText: [need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, need.itemType],
     });
     return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), need: await withOneMedia('need', need) });
   }
@@ -211,6 +216,11 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
       itemType: template.itemType,
       category: template.category,
       availability: template.availability,
+      availabilityPreset: template.availabilityPreset,
+      availabilityStartAt: template.availabilityStartAt,
+      availabilityEndAt: template.availabilityEndAt,
+      typicalDurationPreset: template.durationPreset,
+      typicalDurationMinutes: template.durationMinutes,
       mode: template.mode,
       locationLabel: template.locationLabel,
       includes: template.includes,
@@ -226,7 +236,7 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
     description: offer.description,
     userCategory: offer.category,
     tags: offer.tags,
-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+    extraText: [offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
   });
   return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), offer: await withOneMedia('offer', offer) });
 }));

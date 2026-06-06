@@ -53,6 +53,11 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
     ...(input.category !== undefined ? { category: input.category } : {}),
     ...(input.timing !== undefined ? { timing: input.timing } : {}),
+    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
+    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
+    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
+    ...(input.estimatedDurationPreset !== undefined ? { estimatedDurationPreset: input.estimatedDurationPreset } : {}),
+    ...(input.estimatedDurationMinutes !== undefined ? { estimatedDurationMinutes: input.estimatedDurationMinutes } : {}),
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
     ...(input.tags !== undefined ? { tags: cleanList(input.tags) ?? [] } : {})
@@ -104,6 +109,11 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       itemType: input.itemType ?? 'service',
       category: input.category ?? null,
       timing: input.timing ?? null,
+      availabilityPreset: input.availabilityPreset ?? null,
+      availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+      availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+      estimatedDurationPreset: input.estimatedDurationPreset ?? null,
+      estimatedDurationMinutes: input.estimatedDurationMinutes ?? null,
       mode: input.mode ?? null,
       locationLabel: input.locationLabel ?? null,
       tags: input.tags ?? [],
@@ -124,7 +134,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     description: need.description,
     userCategory: need.category,
     tags: need.tags,
-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
+    extraText: [need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && need.status === 'active') {
@@ -161,7 +171,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res) 
     description: need.description,
     userCategory: need.category,
     tags: need.tags,
-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
+    extraText: [need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && need.status === 'active') {

@@ -23,6 +23,8 @@ export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
 export const discoveryLanguageSchema = z.enum(['en', 'fr']);
 export const previewCardThemeSchema = z.enum(['default', 'blue', 'green', 'purple', 'amber', 'rose']);
 export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
+export const inventoryAvailabilityPresetSchema = z.enum(['today', 'this_week', 'this_month', 'flexible', 'custom']);
+export const inventoryDurationPresetSchema = z.enum(['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure', 'depends']);
 export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
 export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
 export const inventoryTemplateStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']);
@@ -38,23 +40,38 @@ export {
 } from './inventoryLimits.js';
 
 const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
+const availabilityWindowInputSchema = z.object({
+  availabilityPreset: inventoryAvailabilityPresetSchema.optional(),
+  availabilityStartAt: z.string().datetime().optional(),
+  availabilityEndAt: z.string().datetime().optional(),
+});
+const availabilityWindowUpdateSchema = z.object({
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().datetime().nullable().optional(),
+  availabilityEndAt: z.string().datetime().nullable().optional(),
+});
+const inventoryDurationMinutesSchema = z.number().int().min(1).max(43200);
 const needMetadataSchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().trim().min(1).max(80).optional(),
   timing: z.string().trim().min(1).max(80).optional(),
+  estimatedDurationPreset: inventoryDurationPresetSchema.optional(),
+  estimatedDurationMinutes: inventoryDurationMinutesSchema.optional(),
   mode: tradeExchangeModeSchema.optional(),
   locationLabel: z.string().trim().min(1).max(120).optional(),
   tags: tradeTagsSchema
-});
+}).merge(availabilityWindowInputSchema);
 const offerMetadataSchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().trim().min(1).max(80).optional(),
   availability: z.string().trim().min(1).max(80).optional(),
+  typicalDurationPreset: inventoryDurationPresetSchema.optional(),
+  typicalDurationMinutes: inventoryDurationMinutesSchema.optional(),
   mode: tradeExchangeModeSchema.optional(),
   locationLabel: z.string().trim().min(1).max(120).optional(),
   includes: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
   tags: tradeTagsSchema
-});
+}).merge(availabilityWindowInputSchema);
 
 const inventoryTranslationInputSchema = z.object({
   languageCode: discoveryLanguageSchema,
@@ -205,6 +222,10 @@ const inventoryUpdateBaseSchema = z.object({
   category: z.string().trim().min(1).max(80).nullable().optional(),
   timing: z.string().trim().min(1).max(80).nullable().optional(),
   availability: z.string().trim().min(1).max(80).nullable().optional(),
+  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  estimatedDurationMinutes: inventoryDurationMinutesSchema.nullable().optional(),
+  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  typicalDurationMinutes: inventoryDurationMinutesSchema.nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().trim().min(1).max(120).nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
@@ -212,7 +233,7 @@ const inventoryUpdateBaseSchema = z.object({
   mediaIds: z.array(z.string()).max(5).optional(),
   coverMediaId: z.string().min(1).nullable().optional(),
   previewTheme: previewCardThemeSchema.optional(),
-});
+}).merge(availabilityWindowUpdateSchema);
 
 export const updateNeedRequestSchema = inventoryUpdateBaseSchema.extend({ status: needStatusSchema.optional() });
 export const updateOfferRequestSchema = inventoryUpdateBaseSchema.extend({ status: offerStatusSchema.optional() });
@@ -322,6 +343,11 @@ export const needSchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  estimatedDurationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
@@ -345,6 +371,11 @@ export const offerSchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  typicalDurationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   includes: z.array(z.string()).optional(),
@@ -396,6 +427,13 @@ export const acceptedDealSnapshotItemSchema = z.object({
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  estimatedDurationMinutes: z.number().int().nullable().optional(),
+  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  typicalDurationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   includes: z.array(z.string()).optional(),
@@ -450,6 +488,11 @@ export const inventoryTemplateSchema = z.object({
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  durationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  durationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
@@ -605,6 +648,8 @@ export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
 export type PreviewCardTheme = z.infer<typeof previewCardThemeSchema>;
 export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;
 export type InventoryItemType = z.infer<typeof inventoryItemTypeSchema>;
+export type InventoryAvailabilityPreset = z.infer<typeof inventoryAvailabilityPresetSchema>;
+export type InventoryDurationPreset = z.infer<typeof inventoryDurationPresetSchema>;
 export type InventoryTemplateKind = z.infer<typeof inventoryTemplateKindSchema>;
 export type InventoryTemplateSourceType = z.infer<typeof inventoryTemplateSourceTypeSchema>;
 export type InventoryTemplateStatus = z.infer<typeof inventoryTemplateStatusSchema>;

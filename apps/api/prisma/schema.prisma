@@ -122,6 +122,26 @@ enum InventoryItemType {
   other
 }
 
+enum InventoryAvailabilityPreset {
+  today
+  this_week
+  this_month
+  flexible
+  custom
+}
+
+enum InventoryDurationPreset {
+  min_15
+  min_30
+  hour_1
+  hour_2
+  half_day
+  day_1
+  flexible
+  not_sure
+  depends
+}
+
 enum InventoryTemplateKind {
   need
   offer
@@ -1144,6 +1164,11 @@ model Need {
   itemType      InventoryItemType @default(service)
   category      String?
   timing        String?
+  availabilityPreset InventoryAvailabilityPreset?
+  availabilityStartAt DateTime?
+  availabilityEndAt DateTime?
+  estimatedDurationPreset InventoryDurationPreset?
+  estimatedDurationMinutes Int?
   mode          TradeExchangeMode?
   locationLabel String?
   tags          String[]           @default([])
@@ -1166,6 +1191,8 @@ model Need {
   @@index([category])
   @@index([itemType])
   @@index([mode])
+  @@index([availabilityPreset])
+  @@index([estimatedDurationPreset])
 }
 
 model Offer {
@@ -1179,6 +1206,11 @@ model Offer {
   itemType      InventoryItemType @default(service)
   category      String?
   availability  String?
+  availabilityPreset InventoryAvailabilityPreset?
+  availabilityStartAt DateTime?
+  availabilityEndAt DateTime?
+  typicalDurationPreset InventoryDurationPreset?
+  typicalDurationMinutes Int?
   mode          TradeExchangeMode?
   locationLabel String?
   includes      String[]           @default([])
@@ -1202,6 +1234,8 @@ model Offer {
   @@index([category])
   @@index([itemType])
   @@index([mode])
+  @@index([availabilityPreset])
+  @@index([typicalDurationPreset])
 }
 
 
@@ -1238,6 +1272,11 @@ model InventoryTemplate {
   category          String?
   timing            String?
   availability      String?
+  availabilityPreset InventoryAvailabilityPreset?
+  availabilityStartAt DateTime?
+  availabilityEndAt DateTime?
+  durationPreset    InventoryDurationPreset?
+  durationMinutes   Int?
   mode              TradeExchangeMode?
   locationLabel     String?
   tags              String[]                    @default([])
@@ -1257,6 +1296,8 @@ model InventoryTemplate {
   @@index([languageCode, status, sortOrder])
   @@index([countryCode, status])
   @@index([category])
+  @@index([availabilityPreset])
+  @@index([durationPreset])
 }
 
 

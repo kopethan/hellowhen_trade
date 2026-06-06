@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { mediaAssetSchema } from './media.js';
 import { publicProfileTradeSummarySchema, publicVerificationBadgeSchema } from './users.js';
-import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
+import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryAvailabilityPresetSchema, inventoryDurationPresetSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
 
 export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
 export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
@@ -47,6 +47,15 @@ export const publicBusinessInventoryItemSchema = z.object({
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  estimatedDurationMinutes: z.number().int().nullable().optional(),
+  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  typicalDurationMinutes: z.number().int().nullable().optional(),
+  durationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  durationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
@@ -139,6 +148,11 @@ const businessInventoryTemplateBaseSchema = z.object({
   category: z.string().trim().min(1).max(80).optional().nullable(),
   timing: z.string().trim().min(1).max(80).optional().nullable(),
   availability: z.string().trim().min(1).max(80).optional().nullable(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.optional().nullable(),
+  availabilityStartAt: z.string().datetime().optional().nullable(),
+  availabilityEndAt: z.string().datetime().optional().nullable(),
+  durationPreset: inventoryDurationPresetSchema.optional().nullable(),
+  durationMinutes: z.number().int().min(1).max(43200).optional().nullable(),
   mode: tradeExchangeModeSchema.optional().nullable(),
   locationLabel: z.string().trim().min(1).max(120).optional().nullable(),
   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),

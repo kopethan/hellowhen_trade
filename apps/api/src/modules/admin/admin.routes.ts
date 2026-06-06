@@ -80,10 +80,10 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
   const planPlaceIds = media.filter((item) => item.entityType === 'plan_place' && item.entityId).map((item) => item.entityId!);
 
   const [needs, offers, trades, inventoryTemplates, profiles, supportTickets, supportMessages, plans, planPlaces] = await Promise.all([
-    needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, mode: true, locationLabel: true } }) : [],
-    offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, mode: true, locationLabel: true } }) : [],
+    needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, availabilityPreset: true, estimatedDurationPreset: true, mode: true, locationLabel: true } }) : [],
+    offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, availabilityPreset: true, typicalDurationPreset: true, mode: true, locationLabel: true } }) : [],
     tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : [],
-    inventoryTemplateIds.length ? prisma.inventoryTemplate.findMany({ where: { id: { in: inventoryTemplateIds } }, select: { id: true, key: true, kind: true, title: true, status: true, itemType: true, category: true, languageCode: true, countryCode: true } }) : [],
+    inventoryTemplateIds.length ? prisma.inventoryTemplate.findMany({ where: { id: { in: inventoryTemplateIds } }, select: { id: true, key: true, kind: true, title: true, status: true, itemType: true, category: true, languageCode: true, countryCode: true, availabilityPreset: true, durationPreset: true } }) : [],
     profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, userId: true, displayName: true, handle: true, avatarUrl: true, avatarMediaId: true } }) : [],
     supportTicketIds.length ? prisma.supportTicket.findMany({ where: { id: { in: supportTicketIds } }, select: { id: true, userId: true, subject: true, status: true, priority: true, category: true } }) : [],
     supportMessageIds.length ? prisma.supportTicketMessage.findMany({ where: { id: { in: supportMessageIds } }, select: { id: true, ticketId: true, senderId: true, senderRole: true, body: true, createdAt: true } }) : [],
@@ -487,6 +487,11 @@ const adminLibraryTemplateBaseSchema = z.object({
   category: z.string().trim().min(1).max(80).nullable().optional(),
   timing: z.string().trim().min(1).max(80).nullable().optional(),
   availability: z.string().trim().min(1).max(80).nullable().optional(),
+  availabilityPreset: z.enum(['today', 'this_week', 'this_month', 'flexible', 'custom']).nullable().optional(),
+  availabilityStartAt: z.string().datetime().nullable().optional(),
+  availabilityEndAt: z.string().datetime().nullable().optional(),
+  durationPreset: z.enum(['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure', 'depends']).nullable().optional(),
+  durationMinutes: z.number().int().min(1).max(43200).nullable().optional(),
   mode: z.enum(['remote', 'local', 'hybrid']).nullable().optional(),
   locationLabel: z.string().trim().min(1).max(120).nullable().optional(),
   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
@@ -576,7 +581,7 @@ function makeAdminTemplateKey(kind: 'need' | 'offer', title: string) {
   return `admin-${kind}-${slugifyTemplateTitle(title)}-${randomUUID().slice(0, 8)}`;
 }
 
-function normalizeTemplateNullable<T extends string | null | undefined>(value: T) {
+function normalizeTemplateNullable<T>(value: T | undefined) {
   return value === undefined ? undefined : value;
 }
 
@@ -624,6 +629,11 @@ adminRoutes.post('/library', asyncRoute(async (req, res) => {
         category: input.category ?? null,
         timing: input.kind === 'need' ? input.timing ?? null : null,
         availability: input.kind === 'offer' ? input.availability ?? null : null,
+        availabilityPreset: input.availabilityPreset ?? null,
+        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+        durationPreset: input.durationPreset ?? null,
+        durationMinutes: input.durationMinutes ?? null,
         mode: input.mode ?? null,
         locationLabel: input.locationLabel ?? null,
         tags: input.tags,
@@ -663,6 +673,11 @@ adminRoutes.patch('/library/:templateId', asyncRoute(async (req, res) => {
         category: normalizeTemplateNullable(input.category),
         timing: existing.kind === 'need' ? normalizeTemplateNullable(input.timing) : null,
         availability: existing.kind === 'offer' ? normalizeTemplateNullable(input.availability) : null,
+        availabilityPreset: normalizeTemplateNullable(input.availabilityPreset),
+        availabilityStartAt: input.availabilityStartAt === undefined ? undefined : input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+        availabilityEndAt: input.availabilityEndAt === undefined ? undefined : input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+        durationPreset: normalizeTemplateNullable(input.durationPreset),
+        durationMinutes: normalizeTemplateNullable(input.durationMinutes),
         mode: normalizeTemplateNullable(input.mode),
         locationLabel: normalizeTemplateNullable(input.locationLabel),
         tags: input.tags,
@@ -3436,19 +3451,19 @@ async function loadAdminBusinessSponsoredTarget(businessProfileId: string, targe
   if (targetType === 'need') {
     return prisma.need.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'offer') {
     return prisma.offer.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'inventory_template') {
     return prisma.inventoryTemplate.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   return null;
@@ -3578,19 +3593,19 @@ async function loadAdminBusinessCampaignTarget(businessProfileId: string, target
   if (targetType === 'need') {
     return prisma.need.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'offer') {
     return prisma.offer.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   if (targetType === 'inventory_template') {
     return prisma.inventoryTemplate.findFirst({
       where: { id: targetId, businessProfileId, status: 'active' },
-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
     });
   }
   return null;

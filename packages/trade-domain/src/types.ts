@@ -1,6 +1,8 @@
 import type { NeedStatus, OfferStatus, ProposalStatus, TradeStatus, TradeExchangeMode } from './statuses';
 
 export type TradeVisibility = 'public' | 'owner_private';
+export type InventoryAvailabilityPreset = 'today' | 'this_week' | 'this_month' | 'flexible' | 'custom';
+export type InventoryDurationPreset = 'min_15' | 'min_30' | 'hour_1' | 'hour_2' | 'half_day' | 'day_1' | 'flexible' | 'not_sure' | 'depends';
 
 export type Need = {
   id: string;
@@ -9,6 +11,11 @@ export type Need = {
   description: string;
   category?: string | null;
   timing?: string | null;
+  availabilityPreset?: InventoryAvailabilityPreset | null;
+  availabilityStartAt?: string | null;
+  availabilityEndAt?: string | null;
+  estimatedDurationPreset?: InventoryDurationPreset | null;
+  estimatedDurationMinutes?: number | null;
   mode?: TradeExchangeMode | null;
   locationLabel?: string | null;
   tags?: string[];
@@ -24,6 +31,11 @@ export type Offer = {
   description: string;
   category?: string | null;
   availability?: string | null;
+  availabilityPreset?: InventoryAvailabilityPreset | null;
+  availabilityStartAt?: string | null;
+  availabilityEndAt?: string | null;
+  typicalDurationPreset?: InventoryDurationPreset | null;
+  typicalDurationMinutes?: number | null;
   mode?: TradeExchangeMode | null;
   locationLabel?: string | null;
   includes?: string[];

@@ -235,6 +235,8 @@ type FeedRankableTrade = {
     description?: string | null;
     category?: string | null;
     timing?: string | null;
+    availabilityPreset?: string | null;
+    estimatedDurationPreset?: string | null;
     mode?: string | null;
     locationLabel?: string | null;
     tags?: string[] | null;
@@ -245,6 +247,8 @@ type FeedRankableTrade = {
     description?: string | null;
     category?: string | null;
     availability?: string | null;
+    availabilityPreset?: string | null;
+    typicalDurationPreset?: string | null;
     mode?: string | null;
     locationLabel?: string | null;
     includes?: string[] | null;
@@ -390,8 +394,8 @@ function getSearchRelevanceScore(trade: FeedRankableTrade, query?: string) {
 
 function getCompletenessScore(trade: FeedRankableTrade) {
   const mediaCount = (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0);
-  const hasNeedMetadata = Boolean(trade.need?.category || trade.need?.mode || trade.need?.locationLabel || trade.need?.timing || (trade.need?.tags?.length ?? 0) > 0);
-  const hasOfferMetadata = Boolean(trade.offer?.category || trade.offer?.mode || trade.offer?.locationLabel || trade.offer?.availability || (trade.offer?.tags?.length ?? 0) > 0 || (trade.offer?.includes?.length ?? 0) > 0);
+  const hasNeedMetadata = Boolean(trade.need?.category || trade.need?.mode || trade.need?.locationLabel || trade.need?.timing || trade.need?.availabilityPreset || trade.need?.estimatedDurationPreset || (trade.need?.tags?.length ?? 0) > 0);
+  const hasOfferMetadata = Boolean(trade.offer?.category || trade.offer?.mode || trade.offer?.locationLabel || trade.offer?.availability || trade.offer?.availabilityPreset || trade.offer?.typicalDurationPreset || (trade.offer?.tags?.length ?? 0) > 0 || (trade.offer?.includes?.length ?? 0) > 0);
   let score = 0;
   if (mediaCount > 0) score += 8;
   if (mediaCount > 1) score += 3;
@@ -983,11 +987,15 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
       need?.title,
       need?.description,
       need?.timing,
+      need?.availabilityPreset,
+      need?.estimatedDurationPreset,
       need?.mode,
       need?.locationLabel,
       offer?.title,
       offer?.description,
       offer?.availability,
+      offer?.availabilityPreset,
+      offer?.typicalDurationPreset,
       offer?.mode,
       offer?.locationLabel,
       ...(offer?.includes ?? []),

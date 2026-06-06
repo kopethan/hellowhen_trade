@@ -1,0 +1,852 @@
+diff --git a/apps/api/prisma/migrations/20260606190000_chain_availability_duration/migration.sql b/apps/api/prisma/migrations/20260606190000_chain_availability_duration/migration.sql
+new file mode 100644
+index 0000000..c92158a
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260606190000_chain_availability_duration/migration.sql
+@@ -0,0 +1,36 @@
++-- CHAIN2: structured Need/Offer availability and duration fields for future Trade Chain matching.
++-- Existing timing/availability text fields stay as human-facing display fallbacks.
++CREATE TYPE "InventoryAvailabilityPreset" AS ENUM ('today', 'this_week', 'this_month', 'flexible', 'custom');
++CREATE TYPE "InventoryDurationPreset" AS ENUM ('min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure', 'depends');
++
++ALTER TABLE "Need"
++  ADD COLUMN "availabilityPreset" "InventoryAvailabilityPreset",
++  ADD COLUMN "availabilityStartAt" TIMESTAMP(3),
++  ADD COLUMN "availabilityEndAt" TIMESTAMP(3),
++  ADD COLUMN "estimatedDurationPreset" "InventoryDurationPreset",
++  ADD COLUMN "estimatedDurationMinutes" INTEGER;
++
++ALTER TABLE "Offer"
++  ADD COLUMN "availabilityPreset" "InventoryAvailabilityPreset",
++  ADD COLUMN "availabilityStartAt" TIMESTAMP(3),
++  ADD COLUMN "availabilityEndAt" TIMESTAMP(3),
++  ADD COLUMN "typicalDurationPreset" "InventoryDurationPreset",
++  ADD COLUMN "typicalDurationMinutes" INTEGER;
++
++ALTER TABLE "InventoryTemplate"
++  ADD COLUMN "availabilityPreset" "InventoryAvailabilityPreset",
++  ADD COLUMN "availabilityStartAt" TIMESTAMP(3),
++  ADD COLUMN "availabilityEndAt" TIMESTAMP(3),
++  ADD COLUMN "durationPreset" "InventoryDurationPreset",
++  ADD COLUMN "durationMinutes" INTEGER;
++
++CREATE INDEX "Need_availabilityPreset_idx" ON "Need"("availabilityPreset");
++CREATE INDEX "Need_estimatedDurationPreset_idx" ON "Need"("estimatedDurationPreset");
++CREATE INDEX "Offer_availabilityPreset_idx" ON "Offer"("availabilityPreset");
++CREATE INDEX "Offer_typicalDurationPreset_idx" ON "Offer"("typicalDurationPreset");
++CREATE INDEX "InventoryTemplate_availabilityPreset_idx" ON "InventoryTemplate"("availabilityPreset");
++CREATE INDEX "InventoryTemplate_durationPreset_idx" ON "InventoryTemplate"("durationPreset");
++
++ALTER TABLE "Need" ADD CONSTRAINT "Need_estimatedDurationMinutes_positive_check" CHECK ("estimatedDurationMinutes" IS NULL OR "estimatedDurationMinutes" > 0);
++ALTER TABLE "Offer" ADD CONSTRAINT "Offer_typicalDurationMinutes_positive_check" CHECK ("typicalDurationMinutes" IS NULL OR "typicalDurationMinutes" > 0);
++ALTER TABLE "InventoryTemplate" ADD CONSTRAINT "InventoryTemplate_durationMinutes_positive_check" CHECK ("durationMinutes" IS NULL OR "durationMinutes" > 0);
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index e8aebce..49c7ba1 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -122,6 +122,26 @@ enum InventoryItemType {
+   other
+ }
+ 
++enum InventoryAvailabilityPreset {
++  today
++  this_week
++  this_month
++  flexible
++  custom
++}
++
++enum InventoryDurationPreset {
++  min_15
++  min_30
++  hour_1
++  hour_2
++  half_day
++  day_1
++  flexible
++  not_sure
++  depends
++}
++
+ enum InventoryTemplateKind {
+   need
+   offer
+@@ -1144,6 +1164,11 @@ model Need {
+   itemType      InventoryItemType @default(service)
+   category      String?
+   timing        String?
++  availabilityPreset InventoryAvailabilityPreset?
++  availabilityStartAt DateTime?
++  availabilityEndAt DateTime?
++  estimatedDurationPreset InventoryDurationPreset?
++  estimatedDurationMinutes Int?
+   mode          TradeExchangeMode?
+   locationLabel String?
+   tags          String[]           @default([])
+@@ -1166,6 +1191,8 @@ model Need {
+   @@index([category])
+   @@index([itemType])
+   @@index([mode])
++  @@index([availabilityPreset])
++  @@index([estimatedDurationPreset])
+ }
+ 
+ model Offer {
+@@ -1179,6 +1206,11 @@ model Offer {
+   itemType      InventoryItemType @default(service)
+   category      String?
+   availability  String?
++  availabilityPreset InventoryAvailabilityPreset?
++  availabilityStartAt DateTime?
++  availabilityEndAt DateTime?
++  typicalDurationPreset InventoryDurationPreset?
++  typicalDurationMinutes Int?
+   mode          TradeExchangeMode?
+   locationLabel String?
+   includes      String[]           @default([])
+@@ -1202,6 +1234,8 @@ model Offer {
+   @@index([category])
+   @@index([itemType])
+   @@index([mode])
++  @@index([availabilityPreset])
++  @@index([typicalDurationPreset])
+ }
+ 
+ 
+@@ -1238,6 +1272,11 @@ model InventoryTemplate {
+   category          String?
+   timing            String?
+   availability      String?
++  availabilityPreset InventoryAvailabilityPreset?
++  availabilityStartAt DateTime?
++  availabilityEndAt DateTime?
++  durationPreset    InventoryDurationPreset?
++  durationMinutes   Int?
+   mode              TradeExchangeMode?
+   locationLabel     String?
+   tags              String[]                    @default([])
+@@ -1257,6 +1296,8 @@ model InventoryTemplate {
+   @@index([languageCode, status, sortOrder])
+   @@index([countryCode, status])
+   @@index([category])
++  @@index([availabilityPreset])
++  @@index([durationPreset])
+ }
+ 
+ 
+diff --git a/apps/api/src/modules/admin/admin.routes.ts b/apps/api/src/modules/admin/admin.routes.ts
+index 6cfa69f..c11a2bc 100644
+--- a/apps/api/src/modules/admin/admin.routes.ts
++++ b/apps/api/src/modules/admin/admin.routes.ts
+@@ -80,10 +80,10 @@ async function withMediaEntityContext<T extends { entityType: 'need' | 'offer' |
+   const planPlaceIds = media.filter((item) => item.entityType === 'plan_place' && item.entityId).map((item) => item.entityId!);
+ 
+   const [needs, offers, trades, inventoryTemplates, profiles, supportTickets, supportMessages, plans, planPlaces] = await Promise.all([
+-    needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, mode: true, locationLabel: true } }) : [],
+-    offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, mode: true, locationLabel: true } }) : [],
++    needIds.length ? prisma.need.findMany({ where: { id: { in: needIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, timing: true, availabilityPreset: true, estimatedDurationPreset: true, mode: true, locationLabel: true } }) : [],
++    offerIds.length ? prisma.offer.findMany({ where: { id: { in: offerIds } }, select: { id: true, ownerId: true, title: true, status: true, category: true, availability: true, availabilityPreset: true, typicalDurationPreset: true, mode: true, locationLabel: true } }) : [],
+     tradeIds.length ? prisma.trade.findMany({ where: { id: { in: tradeIds } }, select: { id: true, ownerId: true, title: true, status: true, needId: true, offerId: true, creditAmount: true } }) : [],
+-    inventoryTemplateIds.length ? prisma.inventoryTemplate.findMany({ where: { id: { in: inventoryTemplateIds } }, select: { id: true, key: true, kind: true, title: true, status: true, itemType: true, category: true, languageCode: true, countryCode: true } }) : [],
++    inventoryTemplateIds.length ? prisma.inventoryTemplate.findMany({ where: { id: { in: inventoryTemplateIds } }, select: { id: true, key: true, kind: true, title: true, status: true, itemType: true, category: true, languageCode: true, countryCode: true, availabilityPreset: true, durationPreset: true } }) : [],
+     profileIds.length ? prisma.profile.findMany({ where: { id: { in: profileIds } }, select: { id: true, userId: true, displayName: true, handle: true, avatarUrl: true, avatarMediaId: true } }) : [],
+     supportTicketIds.length ? prisma.supportTicket.findMany({ where: { id: { in: supportTicketIds } }, select: { id: true, userId: true, subject: true, status: true, priority: true, category: true } }) : [],
+     supportMessageIds.length ? prisma.supportTicketMessage.findMany({ where: { id: { in: supportMessageIds } }, select: { id: true, ticketId: true, senderId: true, senderRole: true, body: true, createdAt: true } }) : [],
+@@ -487,6 +487,11 @@ const adminLibraryTemplateBaseSchema = z.object({
+   category: z.string().trim().min(1).max(80).nullable().optional(),
+   timing: z.string().trim().min(1).max(80).nullable().optional(),
+   availability: z.string().trim().min(1).max(80).nullable().optional(),
++  availabilityPreset: z.enum(['today', 'this_week', 'this_month', 'flexible', 'custom']).nullable().optional(),
++  availabilityStartAt: z.string().datetime().nullable().optional(),
++  availabilityEndAt: z.string().datetime().nullable().optional(),
++  durationPreset: z.enum(['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure', 'depends']).nullable().optional(),
++  durationMinutes: z.number().int().min(1).max(43200).nullable().optional(),
+   mode: z.enum(['remote', 'local', 'hybrid']).nullable().optional(),
+   locationLabel: z.string().trim().min(1).max(120).nullable().optional(),
+   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
+@@ -576,7 +581,7 @@ function makeAdminTemplateKey(kind: 'need' | 'offer', title: string) {
+   return `admin-${kind}-${slugifyTemplateTitle(title)}-${randomUUID().slice(0, 8)}`;
+ }
+ 
+-function normalizeTemplateNullable<T extends string | null | undefined>(value: T) {
++function normalizeTemplateNullable<T>(value: T | undefined) {
+   return value === undefined ? undefined : value;
+ }
+ 
+@@ -624,6 +629,11 @@ adminRoutes.post('/library', asyncRoute(async (req, res) => {
+         category: input.category ?? null,
+         timing: input.kind === 'need' ? input.timing ?? null : null,
+         availability: input.kind === 'offer' ? input.availability ?? null : null,
++        availabilityPreset: input.availabilityPreset ?? null,
++        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++        durationPreset: input.durationPreset ?? null,
++        durationMinutes: input.durationMinutes ?? null,
+         mode: input.mode ?? null,
+         locationLabel: input.locationLabel ?? null,
+         tags: input.tags,
+@@ -663,6 +673,11 @@ adminRoutes.patch('/library/:templateId', asyncRoute(async (req, res) => {
+         category: normalizeTemplateNullable(input.category),
+         timing: existing.kind === 'need' ? normalizeTemplateNullable(input.timing) : null,
+         availability: existing.kind === 'offer' ? normalizeTemplateNullable(input.availability) : null,
++        availabilityPreset: normalizeTemplateNullable(input.availabilityPreset),
++        availabilityStartAt: input.availabilityStartAt === undefined ? undefined : input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++        availabilityEndAt: input.availabilityEndAt === undefined ? undefined : input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++        durationPreset: normalizeTemplateNullable(input.durationPreset),
++        durationMinutes: normalizeTemplateNullable(input.durationMinutes),
+         mode: normalizeTemplateNullable(input.mode),
+         locationLabel: normalizeTemplateNullable(input.locationLabel),
+         tags: input.tags,
+@@ -3436,19 +3451,19 @@ async function loadAdminBusinessSponsoredTarget(businessProfileId: string, targe
+   if (targetType === 'need') {
+     return prisma.need.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'offer') {
+     return prisma.offer.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'inventory_template') {
+     return prisma.inventoryTemplate.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   return null;
+@@ -3578,19 +3593,19 @@ async function loadAdminBusinessCampaignTarget(businessProfileId: string, target
+   if (targetType === 'need') {
+     return prisma.need.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'offer') {
+     return prisma.offer.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'inventory_template') {
+     return prisma.inventoryTemplate.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   return null;
+diff --git a/apps/api/src/modules/business/business.routes.ts b/apps/api/src/modules/business/business.routes.ts
+index 0163f58..9316aef 100644
+--- a/apps/api/src/modules/business/business.routes.ts
++++ b/apps/api/src/modules/business/business.routes.ts
+@@ -161,7 +161,7 @@ function canMutateBusinessTemplateProfile(profile: any) {
+   return !['disabled', 'rejected', 'restricted'].includes(profile.status);
+ }
+ 
+-function normalizeTemplateNullable<T extends string | null | undefined>(value: T) {
++function normalizeTemplateNullable<T>(value: T | undefined) {
+   return value === undefined ? undefined : value;
+ }
+ 
+@@ -177,6 +177,11 @@ function buildBusinessNeedUpdateData(input: ReturnType<typeof businessUpdateNeed
+     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+     ...(input.category !== undefined ? { category: input.category } : {}),
+     ...(input.timing !== undefined ? { timing: input.timing } : {}),
++    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
++    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
++    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
++    ...(input.estimatedDurationPreset !== undefined ? { estimatedDurationPreset: input.estimatedDurationPreset } : {}),
++    ...(input.estimatedDurationMinutes !== undefined ? { estimatedDurationMinutes: input.estimatedDurationMinutes } : {}),
+     ...(input.mode !== undefined ? { mode: input.mode } : {}),
+     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
+     ...(input.tags !== undefined ? { tags: cleanList(input.tags) ?? [] } : {}),
+@@ -195,6 +200,11 @@ function buildBusinessOfferUpdateData(input: ReturnType<typeof businessUpdateOff
+     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+     ...(input.category !== undefined ? { category: input.category } : {}),
+     ...(input.availability !== undefined ? { availability: input.availability } : {}),
++    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
++    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
++    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
++    ...(input.typicalDurationPreset !== undefined ? { typicalDurationPreset: input.typicalDurationPreset } : {}),
++    ...(input.typicalDurationMinutes !== undefined ? { typicalDurationMinutes: input.typicalDurationMinutes } : {}),
+     ...(input.mode !== undefined ? { mode: input.mode } : {}),
+     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
+     ...(input.includes !== undefined ? { includes: cleanList(input.includes) ?? [] } : {}),
+@@ -260,19 +270,19 @@ async function loadBusinessSponsoredPlacementTarget(businessProfileId: string, t
+   if (targetType === 'need') {
+     return prisma.need.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'offer') {
+     return prisma.offer.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'inventory_template') {
+     return prisma.inventoryTemplate.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   return null;
+@@ -319,19 +329,19 @@ async function loadBusinessCampaignTarget(businessProfileId: string, targetType:
+   if (targetType === 'need') {
+     return prisma.need.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, timing: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, estimatedDurationPreset: true, estimatedDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'offer') {
+     return prisma.offer.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, title: true, description: true, status: true, itemType: true, category: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, typicalDurationPreset: true, typicalDurationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   if (targetType === 'inventory_template') {
+     return prisma.inventoryTemplate.findFirst({
+       where: { id: targetId, businessProfileId, status: 'active' },
+-      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
++      select: { id: true, key: true, kind: true, title: true, description: true, status: true, sourceType: true, itemType: true, category: true, languageCode: true, countryCode: true, timing: true, availability: true, availabilityPreset: true, availabilityStartAt: true, availabilityEndAt: true, durationPreset: true, durationMinutes: true, mode: true, locationLabel: true, tags: true, updatedAt: true },
+     });
+   }
+   return null;
+@@ -1075,6 +1085,11 @@ businessRoutes.post('/:businessProfileId/needs', asyncRoute(async (req, res) =>
+         itemType: input.itemType ?? 'service',
+         category: input.category ?? null,
+         timing: input.timing ?? null,
++        availabilityPreset: input.availabilityPreset ?? null,
++        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++        estimatedDurationPreset: input.estimatedDurationPreset ?? null,
++        estimatedDurationMinutes: input.estimatedDurationMinutes ?? null,
+         mode: input.mode ?? null,
+         locationLabel: input.locationLabel ?? null,
+         tags: input.tags ?? [],
+@@ -1204,6 +1219,11 @@ businessRoutes.post('/:businessProfileId/offers', asyncRoute(async (req, res) =>
+         itemType: input.itemType ?? 'service',
+         category: input.category ?? null,
+         availability: input.availability ?? null,
++        availabilityPreset: input.availabilityPreset ?? null,
++        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++        typicalDurationPreset: input.typicalDurationPreset ?? null,
++        typicalDurationMinutes: input.typicalDurationMinutes ?? null,
+         mode: input.mode ?? null,
+         locationLabel: input.locationLabel ?? null,
+         includes: input.includes ?? [],
+@@ -1896,6 +1916,11 @@ businessRoutes.post('/:businessProfileId/templates', asyncRoute(async (req, res)
+         category: input.category ?? null,
+         timing: input.kind === 'need' ? input.timing ?? null : null,
+         availability: input.kind === 'offer' ? input.availability ?? null : null,
++        availabilityPreset: input.availabilityPreset ?? null,
++        availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++        availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++        durationPreset: input.durationPreset ?? null,
++        durationMinutes: input.durationMinutes ?? null,
+         mode: input.mode ?? null,
+         locationLabel: input.locationLabel ?? null,
+         tags: input.tags,
+@@ -1954,6 +1979,11 @@ businessRoutes.patch('/:businessProfileId/templates/:templateId', asyncRoute(asy
+         ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+         timing: existing.kind === 'need' ? normalizeTemplateNullable(input.timing) : null,
+         availability: existing.kind === 'offer' ? normalizeTemplateNullable(input.availability) : null,
++        availabilityPreset: normalizeTemplateNullable(input.availabilityPreset),
++        availabilityStartAt: input.availabilityStartAt === undefined ? undefined : input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++        availabilityEndAt: input.availabilityEndAt === undefined ? undefined : input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++        durationPreset: normalizeTemplateNullable(input.durationPreset),
++        durationMinutes: normalizeTemplateNullable(input.durationMinutes),
+         status: (existing.status === 'active' ? 'pending_review' : existing.status) as any,
+       },
+       include: businessTemplateInclude,
+diff --git a/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts b/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
+index 0f99b64..460fedf 100644
+--- a/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
++++ b/apps/api/src/modules/inventory-templates/inventoryTemplates.routes.ts
+@@ -183,6 +183,11 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
+         itemType: template.itemType,
+         category: template.category,
+         timing: template.timing,
++        availabilityPreset: template.availabilityPreset,
++        availabilityStartAt: template.availabilityStartAt,
++        availabilityEndAt: template.availabilityEndAt,
++        estimatedDurationPreset: template.durationPreset,
++        estimatedDurationMinutes: template.durationMinutes,
+         mode: template.mode,
+         locationLabel: template.locationLabel,
+         tags: template.tags,
+@@ -197,7 +202,7 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
+       description: need.description,
+       userCategory: need.category,
+       tags: need.tags,
+-      extraText: [need.timing, need.mode, need.locationLabel, need.itemType],
++      extraText: [need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, need.itemType],
+     });
+     return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), need: await withOneMedia('need', need) });
+   }
+@@ -211,6 +216,11 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
+       itemType: template.itemType,
+       category: template.category,
+       availability: template.availability,
++      availabilityPreset: template.availabilityPreset,
++      availabilityStartAt: template.availabilityStartAt,
++      availabilityEndAt: template.availabilityEndAt,
++      typicalDurationPreset: template.durationPreset,
++      typicalDurationMinutes: template.durationMinutes,
+       mode: template.mode,
+       locationLabel: template.locationLabel,
+       includes: template.includes,
+@@ -226,7 +236,7 @@ inventoryTemplatesRoutes.post('/:templateId/clone', requireAuth, asyncRoute(asyn
+     description: offer.description,
+     userCategory: offer.category,
+     tags: offer.tags,
+-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
++    extraText: [offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes],
+   });
+   return res.status(201).json({ template: await withOneMedia('inventory_template', template, 'public'), offer: await withOneMedia('offer', offer) });
+ }));
+diff --git a/apps/api/src/modules/needs/needs.routes.ts b/apps/api/src/modules/needs/needs.routes.ts
+index 2bcaade..9797544 100644
+--- a/apps/api/src/modules/needs/needs.routes.ts
++++ b/apps/api/src/modules/needs/needs.routes.ts
+@@ -53,6 +53,11 @@ function buildNeedUpdateData(input: ReturnType<typeof updateNeedRequestSchema.pa
+     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+     ...(input.category !== undefined ? { category: input.category } : {}),
+     ...(input.timing !== undefined ? { timing: input.timing } : {}),
++    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
++    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
++    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
++    ...(input.estimatedDurationPreset !== undefined ? { estimatedDurationPreset: input.estimatedDurationPreset } : {}),
++    ...(input.estimatedDurationMinutes !== undefined ? { estimatedDurationMinutes: input.estimatedDurationMinutes } : {}),
+     ...(input.mode !== undefined ? { mode: input.mode } : {}),
+     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
+     ...(input.tags !== undefined ? { tags: cleanList(input.tags) ?? [] } : {})
+@@ -104,6 +109,11 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+       itemType: input.itemType ?? 'service',
+       category: input.category ?? null,
+       timing: input.timing ?? null,
++      availabilityPreset: input.availabilityPreset ?? null,
++      availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++      availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++      estimatedDurationPreset: input.estimatedDurationPreset ?? null,
++      estimatedDurationMinutes: input.estimatedDurationMinutes ?? null,
+       mode: input.mode ?? null,
+       locationLabel: input.locationLabel ?? null,
+       tags: input.tags ?? [],
+@@ -124,7 +134,7 @@ needsRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     description: need.description,
+     userCategory: need.category,
+     tags: need.tags,
+-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
++    extraText: [need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && need.status === 'active') {
+@@ -161,7 +171,7 @@ needsRoutes.patch('/:needId', requireActiveAccount, asyncRoute(async (req, res)
+     description: need.description,
+     userCategory: need.category,
+     tags: need.tags,
+-    extraText: [need.timing, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
++    extraText: [need.timing, need.availabilityPreset, need.estimatedDurationPreset, need.mode, need.locationLabel, need.itemType, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && need.status === 'active') {
+diff --git a/apps/api/src/modules/offers/offers.routes.ts b/apps/api/src/modules/offers/offers.routes.ts
+index de26cf6..d73df63 100644
+--- a/apps/api/src/modules/offers/offers.routes.ts
++++ b/apps/api/src/modules/offers/offers.routes.ts
+@@ -53,6 +53,11 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
+     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
+     ...(input.category !== undefined ? { category: input.category } : {}),
+     ...(input.availability !== undefined ? { availability: input.availability } : {}),
++    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
++    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
++    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
++    ...(input.typicalDurationPreset !== undefined ? { typicalDurationPreset: input.typicalDurationPreset } : {}),
++    ...(input.typicalDurationMinutes !== undefined ? { typicalDurationMinutes: input.typicalDurationMinutes } : {}),
+     ...(input.mode !== undefined ? { mode: input.mode } : {}),
+     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
+     ...(input.includes !== undefined ? { includes: cleanList(input.includes) ?? [] } : {}),
+@@ -105,6 +110,11 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+       itemType: input.itemType ?? 'service',
+       category: input.category ?? null,
+       availability: input.availability ?? null,
++      availabilityPreset: input.availabilityPreset ?? null,
++      availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
++      availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
++      typicalDurationPreset: input.typicalDurationPreset ?? null,
++      typicalDurationMinutes: input.typicalDurationMinutes ?? null,
+       mode: input.mode ?? null,
+       locationLabel: input.locationLabel ?? null,
+       includes: input.includes ?? [],
+@@ -126,7 +136,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+     description: offer.description,
+     userCategory: offer.category,
+     tags: offer.tags,
+-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
++    extraText: [offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && offer.status === 'active') {
+@@ -163,7 +173,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
+     description: offer.description,
+     userCategory: offer.category,
+     tags: offer.tags,
+-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
++    extraText: [offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
+   });
+   const gateDecision = buildContentReviewGateDecision(classification);
+   if (gateDecision.shouldGate && offer.status === 'active') {
+diff --git a/apps/api/src/modules/proposals/dealSnapshots.ts b/apps/api/src/modules/proposals/dealSnapshots.ts
+index 8904c27..f424ff6 100644
+--- a/apps/api/src/modules/proposals/dealSnapshots.ts
++++ b/apps/api/src/modules/proposals/dealSnapshots.ts
+@@ -12,6 +12,13 @@ type SnapshotItem = {
+   category: string | null;
+   timing?: string | null;
+   availability?: string | null;
++  availabilityPreset?: string | null;
++  availabilityStartAt?: string | null;
++  availabilityEndAt?: string | null;
++  estimatedDurationPreset?: string | null;
++  estimatedDurationMinutes?: number | null;
++  typicalDurationPreset?: string | null;
++  typicalDurationMinutes?: number | null;
+   mode: string | null;
+   locationLabel: string | null;
+   includes?: string[];
+@@ -41,6 +48,11 @@ function snapshotNeed(need: Need, source: SnapshotSource, snapshottedAt: string,
+     itemType: need.itemType,
+     category: need.category ?? null,
+     timing: need.timing ?? null,
++    availabilityPreset: need.availabilityPreset ?? null,
++    availabilityStartAt: need.availabilityStartAt?.toISOString() ?? null,
++    availabilityEndAt: need.availabilityEndAt?.toISOString() ?? null,
++    estimatedDurationPreset: need.estimatedDurationPreset ?? null,
++    estimatedDurationMinutes: need.estimatedDurationMinutes ?? null,
+     mode: need.mode ?? null,
+     locationLabel: need.locationLabel ?? null,
+     tags: need.tags ?? [],
+@@ -61,6 +73,11 @@ function snapshotOffer(offer: Offer, source: SnapshotSource, snapshottedAt: stri
+     itemType: offer.itemType,
+     category: offer.category ?? null,
+     availability: offer.availability ?? null,
++    availabilityPreset: offer.availabilityPreset ?? null,
++    availabilityStartAt: offer.availabilityStartAt?.toISOString() ?? null,
++    availabilityEndAt: offer.availabilityEndAt?.toISOString() ?? null,
++    typicalDurationPreset: offer.typicalDurationPreset ?? null,
++    typicalDurationMinutes: offer.typicalDurationMinutes ?? null,
+     mode: offer.mode ?? null,
+     locationLabel: offer.locationLabel ?? null,
+     includes: offer.includes ?? [],
+diff --git a/apps/api/src/modules/trades/trades.routes.ts b/apps/api/src/modules/trades/trades.routes.ts
+index 04be370..42c3c0f 100644
+--- a/apps/api/src/modules/trades/trades.routes.ts
++++ b/apps/api/src/modules/trades/trades.routes.ts
+@@ -235,6 +235,8 @@ type FeedRankableTrade = {
+     description?: string | null;
+     category?: string | null;
+     timing?: string | null;
++    availabilityPreset?: string | null;
++    estimatedDurationPreset?: string | null;
+     mode?: string | null;
+     locationLabel?: string | null;
+     tags?: string[] | null;
+@@ -245,6 +247,8 @@ type FeedRankableTrade = {
+     description?: string | null;
+     category?: string | null;
+     availability?: string | null;
++    availabilityPreset?: string | null;
++    typicalDurationPreset?: string | null;
+     mode?: string | null;
+     locationLabel?: string | null;
+     includes?: string[] | null;
+@@ -390,8 +394,8 @@ function getSearchRelevanceScore(trade: FeedRankableTrade, query?: string) {
+ 
+ function getCompletenessScore(trade: FeedRankableTrade) {
+   const mediaCount = (trade.need?.media?.length ?? 0) + (trade.offer?.media?.length ?? 0);
+-  const hasNeedMetadata = Boolean(trade.need?.category || trade.need?.mode || trade.need?.locationLabel || trade.need?.timing || (trade.need?.tags?.length ?? 0) > 0);
+-  const hasOfferMetadata = Boolean(trade.offer?.category || trade.offer?.mode || trade.offer?.locationLabel || trade.offer?.availability || (trade.offer?.tags?.length ?? 0) > 0 || (trade.offer?.includes?.length ?? 0) > 0);
++  const hasNeedMetadata = Boolean(trade.need?.category || trade.need?.mode || trade.need?.locationLabel || trade.need?.timing || trade.need?.availabilityPreset || trade.need?.estimatedDurationPreset || (trade.need?.tags?.length ?? 0) > 0);
++  const hasOfferMetadata = Boolean(trade.offer?.category || trade.offer?.mode || trade.offer?.locationLabel || trade.offer?.availability || trade.offer?.availabilityPreset || trade.offer?.typicalDurationPreset || (trade.offer?.tags?.length ?? 0) > 0 || (trade.offer?.includes?.length ?? 0) > 0);
+   let score = 0;
+   if (mediaCount > 0) score += 8;
+   if (mediaCount > 1) score += 3;
+@@ -983,11 +987,15 @@ tradesRoutes.post('/', requireAuth, requireActiveAccount, asyncRoute(async (req,
+       need?.title,
+       need?.description,
+       need?.timing,
++      need?.availabilityPreset,
++      need?.estimatedDurationPreset,
+       need?.mode,
+       need?.locationLabel,
+       offer?.title,
+       offer?.description,
+       offer?.availability,
++      offer?.availabilityPreset,
++      offer?.typicalDurationPreset,
+       offer?.mode,
+       offer?.locationLabel,
+       ...(offer?.includes ?? []),
+diff --git a/packages/contracts/src/business.ts b/packages/contracts/src/business.ts
+index 5222d3d..c621ff3 100644
+--- a/packages/contracts/src/business.ts
++++ b/packages/contracts/src/business.ts
+@@ -1,7 +1,7 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+ import { publicProfileTradeSummarySchema, publicVerificationBadgeSchema } from './users.js';
+-import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
++import { createNeedRequestSchema, createOfferRequestSchema, discoveryLanguageSchema, inventoryAvailabilityPresetSchema, inventoryDurationPresetSchema, inventoryItemTypeSchema, inventoryTemplateKindSchema, tradeExchangeModeSchema, updateNeedRequestSchema, updateOfferRequestSchema } from './trade.js';
+ 
+ export const businessProfileTypeSchema = z.enum(['business', 'agency', 'brand', 'enterprise']);
+ export const businessProfileStatusSchema = z.enum(['draft', 'active', 'pending_review', 'verified', 'restricted', 'disabled', 'rejected']);
+@@ -47,6 +47,15 @@ export const publicBusinessInventoryItemSchema = z.object({
+   category: z.string().nullable().optional(),
+   timing: z.string().nullable().optional(),
+   availability: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  estimatedDurationMinutes: z.number().int().nullable().optional(),
++  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  typicalDurationMinutes: z.number().int().nullable().optional(),
++  durationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  durationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   tags: z.array(z.string()).optional(),
+@@ -139,6 +148,11 @@ const businessInventoryTemplateBaseSchema = z.object({
+   category: z.string().trim().min(1).max(80).optional().nullable(),
+   timing: z.string().trim().min(1).max(80).optional().nullable(),
+   availability: z.string().trim().min(1).max(80).optional().nullable(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.optional().nullable(),
++  availabilityStartAt: z.string().datetime().optional().nullable(),
++  availabilityEndAt: z.string().datetime().optional().nullable(),
++  durationPreset: inventoryDurationPresetSchema.optional().nullable(),
++  durationMinutes: z.number().int().min(1).max(43200).optional().nullable(),
+   mode: tradeExchangeModeSchema.optional().nullable(),
+   locationLabel: z.string().trim().min(1).max(120).optional().nullable(),
+   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional().default([]),
+diff --git a/packages/contracts/src/trade.ts b/packages/contracts/src/trade.ts
+index 9efbcef..2187c4e 100644
+--- a/packages/contracts/src/trade.ts
++++ b/packages/contracts/src/trade.ts
+@@ -23,6 +23,8 @@ export const tradeExchangeModeSchema = z.enum(['remote', 'local', 'hybrid']);
+ export const discoveryLanguageSchema = z.enum(['en', 'fr']);
+ export const previewCardThemeSchema = z.enum(['default', 'blue', 'green', 'purple', 'amber', 'rose']);
+ export const inventoryItemTypeSchema = z.enum(['service', 'goods', 'other']);
++export const inventoryAvailabilityPresetSchema = z.enum(['today', 'this_week', 'this_month', 'flexible', 'custom']);
++export const inventoryDurationPresetSchema = z.enum(['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure', 'depends']);
+ export const inventoryTemplateKindSchema = z.enum(['need', 'offer']);
+ export const inventoryTemplateSourceTypeSchema = z.enum(['hellowhen', 'business', 'brand', 'partner']);
+ export const inventoryTemplateStatusSchema = z.enum(['draft', 'pending_review', 'active', 'rejected', 'archived']);
+@@ -38,23 +40,38 @@ export {
+ } from './inventoryLimits.js';
+ 
+ const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();
++const availabilityWindowInputSchema = z.object({
++  availabilityPreset: inventoryAvailabilityPresetSchema.optional(),
++  availabilityStartAt: z.string().datetime().optional(),
++  availabilityEndAt: z.string().datetime().optional(),
++});
++const availabilityWindowUpdateSchema = z.object({
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().datetime().nullable().optional(),
++  availabilityEndAt: z.string().datetime().nullable().optional(),
++});
++const inventoryDurationMinutesSchema = z.number().int().min(1).max(43200);
+ const needMetadataSchema = z.object({
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().trim().min(1).max(80).optional(),
+   timing: z.string().trim().min(1).max(80).optional(),
++  estimatedDurationPreset: inventoryDurationPresetSchema.optional(),
++  estimatedDurationMinutes: inventoryDurationMinutesSchema.optional(),
+   mode: tradeExchangeModeSchema.optional(),
+   locationLabel: z.string().trim().min(1).max(120).optional(),
+   tags: tradeTagsSchema
+-});
++}).merge(availabilityWindowInputSchema);
+ const offerMetadataSchema = z.object({
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().trim().min(1).max(80).optional(),
+   availability: z.string().trim().min(1).max(80).optional(),
++  typicalDurationPreset: inventoryDurationPresetSchema.optional(),
++  typicalDurationMinutes: inventoryDurationMinutesSchema.optional(),
+   mode: tradeExchangeModeSchema.optional(),
+   locationLabel: z.string().trim().min(1).max(120).optional(),
+   includes: z.array(z.string().trim().min(1).max(80)).max(8).optional(),
+   tags: tradeTagsSchema
+-});
++}).merge(availabilityWindowInputSchema);
+ 
+ const inventoryTranslationInputSchema = z.object({
+   languageCode: discoveryLanguageSchema,
+@@ -205,6 +222,10 @@ const inventoryUpdateBaseSchema = z.object({
+   category: z.string().trim().min(1).max(80).nullable().optional(),
+   timing: z.string().trim().min(1).max(80).nullable().optional(),
+   availability: z.string().trim().min(1).max(80).nullable().optional(),
++  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  estimatedDurationMinutes: inventoryDurationMinutesSchema.nullable().optional(),
++  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  typicalDurationMinutes: inventoryDurationMinutesSchema.nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().trim().min(1).max(120).nullable().optional(),
+   tags: z.array(z.string().trim().min(1).max(32)).max(8).optional(),
+@@ -212,7 +233,7 @@ const inventoryUpdateBaseSchema = z.object({
+   mediaIds: z.array(z.string()).max(5).optional(),
+   coverMediaId: z.string().min(1).nullable().optional(),
+   previewTheme: previewCardThemeSchema.optional(),
+-});
++}).merge(availabilityWindowUpdateSchema);
+ 
+ export const updateNeedRequestSchema = inventoryUpdateBaseSchema.extend({ status: needStatusSchema.optional() });
+ export const updateOfferRequestSchema = inventoryUpdateBaseSchema.extend({ status: offerStatusSchema.optional() });
+@@ -322,6 +343,11 @@ export const needSchema = z.object({
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().nullable().optional(),
+   timing: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  estimatedDurationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   tags: z.array(z.string()).optional(),
+@@ -345,6 +371,11 @@ export const offerSchema = z.object({
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().nullable().optional(),
+   availability: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  typicalDurationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   includes: z.array(z.string()).optional(),
+@@ -396,6 +427,13 @@ export const acceptedDealSnapshotItemSchema = z.object({
+   category: z.string().nullable().optional(),
+   timing: z.string().nullable().optional(),
+   availability: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  estimatedDurationMinutes: z.number().int().nullable().optional(),
++  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  typicalDurationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   includes: z.array(z.string()).optional(),
+@@ -450,6 +488,11 @@ export const inventoryTemplateSchema = z.object({
+   category: z.string().nullable().optional(),
+   timing: z.string().nullable().optional(),
+   availability: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  durationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  durationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   tags: z.array(z.string()).optional(),
+@@ -605,6 +648,8 @@ export type TradeExchangeMode = z.infer<typeof tradeExchangeModeSchema>;
+ export type PreviewCardTheme = z.infer<typeof previewCardThemeSchema>;
+ export type DiscoveryLanguage = z.infer<typeof discoveryLanguageSchema>;
+ export type InventoryItemType = z.infer<typeof inventoryItemTypeSchema>;
++export type InventoryAvailabilityPreset = z.infer<typeof inventoryAvailabilityPresetSchema>;
++export type InventoryDurationPreset = z.infer<typeof inventoryDurationPresetSchema>;
+ export type InventoryTemplateKind = z.infer<typeof inventoryTemplateKindSchema>;
+ export type InventoryTemplateSourceType = z.infer<typeof inventoryTemplateSourceTypeSchema>;
+ export type InventoryTemplateStatus = z.infer<typeof inventoryTemplateStatusSchema>;
+diff --git a/packages/contracts/src/users.ts b/packages/contracts/src/users.ts
+index 6bbaabc..31c32c5 100644
+--- a/packages/contracts/src/users.ts
++++ b/packages/contracts/src/users.ts
+@@ -1,6 +1,6 @@
+ import { z } from 'zod';
+ import { mediaAssetSchema } from './media.js';
+-import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
++import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryAvailabilityPresetSchema, inventoryDurationPresetSchema, inventoryItemTypeSchema } from './trade.js';
+ 
+ export const publicVerificationBadgeSchema = z.object({
+   kind: z.enum(['email_verified', 'professional', 'trusted', 'business', 'verified_business', 'brand', 'agency', 'enterprise']),
+@@ -32,6 +32,11 @@ const publicNeedSummarySchema = z.object({
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().nullable().optional(),
+   timing: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  estimatedDurationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   tags: z.array(z.string()).optional(),
+@@ -50,6 +55,11 @@ const publicOfferSummarySchema = z.object({
+   itemType: inventoryItemTypeSchema.optional().default('service'),
+   category: z.string().nullable().optional(),
+   availability: z.string().nullable().optional(),
++  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
++  availabilityStartAt: z.string().nullable().optional(),
++  availabilityEndAt: z.string().nullable().optional(),
++  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
++  typicalDurationMinutes: z.number().int().nullable().optional(),
+   mode: tradeExchangeModeSchema.nullable().optional(),
+   locationLabel: z.string().nullable().optional(),
+   includes: z.array(z.string()).optional(),
+diff --git a/packages/trade-domain/src/types.ts b/packages/trade-domain/src/types.ts
+index 6ef47d4..4fb047e 100644
+--- a/packages/trade-domain/src/types.ts
++++ b/packages/trade-domain/src/types.ts
+@@ -1,6 +1,8 @@
+ import type { NeedStatus, OfferStatus, ProposalStatus, TradeStatus, TradeExchangeMode } from './statuses';
+ 
+ export type TradeVisibility = 'public' | 'owner_private';
++export type InventoryAvailabilityPreset = 'today' | 'this_week' | 'this_month' | 'flexible' | 'custom';
++export type InventoryDurationPreset = 'min_15' | 'min_30' | 'hour_1' | 'hour_2' | 'half_day' | 'day_1' | 'flexible' | 'not_sure' | 'depends';
+ 
+ export type Need = {
+   id: string;
+@@ -9,6 +11,11 @@ export type Need = {
+   description: string;
+   category?: string | null;
+   timing?: string | null;
++  availabilityPreset?: InventoryAvailabilityPreset | null;
++  availabilityStartAt?: string | null;
++  availabilityEndAt?: string | null;
++  estimatedDurationPreset?: InventoryDurationPreset | null;
++  estimatedDurationMinutes?: number | null;
+   mode?: TradeExchangeMode | null;
+   locationLabel?: string | null;
+   tags?: string[];
+@@ -24,6 +31,11 @@ export type Offer = {
+   description: string;
+   category?: string | null;
+   availability?: string | null;
++  availabilityPreset?: InventoryAvailabilityPreset | null;
++  availabilityStartAt?: string | null;
++  availabilityEndAt?: string | null;
++  typicalDurationPreset?: InventoryDurationPreset | null;
++  typicalDurationMinutes?: number | null;
+   mode?: TradeExchangeMode | null;
+   locationLabel?: string | null;
+   includes?: string[];

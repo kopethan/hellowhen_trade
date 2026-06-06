@@ -1,6 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import type { DiscoveryLanguage, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, InventoryItemType, TradeExchangeMode } from '@hellowhen/contracts';
 import { findInventoryCategoryOption, getAlternateInventoryLanguage, inventoryCategoryOptions } from '@hellowhen/shared';
 import { AppText } from '../../../components/AppText';
 import { useThemeTokens } from '../../../providers/ThemeProvider';
@@ -9,6 +9,9 @@ import { useTranslation } from '../../../providers/MobileI18nProvider';
 export const inventoryItemTypes: InventoryItemType[] = ['service', 'goods', 'other'];
 export const exchangeModes: TradeExchangeMode[] = ['remote', 'local', 'hybrid'];
 export const inventoryLanguageOptions: DiscoveryLanguage[] = ['en', 'fr'];
+export const inventoryAvailabilityPresetOptions: InventoryAvailabilityPreset[] = ['today', 'this_week', 'this_month', 'flexible', 'custom'];
+export const needDurationPresetOptions: InventoryDurationPreset[] = ['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure'];
+export const offerDurationPresetOptions: InventoryDurationPreset[] = ['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'depends'];
 
 type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
 
@@ -73,6 +76,38 @@ export function modeLabel(mode: TradeExchangeMode, t?: TFunction) {
   if (mode === 'remote') return t?.('inventory.modes.remote') ?? 'Remote';
   if (mode === 'local') return t?.('inventory.modes.local') ?? 'Local';
   return t?.('inventory.modes.hybrid') ?? 'Hybrid';
+}
+
+export function availabilityPresetLabel(preset?: InventoryAvailabilityPreset | null, t?: TFunction) {
+  if (!preset) return '';
+  if (preset === 'today') return t?.('inventory.availabilityPresets.today') ?? 'Today';
+  if (preset === 'this_week') return t?.('inventory.availabilityPresets.thisWeek') ?? 'This week';
+  if (preset === 'this_month') return t?.('inventory.availabilityPresets.thisMonth') ?? 'This month';
+  if (preset === 'custom') return t?.('inventory.availabilityPresets.custom') ?? 'Custom';
+  return t?.('inventory.availabilityPresets.flexible') ?? 'Flexible';
+}
+
+export function durationPresetLabel(preset?: InventoryDurationPreset | null, t?: TFunction) {
+  if (!preset) return '';
+  if (preset === 'min_15') return t?.('inventory.durationPresets.min15') ?? '15 min';
+  if (preset === 'min_30') return t?.('inventory.durationPresets.min30') ?? '30 min';
+  if (preset === 'hour_1') return t?.('inventory.durationPresets.hour1') ?? '1 hour';
+  if (preset === 'hour_2') return t?.('inventory.durationPresets.hour2') ?? '2 hours';
+  if (preset === 'half_day') return t?.('inventory.durationPresets.halfDay') ?? 'Half day';
+  if (preset === 'day_1') return t?.('inventory.durationPresets.day1') ?? '1 day';
+  if (preset === 'not_sure') return t?.('inventory.durationPresets.notSure') ?? 'Not sure';
+  if (preset === 'depends') return t?.('inventory.durationPresets.depends') ?? 'Depends';
+  return t?.('inventory.durationPresets.flexible') ?? 'Flexible';
+}
+
+export function durationPresetMinutes(preset?: InventoryDurationPreset | null) {
+  if (preset === 'min_15') return 15;
+  if (preset === 'min_30') return 30;
+  if (preset === 'hour_1') return 60;
+  if (preset === 'hour_2') return 120;
+  if (preset === 'half_day') return 240;
+  if (preset === 'day_1') return 480;
+  return undefined;
 }
 
 export function InventoryTextField({
@@ -322,6 +357,91 @@ export function ModePicker({ value, onChange, disabled }: { value: TradeExchange
         })}
       </View>
     </View>
+  );
+}
+
+function CompactOptionPicker<TValue extends string>({
+  label,
+  hint,
+  value,
+  options,
+  optionalLabel,
+  getLabel,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  hint?: string;
+  value?: TValue | null;
+  options: TValue[];
+  optionalLabel: string;
+  getLabel: (value: TValue) => string;
+  onChange: (value: TValue | undefined) => void;
+  disabled?: boolean;
+}) {
+  const theme = useThemeTokens();
+  const hasValue = Boolean(value);
+  return (
+    <View style={styles.field}>
+      <View style={styles.labelRow}>
+        <AppText style={styles.label}>{label}</AppText>
+        {hint ? <AppText style={[styles.hint, { color: theme.color.muted }]}>{hint}</AppText> : null}
+      </View>
+      <View style={styles.modeRow}>
+        <Pressable
+          disabled={disabled}
+          onPress={() => onChange(undefined)}
+          style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, !hasValue && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+        >
+          <AppText style={[styles.modeButtonText, { color: !hasValue ? theme.semantic.proposal.text : theme.color.muted }]}>{optionalLabel}</AppText>
+        </Pressable>
+        {options.map((option) => {
+          const selected = value === option;
+          return (
+            <Pressable
+              key={option}
+              disabled={disabled}
+              onPress={() => onChange(option)}
+              style={({ pressed }) => [styles.modeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, selected && { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, disabled && styles.disabled, pressed && styles.pressed]}
+            >
+              <AppText style={[styles.modeButtonText, { color: selected ? theme.semantic.proposal.text : theme.color.muted }]}>{getLabel(option)}</AppText>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+export function AvailabilityPresetPicker({ value, onChange, disabled, kind }: { value?: InventoryAvailabilityPreset | null; onChange: (value: InventoryAvailabilityPreset | undefined) => void; disabled?: boolean; kind: 'need' | 'offer' }) {
+  const { t } = useTranslation();
+  return (
+    <CompactOptionPicker
+      label={kind === 'need' ? t('inventory.chain.needAvailabilityLabel') : t('inventory.chain.offerAvailabilityLabel')}
+      hint={t('inventory.chain.availabilityHint')}
+      value={value}
+      options={inventoryAvailabilityPresetOptions}
+      optionalLabel={t('inventory.labels.optional')}
+      getLabel={(option) => availabilityPresetLabel(option, t)}
+      onChange={onChange}
+      disabled={disabled}
+    />
+  );
+}
+
+export function DurationPresetPicker({ value, onChange, disabled, kind }: { value?: InventoryDurationPreset | null; onChange: (value: InventoryDurationPreset | undefined) => void; disabled?: boolean; kind: 'need' | 'offer' }) {
+  const { t } = useTranslation();
+  return (
+    <CompactOptionPicker
+      label={kind === 'need' ? t('inventory.chain.needDurationLabel') : t('inventory.chain.offerDurationLabel')}
+      hint={kind === 'need' ? t('inventory.chain.needDurationHint') : t('inventory.chain.offerDurationHint')}
+      value={value}
+      options={kind === 'need' ? needDurationPresetOptions : offerDurationPresetOptions}
+      optionalLabel={t('inventory.labels.optional')}
+      getLabel={(option) => durationPresetLabel(option, t)}
+      onChange={onChange}
+      disabled={disabled}
+    />
   );
 }
 

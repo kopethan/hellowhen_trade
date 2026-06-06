@@ -53,6 +53,11 @@ function buildOfferUpdateData(input: ReturnType<typeof updateOfferRequestSchema.
     ...(input.itemType !== undefined ? { itemType: input.itemType } : {}),
     ...(input.category !== undefined ? { category: input.category } : {}),
     ...(input.availability !== undefined ? { availability: input.availability } : {}),
+    ...(input.availabilityPreset !== undefined ? { availabilityPreset: input.availabilityPreset } : {}),
+    ...(input.availabilityStartAt !== undefined ? { availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null } : {}),
+    ...(input.availabilityEndAt !== undefined ? { availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null } : {}),
+    ...(input.typicalDurationPreset !== undefined ? { typicalDurationPreset: input.typicalDurationPreset } : {}),
+    ...(input.typicalDurationMinutes !== undefined ? { typicalDurationMinutes: input.typicalDurationMinutes } : {}),
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.locationLabel !== undefined ? { locationLabel: input.locationLabel } : {}),
     ...(input.includes !== undefined ? { includes: cleanList(input.includes) ?? [] } : {}),
@@ -105,6 +110,11 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
       itemType: input.itemType ?? 'service',
       category: input.category ?? null,
       availability: input.availability ?? null,
+      availabilityPreset: input.availabilityPreset ?? null,
+      availabilityStartAt: input.availabilityStartAt ? new Date(input.availabilityStartAt) : null,
+      availabilityEndAt: input.availabilityEndAt ? new Date(input.availabilityEndAt) : null,
+      typicalDurationPreset: input.typicalDurationPreset ?? null,
+      typicalDurationMinutes: input.typicalDurationMinutes ?? null,
       mode: input.mode ?? null,
       locationLabel: input.locationLabel ?? null,
       includes: input.includes ?? [],
@@ -126,7 +136,7 @@ offersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
     description: offer.description,
     userCategory: offer.category,
     tags: offer.tags,
-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
+    extraText: [offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && offer.status === 'active') {
@@ -163,7 +173,7 @@ offersRoutes.patch('/:offerId', requireActiveAccount, asyncRoute(async (req, res
     description: offer.description,
     userCategory: offer.category,
     tags: offer.tags,
-    extraText: [offer.availability, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
+    extraText: [offer.availability, offer.availabilityPreset, offer.typicalDurationPreset, offer.mode, offer.locationLabel, offer.itemType, ...offer.includes, ...inventoryTranslationExtraText(input.translations)],
   });
   const gateDecision = buildContentReviewGateDecision(classification);
   if (gateDecision.shouldGate && offer.status === 'active') {

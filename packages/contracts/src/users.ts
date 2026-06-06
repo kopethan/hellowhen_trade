@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { mediaAssetSchema } from './media.js';
-import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryItemTypeSchema } from './trade.js';
+import { tradePostTypeSchema, tradeStatusSchema, needStatusSchema, offerStatusSchema, tradeExchangeModeSchema, inventoryAvailabilityPresetSchema, inventoryDurationPresetSchema, inventoryItemTypeSchema } from './trade.js';
 
 export const publicVerificationBadgeSchema = z.object({
   kind: z.enum(['email_verified', 'professional', 'trusted', 'business', 'verified_business', 'brand', 'agency', 'enterprise']),
@@ -32,6 +32,11 @@ const publicNeedSummarySchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   timing: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  estimatedDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  estimatedDurationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   tags: z.array(z.string()).optional(),
@@ -50,6 +55,11 @@ const publicOfferSummarySchema = z.object({
   itemType: inventoryItemTypeSchema.optional().default('service'),
   category: z.string().nullable().optional(),
   availability: z.string().nullable().optional(),
+  availabilityPreset: inventoryAvailabilityPresetSchema.nullable().optional(),
+  availabilityStartAt: z.string().nullable().optional(),
+  availabilityEndAt: z.string().nullable().optional(),
+  typicalDurationPreset: inventoryDurationPresetSchema.nullable().optional(),
+  typicalDurationMinutes: z.number().int().nullable().optional(),
   mode: tradeExchangeModeSchema.nullable().optional(),
   locationLabel: z.string().nullable().optional(),
   includes: z.array(z.string()).optional(),

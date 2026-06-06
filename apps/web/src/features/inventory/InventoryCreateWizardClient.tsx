@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { ChangeEvent } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CreateNeedRequest, CreateOfferRequest, MediaAssetDto, TradeExchangeMode } from '@hellowhen/contracts';
+import type { CreateNeedRequest, CreateOfferRequest, InventoryAvailabilityPreset, InventoryDurationPreset, MediaAssetDto, TradeExchangeMode } from '@hellowhen/contracts';
 import type { TranslationValues } from '@hellowhen/i18n';
 import { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from '@hellowhen/contracts/src/inventoryLimits';
 import { findInventoryCategoryOption, getNextWizardStepId, getPreviousWizardStepId, inventoryCategoryOptions, type WizardStepDefinition } from '@hellowhen/shared';
@@ -16,17 +16,25 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { InventoryMediaOrderPanel } from './InventoryMediaOrderPanel';
 import { InventoryPreviewThemePicker } from './InventoryPreviewThemePicker';
 import {
+  availabilityPresetLabel,
+  durationPresetLabel,
+  durationPresetMinutes,
   emptyInventoryFormValues,
   getAvailableInventoryTranslationLanguages,
   getInventoryTranslationDraft,
   getVisibleInventoryTranslations,
+  inventoryAvailabilityPresetOptions,
   inventoryLanguageLabel,
+  isInventoryAvailabilityPreset,
+  isInventoryDurationPreset,
   itemTypeLabel,
   kindLabel,
   modeLabel,
   normalizeInventoryItem,
+  needDurationPresetOptions,
   normalizeInventoryTranslationsForPayload,
   normalizeMediaUpload,
+  offerDurationPresetOptions,
   parseCsvList,
   parseLineList,
   removeInventoryTranslationDraft,
@@ -74,6 +82,9 @@ function formToNeedPayload(values: InventoryFormValues, mediaIds: string[], cove
     itemType: values.itemType,
     category: values.category.trim() || undefined,
     timing: values.timing.trim() || undefined,
+    availabilityPreset: values.availabilityPreset,
+    estimatedDurationPreset: values.estimatedDurationPreset,
+    estimatedDurationMinutes: durationPresetMinutes(values.estimatedDurationPreset),
     mode: parseMode(values.mode),
     locationLabel: values.locationLabel.trim() || undefined,
     tags: parseCsvList(values.tags),
@@ -94,6 +105,9 @@ function formToOfferPayload(values: InventoryFormValues, mediaIds: string[], cov
     itemType: values.itemType,
     category: values.category.trim() || undefined,
     availability: values.availability.trim() || undefined,
+    availabilityPreset: values.availabilityPreset,
+    typicalDurationPreset: values.typicalDurationPreset,
+    typicalDurationMinutes: durationPresetMinutes(values.typicalDurationPreset),
     mode: parseMode(values.mode),
     locationLabel: values.locationLabel.trim() || undefined,
     includes: parseLineList(values.includes),
@@ -154,6 +168,57 @@ function validateDetails(values: InventoryFormValues, t: (key: string) => string
   return '';
 }
 
+function InventoryPresetPicker<TValue extends string>({
+  label,
+  hint,
+  value,
+  options,
+  optionalLabel,
+  getLabel,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value?: TValue;
+  options: TValue[];
+  optionalLabel: string;
+  getLabel: (value: TValue) => string;
+  onChange: (value: TValue | undefined) => void;
+}) {
+  return (
+    <fieldset className="inventory-preset-field">
+      <legend>
+        <span>{label}</span>
+        {hint ? <small>{hint}</small> : null}
+      </legend>
+      <div className="inventory-preset-field__options">
+        <button
+          type="button"
+          className={!value ? 'inventory-preset-field__option inventory-preset-field__option--selected' : 'inventory-preset-field__option'}
+          aria-pressed={!value}
+          onClick={() => onChange(undefined)}
+        >
+          {optionalLabel}
+        </button>
+        {options.map((option) => {
+          const selected = value === option;
+          return (
+            <button
+              type="button"
+              key={option}
+              className={selected ? 'inventory-preset-field__option inventory-preset-field__option--selected' : 'inventory-preset-field__option'}
+              aria-pressed={selected}
+              onClick={() => onChange(option)}
+            >
+              {getLabel(option)}
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedirect }: InventoryCreateWizardClientProps) {
   const auth = useWebAuth();
   const router = useRouter();
@@ -188,6 +253,11 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   const draftStorageKey = useMemo(() => buildWebWizardDraftKey(kind === 'need' ? 'create-need' : 'create-offer', auth.user?.id), [auth.user?.id, kind]);
   const restoreDraft = useCallback((savedDraft: InventoryWizardPersistedDraft) => {
     const restoredValues = { ...emptyInventoryFormValues, ...(savedDraft.values ?? {}) };
+    restoredValues.availabilityPreset = isInventoryAvailabilityPreset(restoredValues.availabilityPreset) ? restoredValues.availabilityPreset : undefined;
+    restoredValues.estimatedDurationPreset = isInventoryDurationPreset(restoredValues.estimatedDurationPreset) ? restoredValues.estimatedDurationPreset : undefined;
+    restoredValues.estimatedDurationMinutes = durationPresetMinutes(restoredValues.estimatedDurationPreset);
+    restoredValues.typicalDurationPreset = isInventoryDurationPreset(restoredValues.typicalDurationPreset) ? restoredValues.typicalDurationPreset : undefined;
+    restoredValues.typicalDurationMinutes = durationPresetMinutes(restoredValues.typicalDurationPreset);
     setValues(restoredValues);
     setMedia(Array.isArray(savedDraft.media) ? normalizeMediaOrder(savedDraft.media) : []);
     setTranslationPanelOpen(Boolean(restoredValues.translations?.some((translation) => translation.title?.trim() || translation.description?.trim())));
@@ -206,6 +276,9 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
         || candidateValues.category?.trim()
         || candidateValues.timing?.trim()
         || candidateValues.availability?.trim()
+        || candidateValues.availabilityPreset
+        || candidateValues.estimatedDurationPreset
+        || candidateValues.typicalDurationPreset
         || candidateValues.tags?.trim()
         || candidateValues.locationLabel?.trim()
         || candidateValues.includes?.trim()
@@ -229,7 +302,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
       id: 'details',
       title: t('inventory.wizard.detailsTitle'),
       description: t('inventory.wizard.detailsBody'),
-      completed: !validateDetails(values, t),
+      completed: !validateDetails(values, t) || Boolean(values.availabilityPreset || values.estimatedDurationPreset || values.typicalDurationPreset),
     },
     {
       id: 'images',
@@ -246,6 +319,17 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
 
   function updateField<Key extends keyof InventoryFormValues>(field: Key, value: InventoryFormValues[Key]) {
     setValues((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateAvailabilityPreset(nextPreset: InventoryAvailabilityPreset | undefined) {
+    setValues((current) => ({ ...current, availabilityPreset: nextPreset }));
+  }
+
+  function updateDurationPreset(nextPreset: InventoryDurationPreset | undefined) {
+    const nextMinutes = durationPresetMinutes(nextPreset);
+    setValues((current) => (kind === 'need'
+      ? { ...current, estimatedDurationPreset: nextPreset, estimatedDurationMinutes: nextMinutes }
+      : { ...current, typicalDurationPreset: nextPreset, typicalDurationMinutes: nextMinutes }));
   }
 
   function addTranslationLanguage(languageCode: InventoryFormValues['defaultLanguage']) {
@@ -423,13 +507,16 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
   const timingOrAvailabilityPlaceholder = kind === 'need' ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder');
   const locationPlaceholder = kind === 'need' ? t('inventory.form.locationNeedPlaceholder') : t('inventory.form.locationOfferPlaceholder');
   const tagsPlaceholder = kind === 'need' ? t('inventory.form.tagsNeedPlaceholder') : t('inventory.form.tagsOfferPlaceholder');
+  const selectedDurationPreset = kind === 'need' ? values.estimatedDurationPreset : values.typicalDurationPreset;
+  const finalAvailabilityPresetLabel = availabilityPresetLabel(values.availabilityPreset, i18n);
+  const finalDurationPresetLabel = durationPresetLabel(selectedDurationPreset, i18n);
   const originalLanguageLabel = inventoryLanguageLabel(values.defaultLanguage, i18n);
   const visibleTranslations = getVisibleInventoryTranslations(values);
   const availableTranslationLanguages = getAvailableInventoryTranslationLanguages(values);
   const finalPrimaryLabel = kind === 'need' ? t('inventory.actions.saveNeed') : t('inventory.actions.saveOffer');
   const finalImagesBody = kind === 'need' ? t('inventory.wizard.needImagesBody') : t('inventory.wizard.offerImagesBody');
   const finalTimingOrAvailabilityLabel = kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability');
-  const finalTimingOrAvailabilityValue = timingOrAvailabilityValue.trim() || t('inventory.labels.notSpecified');
+  const finalTimingOrAvailabilityValue = finalAvailabilityPresetLabel || timingOrAvailabilityValue.trim() || t('inventory.labels.notSpecified');
   const finalCategoryOption = values.category ? findInventoryCategoryOption(values.category) : undefined;
   const finalCategoryLabel = values.category ? (finalCategoryOption ? t(finalCategoryOption.labelKey) : values.category) : t('inventory.labels.notSpecified');
   const finalLocationLabel = values.locationLabel.trim() || t('inventory.labels.notSpecified');
@@ -659,8 +746,28 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
                   {inventoryCategoryOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
                 </select>
               </label>
+              <div className="inventory-details-primary__wide inventory-chain-field-grid">
+                <InventoryPresetPicker
+                  label={kind === 'need' ? t('inventory.chain.needAvailabilityLabel') : t('inventory.chain.offerAvailabilityLabel')}
+                  hint={t('inventory.chain.availabilityHint')}
+                  value={values.availabilityPreset}
+                  options={inventoryAvailabilityPresetOptions}
+                  optionalLabel={t('inventory.labels.optional')}
+                  getLabel={(option) => availabilityPresetLabel(option, i18n)}
+                  onChange={updateAvailabilityPreset}
+                />
+                <InventoryPresetPicker
+                  label={kind === 'need' ? t('inventory.chain.needDurationLabel') : t('inventory.chain.offerDurationLabel')}
+                  hint={kind === 'need' ? t('inventory.chain.needDurationHint') : t('inventory.chain.offerDurationHint')}
+                  value={selectedDurationPreset}
+                  options={kind === 'need' ? needDurationPresetOptions : offerDurationPresetOptions}
+                  optionalLabel={t('inventory.labels.optional')}
+                  getLabel={(option) => durationPresetLabel(option, i18n)}
+                  onChange={updateDurationPreset}
+                />
+              </div>
               <label className="field-label inventory-details-primary__wide">
-                <span className="field-label__row"><span>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</span><small>{t('inventory.labels.optional')}</small></span>
+                <span className="field-label__row"><span>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</span><small>{values.availabilityPreset === 'custom' ? t('inventory.chain.customAvailabilityHint') : t('inventory.labels.optional')}</small></span>
                 <input
                   value={timingOrAvailabilityValue}
                   onChange={(event) => updateField(kind === 'need' ? 'timing' : 'availability', event.target.value)}
@@ -689,7 +796,7 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
               onClick={() => setShowOptionalDetails((current) => !current)}
             >
               <span>{showOptionalDetails ? t('inventory.wizard.hideOptionalDetails') : t('inventory.wizard.showOptionalDetails')}</span>
-              <strong>{values.tags ? t('inventory.wizard.tagCount', { count: parseCsvList(values.tags).length }) : t('inventory.labels.optional')}</strong>
+              <strong>{finalDurationPresetLabel || (values.tags ? t('inventory.wizard.tagCount', { count: parseCsvList(values.tags).length }) : t('inventory.labels.optional'))}</strong>
             </button>
 
             {showOptionalDetails ? (
@@ -740,6 +847,10 @@ export function InventoryCreateWizardClient({ kind, cancelHref, afterCreateRedir
                 <div>
                   <dt>{finalTimingOrAvailabilityLabel}</dt>
                   <dd>{finalTimingOrAvailabilityValue}</dd>
+                </div>
+                <div>
+                  <dt>{kind === 'need' ? t('inventory.chain.needDurationLabel') : t('inventory.chain.offerDurationLabel')}</dt>
+                  <dd>{finalDurationPresetLabel || t('inventory.labels.notSpecified')}</dd>
                 </div>
                 <div>
                   <dt>{t('inventory.labels.locationLabel')}</dt>

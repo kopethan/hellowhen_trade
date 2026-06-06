@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { getNextWizardStepId, getPreviousWizardStepId, type WizardStepDefinition } from '@hellowhen/shared';
-import type { DiscoveryLanguage, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
 import {
   INVENTORY_DESCRIPTION_MAX_LENGTH,
   INVENTORY_DESCRIPTION_MIN_LENGTH,
@@ -26,12 +26,17 @@ import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardSh
 import { ImagePickerField } from './components/ImagePickerField';
 import {
   AddTranslationButton,
+  AvailabilityPresetPicker,
   CategoryPicker,
+  durationPresetLabel,
+  durationPresetMinutes,
+  DurationPresetPicker,
   InventoryTextField,
   ManualTranslationFields,
   OriginalLanguageSummary,
   buildManualTranslation,
   ModePicker,
+  availabilityPresetLabel,
   categoryLabel,
   modeLabel,
   optionalText,
@@ -66,6 +71,8 @@ type InventoryWizardDraft = {
   description: string;
   category: string;
   timingOrAvailability: string;
+  availabilityPreset?: InventoryAvailabilityPreset;
+  durationPreset?: InventoryDurationPreset;
   tags: string;
   mode: TradeExchangeMode;
   locationLabel: string;
@@ -94,6 +101,8 @@ function hasDraftContent(draft: InventoryWizardDraft, translationTitle: string, 
     safeWizardText(translationDescription) ||
     safeWizardText(draft.category) ||
     safeWizardText(draft.timingOrAvailability) ||
+    Boolean(draft.availabilityPreset) ||
+    Boolean(draft.durationPreset) ||
     safeWizardText(draft.tags) ||
     safeWizardText(draft.locationLabel) ||
     draft.previewTheme !== 'default' ||
@@ -104,6 +113,14 @@ function hasDraftContent(draft: InventoryWizardDraft, translationTitle: string, 
 function getStepIndex(stepId: InventoryWizardStepId) {
   const index = stepIds.indexOf(stepId);
   return index >= 0 ? index : 0;
+}
+
+function isInventoryAvailabilityPreset(value: unknown): value is InventoryAvailabilityPreset {
+  return value === 'today' || value === 'this_week' || value === 'this_month' || value === 'flexible' || value === 'custom';
+}
+
+function isInventoryDurationPreset(value: unknown): value is InventoryDurationPreset {
+  return value === 'min_15' || value === 'min_30' || value === 'hour_1' || value === 'hour_2' || value === 'half_day' || value === 'day_1' || value === 'flexible' || value === 'not_sure' || value === 'depends';
 }
 
 export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: InventoryCreateWizardScreenProps) {
@@ -122,6 +139,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const [previewTheme, setPreviewTheme] = useState<PreviewCardTheme>('default');
   const [category, setCategory] = useState('');
   const [timingOrAvailability, setTimingOrAvailability] = useState('');
+  const [availabilityPreset, setAvailabilityPreset] = useState<InventoryAvailabilityPreset | undefined>();
+  const [durationPreset, setDurationPreset] = useState<InventoryDurationPreset | undefined>();
   const [tags, setTags] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
   const [images, setImages] = useState<SelectedLocalImage[]>([]);
@@ -141,12 +160,14 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     description,
     category,
     timingOrAvailability,
+    availabilityPreset,
+    durationPreset,
     tags,
     mode,
     locationLabel,
     previewTheme,
     images,
-  }), [category, description, images, locationLabel, mode, previewTheme, tags, timingOrAvailability, title]);
+  }), [availabilityPreset, category, description, durationPreset, images, locationLabel, mode, previewTheme, tags, timingOrAvailability, title]);
 
   const persistedDraft = useMemo<InventoryWizardPersistedDraft>(() => ({
     ...draft,
@@ -163,6 +184,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setDescription(typeof savedDraft.description === 'string' ? savedDraft.description : '');
     setCategory(typeof savedDraft.category === 'string' ? savedDraft.category : '');
     setTimingOrAvailability(typeof savedDraft.timingOrAvailability === 'string' ? savedDraft.timingOrAvailability : '');
+    setAvailabilityPreset(isInventoryAvailabilityPreset(savedDraft.availabilityPreset) ? savedDraft.availabilityPreset : undefined);
+    setDurationPreset(isInventoryDurationPreset(savedDraft.durationPreset) ? savedDraft.durationPreset : undefined);
     setTags(typeof savedDraft.tags === 'string' ? savedDraft.tags : '');
     setMode(savedDraft.mode === 'local' || savedDraft.mode === 'hybrid' || savedDraft.mode === 'remote' ? savedDraft.mode : 'remote');
     setLocationLabel(typeof savedDraft.locationLabel === 'string' ? savedDraft.locationLabel : '');
@@ -195,7 +218,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     {
       id: 'details',
       title: t('inventory.wizard.compactDetailsTitle'),
-      completed: Boolean(category.trim() || timingOrAvailability.trim() || tags.trim() || locationLabel.trim() || mode !== 'remote' || previewTheme !== 'default'),
+      completed: Boolean(category.trim() || timingOrAvailability.trim() || availabilityPreset || durationPreset || tags.trim() || locationLabel.trim() || mode !== 'remote' || previewTheme !== 'default'),
     },
     {
       id: 'images',
@@ -203,7 +226,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
       optional: true,
       completed: images.length > 0,
     },
-  ], [category, description, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, timingOrAvailability, title]);
+  ], [availabilityPreset, category, description, durationPreset, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, timingOrAvailability, title]);
 
   const hasDraft = hasDraftContent(draft, translationTitle, translationDescription);
   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
@@ -314,6 +337,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setPreviewTheme('default');
     setCategory('');
     setTimingOrAvailability('');
+    setAvailabilityPreset(undefined);
+    setDurationPreset(undefined);
     setTags('');
     setLocationLabel('');
     setImages([]);
@@ -424,6 +449,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
 
     try {
       const mediaIds = await uploadSelectedImages(images, { onProgress: setUploadProgress });
+      const cleanDurationMinutes = durationPresetMinutes(durationPreset);
       const basePayload = {
         title: cleanTitle,
         description: cleanDescription,
@@ -432,6 +458,10 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
         itemType: 'service' as const,
         category: optionalText(category),
         ...(isNeed ? { timing: optionalText(timingOrAvailability) } : { availability: optionalText(timingOrAvailability) }),
+        availabilityPreset,
+        ...(isNeed
+          ? { estimatedDurationPreset: durationPreset, estimatedDurationMinutes: cleanDurationMinutes }
+          : { typicalDurationPreset: durationPreset, typicalDurationMinutes: cleanDurationMinutes }),
         mode,
         locationLabel: optionalText(locationLabel),
         tags: parseInventoryList(tags),
@@ -460,7 +490,9 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
 
   function renderStep() {
     const timingLabel = timingOrAvailability.trim();
-    const previewMeta = [categoryLabel(category, t), timingLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
+    const structuredTimingLabel = availabilityPresetLabel(availabilityPreset, t);
+    const durationLabel = durationPresetLabel(durationPreset, t);
+    const previewMeta = [categoryLabel(category, t), structuredTimingLabel || timingLabel, durationLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
     const tagList = parseInventoryList(tags);
 
     if (activeStepId === 'idea') {
@@ -553,9 +585,11 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
           <AppCard style={styles.compactCard}>
             <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
             <ModePicker value={mode} onChange={setMode} disabled={submitting} />
+            <AvailabilityPresetPicker kind={kind} value={availabilityPreset} onChange={setAvailabilityPreset} disabled={submitting} />
+            <DurationPresetPicker kind={kind} value={durationPreset} onChange={setDurationPreset} disabled={submitting} />
             <InventoryTextField
               label={isNeed ? t('inventory.labels.timing') : t('inventory.labels.availability')}
-              hint={t('inventory.labels.optional')}
+              hint={availabilityPreset === 'custom' ? t('inventory.chain.customAvailabilityHint') : t('inventory.labels.optional')}
               value={timingOrAvailability}
               onChangeText={setTimingOrAvailability}
               placeholder={isNeed ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder')}
@@ -566,6 +600,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
           {renderCompactToggle({
             title: optionalDetailsExpanded ? t('inventory.wizard.hideOptionalDetails') : t('inventory.wizard.showOptionalDetails'),
             body: [
+              durationPreset ? durationPresetLabel(durationPreset, t) : null,
               tags.trim() || t('inventory.labels.tags'),
               locationLabel.trim() || t('inventory.labels.location'),
               betaFeatures.plusSubscriptionFeatures.customizationEnabled ? (previewTheme === 'default' ? t('inventory.wizard.defaultCardTheme') : previewTheme) : null,

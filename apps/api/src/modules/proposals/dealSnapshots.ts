@@ -12,6 +12,13 @@ type SnapshotItem = {
   category: string | null;
   timing?: string | null;
   availability?: string | null;
+  availabilityPreset?: string | null;
+  availabilityStartAt?: string | null;
+  availabilityEndAt?: string | null;
+  estimatedDurationPreset?: string | null;
+  estimatedDurationMinutes?: number | null;
+  typicalDurationPreset?: string | null;
+  typicalDurationMinutes?: number | null;
   mode: string | null;
   locationLabel: string | null;
   includes?: string[];
@@ -41,6 +48,11 @@ function snapshotNeed(need: Need, source: SnapshotSource, snapshottedAt: string,
     itemType: need.itemType,
     category: need.category ?? null,
     timing: need.timing ?? null,
+    availabilityPreset: need.availabilityPreset ?? null,
+    availabilityStartAt: need.availabilityStartAt?.toISOString() ?? null,
+    availabilityEndAt: need.availabilityEndAt?.toISOString() ?? null,
+    estimatedDurationPreset: need.estimatedDurationPreset ?? null,
+    estimatedDurationMinutes: need.estimatedDurationMinutes ?? null,
     mode: need.mode ?? null,
     locationLabel: need.locationLabel ?? null,
     tags: need.tags ?? [],
@@ -61,6 +73,11 @@ function snapshotOffer(offer: Offer, source: SnapshotSource, snapshottedAt: stri
     itemType: offer.itemType,
     category: offer.category ?? null,
     availability: offer.availability ?? null,
+    availabilityPreset: offer.availabilityPreset ?? null,
+    availabilityStartAt: offer.availabilityStartAt?.toISOString() ?? null,
+    availabilityEndAt: offer.availabilityEndAt?.toISOString() ?? null,
+    typicalDurationPreset: offer.typicalDurationPreset ?? null,
+    typicalDurationMinutes: offer.typicalDurationMinutes ?? null,
     mode: offer.mode ?? null,
     locationLabel: offer.locationLabel ?? null,
     includes: offer.includes ?? [],

@@ -1,4 +1,4 @@
-import type { DiscoveryLanguage, InventoryItemType, InventoryTranslationDto, MediaAssetDto, NeedDto, OfferDto, PreviewCardTheme } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, InventoryItemType, InventoryTranslationDto, MediaAssetDto, NeedDto, OfferDto, PreviewCardTheme } from '@hellowhen/contracts';
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { findInventoryCategoryOption, getAlternateInventoryLanguage } from '@hellowhen/shared';
 import { resolveWebAssetUrl } from '../../lib/api';
@@ -30,6 +30,11 @@ export type InventoryFormValues = {
   category: string;
   timing: string;
   availability: string;
+  availabilityPreset?: InventoryAvailabilityPreset;
+  estimatedDurationPreset?: InventoryDurationPreset;
+  estimatedDurationMinutes?: number;
+  typicalDurationPreset?: InventoryDurationPreset;
+  typicalDurationMinutes?: number;
   mode: string;
   locationLabel: string;
   tags: string;
@@ -48,6 +53,11 @@ export const emptyInventoryFormValues: InventoryFormValues = {
   category: '',
   timing: '',
   availability: '',
+  availabilityPreset: undefined,
+  estimatedDurationPreset: undefined,
+  estimatedDurationMinutes: undefined,
+  typicalDurationPreset: undefined,
+  typicalDurationMinutes: undefined,
   mode: 'remote',
   locationLabel: '',
   tags: '',
@@ -90,6 +100,50 @@ export function modeLabel(mode?: string | null, i18n?: InventoryI18n) {
   if (mode === 'local') return tr(i18n, 'inventory.modes.local', 'Local');
   if (mode === 'hybrid') return tr(i18n, 'inventory.modes.hybrid', 'Hybrid');
   return null;
+}
+
+export const inventoryAvailabilityPresetOptions: InventoryAvailabilityPreset[] = ['today', 'this_week', 'this_month', 'flexible', 'custom'];
+export const needDurationPresetOptions: InventoryDurationPreset[] = ['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'not_sure'];
+export const offerDurationPresetOptions: InventoryDurationPreset[] = ['min_15', 'min_30', 'hour_1', 'hour_2', 'half_day', 'day_1', 'flexible', 'depends'];
+
+export function isInventoryAvailabilityPreset(value: unknown): value is InventoryAvailabilityPreset {
+  return value === 'today' || value === 'this_week' || value === 'this_month' || value === 'flexible' || value === 'custom';
+}
+
+export function isInventoryDurationPreset(value: unknown): value is InventoryDurationPreset {
+  return value === 'min_15' || value === 'min_30' || value === 'hour_1' || value === 'hour_2' || value === 'half_day' || value === 'day_1' || value === 'flexible' || value === 'not_sure' || value === 'depends';
+}
+
+export function availabilityPresetLabel(preset?: InventoryAvailabilityPreset | null, i18n?: InventoryI18n) {
+  if (!preset) return '';
+  if (preset === 'today') return tr(i18n, 'inventory.availabilityPresets.today', 'Today');
+  if (preset === 'this_week') return tr(i18n, 'inventory.availabilityPresets.thisWeek', 'This week');
+  if (preset === 'this_month') return tr(i18n, 'inventory.availabilityPresets.thisMonth', 'This month');
+  if (preset === 'custom') return tr(i18n, 'inventory.availabilityPresets.custom', 'Custom');
+  return tr(i18n, 'inventory.availabilityPresets.flexible', 'Flexible');
+}
+
+export function durationPresetLabel(preset?: InventoryDurationPreset | null, i18n?: InventoryI18n) {
+  if (!preset) return '';
+  if (preset === 'min_15') return tr(i18n, 'inventory.durationPresets.min15', '15 min');
+  if (preset === 'min_30') return tr(i18n, 'inventory.durationPresets.min30', '30 min');
+  if (preset === 'hour_1') return tr(i18n, 'inventory.durationPresets.hour1', '1 hour');
+  if (preset === 'hour_2') return tr(i18n, 'inventory.durationPresets.hour2', '2 hours');
+  if (preset === 'half_day') return tr(i18n, 'inventory.durationPresets.halfDay', 'Half day');
+  if (preset === 'day_1') return tr(i18n, 'inventory.durationPresets.day1', '1 day');
+  if (preset === 'not_sure') return tr(i18n, 'inventory.durationPresets.notSure', 'Not sure');
+  if (preset === 'depends') return tr(i18n, 'inventory.durationPresets.depends', 'Depends');
+  return tr(i18n, 'inventory.durationPresets.flexible', 'Flexible');
+}
+
+export function durationPresetMinutes(preset?: InventoryDurationPreset | null) {
+  if (preset === 'min_15') return 15;
+  if (preset === 'min_30') return 30;
+  if (preset === 'hour_1') return 60;
+  if (preset === 'hour_2') return 120;
+  if (preset === 'half_day') return 240;
+  if (preset === 'day_1') return 480;
+  return undefined;
 }
 
 
@@ -183,6 +237,11 @@ export function inventoryToFormValues(item?: InventoryItem | null): InventoryFor
     category: item.category ?? '',
     timing: isNeed(item) ? item.timing ?? '' : '',
     availability: isNeed(item) ? '' : item.availability ?? '',
+    availabilityPreset: item.availabilityPreset ?? undefined,
+    estimatedDurationPreset: isNeed(item) ? item.estimatedDurationPreset ?? undefined : undefined,
+    estimatedDurationMinutes: isNeed(item) ? item.estimatedDurationMinutes ?? undefined : undefined,
+    typicalDurationPreset: isNeed(item) ? undefined : item.typicalDurationPreset ?? undefined,
+    typicalDurationMinutes: isNeed(item) ? undefined : item.typicalDurationMinutes ?? undefined,
     mode: item.mode ?? 'remote',
     locationLabel: item.locationLabel ?? '',
     tags: (item.tags ?? []).join(', '),
