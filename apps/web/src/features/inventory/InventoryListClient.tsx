@@ -59,6 +59,7 @@ function InventoryCard({ item, kind, i18n }: { item: InventoryItem; kind: Invent
           </div>
         ) : null}
       </div>
+      <span className="inventory-card__chevron" aria-hidden="true">›</span>
     </Link>
   );
 }

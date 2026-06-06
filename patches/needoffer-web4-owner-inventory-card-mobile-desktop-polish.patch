@@ -1,0 +1,141 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 20d7799..d83c5ab 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -3693,3 +3693,136 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     right: 9px;
+   }
+ }
++
++/* NEEDOFFER-WEB4: keep owner-created Need/Offer cards compact on mobile web and balanced on desktop web. */
++.inventory-card--owner { position: relative; }
++
++@media (max-width: 719px) {
++  .inventory-card--owner {
++    min-height: 118px;
++  }
++
++  .inventory-card--owner:active {
++    transform: translateY(1px);
++  }
++
++  .inventory-card--owner:focus-visible {
++    outline: 3px solid color-mix(in srgb, var(--accent-ring) 70%, transparent);
++    outline-offset: 3px;
++  }
++
++  .inventory-card--owner .inventory-card__media {
++    align-self: stretch;
++    height: 100%;
++    min-height: 100%;
++    aspect-ratio: auto;
++  }
++
++  .inventory-card--owner .inventory-card__body {
++    align-content: center;
++    gap: 5px;
++    padding: 10px 36px 10px 12px;
++  }
++
++  .inventory-card--owner .inventory-card__body .status-row {
++    flex-wrap: nowrap;
++    gap: 5px;
++    overflow: hidden;
++  }
++
++  .inventory-card--owner .inventory-card__body .status-row .semantic-badge {
++    flex: 0 1 auto;
++    max-width: 100%;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .inventory-card--owner .inventory-card__body h3 {
++    display: -webkit-box;
++    overflow: hidden;
++    -webkit-line-clamp: 2;
++    -webkit-box-orient: vertical;
++  }
++
++  .inventory-card--owner .inventory-card__body .meta {
++    display: block;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    white-space: nowrap;
++  }
++
++  .inventory-card--owner .inventory-card__body > p:not(.meta),
++  .inventory-card--owner .inventory-card__footer,
++  .inventory-card--owner .inventory-card__tags {
++    display: none;
++  }
++
++  .inventory-card--owner::after {
++    content: '›';
++    position: absolute;
++    top: 50%;
++    right: 12px;
++    display: grid;
++    place-items: center;
++    width: 20px;
++    height: 20px;
++    color: var(--app-text-muted);
++    font-size: 26px;
++    font-weight: 650;
++    line-height: 1;
++    transform: translateY(-50%);
++  }
++}
++
++@media (min-width: 720px) {
++  .inventory-card--owner {
++    grid-template-columns: minmax(220px, 33.333%) minmax(0, 1fr);
++    min-height: 188px;
++  }
++
++  .inventory-card--owner .inventory-card__media {
++    align-self: stretch;
++    height: 100%;
++    min-height: 100%;
++    aspect-ratio: auto;
++  }
++
++  .inventory-card--owner .inventory-card__body {
++    align-content: start;
++    gap: 9px;
++    padding: 16px 18px;
++  }
++
++  .inventory-card--owner .inventory-card__body > p:not(.meta) {
++    display: -webkit-box;
++    -webkit-line-clamp: 2;
++    font-size: 13px;
++  }
++
++  .inventory-card--owner .inventory-card__footer {
++    margin-top: auto;
++  }
++}
++
++@media (min-width: 1024px) {
++  .inventory-card--owner {
++    grid-template-columns: minmax(240px, 33.333%) minmax(0, 1fr);
++    min-height: 202px;
++  }
++}
++
++@media (max-width: 380px) {
++  .inventory-card--owner {
++    min-height: 108px;
++  }
++
++  .inventory-card--owner .inventory-card__body {
++    gap: 4px;
++    padding: 8px 30px 8px 10px;
++  }
++
++  .inventory-card--owner::after {
++    right: 9px;
++  }
++}
