@@ -17,6 +17,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
 import { UserAvatar, getUserDisplayName, resolveNativeAssetUrl } from './UserAvatar';
 import { isPublicUserId } from './UserIdentityPressable';
+import { durationPresetLabel } from '../trade/components/InventoryFormFields';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'UserProfile'>;
 
@@ -81,9 +82,15 @@ function postDescription(post: PublicProfileTradeSummary, kind: PostKind) {
   return post.description || post.need?.description || post.offer?.description || '';
 }
 
-function postMeta(post: PublicProfileTradeSummary, kind: PostKind) {
-  if (kind === 'need') return [post.need?.category, post.need?.timing, post.need?.locationLabel].filter(Boolean).join(' · ');
-  if (kind === 'offer') return [post.offer?.category, post.offer?.availability, post.offer?.locationLabel].filter(Boolean).join(' · ');
+function postTiming(post: PublicProfileTradeSummary, kind: PostKind, t: TFunction) {
+  if (kind === 'need') return durationPresetLabel(post.need?.estimatedDurationPreset, t);
+  if (kind === 'offer') return durationPresetLabel(post.offer?.typicalDurationPreset, t);
+  return '';
+}
+
+function postMeta(post: PublicProfileTradeSummary, kind: PostKind, t: TFunction) {
+  if (kind === 'need') return [post.need?.category, postTiming(post, kind, t), post.need?.locationLabel].filter(Boolean).join(' · ');
+  if (kind === 'offer') return [post.offer?.category, postTiming(post, kind, t), post.offer?.locationLabel].filter(Boolean).join(' · ');
   return [post.need?.category, post.offer?.category].filter(Boolean).join(' · ');
 }
 
@@ -117,7 +124,7 @@ function PostCard({ post, kind, onOpen }: { post: PublicProfileTradeSummary; kin
   const hasImage = Boolean(imageUrl) && !imageFailed;
   const title = postTitle(post, kind, t);
   const description = postDescription(post, kind);
-  const meta = postMeta(post, kind);
+  const meta = postMeta(post, kind, t);
 
   useEffect(() => {
     setImageFailed(false);

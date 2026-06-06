@@ -16,6 +16,7 @@ type TradePosterCardProps = {
   subtitle?: string;
   chips?: string[];
   status?: { label: string; tone: TradePosterCardStatusTone } | null;
+  topMeta?: string | null;
   identity?: React.ReactNode;
   variant?: TradePosterCardVariant;
   onPress: () => void;
@@ -99,7 +100,7 @@ function LowerAtmosphere({ imageUrl, isDark }: { imageUrl?: string | null; isDar
   );
 }
 
-function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, identity, variant = 'trade', onPress, previewTheme }: TradePosterCardProps) {
+function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, chips, status, topMeta, identity, variant = 'trade', onPress, previewTheme }: TradePosterCardProps) {
   const theme = useThemeTokens();
   const isDark = theme.mode === 'dark';
   const [imageFailed, setImageFailed] = useState(!imageUrl);
@@ -169,7 +170,11 @@ function TradePosterCardInner({ id, imageUrl, badge, eyebrow, title, subtitle, c
           <View style={[styles.badge, { backgroundColor: pillBg, borderColor: pillBorder }]}>
             <AppText style={[styles.badgeText, { color: eyebrowColor }]} numberOfLines={1}>{badge}</AppText>
           </View>
-          {identity ? <View style={styles.identitySlot}>{identity}</View> : null}
+          {identity ? <View style={styles.identitySlot}>{identity}</View> : topMeta ? (
+            <View style={[styles.topMetaBadge, { backgroundColor: pillBg, borderColor: pillBorder }]}>
+              <AppText style={[styles.topMetaText, { color: eyebrowColor }]} numberOfLines={1}>{topMeta}</AppText>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.copyBlock}>
@@ -302,6 +307,23 @@ const styles = StyleSheet.create({
     maxWidth: '48%',
     flexShrink: 1,
     alignItems: 'flex-end',
+  },
+  topMetaBadge: {
+    minHeight: 26,
+    maxWidth: '48%',
+    flexShrink: 1,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topMetaText: {
+    fontSize: 10.5,
+    lineHeight: 13,
+    fontWeight: '900',
+    letterSpacing: 0.25,
   },
   badgeText: {
     fontSize: 11,

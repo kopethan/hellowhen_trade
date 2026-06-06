@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { TradeDto } from '@hellowhen/contracts';
 import { truncateText } from '@hellowhen/shared';
 import { formatWebMoney } from '../../lib/webFormat';
-import { getExchangeLabel, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
+import { getExchangeLabel, getStatusLabel, getTradeHeadline, getTradePostType, getTradeProposalCopy, getTradeTimingBadge } from './tradePresentation';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
@@ -20,11 +20,14 @@ export function TradeCard({ trade }: { trade: TradeDto }) {
   const proposalCopy = getTradeProposalCopy(trade, i18n);
   const needTitle = trade.need?.title ?? t('trade.labels.needDetails');
   const offerTitle = trade.offer?.title ?? t('trade.labels.offerDetails');
+  const timingBadge = getTradeTimingBadge(trade, i18n);
+  const statusBadge = trade.status === 'active' ? '' : getStatusLabel(trade.status, i18n);
+  const topBadge = timingBadge || statusBadge;
 
   return (
     <article className="trade-card" aria-label={trade.title}>
       <div className="trade-card__top">
-        <span className="semantic-badge trade">{trade.status}</span>
+        <span className="semantic-badge trade">{topBadge || getExchangeLabel(trade, i18n)}</span>
         <UserIdentityLink
           user={trade.owner}
           userId={trade.ownerId}

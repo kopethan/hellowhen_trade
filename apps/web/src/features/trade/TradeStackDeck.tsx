@@ -6,7 +6,7 @@ import type { TradeDto } from '@hellowhen/contracts';
 import { normalizePreviewCardTheme, previewCardThemeClassName } from '@hellowhen/shared';
 import { WebIcon } from '../../components/WebIcon';
 import { SquareStackDeck, type SquareStackDeckItem } from '../deck/SquareStackDeck';
-import { getDeckImages, getExchangeLabel, getExpiryUrgencyBadge, getNeedSide, getOfferSide, getStatusLabel, getTradePostType, type TradeI18n } from './tradePresentation';
+import { getDeckImages, getExchangeLabel, getExpiryUrgencyBadge, getNeedSide, getOfferSide, getStatusLabel, getTradePostType, getTradeTimingBadge, type TradeI18n } from './tradePresentation';
 import { TradePosterCard } from './TradePosterCard';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
@@ -174,6 +174,9 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
   const coverImage = images[0];
   const summarySubtitle = summarySubtitleForTrade(trade, need, offer, i18n);
   const summaryChips = summaryChipsForTrade(trade, need, offer, i18n);
+  const timingBadge = getTradeTimingBadge(trade, i18n);
+  const statusBadge = trade.status === 'active' ? '' : getStatusLabel(trade.status, i18n);
+  const topRightBadge = timingBadge || statusBadge;
 
   const needCardMeta = compactCardMeta(need.metadata, need.description);
   const offerCardMeta = compactCardMeta(offer.metadata, offer.description);
@@ -183,7 +186,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
     <div className={`trade-stack-card trade-stack-card--summary trade-stack-card--mobile-parity ${previewCardThemeClassName(previewTheme)}`}>
       <div className="trade-stack-card__mobile-top">
         <span>{(i18n?.t?.('trade.labels.trade') ?? 'TRADE').toUpperCase()} · {cardCountLabel(totalCards)}</span>
-        <strong>{getStatusLabel(trade.status, i18n)}</strong>
+        {topRightBadge ? <strong title={topRightBadge}>{topRightBadge}</strong> : null}
       </div>
 
       <div className="trade-stack-card__mobile-section trade-stack-card__mobile-section--need">
@@ -221,6 +224,7 @@ export function buildTradeStackDeckItems(trade: TradeDto, actionLabel = 'Open', 
       title={compactTradeTitle(trade, need.title, offer.title)}
       subtitle={summarySubtitle}
       chips={summaryChips}
+      topMeta={timingBadge}
       footer={<TradeCountdown expiresAt={trade.expiresAt} variant="poster" i18n={i18n} />}
       variant="trade"
       previewTheme={previewTheme}

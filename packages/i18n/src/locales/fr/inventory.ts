@@ -94,8 +94,8 @@ export const inventory = {
     availabilityHint: 'Optionnel. Aide les futurs matchs à rester réalistes.',
     needDurationLabel: 'Durée estimée',
     offerDurationLabel: 'Durée habituelle',
-    needDurationHint: 'Combien de temps ce besoin peut prendre.',
-    offerDurationHint: 'Combien de temps votre offre prend en général.',
+    needDurationHint: 'Combien de temps ce besoin peut prendre une fois accepté.',
+    offerDurationHint: 'Combien de temps votre offre prend en général une fois acceptée.',
     customAvailabilityHint: 'Utilisez le champ texte pour les détails personnalisés.',
   },
   languages: {

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import type { TradeDto } from '@hellowhen/contracts';
 import { truncateText } from '@hellowhen/shared';
-import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getTradeHeadline, getTradePostType, getTradeProposalCopy } from './tradePresentation';
+import { getDeckImages, getExchangeLabel, getNeedSide, getOfferSide, getStatusLabel, getTradeHeadline, getTradePostType, getTradeProposalCopy, getTradeTimingBadge } from './tradePresentation';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 
@@ -16,13 +16,16 @@ export function TradeDeck({ trade }: { trade: TradeDto }) {
   const exchange = getExchangeLabel(trade, i18n);
   const postType = getTradePostType(trade);
   const proposalCopy = getTradeProposalCopy(trade, i18n);
+  const timingBadge = getTradeTimingBadge(trade, i18n);
+  const statusBadge = trade.status === 'active' ? '' : getStatusLabel(trade.status, i18n);
+  const topBadge = timingBadge || statusBadge;
 
   return (
     <section className="trade-deck" aria-label={trade.title}>
       <div className="trade-deck__rail">
         <article className="trade-deck-card trade-deck-card--summary" aria-label={trade.title}>
           <div className="trade-deck-card__top">
-            <span className="semantic-badge trade">{trade.status}</span>
+            <span className="semantic-badge trade">{topBadge || getExchangeLabel(trade, i18n)}</span>
             <UserIdentityLink
               user={trade.owner}
               userId={trade.ownerId}

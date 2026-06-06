@@ -12,7 +12,7 @@ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
-import { formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, itemTypeLabel, itemTypePluralLabel, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { durationPresetLabel, formatInventoryDate, getInventoryMetadata, getInventoryTags, inventoryStatusLabel, itemTypeLabel, itemTypePluralLabel, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryList, sideClassName, sideLabel, type InventoryI18n, type InventoryItem, type InventoryKind } from './inventoryPresentation';
 
 type InventoryListClientProps = {
   kind: InventoryKind;
@@ -74,8 +74,8 @@ function normalizeTemplateList(value: unknown): InventoryTemplateDto[] {
 }
 
 function templateMetadata(template: InventoryTemplateDto, i18n: InventoryI18n) {
-  const timing = template.kind === 'need' ? template.timing : template.availability;
-  return [itemTypeLabel(template.itemType, i18n), template.category, timing, modeLabel(template.mode, i18n), template.locationLabel]
+  const duration = durationPresetLabel(template.durationPreset, i18n);
+  return [itemTypeLabel(template.itemType, i18n), template.category, duration, modeLabel(template.mode, i18n), template.locationLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }

@@ -1299,6 +1299,7 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
 }
 
 .trade-poster-card__badge,
+.trade-poster-card__top-meta,
 .trade-poster-card__chips span {
   display: inline-flex;
   align-items: center;
@@ -1314,6 +1315,7 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
 }
 
 .trade-poster-card.has-fallback .trade-poster-card__badge,
+.trade-poster-card.has-fallback .trade-poster-card__top-meta,
 .trade-poster-card.has-fallback .trade-poster-card__chips span {
   border-color: rgba(15, 23, 42, 0.08);
   background: rgba(255, 255, 255, 0.72);
@@ -1321,7 +1323,8 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.09);
 }
 
-.trade-poster-card__badge {
+.trade-poster-card__badge,
+.trade-poster-card__top-meta {
   min-height: 27px;
   padding: 5px 11px;
   font-size: 11px;
@@ -1329,6 +1332,14 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
   letter-spacing: 0.09em;
   line-height: 1.15;
   text-transform: uppercase;
+}
+
+.trade-poster-card__top-meta {
+  flex: 0 1 auto;
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trade-poster-card__copy {
@@ -1489,6 +1500,7 @@ html[data-theme="dark"] .trade-poster-card.has-fallback .trade-poster-card__bott
 }
 
 html[data-theme="dark"] .trade-poster-card.has-fallback .trade-poster-card__badge,
+html[data-theme="dark"] .trade-poster-card.has-fallback .trade-poster-card__top-meta,
 html[data-theme="dark"] .trade-poster-card.has-fallback .trade-poster-card__chips span {
   border-color: rgba(255, 255, 255, 0.12);
   background: rgba(7, 10, 14, 0.30);
@@ -1527,6 +1539,7 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
   }
 
   :root:not([data-theme="light"]) .trade-poster-card.has-fallback .trade-poster-card__badge,
+  :root:not([data-theme="light"]) .trade-poster-card.has-fallback .trade-poster-card__top-meta,
   :root:not([data-theme="light"]) .trade-poster-card.has-fallback .trade-poster-card__chips span {
     border-color: rgba(255, 255, 255, 0.12);
     background: rgba(7, 10, 14, 0.30);
@@ -1702,7 +1715,7 @@ html[data-theme="dark"] .trade-poster-card.has-fallback h2 {
 
 .trade-stack-card--mobile-parity { grid-template-rows: auto minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 0; padding: clamp(22px, 7vw, 32px); text-align: center; }
 .trade-stack-card__mobile-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; letter-spacing: .12em; text-transform: uppercase; }
-.trade-stack-card__mobile-top strong { color: var(--app-text); font-size: 12px; font-weight: 950; }
+.trade-stack-card__mobile-top strong { max-width: 48%; overflow: hidden; color: var(--app-text); font-size: 12px; font-weight: 950; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .trade-stack-card__mobile-section { display: grid; align-content: center; justify-items: center; gap: 5px; min-height: 0; overflow: visible; padding-block: 5px; }
 .trade-stack-card__mobile-section p { margin: 0; font-size: 13.5px; font-weight: 950; letter-spacing: -0.02em; }
 .trade-stack-card__mobile-section--need p { color: color-mix(in srgb, #2563eb 76%, var(--app-text)); }

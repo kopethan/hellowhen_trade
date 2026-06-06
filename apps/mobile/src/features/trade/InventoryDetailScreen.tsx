@@ -34,6 +34,7 @@ import {
   CategoryPicker,
   categoryLabel,
   getEditableTranslationLanguage,
+  durationPresetLabel,
   itemTypeLabel,
   ManualTranslationFields,
   OriginalLanguageSummary,
@@ -100,6 +101,14 @@ function activeDetailImages(item: InventoryItem | null) {
   return (item?.media ?? [])
     .filter((media) => media.status === 'active')
     .map((media) => ({ id: media.id, uri: resolveMediaUrl(media.url) }));
+}
+
+function structuredInventoryTiming(item: InventoryItem | null, isNeed: boolean, t: TFunction) {
+  if (!item) return { duration: '' };
+  const duration = isNeed
+    ? durationPresetLabel((item as NeedItem).estimatedDurationPreset, t)
+    : durationPresetLabel((item as OfferItem).typicalDurationPreset, t);
+  return { duration };
 }
 
 function detailChips({
@@ -493,18 +502,19 @@ export function InventoryDetailScreen({
     '',
   );
   const detailImages = useMemo(() => activeDetailImages(item), [item]);
+  const structuredTiming = useMemo(() => structuredInventoryTiming(item, isNeed, t), [isNeed, item, t]);
   const chips = useMemo(
     () =>
       detailChips({
         itemType,
         category,
-        timingOrAvailability,
+        timingOrAvailability: structuredTiming.duration,
         mode,
         locationLabel,
         t,
         tone,
       }),
-    [category, itemType, locationLabel, mode, t, timingOrAvailability, tone],
+    [category, itemType, locationLabel, mode, structuredTiming.duration, t, tone],
   );
   const status = typeof item?.status === 'string' ? item.status : 'draft';
   const isActive = status === 'active';
@@ -524,13 +534,15 @@ export function InventoryDetailScreen({
       value: categoryLabel(category, t) || t('inventory.labels.notSpecified'),
       tone: 'muted' as const,
     },
-    {
-      label: isNeed
-        ? t('inventory.labels.timing')
-        : t('inventory.labels.availability'),
-      value: timingOrAvailability || t('inventory.labels.notSpecified'),
-      tone: 'time' as const,
-    },
+    ...(structuredTiming.duration
+      ? [{
+          label: isNeed
+            ? t('inventory.chain.needDurationLabel')
+            : t('inventory.chain.offerDurationLabel'),
+          value: structuredTiming.duration,
+          tone: 'time' as const,
+        }]
+      : []),
     {
       label: t('inventory.labels.mode'),
       value: modeLabel(mode, t),

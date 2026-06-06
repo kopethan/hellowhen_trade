@@ -212,9 +212,18 @@ export function sideClassName(kind: InventoryKind) {
   return kind === 'need' ? 'need' : 'offer';
 }
 
+export function getInventoryTimingBadge(item: InventoryItem, i18n?: InventoryI18n) {
+  return getInventoryDurationLabel(item, i18n);
+}
+
+export function getInventoryDurationLabel(item: InventoryItem, i18n?: InventoryI18n) {
+  return isNeed(item)
+    ? durationPresetLabel(item.estimatedDurationPreset, i18n)
+    : durationPresetLabel(item.typicalDurationPreset, i18n);
+}
+
 export function getInventoryMetadata(item: InventoryItem, i18n?: InventoryI18n) {
-  const timing = isNeed(item) ? item.timing : item.availability;
-  return [itemTypeLabel(item.itemType, i18n), inventoryCategoryLabel(item.category, i18n), timing, modeLabel(item.mode, i18n), item.locationLabel]
+  return [itemTypeLabel(item.itemType, i18n), inventoryCategoryLabel(item.category, i18n), getInventoryDurationLabel(item, i18n), modeLabel(item.mode, i18n), item.locationLabel]
     .filter((value): value is string => Boolean(value && value.trim()))
     .join(' · ');
 }

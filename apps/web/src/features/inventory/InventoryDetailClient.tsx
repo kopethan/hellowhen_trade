@@ -6,7 +6,7 @@ import { api } from '../../lib/api';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
-import { formatInventoryDate, getInventoryMetadata, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
+import { formatInventoryDate, getInventoryDurationLabel, getInventoryMetadata, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
 
 type InventoryDetailClientProps = {
   kind: InventoryKind;
@@ -76,11 +76,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
 
   const metadata = getInventoryMetadata(item, i18n);
   const tags = getInventoryTags(item);
-  const timingLabel = kind === 'need' && 'timing' in item
-    ? item.timing ?? t('inventory.labels.notSpecified')
-    : kind === 'offer' && 'availability' in item
-      ? item.availability ?? t('inventory.labels.notSpecified')
-      : t('inventory.labels.notSpecified');
+  const durationLabel = getInventoryDurationLabel(item, i18n);
 
   return (
     <article className="trade-detail-page">
@@ -136,7 +132,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
           <div><dt>{t('inventory.labels.status')}</dt><dd>{inventoryStatusLabel(item.status, i18n)}</dd></div>
           <div><dt>{t('inventory.labels.type')}</dt><dd>{itemTypeLabel(item.itemType, i18n)}</dd></div>
           <div><dt>{t('inventory.labels.category')}</dt><dd>{inventoryCategoryLabel(item.category, i18n) || t('inventory.labels.notSpecified')}</dd></div>
-          <div><dt>{kind === 'need' ? t('inventory.labels.timing') : t('inventory.labels.availability')}</dt><dd>{timingLabel}</dd></div>
+          {durationLabel ? <div><dt>{kind === 'need' ? t('inventory.chain.needDurationLabel') : t('inventory.chain.offerDurationLabel')}</dt><dd>{durationLabel}</dd></div> : null}
           <div><dt>{t('inventory.labels.mode')}</dt><dd>{modeLabel(item.mode, i18n) ?? t('inventory.labels.notSpecified')}</dd></div>
           <div><dt>{t('inventory.labels.location')}</dt><dd>{item.locationLabel ?? t('inventory.labels.notSpecified')}</dd></div>
           <div><dt>{t('inventory.labels.expires')}</dt><dd>{formatInventoryDate(item.expiresAt, i18n)}</dd></div>

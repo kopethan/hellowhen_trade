@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { getNextWizardStepId, getPreviousWizardStepId, type WizardStepDefinition } from '@hellowhen/shared';
-import type { DiscoveryLanguage, InventoryAvailabilityPreset, InventoryDurationPreset, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
+import type { DiscoveryLanguage, InventoryDurationPreset, PreviewCardTheme, TradeExchangeMode } from '@hellowhen/contracts';
 import {
   INVENTORY_DESCRIPTION_MAX_LENGTH,
   INVENTORY_DESCRIPTION_MIN_LENGTH,
@@ -26,7 +26,6 @@ import { buildMobileWizardDraftKey, useMobileWizardDraft, WizardFooter, WizardSh
 import { ImagePickerField } from './components/ImagePickerField';
 import {
   AddTranslationButton,
-  AvailabilityPresetPicker,
   CategoryPicker,
   durationPresetLabel,
   durationPresetMinutes,
@@ -36,7 +35,6 @@ import {
   OriginalLanguageSummary,
   buildManualTranslation,
   ModePicker,
-  availabilityPresetLabel,
   categoryLabel,
   modeLabel,
   optionalText,
@@ -70,8 +68,6 @@ type InventoryWizardDraft = {
   title: string;
   description: string;
   category: string;
-  timingOrAvailability: string;
-  availabilityPreset?: InventoryAvailabilityPreset;
   durationPreset?: InventoryDurationPreset;
   tags: string;
   mode: TradeExchangeMode;
@@ -100,8 +96,6 @@ function hasDraftContent(draft: InventoryWizardDraft, translationTitle: string, 
     safeWizardText(translationTitle) ||
     safeWizardText(translationDescription) ||
     safeWizardText(draft.category) ||
-    safeWizardText(draft.timingOrAvailability) ||
-    Boolean(draft.availabilityPreset) ||
     Boolean(draft.durationPreset) ||
     safeWizardText(draft.tags) ||
     safeWizardText(draft.locationLabel) ||
@@ -113,10 +107,6 @@ function hasDraftContent(draft: InventoryWizardDraft, translationTitle: string, 
 function getStepIndex(stepId: InventoryWizardStepId) {
   const index = stepIds.indexOf(stepId);
   return index >= 0 ? index : 0;
-}
-
-function isInventoryAvailabilityPreset(value: unknown): value is InventoryAvailabilityPreset {
-  return value === 'today' || value === 'this_week' || value === 'this_month' || value === 'flexible' || value === 'custom';
 }
 
 function isInventoryDurationPreset(value: unknown): value is InventoryDurationPreset {
@@ -138,8 +128,6 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   const [mode, setMode] = useState<TradeExchangeMode>('remote');
   const [previewTheme, setPreviewTheme] = useState<PreviewCardTheme>('default');
   const [category, setCategory] = useState('');
-  const [timingOrAvailability, setTimingOrAvailability] = useState('');
-  const [availabilityPreset, setAvailabilityPreset] = useState<InventoryAvailabilityPreset | undefined>();
   const [durationPreset, setDurationPreset] = useState<InventoryDurationPreset | undefined>();
   const [tags, setTags] = useState('');
   const [locationLabel, setLocationLabel] = useState('');
@@ -159,15 +147,13 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     title,
     description,
     category,
-    timingOrAvailability,
-    availabilityPreset,
     durationPreset,
     tags,
     mode,
     locationLabel,
     previewTheme,
     images,
-  }), [availabilityPreset, category, description, durationPreset, images, locationLabel, mode, previewTheme, tags, timingOrAvailability, title]);
+  }), [category, description, durationPreset, images, locationLabel, mode, previewTheme, tags, title]);
 
   const persistedDraft = useMemo<InventoryWizardPersistedDraft>(() => ({
     ...draft,
@@ -183,8 +169,6 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setTitle(typeof savedDraft.title === 'string' ? savedDraft.title : '');
     setDescription(typeof savedDraft.description === 'string' ? savedDraft.description : '');
     setCategory(typeof savedDraft.category === 'string' ? savedDraft.category : '');
-    setTimingOrAvailability(typeof savedDraft.timingOrAvailability === 'string' ? savedDraft.timingOrAvailability : '');
-    setAvailabilityPreset(isInventoryAvailabilityPreset(savedDraft.availabilityPreset) ? savedDraft.availabilityPreset : undefined);
     setDurationPreset(isInventoryDurationPreset(savedDraft.durationPreset) ? savedDraft.durationPreset : undefined);
     setTags(typeof savedDraft.tags === 'string' ? savedDraft.tags : '');
     setMode(savedDraft.mode === 'local' || savedDraft.mode === 'hybrid' || savedDraft.mode === 'remote' ? savedDraft.mode : 'remote');
@@ -218,7 +202,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     {
       id: 'details',
       title: t('inventory.wizard.compactDetailsTitle'),
-      completed: Boolean(category.trim() || timingOrAvailability.trim() || availabilityPreset || durationPreset || tags.trim() || locationLabel.trim() || mode !== 'remote' || previewTheme !== 'default'),
+      completed: Boolean(category.trim() || durationPreset || tags.trim() || locationLabel.trim() || mode !== 'remote' || previewTheme !== 'default'),
     },
     {
       id: 'images',
@@ -226,7 +210,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
       optional: true,
       completed: images.length > 0,
     },
-  ], [availabilityPreset, category, description, durationPreset, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, timingOrAvailability, title]);
+  ], [category, description, durationPreset, images.length, isNeed, locationLabel, mode, previewTheme, t, tags, title]);
 
   const hasDraft = hasDraftContent(draft, translationTitle, translationDescription);
   const uploadProgressBody = formatUploadProgress(uploadProgress, t);
@@ -336,8 +320,6 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
     setMode('remote');
     setPreviewTheme('default');
     setCategory('');
-    setTimingOrAvailability('');
-    setAvailabilityPreset(undefined);
     setDurationPreset(undefined);
     setTags('');
     setLocationLabel('');
@@ -457,8 +439,6 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
         translations: translationEnabled ? buildManualTranslation(defaultLanguage, translationTitle, translationDescription) : [],
         itemType: 'service' as const,
         category: optionalText(category),
-        ...(isNeed ? { timing: optionalText(timingOrAvailability) } : { availability: optionalText(timingOrAvailability) }),
-        availabilityPreset,
         ...(isNeed
           ? { estimatedDurationPreset: durationPreset, estimatedDurationMinutes: cleanDurationMinutes }
           : { typicalDurationPreset: durationPreset, typicalDurationMinutes: cleanDurationMinutes }),
@@ -489,10 +469,8 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
   }
 
   function renderStep() {
-    const timingLabel = timingOrAvailability.trim();
-    const structuredTimingLabel = availabilityPresetLabel(availabilityPreset, t);
     const durationLabel = durationPresetLabel(durationPreset, t);
-    const previewMeta = [categoryLabel(category, t), structuredTimingLabel || timingLabel, durationLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
+    const previewMeta = [categoryLabel(category, t), durationLabel, modeLabel(mode, t), locationLabel.trim()].filter(Boolean).join(' · ');
     const tagList = parseInventoryList(tags);
 
     if (activeStepId === 'idea') {
@@ -585,17 +563,7 @@ export function InventoryCreateWizardScreen({ kind, routeParams, navigation }: I
           <AppCard style={styles.compactCard}>
             <CategoryPicker value={category} onChange={setCategory} disabled={submitting} />
             <ModePicker value={mode} onChange={setMode} disabled={submitting} />
-            <AvailabilityPresetPicker kind={kind} value={availabilityPreset} onChange={setAvailabilityPreset} disabled={submitting} />
             <DurationPresetPicker kind={kind} value={durationPreset} onChange={setDurationPreset} disabled={submitting} />
-            <InventoryTextField
-              label={isNeed ? t('inventory.labels.timing') : t('inventory.labels.availability')}
-              hint={availabilityPreset === 'custom' ? t('inventory.chain.customAvailabilityHint') : t('inventory.labels.optional')}
-              value={timingOrAvailability}
-              onChangeText={setTimingOrAvailability}
-              placeholder={isNeed ? t('inventory.form.timingMobilePlaceholder') : t('inventory.form.availabilityMobilePlaceholder')}
-              maxLength={80}
-              disabled={submitting}
-            />
           </AppCard>
           {renderCompactToggle({
             title: optionalDetailsExpanded ? t('inventory.wizard.hideOptionalDetails') : t('inventory.wizard.showOptionalDetails'),

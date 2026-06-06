@@ -1,0 +1,395 @@
+# Hellowhen Trade Chain
+
+## Status
+
+This document is for future planning only.
+
+Trade Chain matching is not part of the first public launch. Do not expose Trade Chain, Chain Match, group exchange, or multi-person matching UI until an explicit later phase.
+
+The first public launch remains simple:
+
+```txt
+Trades
+Needs
+Offers
+Account
+No wallet
+No payouts
+No Cash Promise
+No public Trade Chain UI
+No automatic multi-person matching
+```
+
+## Naming
+
+Use these names consistently:
+
+```txt
+Internal product and technical name:
+  Trade Chain
+
+Future user-facing label:
+  Chain Match
+```
+
+A Trade Chain is the internal concept. A Chain Match is what users may see later when Hellowhen finds a possible multi-person exchange.
+
+Avoid using complex public labels such as `multi-party circular exchange` in the app UI. Keep that kind of wording only for internal notes if needed.
+
+## Core idea
+
+A Trade Chain is a multi-person exchange where every participant gives something and receives something, but not necessarily from the same person.
+
+Example 3-person cycle:
+
+```txt
+User 1 needs A and offers B.
+User 2 needs B and offers C.
+User 3 needs C and offers A.
+```
+
+The future system could suggest:
+
+```txt
+User 1 receives A from User 3.
+User 2 receives B from User 1.
+User 3 receives C from User 2.
+```
+
+This is more powerful than a normal 1-to-1 trade, but it also needs stronger confirmation, safety, and completion rules.
+
+## Product model
+
+Keep these product layers separate:
+
+```txt
+Need / Offer:
+  Reusable evergreen inventory item.
+  Describes what a user needs or can offer.
+  Stores estimated or typical duration.
+  Does not decide a start date or deadline.
+
+Trade:
+  Active public exchange post.
+  Combines a Need and/or Offer into a visible opportunity.
+  Handles post expiry and public discovery.
+
+Proposal:
+  Private negotiation around a Trade.
+  Lets users discuss scope, timing, conditions, and fit.
+
+Accepted Deal:
+  Confirmed agreement between participants.
+  Tracks submission, completion, cancellation, and reports.
+
+Trade Chain:
+  Future multi-person agreement connecting multiple users.
+  Becomes active only after every participant confirms.
+```
+
+Important rule:
+
+```txt
+Needs and Offers do not decide when something starts.
+They only describe reusable inventory and estimated duration.
+
+Trades, proposals, accepted deals, and future chain confirmations decide schedule, deadline, and completion.
+```
+
+## Current data foundation
+
+The repo now has the right first pieces for future matching.
+
+Useful Need and Offer fields:
+
+```txt
+itemType
+category
+tags
+mode
+locationLabel
+estimatedDurationPreset / typicalDurationPreset
+estimatedDurationMinutes / typicalDurationMinutes
+status
+expiresAt
+```
+
+Useful Trade fields:
+
+```txt
+needId
+offerId
+status
+expiresAt
+acceptedProposalId
+```
+
+Useful safety and permission foundations:
+
+```txt
+blocked user relationships
+restricted / suspended user behavior
+private proposal threads
+accepted proposal / deal status flow
+reports and support hooks
+admin moderation foundations
+```
+
+## Duration-only inventory decision
+
+Inventory-level duration is useful for future matching.
+
+Examples:
+
+```txt
+Need:
+  Estimated duration: 1 hour
+
+Offer:
+  Typical duration: 2 hours
+```
+
+Duration helps a future chain engine estimate whether a proposed exchange is realistic.
+
+Inventory-level availability or start timing should not be promoted in the Create Need/Offer UX because Needs and Offers should remain evergreen. Any availability fields that exist in the schema should stay dormant unless a later phase explicitly reuses them for a clear purpose.
+
+Feed card rule:
+
+```txt
+Top-right card metadata for Need / Offer inventory should mean duration, not start time.
+```
+
+Examples:
+
+```txt
+OPEN NEED · 01/01       1 hour
+OPEN OFFER · 01/01      Depends
+TRADE · 01/01           1h ↔ 2h
+```
+
+Do not show `Today`, `This week`, or other start-time labels in the inventory card top-right badge unless a later Trade/Deal scheduling feature explicitly owns that meaning.
+
+## Matching model
+
+A future matching prototype should treat Needs and Offers as matchable resources.
+
+A possible edge exists when:
+
+```txt
+Offer X may satisfy Need Y.
+```
+
+A 2-person direct match is:
+
+```txt
+User 1 needs A and offers B.
+User 2 needs B and offers A.
+```
+
+A 3-person chain is:
+
+```txt
+User 1 offers B -> User 2 needs B.
+User 2 offers C -> User 3 needs C.
+User 3 offers A -> User 1 needs A.
+```
+
+Start with 2-person and 3-person matching. Avoid longer chains until coordination, safety, and completion rules are proven.
+
+## Future chain matching rules
+
+A chain suggestion is only valid when all of these are true:
+
+```txt
+Every participant receives something that matches a Need.
+Every participant gives something that matches an Offer.
+No participant only matches with themselves.
+No blocked user pair appears in the chain.
+No restricted or suspended user appears in the chain.
+Mode is compatible: remote / local / hybrid.
+Location is compatible enough for local or hybrid items.
+Duration is reasonable enough for the proposed exchange.
+The relevant Needs, Offers, and Trades are active.
+Every participant explicitly confirms before activation.
+```
+
+No chain should activate automatically.
+
+## Future chain confirmation flow
+
+A possible future user flow:
+
+```txt
+1. Hellowhen finds a possible chain internally.
+2. The system creates a draft Chain Match suggestion.
+3. Each participant sees what they would give and receive.
+4. Each participant can accept or decline.
+5. If everyone accepts, the Chain Match becomes an active chain deal.
+6. If any participant declines, the suggestion is closed safely.
+```
+
+User-facing summary example:
+
+```txt
+Hellowhen found a possible 3-person Chain Match.
+
+You give:
+  Product photography
+
+You receive:
+  Landing page copy cleanup
+
+Participants:
+  You, Mina, Noah
+
+[Review details]
+[Decline]
+```
+
+## Accepted chain deal concept
+
+A future accepted Chain Match should become a chain-level deal workspace.
+
+It should show:
+
+```txt
+Who gives what
+Who receives what
+Each participant's accepted snapshot
+Progress status for each leg
+Overall chain status
+Private or scoped communication rules
+Problem / report / cancel actions
+```
+
+Potential chain statuses:
+
+```txt
+draft_suggestion
+pending_participant_confirmation
+active
+partially_submitted
+submitted
+completed
+disputed
+cancelled
+expired
+```
+
+Do not build this until the single accepted-deal workspace is stable.
+
+## Money and hold behavior later
+
+Money is not part of the first Trade Chain implementation.
+
+If future money or Cash Promise-like behavior is ever connected to a Trade Chain, the product rule should be:
+
+```txt
+No payout or release happens until the whole accepted chain is completed or resolved.
+```
+
+For real in-app money later, the platform would need a chain-level hold or escrow-like state, dispute rules, admin review, and provider/legal review. Do not mix this into the first chain prototype.
+
+## Safety rules
+
+Trade Chains introduce coordination risk. Before any public UI, the product must support:
+
+```txt
+explicit participant confirmation
+clear accepted snapshots
+blocked-user checks
+restricted-user checks
+report problem flow
+cancel / decline flow
+admin visibility for disputed chains
+no automatic activation
+no public exposure of private chain details before confirmation
+```
+
+If a user becomes restricted or suspended while a chain suggestion is pending, the suggestion should become invalid.
+
+If an active chain has a safety report, the chain should stop progressing until reviewed or resolved.
+
+## Recommended implementation roadmap
+
+### CHAIN6 — Internal matching prototype
+
+```txt
+- Internal-only helper for direct 2-person matches.
+- Internal-only helper for 3-person cycles.
+- Use category, tags, itemType, mode, locationLabel, and duration.
+- Exclude restricted, suspended, blocked, closed, expired, or hidden content.
+- No public UI.
+- No automatic proposal creation.
+```
+
+### CHAIN7 — Admin / dev review surface
+
+```txt
+- Admin-only list of possible chain suggestions.
+- Show why each match was suggested.
+- Show confidence score or reason tags.
+- Allow dismissing false positives.
+- No user-facing notifications yet.
+```
+
+### CHAIN8 — User-facing Chain Match suggestion
+
+```txt
+- Show a possible Chain Match to participants.
+- Show exactly what each user gives and receives.
+- Require every participant to confirm.
+- Allow any participant to decline.
+- Do not activate until everyone accepts.
+```
+
+### CHAIN9 — Accepted chain deal workspace
+
+```txt
+- Chain-level agreement snapshot.
+- Participant progress and completion state.
+- Problem/report/cancel flow.
+- Admin review hooks.
+```
+
+### CHAIN10 — Money / hold behavior, only if payments exist
+
+```txt
+- Provider/legal review first.
+- Chain-level held funds model.
+- No release until all required legs complete or resolve.
+- Dispute and refund rules.
+- Admin safety controls.
+```
+
+## Not included now
+
+Do not include any of the following until explicitly planned:
+
+```txt
+public Chain Match UI
+automatic user notifications
+automatic proposal creation
+long chains beyond 3 participants
+money holds
+wallets
+payouts
+Cash Promise integration
+ratings/reviews based on chain outcomes
+AI matching explanations shown to users
+```
+
+## Documentation maintenance rule
+
+When a future patch changes matching assumptions, update this document in the same patch.
+
+Examples:
+
+```txt
+Adding a chain matching engine
+Adding admin chain review
+Adding user-facing Chain Match UI
+Changing duration display rules
+Adding chain-level deal status
+Adding money or hold behavior
+```

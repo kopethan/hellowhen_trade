@@ -11,7 +11,7 @@ import { UserAvatar } from './UserAvatar';
 import { VerificationBadgeList } from './VerificationBadgeList';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { formatWebDate, formatWebShortDate, formatWebMoney } from '../../lib/webFormat';
-import { getModeLabel, getStatusLabel } from '../trade/tradePresentation';
+import { getModeLabel, getNeedTimingBadge, getOfferTimingBadge, getStatusLabel } from '../trade/tradePresentation';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 
@@ -64,8 +64,8 @@ function postDescription(post: PublicProfileTradeSummary) {
 
 function postMeta(post: PublicProfileTradeSummary, language: 'en' | 'fr', t: TFunction) {
   const i18n = { t, language };
-  const needMeta = post.need ? compactJoin([post.need.category, post.need.timing, getModeLabel(post.need.mode, i18n), post.need.locationLabel]) : '';
-  const offerMeta = post.offer ? compactJoin([post.offer.category, post.offer.availability, getModeLabel(post.offer.mode, i18n), post.offer.locationLabel]) : '';
+  const needMeta = post.need ? compactJoin([post.need.category, getNeedTimingBadge(post.need, i18n), getModeLabel(post.need.mode, i18n), post.need.locationLabel]) : '';
+  const offerMeta = post.offer ? compactJoin([post.offer.category, getOfferTimingBadge(post.offer, i18n), getModeLabel(post.offer.mode, i18n), post.offer.locationLabel]) : '';
   const mode = post.need?.mode ?? post.offer?.mode ?? null;
   const details = post.postType === 'open_need'
     ? needMeta

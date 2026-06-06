@@ -2,6 +2,7 @@ import type { MediaAssetDto, NeedDto, OfferDto, TradeDto } from '@hellowhen/cont
 import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
 import { resolveWebAssetUrl } from '../../lib/api';
 import { formatWebMoney, formatWebShortDate } from '../../lib/webFormat';
+import { durationPresetLabel } from '../inventory/inventoryPresentation';
 
 export type Translator = (key: string, values?: TranslationValues) => string;
 
@@ -36,6 +37,23 @@ export type DeckImage = {
 
 function compactJoin(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value && value.trim())).join(' · ');
+}
+
+export function getNeedTimingBadge(need: NeedDto | null | undefined, i18n?: TradeI18n) {
+  if (!need) return '';
+  return durationPresetLabel(need.estimatedDurationPreset, i18n);
+}
+
+export function getOfferTimingBadge(offer: OfferDto | null | undefined, i18n?: TradeI18n) {
+  if (!offer) return '';
+  return durationPresetLabel(offer.typicalDurationPreset, i18n);
+}
+
+export function getTradeTimingBadge(trade: TradeDto, i18n?: TradeI18n) {
+  const needDuration = getNeedTimingBadge(trade.need, i18n);
+  const offerDuration = getOfferTimingBadge(trade.offer, i18n);
+  if (needDuration && offerDuration && needDuration !== offerDuration) return `${needDuration} ↔ ${offerDuration}`;
+  return needDuration || offerDuration;
 }
 
 export function resolveTradeMediaUrl(value?: string | null, storageKey?: string | null) {
@@ -185,7 +203,7 @@ export function needToSide(need: NeedDto | null | undefined, label: string, i18n
     kind: 'need',
     title: need.title,
     description: need.description,
-    metadata: compactJoin([need.category, need.timing, getModeLabel(need.mode, i18n), need.locationLabel]),
+    metadata: compactJoin([need.category, getNeedTimingBadge(need, i18n), getModeLabel(need.mode, i18n), need.locationLabel]),
     tags: need.tags ?? [],
     media: need.media ?? [],
   };
@@ -209,7 +227,7 @@ export function offerToSide(offer: OfferDto | null | undefined, label: string, i
     kind: 'offer',
     title: offer.title,
     description: offer.description,
-    metadata: compactJoin([offer.category, offer.availability, getModeLabel(offer.mode, i18n), offer.locationLabel]),
+    metadata: compactJoin([offer.category, getOfferTimingBadge(offer, i18n), getModeLabel(offer.mode, i18n), offer.locationLabel]),
     tags: [...(offer.includes ?? []), ...(offer.tags ?? [])],
     media: offer.media ?? [],
   };

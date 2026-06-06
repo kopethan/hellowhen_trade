@@ -9,6 +9,7 @@ import { TradeExchangeIcon } from './TradeExchangeIcon';
 import { resolveMediaUrl } from '../mediaUrls';
 import type { NeedItem, OfferItem, TradeDeckItem } from '../types';
 import { TradePosterCard, type TradePosterCardStatusTone } from './TradePosterCard';
+import { durationPresetLabel } from './InventoryFormFields';
 
 export type TradeSquareDeckCard = {
   id: string;
@@ -79,6 +80,14 @@ function needTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(tra
 function offerTitle(trade: TradeDeckItem, t: TFunction) { if (cashPromiseSide(trade) === 'offer') return t('trade.cashPromise.title'); return moneySide(trade) === 'offer' ? t('account.walletMoney') : trade.offer?.title || t('trade.labels.openOfferFallback'); }
 function compactJoin(values: Array<string | null | undefined>, limit = 3) { return values.filter((value): value is string => Boolean(value && value.trim())).slice(0, limit).join(' · '); }
 function compactSideMeta(metadata: string, fallback?: string | null) { return metadata || fallback || ''; }
+function needTimingBadge(need: NeedItem | null | undefined, t: TFunction) { return need ? durationPresetLabel(need.estimatedDurationPreset, t) : ''; }
+function offerTimingBadge(offer: OfferItem | null | undefined, t: TFunction) { return offer ? durationPresetLabel(offer.typicalDurationPreset, t) : ''; }
+function tradeTimingBadge(trade: TradeDeckItem, t: TFunction) {
+  const needDuration = needTimingBadge(trade.need, t);
+  const offerDuration = offerTimingBadge(trade.offer, t);
+  if (needDuration && offerDuration && needDuration !== offerDuration) return `${needDuration} ↔ ${offerDuration}`;
+  return needDuration || offerDuration;
+}
 function tradePostType(trade: TradeDeckItem): TradePostType { return trade.postType ?? 'need_offer'; }
 function summaryTitle(trade: TradeDeckItem, t: TFunction) {
   const postType = tradePostType(trade);
@@ -101,8 +110,8 @@ function summaryBadge(trade: TradeDeckItem, tradeIndex: number, tradeTotal: numb
 }
 function imagePlaceholderLabel(_media: MediaAssetDto | undefined, t: TFunction) { return t('trade.labels.imageUnavailable'); }
 function starterChips(trade: TradeDeckItem) { return [...(trade.need?.tags ?? []), ...(trade.offer?.tags ?? [])].filter((chip): chip is string => Boolean(chip)).slice(0, 3); }
-export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'need') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, need.timing, modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
-export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'offer') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offer.availability, modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
+export function needMeta(need: NeedItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'need') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'need') return moneyLabel(trade); return need ? compactJoin([need.category, needTimingBadge(need, t), modeLabel(need.mode, t), need.locationLabel], 2) || t('trade.labels.needDetails') : t('trade.labels.needDetails'); }
+export function offerMeta(offer: OfferItem | null | undefined, trade: TradeDeckItem | undefined, t: TFunction) { if (trade && cashPromiseSide(trade) === 'offer') return `${cashPromiseLabel(trade)} · ${t('trade.cashPromise.notProcessed')}`; if (trade && moneySide(trade) === 'offer') return moneyLabel(trade); return offer ? compactJoin([offer.includes?.[0], offerTimingBadge(offer, t), modeLabel(offer.mode, t), offer.locationLabel], 2) || t('trade.labels.offerDetails') : t('trade.labels.offerDetails'); }
 
 function pad(value: number, size = 2) { return String(value).padStart(size, '0'); }
 function buildCountdownState(expiresAt: string | null | undefined, t: TFunction, now = Date.now()): CountdownState {
@@ -149,11 +158,12 @@ function CompleteTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: Tra
   const { t } = useTranslation();
   const previewTheme = previewThemeForTrade(trade);
   const themeAccent = previewTheme === 'blue' ? '#dbeafe' : previewTheme === 'green' ? '#dcfce7' : previewTheme === 'purple' ? '#ede9fe' : previewTheme === 'amber' ? '#fef3c7' : previewTheme === 'rose' ? '#ffe4e6' : null;
+  const rightBadge = tradeTimingBadge(trade, t) || (trade.status === 'active' ? '' : getStatusLabel(trade.status, t));
   return (
     <Pressable accessibilityRole="button" onPress={onOpen} style={({ pressed }) => [styles.summaryCard, { backgroundColor: themeAccent ?? theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
       <View style={styles.summaryHeaderRow}>
         <AppText style={[styles.summaryHeader, { color: theme.color.muted }]}>{t('trade.labels.trade').toUpperCase()} · {getTradeCounter(tradeIndex, tradeTotal)}</AppText>
-        <AppText style={[styles.summaryStatus, { color: theme.color.text }]}>{getStatusLabel(trade.status, t)}</AppText>
+        {rightBadge ? <AppText style={[styles.summaryStatus, { color: theme.color.text }]} numberOfLines={1}>{rightBadge}</AppText> : null}
       </View>
 
 
@@ -189,6 +199,7 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
   const summarySubtitle = postType === 'open_need'
     ? compactSideMeta(needMeta(trade.need, trade, t), trade.need?.description)
     : compactSideMeta(offerMeta(trade.offer, trade, t), trade.offer?.description);
+  const topMeta = postType === 'open_need' ? needTimingBadge(trade.need, t) : offerTimingBadge(trade.offer, t);
 
   return (
     <TradePosterCard
@@ -198,6 +209,7 @@ function OpenTradeSummaryCard({ trade, tradeIndex, tradeTotal, onOpen }: TradeSu
       eyebrow={exchangeEyebrow(trade, t)}
       title={summaryTitle(trade, t)}
       subtitle={summarySubtitle}
+      topMeta={topMeta}
       status={countdown}
       chips={starterChips(trade)}
       variant={postType === 'open_need' ? 'need' : 'offer'}
@@ -264,7 +276,7 @@ const styles = StyleSheet.create({
   },
   summaryHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   summaryHeader: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
-  summaryStatus: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.95 },
+  summaryStatus: { maxWidth: '48%', flexShrink: 1, fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.65, textAlign: 'right' },
   summaryBody: { flex: 1, justifyContent: 'center', gap: 18, minHeight: 0 },
   tradeSideBlock: { alignItems: 'center', gap: 5, paddingVertical: 3 },
   sideEyebrow: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
