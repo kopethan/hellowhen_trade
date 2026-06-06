@@ -4459,7 +4459,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
   gap: 12px;
 }
 
-.inventory-details-toggle {
+.inventory-details-toggle,
+.inventory-translation-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4475,12 +4476,14 @@ html[data-theme="dark"] .onboarding-guide-primary {
   cursor: pointer;
 }
 
-.inventory-details-toggle span {
+.inventory-details-toggle span,
+.inventory-translation-toggle span {
   font-size: 13px;
   font-weight: 950;
 }
 
-.inventory-details-toggle strong {
+.inventory-details-toggle strong,
+.inventory-translation-toggle strong {
   color: var(--app-text-muted);
   font-size: 11px;
   font-weight: 950;
@@ -4488,9 +4491,19 @@ html[data-theme="dark"] .onboarding-guide-primary {
   letter-spacing: 0.06em;
 }
 
-.inventory-details-toggle[aria-expanded="true"] {
+.inventory-details-toggle[aria-expanded="true"],
+.inventory-translation-toggle[aria-expanded="true"] {
   border-color: color-mix(in srgb, var(--proposal-border) 50%, var(--app-border));
   background: color-mix(in srgb, var(--proposal-bg) 18%, var(--app-surface));
+}
+
+.inventory-translation-compact {
+  display: grid;
+  gap: 10px;
+}
+
+.inventory-translation-panel--compact {
+  gap: 12px;
 }
 
 .inventory-details-optional {
@@ -4779,7 +4792,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
     gap: 10px;
   }
 
-  .inventory-details-toggle {
+  .inventory-details-toggle,
+  .inventory-translation-toggle {
     min-height: 44px;
     border-radius: 16px;
     padding-inline: 12px;
