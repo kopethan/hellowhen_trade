@@ -15,6 +15,7 @@ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
 import { LoginScreen } from '../features/auth/LoginScreen';
 import { OnboardingGuideScreen } from '../features/onboarding-guide/OnboardingGuideScreen';
+import { useOnboardingGuideCompletion } from '../features/onboarding-guide/onboardingGuideStorage';
 import { LegalPolicyScreen } from '../features/legal/LegalPolicyScreen';
 import { ProfileScreen } from '../features/me/MeScreen';
 import { SettingsScreen } from '../features/settings/SettingsScreen';
@@ -202,17 +203,18 @@ function TradeTabs() {
 export function RootNavigator() {
   const auth = useAuth();
   const theme = useThemeTokens();
+  const onboardingGuide = useOnboardingGuideCompletion();
 
-  if (!auth.hydrated) {
+  if (!auth.hydrated || !onboardingGuide.hydrated) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.color.background }}><ActivityIndicator /></View>;
   }
 
   return (
-    <Stack.Navigator initialRouteName="TradeTabs" screenOptions={{ headerShown: false }}>
+    <Stack.Navigator initialRouteName={onboardingGuide.completed ? 'TradeTabs' : 'OnboardingGuide'} screenOptions={{ headerShown: false }}>
       <Stack.Screen name="TradeTabs" component={TradeTabs} />
       <Stack.Screen name="TradeDetail" component={TradeDetailScreen} />
       <Stack.Screen name="UserProfile" component={PublicUserProfileScreen} />
-      <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} />
+      <Stack.Screen name="OnboardingGuide" component={OnboardingGuideScreen} initialParams={{ replay: false }} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />

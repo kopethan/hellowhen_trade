@@ -6,11 +6,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { getOnboardingImageBackground, OnboardingSlideIllustration } from './OnboardingSlideIllustration';
+import { markOnboardingGuideCompleted } from './onboardingGuideStorage';
 import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OnboardingGuide'>;
 
-export function OnboardingGuideScreen({ navigation }: Props) {
+export function OnboardingGuideScreen({ navigation, route }: Props) {
   const theme = useThemeTokens();
   const { width, height } = useWindowDimensions();
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -20,23 +21,29 @@ export function OnboardingGuideScreen({ navigation }: Props) {
   const onboardingBackground = getOnboardingImageBackground(imageMode, slide.illustrationKey);
   const surfaceForPrimaryText = imageMode === 'dark' ? '#050506' : '#FFFFFF';
   const isLastSlide = currentIndex === ONBOARDING_GUIDE_SLIDES.length - 1;
+  const isReplay = route.params?.replay === true;
   const progressLabel = `${currentIndex + 1} / ${ONBOARDING_GUIDE_SLIDES.length}`;
   const illustrationSize = useMemo(
     () => Math.max(210, Math.min(width - 40, isCompactHeight ? 250 : 330, height * 0.38)),
     [height, isCompactHeight, width]
   );
 
-  function closeGuide() {
+  async function closeGuide() {
+    if (!isReplay) {
+      await markOnboardingGuideCompleted().catch(() => undefined);
+    }
+
     if (navigation.canGoBack()) {
       navigation.goBack();
       return;
     }
+
     navigation.replace('TradeTabs');
   }
 
   function goNext() {
     if (isLastSlide) {
-      closeGuide();
+      void closeGuide();
       return;
     }
     setCurrentIndex((value) => Math.min(value + 1, ONBOARDING_GUIDE_SLIDES.length - 1));
@@ -50,7 +57,7 @@ export function OnboardingGuideScreen({ navigation }: Props) {
     <SafeAreaView style={[styles.screen, { backgroundColor: onboardingBackground }]}>
       <View style={[styles.topBar, { backgroundColor: onboardingBackground }]}>
         <Text style={[styles.brand, { color: theme.color.text }]}>Hellowhen</Text>
-        <Pressable accessibilityRole="button" hitSlop={10} onPress={closeGuide} style={({ pressed }) => [styles.skipButton, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" hitSlop={10} onPress={() => { void closeGuide(); }} style={({ pressed }) => [styles.skipButton, pressed && styles.pressed]}>
           <Text style={[styles.skipText, { color: theme.color.muted }]}>Skip</Text>
         </Pressable>
       </View>

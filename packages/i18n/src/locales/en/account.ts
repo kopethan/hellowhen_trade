@@ -431,6 +431,12 @@ export const account = {
       bodyNative: 'Proposal decisions, private replies, and trade updates.',
       badge: 'Inbox',
     },
+    guide: {
+      title: 'Guide',
+      body: 'Replay the short Hellowhen onboarding guide.',
+      bodyNative: 'Replay the onboarding guide anytime.',
+      badge: 'Guide',
+    },
     settings: {
       title: 'Settings',
       body: 'Appearance, language, dark mode, and notification preferences.',

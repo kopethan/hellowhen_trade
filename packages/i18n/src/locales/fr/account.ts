@@ -431,6 +431,12 @@ export const account = {
       bodyNative: 'Décisions de proposition, réponses privées et mises à jour.',
       badge: 'Boîte',
     },
+    guide: {
+      title: 'Guide',
+      body: 'Revoir le court guide de démarrage Hellowhen.',
+      bodyNative: 'Revoir le guide de démarrage à tout moment.',
+      badge: 'Guide',
+    },
     settings: {
       title: 'Paramètres',
       body: 'Apparence, langue, mode sombre et préférences de notification.',
