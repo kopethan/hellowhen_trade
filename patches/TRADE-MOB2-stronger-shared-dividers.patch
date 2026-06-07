@@ -1,0 +1,156 @@
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 72d8747..88d8ab1 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -9,7 +9,7 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
+ import { AppHeader } from '../../components/AppHeader';
+-import { AppScreen } from '../../components/AppScreen';
++import { AppScreen, APP_SCREEN_HORIZONTAL_PADDING } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+ import { ReportContentPanel } from '../../components/ReportContentPanel';
+@@ -2037,13 +2037,13 @@ const styles = StyleSheet.create({
+   threadDetailsPanelBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+   threadDetailsPanelClose: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   threadDetailsPanelContent: { gap: 12 },
+-  timelineShell: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
++  timelineShell: { marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 12, borderTopWidth: 1, gap: 12 },
+   timelineHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+   timelineHeaderCopy: { flex: 1, minWidth: 0, gap: 3 },
+   timelineTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.25 },
+   timelineBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+   timelineMessages: { gap: 7 },
+-  threadTradeStrip: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
++  threadTradeStrip: { paddingVertical: 14, borderBottomWidth: 1, gap: 12 },
+   threadTradeIconRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+   threadTradeIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   threadTradeCopy: { flex: 1, minWidth: 0, gap: 4 },
+@@ -2098,7 +2098,7 @@ const styles = StyleSheet.create({
+   inlinePackageList: { gap: 0 },
+   inlinePackageEmpty: { borderRadius: 18, borderWidth: 1, minHeight: 58, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+   inlinePackageEmptyText: { flex: 1, lineHeight: 19, fontWeight: '800' },
+-  inlineSideItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 13, borderTopWidth: StyleSheet.hairlineWidth },
++  inlineSideItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 13, borderTopWidth: 1 },
+   inlineSideIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+   inlineSideCopy: { flex: 1, minWidth: 0, gap: 5 },
+   inlineSideHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+@@ -2111,7 +2111,7 @@ const styles = StyleSheet.create({
+   threadGuideContent: { gap: 14 },
+   threadGuideTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+   threadGuideBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
+-  threadGuideSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 6 },
++  threadGuideSection: { borderTopWidth: 1, paddingTop: 14, gap: 6 },
+   threadGuideSectionTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+   threadGuideSectionBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+   topSummary: { borderRadius: 26, borderWidth: 1, padding: 16, gap: 12 },
+@@ -2130,7 +2130,7 @@ const styles = StyleSheet.create({
+   compactSideTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+   compactSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   systemEventWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+-  systemLine: { flex: 1, height: StyleSheet.hairlineWidth },
++  systemLine: { flex: 1, height: 1 },
+   systemText: { maxWidth: '74%', textAlign: 'center', fontSize: 12, lineHeight: 17, fontWeight: '800' },
+   emptyChat: { alignSelf: 'center', paddingVertical: 18, fontWeight: '800' },
+   messageRow: { alignItems: 'flex-start', paddingVertical: 1 },
+@@ -2144,7 +2144,7 @@ const styles = StyleSheet.create({
+   messageBody: { lineHeight: 21, fontWeight: '700' },
+   messageMeta: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
+   messageDeleted: { fontStyle: 'italic', lineHeight: 20, fontWeight: '800', opacity: 0.74 },
+-  composerBar: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
++  composerBar: { borderTopWidth: 1, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+   chatInput: { flex: 1, maxHeight: 118, minHeight: 44, borderRadius: 22, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 20, fontWeight: '600' },
+   sendButton: { minHeight: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+   sendButtonText: { fontWeight: '900' },
+@@ -2182,7 +2182,7 @@ const styles = StyleSheet.create({
+   proposedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' },
+   proposedSideBody: { lineHeight: 20, fontWeight: '700' },
+   expandedDetails: { gap: 8, paddingTop: 4 },
+-  detailRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
++  detailRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderBottomWidth: 1 },
+   detailLabel: { fontSize: 12, fontWeight: '800' },
+   detailValue: { flex: 1, textAlign: 'right', fontSize: 13, lineHeight: 18, fontWeight: '900' },
+   noteEditBox: { gap: 8 },
+diff --git a/apps/mobile/src/features/trade/TradeDetailScreen.tsx b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+index 434ff83..66248f1 100644
+--- a/apps/mobile/src/features/trade/TradeDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/TradeDetailScreen.tsx
+@@ -12,6 +12,7 @@ import { buildPublicTradeUrl } from '../../lib/publicUrls';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
++import { APP_SCREEN_HORIZONTAL_PADDING } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon } from '../../components/MobileIcon';
+ import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+@@ -655,4 +656,4 @@ function ProposalSideSummary({ proposal, theme, t }: { proposal: TradeProposalIt
+ }
+ function ActionButton({ label, variant, disabled, onPress, theme }: { label: string; variant: 'primary' | 'danger' | 'ghost'; disabled?: boolean; onPress: () => void; theme: ThemeTokens }) { const buttonStyle = variant === 'primary' ? { backgroundColor: theme.semantic.proposal.bg, borderColor: theme.semantic.proposal.bg } : variant === 'danger' ? { backgroundColor: theme.semantic.danger.softBg, borderColor: theme.semantic.danger.border } : { backgroundColor: theme.color.surface, borderColor: theme.color.border }; const textColor = variant === 'primary' ? '#FFFFFF' : variant === 'danger' ? theme.semantic.danger.text : theme.color.text; return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.actionButton, buttonStyle, disabled && styles.disabledButton, pressed && !disabled && styles.pressed]}><AppText style={[styles.actionButtonText, { color: textColor }]}>{label}</AppText></Pressable>; }
+ 
+-const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, headerShareButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, ownerLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 1, opacity: 0.72 }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, openSideInvite: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 8 }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, detailIdentity: { flex: 1, justifyContent: 'flex-end' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 12 }, proposalPromptBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 8 }, proposalPromptText: { lineHeight: 20, fontWeight: '800' }, messageComposerBlock: { gap: 8 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, inventoryChoiceBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 }, inventoryChoiceHeading: { gap: 7 }, inventoryEmptyBox: { borderRadius: 18, borderWidth: 1, padding: 12 }, inventoryChoiceRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }, inventoryChoiceSelected: { borderWidth: 2 }, inventoryChoiceCopy: { flex: 1, gap: 5 }, inventoryChoiceTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }, inventoryChoiceTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' }, inventoryChoiceMeta: { fontSize: 12, fontWeight: '900', lineHeight: 17 }, inventoryChoiceDescription: { fontSize: 12, lineHeight: 17, fontWeight: '700' }, inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 }, inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }, inventoryPickerHeading: { flex: 1, gap: 7 }, inventoryPickerIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, inventoryPickerSelectedBody: { gap: 6 }, inventoryPickerEmptyBody: { gap: 8 }, inventoryPickerActionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 }, inventoryPickerActionText: { fontWeight: '900' }, selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' }, selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, selectedSideDescription: { lineHeight: 20, fontWeight: '700' }, threadSplitHeader: { gap: 8 }, threadActionGrid: { gap: 12 }, threadActionCard: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 12 }, threadActionTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, threadActionIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, threadActionCopy: { gap: 6 }, threadActionTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 }, threadActionBody: { lineHeight: 20, fontWeight: '700' }, threadActionFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, threadActionMeta: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: '900' }, threadActionOpen: { fontSize: 13, fontWeight: '900' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 13, paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth }, proposalHeader: { gap: 10 }, proposalHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, proposalIdentityLink: { flex: 1 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 5 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, threadLabel: { fontSize: 13, fontWeight: '900' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, ownerLineModern: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, ownerLabel: { fontSize: 13, fontWeight: '800' }, openSideBody: { gap: 8 }, openSideText: { fontSize: 15, lineHeight: 22, fontWeight: '700' }, imageEmptyState: { paddingVertical: 14 }, participantRows: { gap: 9 }, identityPill: { minHeight: 54, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }, identityPillLabel: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase' }, inlineActionBar: { marginTop: 2, paddingTop: 0, paddingBottom: 0, borderTopWidth: 0 }, loadingBlock: { paddingTop: 12, gap: 20 }, loadingTitle: { fontSize: 22, lineHeight: 28, fontWeight: '900', letterSpacing: -0.35 }, loadingGroup: { gap: 10 }, loadingSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 20, gap: 10 }, loadingLine: { height: 14, borderRadius: 999 }, loadingLineWide: { width: '86%' }, loadingLineMedium: { width: '64%' }, loadingLineShort: { width: '38%' }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
++const styles = StyleSheet.create({ content: { paddingBottom: 56, gap: 20 }, headerShareButton: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, hero: { gap: 10 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }, title: { fontSize: 32, lineHeight: 37, fontWeight: '900', letterSpacing: -0.8 }, subtitle: { fontSize: 14, lineHeight: 20, fontWeight: '800' }, ownerLine: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, paymentLine: { fontSize: 15, lineHeight: 21, fontWeight: '900' }, separator: { height: 2, opacity: 1, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING }, section: { gap: 13 }, sectionEyebrow: { fontSize: 13, fontWeight: '900', letterSpacing: 0.6, textTransform: 'uppercase' }, sectionTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.45 }, bodyCopy: { fontSize: 16, lineHeight: 23, fontWeight: '600' }, metaLine: { fontSize: 13, lineHeight: 18, fontWeight: '900' }, openSideInvite: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 8 }, emptyImages: { overflow: 'hidden', borderWidth: 1, borderRadius: 22, padding: 18, fontWeight: '800' }, singleImage: { width: '100%', height: 310, borderRadius: 24, backgroundColor: '#E2E8F0' }, imageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, gridImageWrap: { width: '48.8%', height: 154, borderRadius: 18, overflow: 'hidden', backgroundColor: '#E2E8F0' }, gridImageLargeFirst: { width: '100%', height: 214 }, gridImage: { width: '100%', height: '100%' }, moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(15, 23, 42, 0.45)' }, moreOverlayText: { color: '#FFFFFF', fontSize: 28, fontWeight: '900' }, detailRows: { gap: 0 }, detailRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16, paddingVertical: 11, borderBottomWidth: 1 }, detailLabel: { fontSize: 13, fontWeight: '800' }, detailValue: { flex: 1, textAlign: 'right', fontSize: 14, fontWeight: '900', textTransform: 'capitalize' }, detailIdentity: { flex: 1, justifyContent: 'flex-end' }, actionStack: { gap: 10 }, actionRow: { flexDirection: 'row', gap: 10 }, composerBox: { gap: 12 }, proposalPromptBox: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 8 }, proposalPromptText: { lineHeight: 20, fontWeight: '800' }, messageComposerBlock: { gap: 8 }, textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' }, inventoryChoiceBox: { borderRadius: 22, borderWidth: 1, padding: 12, gap: 10 }, inventoryChoiceHeading: { gap: 7 }, inventoryEmptyBox: { borderRadius: 18, borderWidth: 1, padding: 12 }, inventoryChoiceRow: { borderRadius: 18, borderWidth: 1, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 }, inventoryChoiceSelected: { borderWidth: 2 }, inventoryChoiceCopy: { flex: 1, gap: 5 }, inventoryChoiceTitleRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }, inventoryChoiceTitle: { flex: 1, fontSize: 16, lineHeight: 20, fontWeight: '900' }, inventoryChoiceMeta: { fontSize: 12, fontWeight: '900', lineHeight: 17 }, inventoryChoiceDescription: { fontSize: 12, lineHeight: 17, fontWeight: '700' }, inventoryPickerShortcut: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 }, inventoryPickerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }, inventoryPickerHeading: { flex: 1, gap: 7 }, inventoryPickerIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }, inventoryPickerSelectedBody: { gap: 6 }, inventoryPickerEmptyBody: { gap: 8 }, inventoryPickerActionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 }, inventoryPickerActionText: { fontWeight: '900' }, selectedSidePreview: { borderRadius: 20, borderWidth: 1, padding: 14, gap: 7 }, selectedSideHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, selectedSideTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900' }, selectedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' }, selectedSideDescription: { lineHeight: 20, fontWeight: '700' }, threadSplitHeader: { gap: 8 }, threadActionGrid: { gap: 12 }, threadActionCard: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 12 }, threadActionTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, threadActionIcon: { width: 46, height: 46, borderRadius: 23, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, threadActionCopy: { gap: 6 }, threadActionTitle: { fontSize: 21, lineHeight: 26, fontWeight: '900', letterSpacing: -0.35 }, threadActionBody: { lineHeight: 20, fontWeight: '700' }, threadActionFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, threadActionMeta: { flex: 1, fontSize: 13, lineHeight: 18, fontWeight: '900' }, threadActionOpen: { fontSize: 13, fontWeight: '900' }, proposalStack: { gap: 14 }, proposalBlock: { gap: 13, paddingVertical: 16, borderBottomWidth: 1 }, proposalHeader: { gap: 10 }, proposalHeaderTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, proposalIdentityLink: { flex: 1 }, proposalIdentity: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, avatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' }, proposalCopy: { flex: 1, gap: 5 }, proposalTitle: { fontSize: 16, fontWeight: '900' }, proposalMessage: { fontSize: 14, lineHeight: 20, fontWeight: '700' }, threadLabel: { fontSize: 13, fontWeight: '900' }, openThreadButton: { minHeight: 44, borderRadius: 15, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 }, openThreadText: { fontWeight: '900' }, muted: { lineHeight: 20, fontWeight: '700' }, actionButton: { flex: 1, minHeight: 48, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12 }, actionButtonText: { fontWeight: '900' }, disabledButton: { opacity: 0.52 }, ownerLineModern: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }, ownerLabel: { fontSize: 13, fontWeight: '800' }, openSideBody: { gap: 8 }, openSideText: { fontSize: 15, lineHeight: 22, fontWeight: '700' }, imageEmptyState: { paddingVertical: 14 }, participantRows: { gap: 9 }, identityPill: { minHeight: 54, borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 14 }, identityPillLabel: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase' }, inlineActionBar: { marginTop: 2, paddingTop: 0, paddingBottom: 0, borderTopWidth: 0 }, loadingBlock: { paddingTop: 12, gap: 20 }, loadingTitle: { fontSize: 22, lineHeight: 28, fontWeight: '900', letterSpacing: -0.35 }, loadingGroup: { gap: 10 }, loadingSection: { borderTopWidth: 1, paddingTop: 20, gap: 10 }, loadingLine: { height: 14, borderRadius: 999 }, loadingLineWide: { width: '86%' }, loadingLineMedium: { width: '64%' }, loadingLineShort: { width: '38%' }, pressed: { opacity: 0.76, transform: [{ scale: 0.98 }] } });
+diff --git a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+index 8d05f8b..725ff6b 100644
+--- a/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePrivateProposalsScreen.tsx
+@@ -562,11 +562,11 @@ const styles = StyleSheet.create({
+   infoTitle: { fontSize: 26, lineHeight: 32, fontWeight: '900', letterSpacing: -0.55 },
+   infoBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
+   infoSectionTitle: { fontSize: 16, lineHeight: 22, fontWeight: '900' },
+-  infoDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING },
++  infoDivider: { height: 2, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING },
+   stack: { gap: 14 },
+   rowList: { marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING },
+   emptyInlineText: { paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingVertical: 18, lineHeight: 21, fontWeight: '800' },
+-  proposalRow: { minHeight: 104, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
++  proposalRow: { minHeight: 104, borderBottomWidth: 1, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+   proposalRowMain: { flex: 1, gap: 8 },
+   proposalRowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   proposalRowTitle: { fontSize: 15, lineHeight: 20, fontWeight: '900' },
+diff --git a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+index 55980d0..0cfc2df 100644
+--- a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+@@ -10,6 +10,7 @@ import { api } from '../../lib/api';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
++import { APP_SCREEN_HORIZONTAL_PADDING } from '../../components/AppScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon } from '../../components/MobileIcon';
+@@ -410,10 +411,10 @@ const styles = StyleSheet.create({
+   guideContent: { gap: 14 },
+   guideTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+   guideBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
+-  guideSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 6 },
++  guideSection: { borderTopWidth: 1, paddingTop: 14, gap: 6 },
+   guideSectionTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+   guideSectionBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+-  contextBar: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
++  contextBar: { minHeight: 58, borderBottomWidth: 1, paddingVertical: 10, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   contextCopy: { flex: 1, minWidth: 0, gap: 2 },
+   contextEyebrow: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.55, textTransform: 'uppercase' },
+   contextTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900', letterSpacing: -0.2 },
+@@ -426,9 +427,9 @@ const styles = StyleSheet.create({
+   emptyTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.3 },
+   emptyBody: { lineHeight: 20, fontWeight: '700' },
+   dateSeparator: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+-  dateLine: { flex: 1, height: StyleSheet.hairlineWidth },
++  dateLine: { flex: 1, height: 1 },
+   dateText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
+-  messageRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 8 },
++  messageRow: { borderBottomWidth: 1, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingVertical: 13, gap: 8 },
+   messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+   messageIdentity: { flex: 1 },
+   messageMenuButton: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+@@ -440,7 +441,7 @@ const styles = StyleSheet.create({
+   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+   smallAction: { minHeight: 38, borderRadius: 13, borderWidth: 1, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+   smallActionText: { fontSize: 13, fontWeight: '900' },
+-  composer: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: 10, gap: 8 },
++  composer: { borderTopWidth: 1, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 10, paddingBottom: 10, gap: 8 },
+   composerInput: { minHeight: 48, maxHeight: 118, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+   sendButton: { minHeight: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 14 },
+   sendText: { fontWeight: '900' },

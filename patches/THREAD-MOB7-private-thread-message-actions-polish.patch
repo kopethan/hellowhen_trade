@@ -1,0 +1,274 @@
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index 456c2ed..fd6197d 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+ import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { AcceptedDealSnapshotItemDto, ProposalActionStatus, TradeActionStatus } from '@hellowhen/contracts';
++import type { AcceptedDealSnapshotItemDto, ProposalActionStatus, ReportTargetType, TradeActionStatus } from '@hellowhen/contracts';
+ import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
+@@ -12,6 +12,7 @@ import { AppHeader } from '../../components/AppHeader';
+ import { AppScreen } from '../../components/AppScreen';
+ import { AppText } from '../../components/AppText';
+ import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
++import { ReportContentPanel } from '../../components/ReportContentPanel';
+ import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
+ import { ConversationComposerBar, DetailEmptyState, DetailMetadataChips, DetailSection } from '../../components/detail';
+ import { useAuth } from '../../providers/AuthProvider';
+@@ -37,12 +38,13 @@ type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
+ type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | 'deal-report' | null;
+ type ThreadInfoMode = 'menu' | 'proposal' | 'agreement' | 'progress' | null;
+ type ActiveThreadInfoMode = Exclude<ThreadInfoMode, null>;
++type PrivateThreadReportTarget = { targetType: Extract<ReportTargetType, 'message' | 'proposal'>; targetId: string; titleKey: string; helperKey: string };
+ type ProposalActionSheet =
+   | { type: 'status'; status: ProposalActionStatus }
+   | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
+-  | { type: 'message-options'; message: ProposalMessageItem }
++  | { type: 'message-options'; message: ProposalMessageItem; canEdit: boolean; canReport: boolean }
+   | { type: 'delete-message'; messageId: string }
+-  | { type: 'proposal-note-options' }
++  | { type: 'proposal-note-options'; canEdit: boolean; canReport: boolean }
+   | { type: 'delete-proposal-note' }
+   | null;
+ 
+@@ -264,6 +266,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const [cancelReason, setCancelReason] = useState('');
+   const [cancelError, setCancelError] = useState<string | null>(null);
+   const [problemReportOpen, setProblemReportOpen] = useState(false);
++  const [messageReportTarget, setMessageReportTarget] = useState<PrivateThreadReportTarget | null>(null);
+   const [problemSummary, setProblemSummary] = useState('');
+   const [problemError, setProblemError] = useState<string | null>(null);
+   const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
+@@ -305,6 +308,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const tradeCancelled = isTradeCancelled(proposal);
+   const canMessage = Boolean(proposal && (isOwner || isApplicant || isProvider) && !threadClosed);
+   const canEditProposalContent = Boolean(proposal && isApplicant && proposal.status === 'pending' && !tradeCancelled);
++  const canReportProposalNote = Boolean(proposal && actorId && proposal.applicantId !== actorId && !proposal.messageDeletedAt && (isOwner || isApplicant || isProvider));
+   const canEditOwnPrivateMessages = Boolean(proposal && proposal.status === 'pending' && !tradeCancelled && (isOwner || isApplicant || isProvider));
+   const canMarkSubmitted = Boolean(proposal && proposal.status === 'accepted' && proposal.trade?.status === 'in_progress' && isProvider);
+   const canConfirmCompleted = Boolean(proposal && proposal.status === 'accepted' && proposal.trade?.status === 'submitted' && (isOwner || isApplicant || isProvider) && proposal.trade?.deliverySubmittedById !== actorId);
+@@ -551,13 +555,25 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+ 
+   function openMessageOptions(message: ProposalMessageItem) {
+     const canEdit = message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt;
+-    if (!canEdit) return;
+-    setActionSheet({ type: 'message-options', message });
++    const canReport = Boolean(actorId && message.senderId !== actorId && !message.deletedAt);
++    if (!canEdit && !canReport) return;
++    setActionSheet({ type: 'message-options', message, canEdit, canReport });
+   }
+ 
+   function openProposalNoteOptions() {
+-    if (!canEditProposalContent) return;
+-    setActionSheet({ type: 'proposal-note-options' });
++    if (!canEditProposalContent && !canReportProposalNote) return;
++    setActionSheet({ type: 'proposal-note-options', canEdit: canEditProposalContent, canReport: canReportProposalNote });
++  }
++
++  function openPrivateMessageReport(messageId: string) {
++    setActionSheet(null);
++    setMessageReportTarget({ targetType: 'message', targetId: messageId, titleKey: 'trade.proposals.reportMessageTitle', helperKey: 'report.helper.privateMessage' });
++  }
++
++  function openProposalNoteReport() {
++    if (!proposal) return;
++    setActionSheet(null);
++    setMessageReportTarget({ targetType: 'proposal', targetId: proposal.id, titleKey: 'trade.proposals.reportProposalNoteTitle', helperKey: 'report.helper.proposalMessage' });
+   }
+ 
+   async function deletePrivateMessage(messageId: string) {
+@@ -696,12 +712,19 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+ 
+     if (actionSheet.type === 'message-options') {
+       const message = actionSheet.message;
+-      return {
+-        title: t('trade.proposals.proposalConversation'),
+-        actions: [
++      const actions: AppActionSheetAction[] = [];
++      if (actionSheet.canEdit) {
++        actions.push(
+           { key: 'edit', label: t('trade.proposals.editMessage'), icon: 'more', onPress: () => { startMessageEdit(message); setActionSheet(null); } },
+           { key: 'delete', label: t('trade.proposals.deleteMessage'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-message', messageId: message.id }) },
+-        ],
++        );
++      }
++      if (actionSheet.canReport) {
++        actions.push({ key: 'report', label: t('trade.proposals.reportMessage'), icon: 'report-flag', tone: 'danger', onPress: () => openPrivateMessageReport(message.id) });
++      }
++      return {
++        title: t('trade.proposals.messageOptions'),
++        actions,
+       };
+     }
+ 
+@@ -715,11 +738,15 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     }
+ 
+     if (actionSheet.type === 'proposal-note-options') {
+-      const actions: AppActionSheetAction[] = [
+-        { key: 'edit-note', label: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), icon: 'more', onPress: () => { startProposalNoteEdit(); setActionSheet(null); } },
+-      ];
+-      if (!proposal?.messageDeletedAt) {
+-        actions.push({ key: 'delete-note', label: t('trade.proposals.deleteProposalNote'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-proposal-note' }) });
++      const actions: AppActionSheetAction[] = [];
++      if (actionSheet.canEdit) {
++        actions.push({ key: 'edit-note', label: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), icon: 'more', onPress: () => { startProposalNoteEdit(); setActionSheet(null); } });
++        if (!proposal?.messageDeletedAt) {
++          actions.push({ key: 'delete-note', label: t('trade.proposals.deleteProposalNote'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-proposal-note' }) });
++        }
++      }
++      if (actionSheet.canReport) {
++        actions.push({ key: 'report-note', label: t('trade.proposals.reportProposalNote'), icon: 'report-flag', tone: 'danger', onPress: openProposalNoteReport });
+       }
+       return { title: t('trade.proposals.proposalNote'), actions };
+     }
+@@ -743,6 +770,19 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+   }
+ 
++  if (messageReportTarget) {
++    return (
++      <AppScreen style={styles.screen}>
++        <View style={styles.infoScreenRoot}>
++          <AppHeader title={t(messageReportTarget.titleKey)} onBack={() => setMessageReportTarget(null)} />
++          <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
++            <ReportContentPanel targetType={messageReportTarget.targetType} targetId={messageReportTarget.targetId} helperKey={messageReportTarget.helperKey} initialOpen />
++          </ScrollView>
++        </View>
++      </AppScreen>
++    );
++  }
++
+   if (proposal && threadInfoMode) {
+     return (
+       <AppScreen style={styles.screen}>
+@@ -867,7 +907,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+               </View>
+ 
+               <SystemEvent label={proposal.status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : isApplicant ? t('trade.proposals.youSentProposal') : t('trade.proposals.sentProposal')} />
+-              <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
++              <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} canReport={canReportProposalNote} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
+ 
+               <View style={styles.timelineMessages}>
+                 {visibleMessages.length === 0 ? <DetailEmptyState icon="proposal" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
+@@ -876,6 +916,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+                     message={message}
+                     mine={message.senderId === actorId}
+                     canEdit={message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt}
++                    canReport={Boolean(actorId && message.senderId !== actorId && !message.deletedAt)}
+                     editing={editingMessageId === message.id}
+                     draft={messageDraft}
+                     error={editingMessageId === message.id ? messageEditError : null}
+@@ -1574,14 +1615,15 @@ function EmptyChatHint({ label }: { label: string }) {
+   return <AppText style={[styles.emptyChat, { color: theme.color.muted }]}>{label}</AppText>;
+ }
+ 
+-function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error, onOptions, onChangeDraft, onSave, onCancel, actionLoading, language, t }: { proposal: TradeProposalItem; mine: boolean; canEdit: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSave: () => void; onCancel: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
++function ProposalNoteChatBubble({ proposal, mine, canEdit, canReport, editing, draft, error, onOptions, onChangeDraft, onSave, onCancel, actionLoading, language, t }: { proposal: TradeProposalItem; mine: boolean; canEdit: boolean; canReport: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSave: () => void; onCancel: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
+   const theme = useThemeTokens();
++  const canOpenOptions = (canEdit || canReport) && !editing;
+   if (!proposal.message && !proposal.messageDeletedAt && !editing) return null;
+   return (
+     <View style={[styles.messageRow, mine && styles.messageRowMine]}>
+       <Pressable
+-        disabled={!canEdit}
+-        onLongPress={onOptions}
++        disabled={!canOpenOptions}
++        onLongPress={canOpenOptions ? onOptions : undefined}
+         style={[
+           styles.chatBubble,
+           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
+@@ -1590,7 +1632,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
+       >
+         <View style={styles.bubbleHeader}>
+           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
+-          {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
++          {canOpenOptions ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+         </View>
+         {editing ? (
+           <View style={styles.noteEditBox}>
+@@ -1620,13 +1662,14 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
+   );
+ }
+ 
+-function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, onOptions, onChangeDraft, onSaveEdit, onCancelEdit, actionLoading, language, t }: { message: ProposalMessageItem; mine: boolean; canEdit: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSaveEdit: () => void; onCancelEdit: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
++function PrivateMessageBubble({ message, mine, canEdit, canReport, editing, draft, error, onOptions, onChangeDraft, onSaveEdit, onCancelEdit, actionLoading, language, t }: { message: ProposalMessageItem; mine: boolean; canEdit: boolean; canReport: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSaveEdit: () => void; onCancelEdit: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
+   const theme = useThemeTokens();
++  const canOpenOptions = (canEdit || canReport) && !editing;
+   return (
+     <View style={[styles.messageRow, mine && styles.messageRowMine]}>
+       <Pressable
+-        disabled={!canEdit}
+-        onLongPress={onOptions}
++        disabled={!canOpenOptions}
++        onLongPress={canOpenOptions ? onOptions : undefined}
+         style={[
+           styles.chatBubble,
+           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
+@@ -1635,7 +1678,7 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
+       >
+         <View style={styles.bubbleHeader}>
+           <UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
+-          {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
++          {canOpenOptions ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+         </View>
+         {editing ? (
+           <View style={styles.noteEditBox}>
+diff --git a/packages/i18n/src/locales/en/report.ts b/packages/i18n/src/locales/en/report.ts
+index 2fb5bdc..2e4fbdf 100644
+--- a/packages/i18n/src/locales/en/report.ts
++++ b/packages/i18n/src/locales/en/report.ts
+@@ -36,5 +36,7 @@ export const report = {
+     trade: 'Use this for public content problems. If you are involved in the trade and need help resolving it, use the trade problem/support flow.',
+     profile: 'Reports are private. The profile owner will not see your report message.',
+     publicMessage: 'Reports are private. The message author will not see your report text.',
++    privateMessage: 'Reports are private. The other person will not see your report text.',
++    proposalMessage: 'Reports are private. Use this when the original proposal note looks unsafe, spammy, or abusive.',
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 59ea7a9..8911aff 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -345,6 +345,10 @@ export const trade = {
+     proposalContentLockedWithdrawn: 'Proposal withdrawn. This thread is read-only.',
+     proposalConversation: 'Proposal conversation',
+     messageOptions: 'Message options',
++    reportMessage: 'Report message',
++    reportMessageTitle: 'Report message',
++    reportProposalNote: 'Report proposal note',
++    reportProposalNoteTitle: 'Report proposal note',
+     privateProposalConversation: 'Private proposal conversation',
+     proposalConversationPrivateBody: 'Only the trade owner and proposal participants can see this private thread.',
+     acceptedConversation: 'Accepted conversation',
+diff --git a/packages/i18n/src/locales/fr/report.ts b/packages/i18n/src/locales/fr/report.ts
+index f981931..36222ef 100644
+--- a/packages/i18n/src/locales/fr/report.ts
++++ b/packages/i18n/src/locales/fr/report.ts
+@@ -36,5 +36,7 @@ export const report = {
+     trade: 'Utilise ceci pour un problème de contenu public. Si tu participes à l’échange et as besoin d’aide, utilise le flux de problème/assistance de l’échange.',
+     profile: 'Les signalements sont privés. Le propriétaire du profil ne verra pas ton message.',
+     publicMessage: 'Les signalements sont privés. L’auteur du message ne verra pas le texte de ton signalement.',
++    privateMessage: 'Les signalements sont privés. L’autre personne ne verra pas le texte de ton signalement.',
++    proposalMessage: 'Les signalements sont privés. Utilise ceci si la note de proposition initiale semble dangereuse, indésirable ou abusive.',
+   },
+ } as const;
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index dd1295b..b5cffaf 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -345,6 +345,10 @@ export const trade = {
+     proposalContentLockedWithdrawn: 'Proposition retirée. Ce fil est en lecture seule.',
+     proposalConversation: 'Conversation de proposition',
+     messageOptions: 'Options du message',
++    reportMessage: 'Signaler le message',
++    reportMessageTitle: 'Signaler le message',
++    reportProposalNote: 'Signaler la note de proposition',
++    reportProposalNoteTitle: 'Signaler la note de proposition',
+     privateProposalConversation: 'Conversation privée de proposition',
+     proposalConversationPrivateBody: 'Seuls le propriétaire de l’échange et les participants à la proposition peuvent voir ce fil privé.',
+     acceptedConversation: 'Conversation acceptée',

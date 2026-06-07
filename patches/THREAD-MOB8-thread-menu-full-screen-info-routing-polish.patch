@@ -1,0 +1,512 @@
+diff --git a/apps/mobile/src/components/ReportContentPanel.tsx b/apps/mobile/src/components/ReportContentPanel.tsx
+index cd6e2a9..ac3219a 100644
+--- a/apps/mobile/src/components/ReportContentPanel.tsx
++++ b/apps/mobile/src/components/ReportContentPanel.tsx
+@@ -16,15 +16,16 @@ type ReportContentPanelProps = {
+   targetId: string;
+   labelKey?: string;
+   helperKey?: string;
++  initialOpen?: boolean;
+ };
+ 
+ const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
+ 
+-export function ReportContentPanel({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content' }: ReportContentPanelProps) {
++export function ReportContentPanel({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', initialOpen = false }: ReportContentPanelProps) {
+   const auth = useAuth();
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+-  const [open, setOpen] = useState(false);
++  const [open, setOpen] = useState(initialOpen);
+   const [reason, setReason] = useState<ReportReason>('spam');
+   const [details, setDetails] = useState('');
+   const [loading, setLoading] = useState(false);
+diff --git a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+index fd6197d..72d8747 100644
+--- a/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
++++ b/apps/mobile/src/features/trade/ProposalDetailScreen.tsx
+@@ -40,6 +40,7 @@ type ThreadInfoMode = 'menu' | 'proposal' | 'agreement' | 'progress' | null;
+ type ActiveThreadInfoMode = Exclude<ThreadInfoMode, null>;
+ type PrivateThreadReportTarget = { targetType: Extract<ReportTargetType, 'message' | 'proposal'>; targetId: string; titleKey: string; helperKey: string };
+ type ProposalActionSheet =
++  | { type: 'thread-menu' }
+   | { type: 'status'; status: ProposalActionStatus }
+   | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
+   | { type: 'message-options'; message: ProposalMessageItem; canEdit: boolean; canReport: boolean }
+@@ -266,6 +267,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   const [cancelReason, setCancelReason] = useState('');
+   const [cancelError, setCancelError] = useState<string | null>(null);
+   const [problemReportOpen, setProblemReportOpen] = useState(false);
++  const [threadGuideOpen, setThreadGuideOpen] = useState(false);
+   const [messageReportTarget, setMessageReportTarget] = useState<PrivateThreadReportTarget | null>(null);
+   const [problemSummary, setProblemSummary] = useState('');
+   const [problemError, setProblemError] = useState<string | null>(null);
+@@ -671,6 +673,45 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
+     if (!actionSheet) return { title: '', actions: [] };
+ 
++    if (actionSheet.type === 'thread-menu') {
++      const actions: AppActionSheetAction[] = [
++        {
++          key: 'details',
++          label: t('trade.proposals.seeDetails'),
++          helper: t('trade.proposals.seeDetailsBody'),
++          icon: 'trade',
++          onPress: () => { setThreadInfoMode('menu'); setActionSheet(null); },
++        },
++        {
++          key: 'guide',
++          label: t('trade.proposals.seeGuide'),
++          helper: t('trade.proposals.seeGuideBody'),
++          icon: 'help',
++          onPress: () => { setThreadGuideOpen(true); setActionSheet(null); },
++        },
++      ];
++      if (proposal?.status === 'accepted') {
++        actions.push({
++          key: 'report-problem',
++          label: t('trade.proposals.reportProblem'),
++          helper: t('trade.proposals.reportProblemBody'),
++          icon: 'report-flag',
++          tone: 'danger',
++          onPress: () => { setThreadInfoMode('progress'); setActionSheet(null); },
++        });
++      } else if (proposal?.id) {
++        actions.push({
++          key: 'report-thread',
++          label: t('trade.proposals.reportThread'),
++          helper: t('trade.proposals.reportThreadBody'),
++          icon: 'report-flag',
++          tone: 'danger',
++          onPress: () => { setMessageReportTarget({ targetType: 'proposal', targetId: proposal.id, titleKey: 'trade.proposals.reportThreadTitle', helperKey: 'report.helper.proposalMessage' }); setActionSheet(null); },
++        });
++      }
++      return { title: t('trade.proposals.threadMenu'), body: t('trade.proposals.threadMenuBody'), actions };
++    }
++
+     if (actionSheet.type === 'status') {
+       const status = actionSheet.status;
+       if (status === 'accepted') {
+@@ -770,6 +811,19 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+     navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+   }
+ 
++  if (threadGuideOpen) {
++    return (
++      <AppScreen style={styles.screen}>
++        <View style={styles.infoScreenRoot}>
++          <AppHeader title={t('trade.proposals.guideTitle')} onBack={() => setThreadGuideOpen(false)} />
++          <ScrollView contentContainerStyle={styles.infoScreenContent}>
++            <PrivateThreadGuide t={t} />
++          </ScrollView>
++        </View>
++      </AppScreen>
++    );
++  }
++
+   if (messageReportTarget) {
+     return (
+       <AppScreen style={styles.screen}>
+@@ -864,7 +918,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+       <AppHeader
+         title={headerTitle}
+         onBack={() => navigation.goBack()}
+-        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setThreadInfoMode('menu')} label={t('trade.proposals.threadInfo')} /> : null}
++        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setActionSheet({ type: 'thread-menu' })} label={t('trade.proposals.threadMenu')} /> : null}
+       />
+ 
+       {!proposal ? (
+@@ -887,12 +941,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+             }}
+             refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}
+           >
+-            <ThreadMessageContextBar
+-              proposal={proposal}
+-              onOpenInfo={() => setThreadInfoMode('menu')}
+-              t={t}
+-            />
+-
+             {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+             {notice ? <InfoNotice tone="success" title={t('trade.proposals.proposalUpdated')} body={notice} /> : null}
+             {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
+@@ -976,26 +1024,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
+   );
+ }
+ 
+-function ThreadMessageContextBar({ proposal, onOpenInfo, t }: { proposal: TradeProposalItem; onOpenInfo: () => void; t: TFunction }) {
+-  const theme = useThemeTokens();
+-  const trade = proposal.trade;
+-  const needTitle = trade?.need?.title || t('trade.labels.need');
+-  const offerTitle = trade?.offer?.title || t('trade.labels.offer');
+-  const title = trade?.title || `${needTitle} ↔ ${offerTitle}`;
+-  return (
+-    <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.threadInfo')} onPress={onOpenInfo} style={({ pressed }) => [styles.threadMessageContextBar, { backgroundColor: theme.color.surface, borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+-      <View style={styles.threadMessageContextCopy}>
+-        <AppText style={styles.threadMessageContextTitle} numberOfLines={1}>{title}</AppText>
+-        <AppText style={[styles.threadMessageContextMeta, { color: theme.color.muted }]} numberOfLines={1}>{formatStatus(proposal.status, t)}{trade ? ` · ${formatStatus(trade.status, t)}` : ''}</AppText>
+-      </View>
+-      <View style={[styles.threadViewButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+-        <AppText style={[styles.threadViewButtonText, { color: theme.color.text }]}>{t('trade.proposals.threadInfoView')}</AppText>
+-        <MobileIcon name="chevron-right" size={16} color={theme.color.muted} decorative />
+-      </View>
+-    </Pressable>
+-  );
+-}
+-
+ function ProposalThreadInfoScreen({ mode, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, canMarkSubmitted, canConfirmCompleted, canReportDealProblem, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, language, onClose, onOpenMode, onOpenTradeDetail, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, t }: { mode: ActiveThreadInfoMode; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportDealProblem: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; language: SupportedLanguage; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; t: TFunction }) {
+   if (mode === 'menu') {
+     return <ThreadInfoMenu proposal={proposal} onClose={onClose} onOpenMode={onOpenMode} onOpenTradeDetail={onOpenTradeDetail} t={t} />;
+@@ -1474,11 +1502,29 @@ function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () =>
+   const theme = useThemeTokens();
+   return (
+     <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={({ pressed }) => [styles.headerDetailsButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-      <AppText style={styles.headerDetailsText}>{label}</AppText>
++      <MobileIcon name="more" size={20} color={theme.color.text} />
+     </Pressable>
+   );
+ }
+ 
++function PrivateThreadGuide({ t }: { t: TFunction }) {
++  const theme = useThemeTokens();
++  return (
++    <View style={styles.threadGuideContent}>
++      <AppText style={styles.threadGuideTitle}>{t('trade.proposals.guideHeading')}</AppText>
++      <AppText style={[styles.threadGuideBody, { color: theme.color.muted }]}>{t('trade.proposals.guideBody')}</AppText>
++      <View style={[styles.threadGuideSection, { borderColor: theme.color.border }]}>
++        <AppText style={styles.threadGuideSectionTitle}>{t('trade.proposals.guidePrivateTitle')}</AppText>
++        <AppText style={[styles.threadGuideSectionBody, { color: theme.color.muted }]}>{t('trade.proposals.guidePrivateBody')}</AppText>
++      </View>
++      <View style={[styles.threadGuideSection, { borderColor: theme.color.border }]}>
++        <AppText style={styles.threadGuideSectionTitle}>{t('trade.proposals.guideDetailsTitle')}</AppText>
++        <AppText style={[styles.threadGuideSectionBody, { color: theme.color.muted }]}>{t('trade.proposals.guideDetailsBody')}</AppText>
++      </View>
++    </View>
++  );
++}
++
+ function ThreadDetailsPanel({ expanded, proposal, tradeCancelled, onClose, children, t }: { expanded: boolean; proposal: TradeProposalItem; tradeCancelled: boolean; onClose: () => void; children?: React.ReactNode; t: TFunction }) {
+   const theme = useThemeTokens();
+   if (!expanded) return null;
+@@ -1956,12 +2002,6 @@ const styles = StyleSheet.create({
+   chatRoot: { flex: 1, minHeight: 0 },
+   chatScroll: { flex: 1 },
+   chatContent: { paddingTop: 10, paddingBottom: 24, gap: 12 },
+-  threadMessageContextBar: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+-  threadMessageContextCopy: { flex: 1, minWidth: 0, gap: 2 },
+-  threadMessageContextTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900', letterSpacing: -0.2 },
+-  threadMessageContextMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+-  threadViewButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
+-  threadViewButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+   infoScreenRoot: { flex: 1, minHeight: 0 },
+   infoScreenContent: { paddingTop: 14, paddingBottom: 28, gap: 12 },
+   infoHero: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 9 },
+@@ -2066,8 +2106,14 @@ const styles = StyleSheet.create({
+   inlineSideMeta: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+   inlineSideDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+   inlineEmptyState: { borderStyle: 'dashed' },
+-  headerDetailsButton: { minHeight: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
++  headerDetailsButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   headerDetailsText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
++  threadGuideContent: { gap: 14 },
++  threadGuideTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
++  threadGuideBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
++  threadGuideSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 6 },
++  threadGuideSectionTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
++  threadGuideSectionBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+   topSummary: { borderRadius: 26, borderWidth: 1, padding: 16, gap: 12 },
+   summaryHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+   summaryIdentity: { flex: 1, gap: 8 },
+diff --git a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+index d234700..55980d0 100644
+--- a/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
++++ b/apps/mobile/src/features/trade/TradePublicDiscussionScreen.tsx
+@@ -25,8 +25,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'TradePublicDiscussion'>
+ type MessagesResponse = { messages: TradePublicMessageItem[] };
+ type MessageResponse = { message: TradePublicMessageItem };
+ type TradePublicMessageItem = TradePublicMessageDto & { author?: TradeOwnerPreview | null };
+-type MessageActionTarget = { messageId: string; mode: 'edit' | 'report' } | null;
+-type MessageActionSheet = { type: 'own'; message: TradePublicMessageItem } | { type: 'report'; message: TradePublicMessageItem } | { type: 'delete'; message: TradePublicMessageItem } | null;
++type MessageActionTarget = { messageId: string; mode: 'edit' } | null;
++type PublicInfoMode = { type: 'guide' } | { type: 'report-thread' } | { type: 'report-message'; messageId: string } | null;
++type MessageActionSheet = { type: 'thread-menu' } | { type: 'own'; message: TradePublicMessageItem } | { type: 'report'; message: TradePublicMessageItem } | { type: 'delete'; message: TradePublicMessageItem } | null;
+ 
+ type TFunction = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => string;
+ 
+@@ -60,6 +61,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+   const [draft, setDraft] = useState('');
+   const [editDraft, setEditDraft] = useState('');
+   const [actionTarget, setActionTarget] = useState<MessageActionTarget>(null);
++  const [infoMode, setInfoMode] = useState<PublicInfoMode>(null);
+   const [actionSheet, setActionSheet] = useState<MessageActionSheet>(null);
+   const [loading, setLoading] = useState(false);
+   const [sending, setSending] = useState(false);
+@@ -160,8 +162,38 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+     setActionSheet({ type: 'report', message });
+   }
+ 
++  function openTradeDetail() {
++    setActionSheet(null);
++    navigation.navigate('TradeDetail', { tradeId: route.params.tradeId, title: route.params.title });
++  }
++
+   let actionSheetActions: AppActionSheetAction[] = [];
+-  if (actionSheet?.type === 'own') {
++  if (actionSheet?.type === 'thread-menu') {
++    actionSheetActions = [
++      {
++        key: 'details',
++        label: t('trade.publicDiscussion.seeDetails'),
++        helper: t('trade.publicDiscussion.seeDetailsBody'),
++        icon: 'trade',
++        onPress: openTradeDetail,
++      },
++      {
++        key: 'guide',
++        label: t('trade.publicDiscussion.seeGuide'),
++        helper: t('trade.publicDiscussion.seeGuideBody'),
++        icon: 'help',
++        onPress: () => { setInfoMode({ type: 'guide' }); setActionSheet(null); },
++      },
++      {
++        key: 'report-thread',
++        label: t('trade.publicDiscussion.reportThread'),
++        helper: t('trade.publicDiscussion.reportThreadBody'),
++        icon: 'report-flag',
++        tone: 'danger',
++        onPress: () => { setInfoMode({ type: 'report-thread' }); setActionSheet(null); },
++      },
++    ];
++  } else if (actionSheet?.type === 'own') {
+     const message = actionSheet.message;
+     actionSheetActions = [
+       {
+@@ -193,7 +225,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+         icon: 'report-flag',
+         tone: 'danger',
+         onPress: () => {
+-          setActionTarget({ messageId: message.id, mode: 'report' });
++          setInfoMode({ type: 'report-message', messageId: message.id });
+           setActionSheet(null);
+         },
+       },
+@@ -216,8 +248,26 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+ 
+   const canSend = draft.trim().length > 0 && !sending;
+ 
++  if (infoMode) {
++    return (
++      <AppFixedHeaderScreen header={<AppHeader title={infoMode.type === 'guide' ? t('trade.publicDiscussion.guideTitle') : infoMode.type === 'report-thread' ? t('trade.publicDiscussion.reportThreadTitle') : t('trade.publicDiscussion.reportMessageTitle')} onBack={() => setInfoMode(null)} />}>
++        <ScrollView contentContainerStyle={styles.infoContent} keyboardShouldPersistTaps="handled">
++          {infoMode.type === 'guide' ? <PublicThreadGuide t={t} /> : (
++            <ReportContentPanel
++              targetType={infoMode.type === 'report-thread' ? 'trade' : 'public_message'}
++              targetId={infoMode.type === 'report-thread' ? route.params.tradeId : infoMode.messageId}
++              labelKey={infoMode.type === 'report-thread' ? 'report.trade' : 'report.publicMessage'}
++              helperKey={infoMode.type === 'report-thread' ? 'report.helper.trade' : 'report.helper.publicMessage'}
++              initialOpen
++            />
++          )}
++        </ScrollView>
++      </AppFixedHeaderScreen>
++    );
++  }
++
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title={t('trade.publicDiscussion.title')} onBack={() => navigation.goBack()} rightSlot={<PublicThreadTradeButton label={t('trade.publicDiscussion.viewTrade')} onPress={() => navigation.navigate('TradeDetail', { tradeId: route.params.tradeId, title: route.params.title })} />} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={t('trade.publicDiscussion.title')} onBack={() => navigation.goBack()} rightSlot={<HeaderThreadMenuButton label={t('trade.publicDiscussion.threadMenu')} onPress={() => setActionSheet({ type: 'thread-menu' })} />} />}>
+       <KeyboardAvoidingView style={styles.shell} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}>
+         <ScrollView
+           contentContainerStyle={styles.content}
+@@ -225,7 +275,6 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+           keyboardShouldPersistTaps="handled"
+           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadMessages(); }} />}
+         >
+-          <PublicThreadContextBar title={route.params.title ?? t('trade.publicDiscussion.title')} onPress={() => navigation.navigate('TradeDetail', { tradeId: route.params.tradeId, title: route.params.title })} t={t} />
+           {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
+           {notice ? <InfoNotice tone="info" title={t('trade.publicDiscussion.heading')} body={notice} /> : null}
+           {groupedRows.length === 0 && !loading ? <EmptyDiscussion theme={theme} t={t} /> : null}
+@@ -268,8 +317,8 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+       </KeyboardAvoidingView>
+       <AppActionSheet
+         visible={Boolean(actionSheet)}
+-        title={t('trade.publicDiscussion.messageActions')}
+-        body={actionSheet?.type === 'own' ? t('trade.publicDiscussion.messageMenuHintOwn') : actionSheet?.type === 'report' ? t('trade.publicDiscussion.messageMenuHintOther') : actionSheet?.type === 'delete' ? t('trade.publicDiscussion.deleteConfirm') : undefined}
++        title={actionSheet?.type === 'thread-menu' ? t('trade.publicDiscussion.threadMenu') : t('trade.publicDiscussion.messageActions')}
++        body={actionSheet?.type === 'thread-menu' ? t('trade.publicDiscussion.threadMenuBody') : actionSheet?.type === 'own' ? t('trade.publicDiscussion.messageMenuHintOwn') : actionSheet?.type === 'report' ? t('trade.publicDiscussion.messageMenuHintOther') : actionSheet?.type === 'delete' ? t('trade.publicDiscussion.deleteConfirm') : undefined}
+         actions={actionSheetActions}
+         cancelLabel={t('common.actions.cancel')}
+         onClose={() => setActionSheet(null)}
+@@ -278,28 +327,30 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
+   );
+ }
+ 
+-function PublicThreadTradeButton({ label, onPress }: { label: string; onPress: () => void }) {
++function HeaderThreadMenuButton({ label, onPress }: { label: string; onPress: () => void }) {
+   const theme = useThemeTokens();
+   return (
+-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.headerTradeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+-      <AppText style={[styles.headerTradeButtonText, { color: theme.color.text }]}>{label}</AppText>
++    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} hitSlop={10} style={({ pressed }) => [styles.headerMenuButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
++      <MobileIcon name="more" size={20} color={theme.color.text} />
+     </Pressable>
+   );
+ }
+ 
+-function PublicThreadContextBar({ title, onPress, t }: { title: string; onPress: () => void; t: TFunction }) {
++function PublicThreadGuide({ t }: { t: TFunction }) {
+   const theme = useThemeTokens();
+   return (
+-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.contextBar, { backgroundColor: theme.color.surface, borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+-      <View style={styles.contextCopy}>
+-        <AppText style={[styles.contextEyebrow, { color: theme.color.muted }]}>{t('trade.publicDiscussion.tradeContext')}</AppText>
+-        <AppText style={styles.contextTitle} numberOfLines={1}>{title}</AppText>
++    <View style={styles.guideContent}>
++      <AppText style={styles.guideTitle}>{t('trade.publicDiscussion.guideHeading')}</AppText>
++      <AppText style={[styles.guideBody, { color: theme.color.muted }]}>{t('trade.publicDiscussion.guideBody')}</AppText>
++      <View style={[styles.guideSection, { borderColor: theme.color.border }]}>
++        <AppText style={styles.guideSectionTitle}>{t('trade.publicDiscussion.guidePublicTitle')}</AppText>
++        <AppText style={[styles.guideSectionBody, { color: theme.color.muted }]}>{t('trade.publicDiscussion.guidePublicBody')}</AppText>
+       </View>
+-      <View style={[styles.contextViewPill, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}> 
+-        <AppText style={[styles.contextViewText, { color: theme.color.text }]}>{t('trade.publicDiscussion.viewTrade')}</AppText>
+-        <MobileIcon name="chevron-right" size={16} color={theme.color.muted} decorative />
++      <View style={[styles.guideSection, { borderColor: theme.color.border }]}>
++        <AppText style={styles.guideSectionTitle}>{t('trade.publicDiscussion.guidePrivateTitle')}</AppText>
++        <AppText style={[styles.guideSectionBody, { color: theme.color.muted }]}>{t('trade.publicDiscussion.guidePrivateBody')}</AppText>
+       </View>
+-    </Pressable>
++    </View>
+   );
+ }
+ 
+@@ -340,7 +391,6 @@ function PublicMessageRow({ message, currentUserId, actionTarget, editDraft, sen
+           {message.editedAt && !deleted ? <AppText style={[styles.traceText, { color: theme.color.muted }]}>{t('trade.publicDiscussion.edited', { date: timeLabel(message.editedAt, language) })}</AppText> : null}
+         </>
+       )}
+-      {actionMode === 'report' ? <ReportContentPanel targetType="public_message" targetId={message.id} labelKey="report.publicMessage" helperKey="report.helper.publicMessage" /> : null}
+     </Pressable>
+   );
+ }
+@@ -355,8 +405,14 @@ function SmallAction({ label, tone, disabled, theme, onPress }: { label: string;
+ const styles = StyleSheet.create({
+   shell: { flex: 1 },
+   content: { paddingBottom: 18, gap: 12 },
+-  headerTradeButton: { minHeight: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+-  headerTradeButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
++  infoContent: { padding: 16, paddingBottom: 32 },
++  headerMenuButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  guideContent: { gap: 14 },
++  guideTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
++  guideBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
++  guideSection: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 14, gap: 6 },
++  guideSectionTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
++  guideSectionBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+   contextBar: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+   contextCopy: { flex: 1, minWidth: 0, gap: 2 },
+   contextEyebrow: { fontSize: 11, lineHeight: 14, fontWeight: '900', letterSpacing: 0.55, textTransform: 'uppercase' },
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 8911aff..7406ae1 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -181,6 +181,23 @@ export const trade = {
+     messageActions: 'Message actions',
+     edited: 'edited {{date}}',
+     unknownDate: 'Date unknown',
++    threadMenu: 'Thread options',
++    threadMenuBody: 'Open the full trade, read the short guide, or report this public thread.',
++    seeDetails: 'See details',
++    seeDetailsBody: 'Open the full trade detail page.',
++    seeGuide: 'See guide',
++    seeGuideBody: 'How public and private threads work.',
++    guideTitle: 'Public thread guide',
++    guideHeading: 'How public threads work',
++    guideBody: 'Public threads are for simple questions that help everyone understand the trade better.',
++    guidePublicTitle: 'Keep it public-safe',
++    guidePublicBody: 'Ask about scope, timing, mode, and general requirements. Do not share addresses, passwords, payment details, or private negotiation.',
++    guidePrivateTitle: 'Use private proposals for negotiation',
++    guidePrivateBody: 'Use a private thread when you want to propose a specific exchange, discuss personal details, or continue an accepted deal.',
++    reportThread: 'Report thread',
++    reportThreadBody: 'Report the public discussion or trade context to moderators.',
++    reportThreadTitle: 'Report public thread',
++    reportMessageTitle: 'Report public message',
+   },
+   proposals: {
+     status: {
+@@ -279,6 +296,24 @@ export const trade = {
+     threadInfoView: 'View',
+     threadInfoTitle: 'Thread info',
+     threadInfoBody: 'Messages stay clean by default. Open only the trade, proposal, or deal details you need.',
++    threadMenu: 'Thread options',
++    threadMenuBody: 'Open details, read the short guide, or report something from this private thread.',
++    seeDetails: 'See details',
++    seeDetailsBody: 'Open trade, proposal, agreement, or progress details.',
++    seeGuide: 'See guide',
++    seeGuideBody: 'How private proposal and deal threads work.',
++    guideTitle: 'Private thread guide',
++    guideHeading: 'How private threads work',
++    guideBody: 'Private threads are for one-to-one proposal and deal conversation. The chat stays clean by default, and details open on separate full-screen pages.',
++    guidePrivateTitle: 'Use chat for the conversation',
++    guidePrivateBody: 'Ask questions, confirm scope, and keep important agreement notes in the thread so both sides have context.',
++    guideDetailsTitle: 'Open details only when needed',
++    guideDetailsBody: 'Use See details for the trade, proposal package, accepted agreement, or deal progress. This keeps the message view simple.',
++    reportThread: 'Report thread',
++    reportThreadBody: 'Report this proposal thread to moderators.',
++    reportThreadTitle: 'Report private thread',
++    reportProblem: 'Report problem',
++    reportProblemBody: 'Open deal progress to report a problem with this accepted deal.',
+     threadInfoTradeDetail: 'Trade detail',
+     threadInfoTradeDetailBody: 'Need, offer, images, expiry, and public trade information.',
+     threadInfoProposalDetails: 'Proposal details',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index b5cffaf..b71ab5f 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -181,6 +181,23 @@ export const trade = {
+     messageActions: 'Actions du message',
+     edited: 'modifié {{date}}',
+     unknownDate: 'Date inconnue',
++    threadMenu: 'Options du fil',
++    threadMenuBody: 'Ouvrir l’échange complet, lire le guide rapide ou signaler ce fil public.',
++    seeDetails: 'Voir les détails',
++    seeDetailsBody: 'Ouvrir la page complète du détail de l’échange.',
++    seeGuide: 'Voir le guide',
++    seeGuideBody: 'Comment fonctionnent les fils publics et privés.',
++    guideTitle: 'Guide du fil public',
++    guideHeading: 'Comment fonctionnent les fils publics',
++    guideBody: 'Les fils publics servent aux questions simples qui aident tout le monde à mieux comprendre l’échange.',
++    guidePublicTitle: 'Gardez-le sûr et public',
++    guidePublicBody: 'Posez des questions sur le périmètre, le délai, le mode ou les besoins généraux. Ne partagez pas d’adresse, mot de passe, paiement ou négociation privée.',
++    guidePrivateTitle: 'Utilisez les propositions privées pour négocier',
++    guidePrivateBody: 'Utilisez un fil privé pour proposer un échange précis, discuter de détails personnels ou continuer un accord accepté.',
++    reportThread: 'Signaler le fil',
++    reportThreadBody: 'Signaler la discussion publique ou le contexte de l’échange aux modérateurs.',
++    reportThreadTitle: 'Signaler le fil public',
++    reportMessageTitle: 'Signaler le message public',
+   },
+   proposals: {
+     status: {
+@@ -279,6 +296,24 @@ export const trade = {
+     threadInfoView: 'Voir',
+     threadInfoTitle: 'Infos du fil',
+     threadInfoBody: 'Les messages restent propres par défaut. Ouvrez seulement les détails d’échange, de proposition ou d’accord dont vous avez besoin.',
++    threadMenu: 'Options du fil',
++    threadMenuBody: 'Ouvrir les détails, lire le guide rapide ou signaler quelque chose dans ce fil privé.',
++    seeDetails: 'Voir les détails',
++    seeDetailsBody: 'Ouvrir les détails de l’échange, de la proposition, de l’accord ou de la progression.',
++    seeGuide: 'Voir le guide',
++    seeGuideBody: 'Comment fonctionnent les fils privés de proposition et d’accord.',
++    guideTitle: 'Guide du fil privé',
++    guideHeading: 'Comment fonctionnent les fils privés',
++    guideBody: 'Les fils privés servent à la conversation de proposition ou d’accord entre deux personnes. Le chat reste propre par défaut, et les détails s’ouvrent sur des pages plein écran séparées.',
++    guidePrivateTitle: 'Utilisez le chat pour la conversation',
++    guidePrivateBody: 'Posez des questions, confirmez le périmètre et gardez les notes importantes de l’accord dans le fil pour que les deux côtés aient le contexte.',
++    guideDetailsTitle: 'Ouvrez les détails seulement si besoin',
++    guideDetailsBody: 'Utilisez Voir les détails pour l’échange, la proposition, l’accord accepté ou la progression. Cela garde la vue messages simple.',
++    reportThread: 'Signaler le fil',
++    reportThreadBody: 'Signaler ce fil de proposition aux modérateurs.',
++    reportThreadTitle: 'Signaler le fil privé',
++    reportProblem: 'Signaler un problème',
++    reportProblemBody: 'Ouvrir la progression de l’accord pour signaler un problème avec cet accord accepté.',
+     threadInfoTradeDetail: 'Détail de l’échange',
+     threadInfoTradeDetailBody: 'Besoin, offre, images, expiration et informations publiques de l’échange.',
+     threadInfoProposalDetails: 'Détails de la proposition',

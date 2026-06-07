@@ -36,5 +36,7 @@ export const report = {
     trade: 'Utilise ceci pour un problème de contenu public. Si tu participes à l’échange et as besoin d’aide, utilise le flux de problème/assistance de l’échange.',
     profile: 'Les signalements sont privés. Le propriétaire du profil ne verra pas ton message.',
     publicMessage: 'Les signalements sont privés. L’auteur du message ne verra pas le texte de ton signalement.',
+    privateMessage: 'Les signalements sont privés. L’autre personne ne verra pas le texte de ton signalement.',
+    proposalMessage: 'Les signalements sont privés. Utilise ceci si la note de proposition initiale semble dangereuse, indésirable ou abusive.',
   },
 } as const;

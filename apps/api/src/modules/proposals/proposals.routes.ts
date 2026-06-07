@@ -25,8 +25,12 @@ function inventoryUnavailable(status?: string | null) {
   return status !== 'active';
 }
 
-function conversationLocked(proposal: { status: string; trade: { status: string } }) {
+function proposalContentLocked(proposal: { status: string; trade: { status: string } }) {
   return proposal.status !== 'pending' || ['cancelled', 'closed'].includes(proposal.trade.status);
+}
+
+function privateConversationLocked(proposal: { status: string; trade: { status: string } }) {
+  return ['declined', 'withdrawn'].includes(proposal.status) || ['cancelled', 'closed'].includes(proposal.trade.status);
 }
 
 
@@ -255,7 +259,7 @@ proposalsRoutes.patch('/:proposalId/message', requireActiveAccount, asyncRoute(a
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true, cashPromise: true } });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
-  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
+  if (proposalContentLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
 
   const packageInput = hasProposalPackageInput(input);
   const nextCashPromise = cashPromiseDecision?.ok ? cashPromiseDecision.cashPromise : null;
@@ -348,7 +352,7 @@ proposalsRoutes.delete('/:proposalId/message', requireActiveAccount, asyncRoute(
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (proposal.applicantId !== actorId) return res.status(403).json({ error: 'forbidden' });
-  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
+  if (proposalContentLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal is locked after an owner decision.' });
   if (proposal.messageDeletedAt) {
     const current = await prisma.tradeProposal.findUniqueOrThrow({ where: { id: proposal.id }, include: proposalInclude });
     return res.json({ proposal: (await withProposalTradeMedia([current], 'owner'))[0] });
@@ -398,7 +402,7 @@ proposalsRoutes.patch('/:proposalId/messages/:messageId', requireActiveAccount, 
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
-  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
+  if (privateConversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
   const message = await prisma.proposalMessage.findUnique({ where: { id: req.params.messageId } });
   if (!message || message.proposalId !== proposal.id) return res.status(404).json({ error: 'not_found' });
   if (message.senderId !== actorId) return res.status(403).json({ error: 'forbidden' });
@@ -413,7 +417,7 @@ proposalsRoutes.delete('/:proposalId/messages/:messageId', requireActiveAccount,
   const proposal = await prisma.tradeProposal.findUnique({ where: { id: req.params.proposalId }, include: { trade: true } });
   if (!proposal) return res.status(404).json({ error: 'not_found' });
   if (!canReadProposal(proposal, actorId)) return res.status(403).json({ error: 'forbidden' });
-  if (conversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
+  if (privateConversationLocked(proposal)) return res.status(409).json({ error: 'proposal_content_locked', message: 'This proposal conversation is locked.' });
   const message = await prisma.proposalMessage.findUnique({ where: { id: req.params.messageId } });
   if (!message || message.proposalId !== proposal.id) return res.status(404).json({ error: 'not_found' });
   if (message.senderId !== actorId) return res.status(403).json({ error: 'forbidden' });

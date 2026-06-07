@@ -36,5 +36,7 @@ export const report = {
     trade: 'Use this for public content problems. If you are involved in the trade and need help resolving it, use the trade problem/support flow.',
     profile: 'Reports are private. The profile owner will not see your report message.',
     publicMessage: 'Reports are private. The message author will not see your report text.',
+    privateMessage: 'Reports are private. The other person will not see your report text.',
+    proposalMessage: 'Reports are private. Use this when the original proposal note looks unsafe, spammy, or abusive.',
   },
 } as const;

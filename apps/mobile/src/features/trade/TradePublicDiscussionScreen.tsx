@@ -212,7 +212,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
           setActionSheet(null);
           setFullScreenMode({
             type: 'report',
-            title: t('trade.publicDiscussion.reportMessage'),
+            title: t('trade.publicDiscussion.reportMessageTitle'),
             targetType: 'public_message',
             targetId: message.id,
             labelKey: 'report.publicMessage',
@@ -227,7 +227,8 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
     {
       key: 'details',
       label: t('trade.publicDiscussion.seeDetails'),
-      icon: 'chevron-right',
+      helper: t('trade.publicDiscussion.seeDetailsBody'),
+      icon: 'trade',
       onPress: () => {
         setThreadMenuVisible(false);
         openTradeDetail();
@@ -236,7 +237,8 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
     {
       key: 'guide',
       label: t('trade.publicDiscussion.seeGuide'),
-      icon: 'proposal',
+      helper: t('trade.publicDiscussion.seeGuideBody'),
+      icon: 'help',
       onPress: () => {
         setThreadMenuVisible(false);
         setFullScreenMode({ type: 'guide' });
@@ -245,12 +247,12 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
     {
       key: 'report',
       label: t('trade.publicDiscussion.reportThread'),
-      helper: t('report.helper.trade'),
+      helper: t('trade.publicDiscussion.reportThreadBody'),
       icon: 'report-flag',
       tone: 'danger',
       onPress: () => {
         setThreadMenuVisible(false);
-        setFullScreenMode({ type: 'report', title: t('trade.publicDiscussion.reportThread'), targetType: 'trade', targetId: route.params.tradeId, labelKey: 'report.trade', helperKey: 'report.helper.trade' });
+        setFullScreenMode({ type: 'report', title: t('trade.publicDiscussion.reportThreadTitle'), targetType: 'trade', targetId: route.params.tradeId, labelKey: 'report.trade', helperKey: 'report.helper.trade' });
       },
     },
   ];
@@ -325,6 +327,7 @@ export function TradePublicDiscussionScreen({ route, navigation }: Props) {
       <AppActionSheet
         visible={threadMenuVisible}
         title={t('trade.publicDiscussion.threadMenuTitle')}
+        body={t('trade.publicDiscussion.threadMenuBody')}
         actions={threadMenuActions}
         cancelLabel={t('common.actions.cancel')}
         onClose={() => setThreadMenuVisible(false)}
@@ -449,14 +452,14 @@ const styles = StyleSheet.create({
   infoBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
   infoSection: { gap: 6 },
   infoSectionTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900', letterSpacing: -0.15 },
-  fullBleedDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING },
+  fullBleedDivider: { height: 2, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING },
   emptyBox: { paddingVertical: 26, gap: 8 },
   emptyTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.3 },
   emptyBody: { lineHeight: 20, fontWeight: '700' },
   dateSeparator: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING },
-  dateLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dateLine: { flex: 1, height: 1 },
   dateText: { fontSize: 12, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.5 },
-  messageRow: { borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 13, gap: 8, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING },
+  messageRow: { borderBottomWidth: 1, paddingVertical: 13, gap: 8, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING },
   messageHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   messageIdentity: { flex: 1 },
   messageMenuButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
@@ -468,7 +471,7 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   smallAction: { minHeight: 38, borderRadius: 13, borderWidth: 1, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
   smallActionText: { fontSize: 13, fontWeight: '900' },
-  composer: { borderTopWidth: StyleSheet.hairlineWidth, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 10, paddingBottom: 10, gap: 8 },
+  composer: { borderTopWidth: 1, marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 10, paddingBottom: 10, gap: 8 },
   composerInput: { minHeight: 48, maxHeight: 118, borderRadius: 18, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 21, fontWeight: '700' },
   sendButton: { minHeight: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, paddingHorizontal: 14 },
   sendText: { fontWeight: '900' },

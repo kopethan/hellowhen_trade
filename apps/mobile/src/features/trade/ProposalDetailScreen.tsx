@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { AppState, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { AcceptedDealSnapshotItemDto, ProposalActionStatus, TradeActionStatus } from '@hellowhen/contracts';
+import type { AcceptedDealSnapshotItemDto, ProposalActionStatus, ReportTargetType, TradeActionStatus } from '@hellowhen/contracts';
 import { formatLocalizedDateTime, type SupportedLanguage } from '@hellowhen/i18n';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
 import { getFriendlyApiErrorMessage } from '../../lib/errors';
 import { AppActionSheet, type AppActionSheetAction } from '../../components/AppActionSheet';
 import { AppHeader } from '../../components/AppHeader';
-import { AppScreen } from '../../components/AppScreen';
+import { AppScreen, APP_SCREEN_HORIZONTAL_PADDING } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
 import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
+import { ReportContentPanel } from '../../components/ReportContentPanel';
 import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { ConversationComposerBar, DetailEmptyState, DetailMetadataChips, DetailSection } from '../../components/detail';
 import { useAuth } from '../../providers/AuthProvider';
@@ -37,12 +39,16 @@ type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
 type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | 'deal-report' | null;
 type ThreadInfoMode = 'menu' | 'proposal' | 'agreement' | 'progress' | null;
 type ActiveThreadInfoMode = Exclude<ThreadInfoMode, null>;
+type PrivateThreadReportTarget = { targetType: Extract<ReportTargetType, 'message' | 'proposal'>; targetId: string; titleKey: string; helperKey: string };
+const PRIVATE_THREAD_POLL_INTERVAL_MS = 7000;
+
 type ProposalActionSheet =
+  | { type: 'thread-menu' }
   | { type: 'status'; status: ProposalActionStatus }
   | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
-  | { type: 'message-options'; message: ProposalMessageItem }
+  | { type: 'message-options'; message: ProposalMessageItem; canEdit: boolean; canReport: boolean }
   | { type: 'delete-message'; messageId: string }
-  | { type: 'proposal-note-options' }
+  | { type: 'proposal-note-options'; canEdit: boolean; canReport: boolean }
   | { type: 'delete-proposal-note' }
   | null;
 
@@ -264,10 +270,14 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [problemReportOpen, setProblemReportOpen] = useState(false);
+  const [threadGuideOpen, setThreadGuideOpen] = useState(false);
+  const [messageReportTarget, setMessageReportTarget] = useState<PrivateThreadReportTarget | null>(null);
   const [problemSummary, setProblemSummary] = useState('');
   const [problemError, setProblemError] = useState<string | null>(null);
   const [actionSheet, setActionSheet] = useState<ProposalActionSheet>(null);
   const loadRequestIdRef = useRef(0);
+  const pollingInFlightRef = useRef(false);
+  const threadFocusedRef = useRef(false);
 
   const loadMessages = useCallback(async () => {
     const messageResult = await api.proposals.messages(route.params.proposalId) as MessagesResponse;
@@ -305,7 +315,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const tradeCancelled = isTradeCancelled(proposal);
   const canMessage = Boolean(proposal && (isOwner || isApplicant || isProvider) && !threadClosed);
   const canEditProposalContent = Boolean(proposal && isApplicant && proposal.status === 'pending' && !tradeCancelled);
-  const canEditOwnPrivateMessages = Boolean(proposal && proposal.status === 'pending' && !tradeCancelled && (isOwner || isApplicant || isProvider));
+  const canReportProposalNote = Boolean(proposal && actorId && proposal.applicantId !== actorId && !proposal.messageDeletedAt && (isOwner || isApplicant || isProvider));
+  const canEditOwnPrivateMessages = Boolean(proposal && (isOwner || isApplicant || isProvider) && !threadClosed);
   const canMarkSubmitted = Boolean(proposal && proposal.status === 'accepted' && proposal.trade?.status === 'in_progress' && isProvider);
   const canConfirmCompleted = Boolean(proposal && proposal.status === 'accepted' && proposal.trade?.status === 'submitted' && (isOwner || isApplicant || isProvider) && proposal.trade?.deliverySubmittedById !== actorId);
   const canReportDealProblem = Boolean(proposal && proposal.status === 'accepted' && ['in_progress', 'submitted'].includes(proposal.trade?.status ?? '') && (isOwner || isApplicant || isProvider));
@@ -365,11 +376,40 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     return t('trade.proposals.withdrawnHint');
   }, [proposal, tradeCancelled, isOwner, t]);
 
-  async function refreshConversation() {
+  const refreshConversation = useCallback(async () => {
     const result = await api.proposals.get(route.params.proposalId) as ProposalResponse;
     setProposal(result.proposal);
     await loadMessages();
-  }
+  }, [loadMessages, route.params.proposalId]);
+
+  const pollConversation = useCallback(async () => {
+    if (!threadFocusedRef.current || !proposal?.id || pollingInFlightRef.current || actionLoading) return;
+    pollingInFlightRef.current = true;
+    try {
+      await refreshConversation();
+    } catch {
+      // Keep polling silent. Pull-to-refresh and explicit actions still surface errors.
+    } finally {
+      pollingInFlightRef.current = false;
+    }
+  }, [actionLoading, proposal?.id, refreshConversation]);
+
+  useFocusEffect(useCallback(() => {
+    threadFocusedRef.current = true;
+    void pollConversation();
+    const intervalId = setInterval(() => { void pollConversation(); }, PRIVATE_THREAD_POLL_INTERVAL_MS);
+    return () => {
+      threadFocusedRef.current = false;
+      clearInterval(intervalId);
+    };
+  }, [pollConversation]));
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void pollConversation();
+    });
+    return () => subscription.remove();
+  }, [pollConversation]);
 
   async function sendMessage() {
     if (actionLoading) return;
@@ -551,13 +591,25 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
 
   function openMessageOptions(message: ProposalMessageItem) {
     const canEdit = message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt;
-    if (!canEdit) return;
-    setActionSheet({ type: 'message-options', message });
+    const canReport = Boolean(actorId && message.senderId !== actorId && !message.deletedAt);
+    if (!canEdit && !canReport) return;
+    setActionSheet({ type: 'message-options', message, canEdit, canReport });
   }
 
   function openProposalNoteOptions() {
-    if (!canEditProposalContent) return;
-    setActionSheet({ type: 'proposal-note-options' });
+    if (!canEditProposalContent && !canReportProposalNote) return;
+    setActionSheet({ type: 'proposal-note-options', canEdit: canEditProposalContent, canReport: canReportProposalNote });
+  }
+
+  function openPrivateMessageReport(messageId: string) {
+    setActionSheet(null);
+    setMessageReportTarget({ targetType: 'message', targetId: messageId, titleKey: 'trade.proposals.reportMessageTitle', helperKey: 'report.helper.privateMessage' });
+  }
+
+  function openProposalNoteReport() {
+    if (!proposal) return;
+    setActionSheet(null);
+    setMessageReportTarget({ targetType: 'proposal', targetId: proposal.id, titleKey: 'trade.proposals.reportProposalNoteTitle', helperKey: 'report.helper.proposalMessage' });
   }
 
   async function deletePrivateMessage(messageId: string) {
@@ -655,6 +707,45 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
     if (!actionSheet) return { title: '', actions: [] };
 
+    if (actionSheet.type === 'thread-menu') {
+      const actions: AppActionSheetAction[] = [
+        {
+          key: 'details',
+          label: t('trade.proposals.seeDetails'),
+          helper: t('trade.proposals.seeDetailsBody'),
+          icon: 'trade',
+          onPress: () => { setThreadInfoMode('menu'); setActionSheet(null); },
+        },
+        {
+          key: 'guide',
+          label: t('trade.proposals.seeGuide'),
+          helper: t('trade.proposals.seeGuideBody'),
+          icon: 'help',
+          onPress: () => { setThreadGuideOpen(true); setActionSheet(null); },
+        },
+      ];
+      if (proposal?.status === 'accepted') {
+        actions.push({
+          key: 'report-problem',
+          label: t('trade.proposals.reportProblem'),
+          helper: t('trade.proposals.reportProblemBody'),
+          icon: 'report-flag',
+          tone: 'danger',
+          onPress: () => { setThreadInfoMode('progress'); setActionSheet(null); },
+        });
+      } else if (proposal?.id) {
+        actions.push({
+          key: 'report-thread',
+          label: t('trade.proposals.reportThread'),
+          helper: t('trade.proposals.reportThreadBody'),
+          icon: 'report-flag',
+          tone: 'danger',
+          onPress: () => { setMessageReportTarget({ targetType: 'proposal', targetId: proposal.id, titleKey: 'trade.proposals.reportThreadTitle', helperKey: 'report.helper.proposalMessage' }); setActionSheet(null); },
+        });
+      }
+      return { title: t('trade.proposals.threadMenu'), body: t('trade.proposals.threadMenuBody'), actions };
+    }
+
     if (actionSheet.type === 'status') {
       const status = actionSheet.status;
       if (status === 'accepted') {
@@ -696,12 +787,19 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
 
     if (actionSheet.type === 'message-options') {
       const message = actionSheet.message;
-      return {
-        title: t('trade.proposals.proposalConversation'),
-        actions: [
+      const actions: AppActionSheetAction[] = [];
+      if (actionSheet.canEdit) {
+        actions.push(
           { key: 'edit', label: t('trade.proposals.editMessage'), icon: 'more', onPress: () => { startMessageEdit(message); setActionSheet(null); } },
           { key: 'delete', label: t('trade.proposals.deleteMessage'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-message', messageId: message.id }) },
-        ],
+        );
+      }
+      if (actionSheet.canReport) {
+        actions.push({ key: 'report', label: t('trade.proposals.reportMessage'), icon: 'report-flag', tone: 'danger', onPress: () => openPrivateMessageReport(message.id) });
+      }
+      return {
+        title: t('trade.proposals.messageOptions'),
+        actions,
       };
     }
 
@@ -715,11 +813,15 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     }
 
     if (actionSheet.type === 'proposal-note-options') {
-      const actions: AppActionSheetAction[] = [
-        { key: 'edit-note', label: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), icon: 'more', onPress: () => { startProposalNoteEdit(); setActionSheet(null); } },
-      ];
-      if (!proposal?.messageDeletedAt) {
-        actions.push({ key: 'delete-note', label: t('trade.proposals.deleteProposalNote'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-proposal-note' }) });
+      const actions: AppActionSheetAction[] = [];
+      if (actionSheet.canEdit) {
+        actions.push({ key: 'edit-note', label: proposal?.messageDeletedAt ? t('trade.proposals.addProposalNote') : t('trade.proposals.editProposal'), icon: 'more', onPress: () => { startProposalNoteEdit(); setActionSheet(null); } });
+        if (!proposal?.messageDeletedAt) {
+          actions.push({ key: 'delete-note', label: t('trade.proposals.deleteProposalNote'), icon: 'report-flag', tone: 'danger', onPress: () => setActionSheet({ type: 'delete-proposal-note' }) });
+        }
+      }
+      if (actionSheet.canReport) {
+        actions.push({ key: 'report-note', label: t('trade.proposals.reportProposalNote'), icon: 'report-flag', tone: 'danger', onPress: openProposalNoteReport });
       }
       return { title: t('trade.proposals.proposalNote'), actions };
     }
@@ -741,6 +843,32 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
     if (!proposal?.trade?.id) return;
     setThreadInfoMode(null);
     navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+  }
+
+  if (threadGuideOpen) {
+    return (
+      <AppScreen style={styles.screen}>
+        <View style={styles.infoScreenRoot}>
+          <AppHeader title={t('trade.proposals.guideTitle')} onBack={() => setThreadGuideOpen(false)} />
+          <ScrollView contentContainerStyle={styles.infoScreenContent}>
+            <PrivateThreadGuide t={t} />
+          </ScrollView>
+        </View>
+      </AppScreen>
+    );
+  }
+
+  if (messageReportTarget) {
+    return (
+      <AppScreen style={styles.screen}>
+        <View style={styles.infoScreenRoot}>
+          <AppHeader title={t(messageReportTarget.titleKey)} onBack={() => setMessageReportTarget(null)} />
+          <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
+            <ReportContentPanel targetType={messageReportTarget.targetType} targetId={messageReportTarget.targetId} helperKey={messageReportTarget.helperKey} initialOpen />
+          </ScrollView>
+        </View>
+      </AppScreen>
+    );
   }
 
   if (proposal && threadInfoMode) {
@@ -824,7 +952,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       <AppHeader
         title={headerTitle}
         onBack={() => navigation.goBack()}
-        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setThreadInfoMode('menu')} label={t('trade.proposals.threadInfo')} /> : null}
+        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setActionSheet({ type: 'thread-menu' })} label={t('trade.proposals.threadMenu')} /> : null}
       />
 
       {!proposal ? (
@@ -847,12 +975,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             }}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}
           >
-            <ThreadMessageContextBar
-              proposal={proposal}
-              onOpenInfo={() => setThreadInfoMode('menu')}
-              t={t}
-            />
-
             {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
             {notice ? <InfoNotice tone="success" title={t('trade.proposals.proposalUpdated')} body={notice} /> : null}
             {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
@@ -867,7 +989,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
               </View>
 
               <SystemEvent label={proposal.status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : isApplicant ? t('trade.proposals.youSentProposal') : t('trade.proposals.sentProposal')} />
-              <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
+              <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} canReport={canReportProposalNote} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
 
               <View style={styles.timelineMessages}>
                 {visibleMessages.length === 0 ? <DetailEmptyState icon="proposal" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
@@ -876,6 +998,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
                     message={message}
                     mine={message.senderId === actorId}
                     canEdit={message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt}
+                    canReport={Boolean(actorId && message.senderId !== actorId && !message.deletedAt)}
                     editing={editingMessageId === message.id}
                     draft={messageDraft}
                     error={editingMessageId === message.id ? messageEditError : null}
@@ -932,26 +1055,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
         </KeyboardAvoidingView>
       )}
     </AppScreen>
-  );
-}
-
-function ThreadMessageContextBar({ proposal, onOpenInfo, t }: { proposal: TradeProposalItem; onOpenInfo: () => void; t: TFunction }) {
-  const theme = useThemeTokens();
-  const trade = proposal.trade;
-  const needTitle = trade?.need?.title || t('trade.labels.need');
-  const offerTitle = trade?.offer?.title || t('trade.labels.offer');
-  const title = trade?.title || `${needTitle} ↔ ${offerTitle}`;
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.threadInfo')} onPress={onOpenInfo} style={({ pressed }) => [styles.threadMessageContextBar, { backgroundColor: theme.color.surface, borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
-      <View style={styles.threadMessageContextCopy}>
-        <AppText style={styles.threadMessageContextTitle} numberOfLines={1}>{title}</AppText>
-        <AppText style={[styles.threadMessageContextMeta, { color: theme.color.muted }]} numberOfLines={1}>{formatStatus(proposal.status, t)}{trade ? ` · ${formatStatus(trade.status, t)}` : ''}</AppText>
-      </View>
-      <View style={[styles.threadViewButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-        <AppText style={[styles.threadViewButtonText, { color: theme.color.text }]}>{t('trade.proposals.threadInfoView')}</AppText>
-        <MobileIcon name="chevron-right" size={16} color={theme.color.muted} decorative />
-      </View>
-    </Pressable>
   );
 }
 
@@ -1433,8 +1536,26 @@ function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () =>
   const theme = useThemeTokens();
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={({ pressed }) => [styles.headerDetailsButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-      <AppText style={styles.headerDetailsText}>{label}</AppText>
+      <MobileIcon name="more" size={20} color={theme.color.text} />
     </Pressable>
+  );
+}
+
+function PrivateThreadGuide({ t }: { t: TFunction }) {
+  const theme = useThemeTokens();
+  return (
+    <View style={styles.threadGuideContent}>
+      <AppText style={styles.threadGuideTitle}>{t('trade.proposals.guideHeading')}</AppText>
+      <AppText style={[styles.threadGuideBody, { color: theme.color.muted }]}>{t('trade.proposals.guideBody')}</AppText>
+      <View style={[styles.threadGuideSection, { borderColor: theme.color.border }]}>
+        <AppText style={styles.threadGuideSectionTitle}>{t('trade.proposals.guidePrivateTitle')}</AppText>
+        <AppText style={[styles.threadGuideSectionBody, { color: theme.color.muted }]}>{t('trade.proposals.guidePrivateBody')}</AppText>
+      </View>
+      <View style={[styles.threadGuideSection, { borderColor: theme.color.border }]}>
+        <AppText style={styles.threadGuideSectionTitle}>{t('trade.proposals.guideDetailsTitle')}</AppText>
+        <AppText style={[styles.threadGuideSectionBody, { color: theme.color.muted }]}>{t('trade.proposals.guideDetailsBody')}</AppText>
+      </View>
+    </View>
   );
 }
 
@@ -1485,7 +1606,7 @@ function PrivateThreadContextCard({ proposal, statusHint, tradeCancelled, expand
             <SemanticBadge label={proposal.status === 'accepted' ? t('trade.deal.acceptedDeal') : t('trade.proposals.tradeProposal')} tone={tone} size="sm" />
             {tradeStatusLabel ? <SemanticBadge label={tradeStatusLabel} tone={tradeCancelled ? 'warning' : 'muted'} size="sm" /> : null}
           </View>
-          <Pressable accessibilityRole={trade?.id ? 'button' : undefined} disabled={!trade?.id} onPress={onOpenTradeDetail} style={({ pressed }) => [styles.threadContextTitleButton, pressed && trade?.id && styles.pressed]}>
+          <Pressable accessibilityRole={trade?.id ? 'button' : undefined} disabled={!trade?.id} onPress={onOpenTradeDetail} style={({ pressed }) => [styles.threadContextTitleButton, pressed && Boolean(trade?.id) && styles.pressed]}>
             <AppText style={styles.threadContextTitle} numberOfLines={2}>{title}</AppText>
           </Pressable>
           <AppText style={[styles.threadContextMeta, { color: theme.color.muted }]} numberOfLines={1}>{needTitle} ↔ {offerTitle}</AppText>
@@ -1574,14 +1695,15 @@ function EmptyChatHint({ label }: { label: string }) {
   return <AppText style={[styles.emptyChat, { color: theme.color.muted }]}>{label}</AppText>;
 }
 
-function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error, onOptions, onChangeDraft, onSave, onCancel, actionLoading, language, t }: { proposal: TradeProposalItem; mine: boolean; canEdit: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSave: () => void; onCancel: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
+function ProposalNoteChatBubble({ proposal, mine, canEdit, canReport, editing, draft, error, onOptions, onChangeDraft, onSave, onCancel, actionLoading, language, t }: { proposal: TradeProposalItem; mine: boolean; canEdit: boolean; canReport: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSave: () => void; onCancel: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
   const theme = useThemeTokens();
+  const canOpenOptions = (canEdit || canReport) && !editing;
   if (!proposal.message && !proposal.messageDeletedAt && !editing) return null;
   return (
     <View style={[styles.messageRow, mine && styles.messageRowMine]}>
       <Pressable
-        disabled={!canEdit}
-        onLongPress={onOptions}
+        disabled={!canOpenOptions}
+        onLongPress={canOpenOptions ? onOptions : undefined}
         style={[
           styles.chatBubble,
           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
@@ -1590,7 +1712,7 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
       >
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
-          {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+          {canOpenOptions ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
         {editing ? (
           <View style={styles.noteEditBox}>
@@ -1620,13 +1742,14 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
   );
 }
 
-function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, onOptions, onChangeDraft, onSaveEdit, onCancelEdit, actionLoading, language, t }: { message: ProposalMessageItem; mine: boolean; canEdit: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSaveEdit: () => void; onCancelEdit: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
+function PrivateMessageBubble({ message, mine, canEdit, canReport, editing, draft, error, onOptions, onChangeDraft, onSaveEdit, onCancelEdit, actionLoading, language, t }: { message: ProposalMessageItem; mine: boolean; canEdit: boolean; canReport: boolean; editing: boolean; draft: string; error: string | null; onOptions: () => void; onChangeDraft: (text: string) => void; onSaveEdit: () => void; onCancelEdit: () => void; actionLoading: ActionLoading; language: SupportedLanguage; t: TFunction }) {
   const theme = useThemeTokens();
+  const canOpenOptions = (canEdit || canReport) && !editing;
   return (
     <View style={[styles.messageRow, mine && styles.messageRowMine]}>
       <Pressable
-        disabled={!canEdit}
-        onLongPress={onOptions}
+        disabled={!canOpenOptions}
+        onLongPress={canOpenOptions ? onOptions : undefined}
         style={[
           styles.chatBubble,
           { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
@@ -1635,7 +1758,7 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
       >
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
-          {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
+          {canOpenOptions ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
         {editing ? (
           <View style={styles.noteEditBox}>
@@ -1913,12 +2036,6 @@ const styles = StyleSheet.create({
   chatRoot: { flex: 1, minHeight: 0 },
   chatScroll: { flex: 1 },
   chatContent: { paddingTop: 10, paddingBottom: 24, gap: 12 },
-  threadMessageContextBar: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  threadMessageContextCopy: { flex: 1, minWidth: 0, gap: 2 },
-  threadMessageContextTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900', letterSpacing: -0.2 },
-  threadMessageContextMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
-  threadViewButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  threadViewButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
   infoScreenRoot: { flex: 1, minHeight: 0 },
   infoScreenContent: { paddingTop: 14, paddingBottom: 28, gap: 12 },
   infoHero: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 9 },
@@ -1954,13 +2071,13 @@ const styles = StyleSheet.create({
   threadDetailsPanelBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
   threadDetailsPanelClose: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   threadDetailsPanelContent: { gap: 12 },
-  timelineShell: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
+  timelineShell: { marginHorizontal: -APP_SCREEN_HORIZONTAL_PADDING, paddingHorizontal: APP_SCREEN_HORIZONTAL_PADDING, paddingTop: 12, borderTopWidth: 1, gap: 12 },
   timelineHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
   timelineHeaderCopy: { flex: 1, minWidth: 0, gap: 3 },
   timelineTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.25 },
   timelineBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
   timelineMessages: { gap: 7 },
-  threadTradeStrip: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
+  threadTradeStrip: { paddingVertical: 14, borderBottomWidth: 1, gap: 12 },
   threadTradeIconRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   threadTradeIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   threadTradeCopy: { flex: 1, minWidth: 0, gap: 4 },
@@ -2015,7 +2132,7 @@ const styles = StyleSheet.create({
   inlinePackageList: { gap: 0 },
   inlinePackageEmpty: { borderRadius: 18, borderWidth: 1, minHeight: 58, paddingHorizontal: 14, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   inlinePackageEmptyText: { flex: 1, lineHeight: 19, fontWeight: '800' },
-  inlineSideItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 13, borderTopWidth: StyleSheet.hairlineWidth },
+  inlineSideItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 13, borderTopWidth: 1 },
   inlineSideIcon: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
   inlineSideCopy: { flex: 1, minWidth: 0, gap: 5 },
   inlineSideHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
@@ -2023,8 +2140,14 @@ const styles = StyleSheet.create({
   inlineSideMeta: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
   inlineSideDescription: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
   inlineEmptyState: { borderStyle: 'dashed' },
-  headerDetailsButton: { minHeight: 36, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  headerDetailsButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   headerDetailsText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  threadGuideContent: { gap: 14 },
+  threadGuideTitle: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: -0.4 },
+  threadGuideBody: { fontSize: 15, lineHeight: 22, fontWeight: '700' },
+  threadGuideSection: { borderTopWidth: 1, paddingTop: 14, gap: 6 },
+  threadGuideSectionTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+  threadGuideSectionBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
   topSummary: { borderRadius: 26, borderWidth: 1, padding: 16, gap: 12 },
   summaryHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
   summaryIdentity: { flex: 1, gap: 8 },
@@ -2041,7 +2164,7 @@ const styles = StyleSheet.create({
   compactSideTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
   compactSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
   systemEventWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  systemLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  systemLine: { flex: 1, height: 1 },
   systemText: { maxWidth: '74%', textAlign: 'center', fontSize: 12, lineHeight: 17, fontWeight: '800' },
   emptyChat: { alignSelf: 'center', paddingVertical: 18, fontWeight: '800' },
   messageRow: { alignItems: 'flex-start', paddingVertical: 1 },
@@ -2055,7 +2178,7 @@ const styles = StyleSheet.create({
   messageBody: { lineHeight: 21, fontWeight: '700' },
   messageMeta: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
   messageDeleted: { fontStyle: 'italic', lineHeight: 20, fontWeight: '800', opacity: 0.74 },
-  composerBar: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  composerBar: { borderTopWidth: 1, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   chatInput: { flex: 1, maxHeight: 118, minHeight: 44, borderRadius: 22, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 20, fontWeight: '600' },
   sendButton: { minHeight: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
   sendButtonText: { fontWeight: '900' },
@@ -2093,7 +2216,7 @@ const styles = StyleSheet.create({
   proposedSideMeta: { fontSize: 12, lineHeight: 17, fontWeight: '900' },
   proposedSideBody: { lineHeight: 20, fontWeight: '700' },
   expandedDetails: { gap: 8, paddingTop: 4 },
-  detailRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+  detailRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderBottomWidth: 1 },
   detailLabel: { fontSize: 12, fontWeight: '800' },
   detailValue: { flex: 1, textAlign: 'right', fontSize: 13, lineHeight: 18, fontWeight: '900' },
   noteEditBox: { gap: 8 },
