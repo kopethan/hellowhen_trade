@@ -429,6 +429,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
             {canSubmitDelivery ? <button type="button" onClick={() => void updateTradeStatus('submitted')} disabled={Boolean(actionLoading)}>{t('trade.detail.markDelivered')}</button> : null}
             {canConfirmCompletion ? <button type="button" className="success" onClick={() => setConfirmCompletionOpen(true)} disabled={Boolean(actionLoading)}>{t('trade.detail.confirmCompleted')}</button> : null}
             {canReportProblem ? <button type="button" className="secondary danger-text" onClick={() => setReportOpen((open) => !open)} disabled={Boolean(actionLoading)}><WebIcon name="dispute" size={16} decorative /> {t('trade.detail.reportProblem')}</button> : null}
+            {canDeleteTrade ? <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={Boolean(actionLoading)}><WebIcon name="warning" size={16} decorative /> {t('trade.detail.cancelTrade')}</button> : null}
           </div>
           {reportOpen ? (
             <form className="proposal-composer" onSubmit={submitReport}>
@@ -443,23 +444,6 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       </section>
 
       <TradeThreadSplitSection trade={currentTrade} i18n={i18n} />
-
-      {isOwner ? (
-        <section className="trade-social-section trade-social-section--compact trade-danger-zone">
-          <div className="trade-section-heading">
-            <div>
-              <p className="eyebrow">{t('trade.labels.ownerControls')}</p>
-              <h2 className="icon-heading"><WebIcon name="warning" size={21} decorative /> {t('trade.detail.deleteTrade')}</h2>
-            </div>
-            <span className={canDeleteTrade ? 'semantic-badge danger' : 'semantic-badge instruction'}>{canDeleteTrade ? t('trade.labels.available') : t('trade.labels.protected')}</span>
-          </div>
-          <p>{canDeleteTrade ? t('trade.detail.removeTradeBody') : t('trade.detail.deleteProtectedBody')}</p>
-          <div className="trade-action-row">
-            <button type="button" className="secondary danger-text" onClick={() => setDeleteTradeOpen(true)} disabled={!canDeleteTrade || Boolean(actionLoading)}>{t('trade.detail.deleteTrade')}</button>
-          </div>
-        </section>
-      ) : null}
-
       <ConfirmDialog
         open={confirmCompletionOpen}
         eyebrow={t('trade.labels.confirmation')}
@@ -478,10 +462,10 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
       <ConfirmDialog
         open={deleteTradeOpen}
         eyebrow={t('trade.detail.ownerAction')}
-        title={t('trade.detail.deleteTradeTitle')}
+        title={t('trade.detail.cancelTrade')}
         body={t('trade.detail.deleteTradeBody')}
         variant="danger"
-        confirmLabel={t('trade.detail.deleteTrade')}
+        confirmLabel={t('trade.detail.cancelTrade')}
         loading={actionLoading === 'delete'}
         onCancel={() => setDeleteTradeOpen(false)}
         onConfirm={deleteTrade}
