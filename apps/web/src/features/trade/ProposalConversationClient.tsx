@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import type {
   AcceptedDealSnapshotItemDto,
   NeedDto,
@@ -12,6 +12,7 @@ import type {
   TradeProposalDto,
 } from "@hellowhen/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ReportContentButton } from "../../components/ReportContentButton";
 import { WebIcon, type WebIconName } from "../../components/WebIcon";
 import { api } from "../../lib/api";
 import { formatWebDateTime, formatWebMoney } from "../../lib/webFormat";
@@ -20,8 +21,7 @@ import { useWebTranslation } from "../../providers/WebI18nProvider";
 import { UserIdentityLink } from "../users/UserIdentityLink";
 import { getStatusLabel, type TradeI18n } from "./tradePresentation";
 
-const PROPOSAL_REFRESH_INTERVAL_MS = 6000;
-const MESSAGE_REFRESH_INTERVAL_MS = 3000;
+const THREAD_REFRESH_INTERVAL_MS = 7000;
 
 type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
 type TradeStatusResponse = { trade?: TradeDto };
@@ -34,6 +34,17 @@ type ProposalMessageResponse = {
 type DeleteConfirmTarget =
   | { kind: "proposal-note" }
   | { kind: "message"; messageId: string };
+
+type ProposalThreadView =
+  | "thread"
+  | "options"
+  | "guide"
+  | "details"
+  | "proposal"
+  | "deal-agreement"
+  | "deal-progress"
+  | "report"
+  | "report-message";
 
 type ProposalEditDraftSnapshot = {
   message?: string;
@@ -673,6 +684,78 @@ function ProposalSidePreview({
   );
 }
 
+function ProposalThreadHeader({
+  title,
+  backLabel,
+  backHref,
+  onBack,
+  onMenu,
+}: {
+  title: string;
+  backLabel: string;
+  backHref?: string;
+  onBack?: () => void;
+  onMenu?: () => void;
+}) {
+  return (
+    <header className="thread-page-header">
+      {backHref ? (
+        <Link href={backHref} className="thread-page-header__back" aria-label={backLabel}>
+          ←
+        </Link>
+      ) : (
+        <button type="button" className="thread-page-header__back" onClick={onBack} aria-label={backLabel}>
+          ←
+        </button>
+      )}
+      <h1>{title}</h1>
+      {onMenu ? (
+        <button type="button" className="thread-page-header__menu" onClick={onMenu} aria-label="Thread options">
+          ⋯
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+    </header>
+  );
+}
+
+function ThreadOptionButton({
+  title,
+  body,
+  icon,
+  onClick,
+  href,
+  danger = false,
+}: {
+  title: string;
+  body: string;
+  icon: WebIconName;
+  onClick?: () => void;
+  href?: string;
+  danger?: boolean;
+}) {
+  const content = (
+    <>
+      <span className="thread-option-row__icon"><WebIcon name={icon} size={18} decorative /></span>
+      <span className="thread-option-row__body">
+        <strong>{title}</strong>
+        <small>{body}</small>
+      </span>
+      <span className="thread-option-row__chevron">›</span>
+    </>
+  );
+
+  if (href) {
+    return <Link href={href} className={`thread-option-row${danger ? " thread-option-row--danger" : ""}`}>{content}</Link>;
+  }
+  return <button type="button" className={`thread-option-row${danger ? " thread-option-row--danger" : ""}`} onClick={onClick}>{content}</button>;
+}
+
+function ThreadSystemEvent({ children }: { children: ReactNode }) {
+  return <p className="thread-system-event">{children}</p>;
+}
+
 export function ProposalConversationClient({
   tradeId,
   proposalId,
@@ -718,8 +801,13 @@ export function ProposalConversationClient({
   const [messageEditError, setMessageEditError] = useState<string | null>(null);
   const [deleteConfirmTarget, setDeleteConfirmTarget] =
     useState<DeleteConfirmTarget | null>(null);
+  const [openMessageMenuId, setOpenMessageMenuId] = useState<string | null>(null);
+  const [reportMessageId, setReportMessageId] = useState<string | null>(null);
   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
+  const [threadView, setThreadView] = useState<ProposalThreadView>("thread");
   const initialEditAppliedRef = useRef(false);
+  const actionLoadingRef = useRef<string | null>(null);
+  const refreshInFlightRef = useRef(false);
 
   const sideItems = useMemo(
     () => (proposal ? proposalSideItems(proposal) : []),
@@ -789,6 +877,14 @@ export function ProposalConversationClient({
   }, [sideItemId]);
 
   useEffect(() => {
+    setThreadView("thread");
+  }, [proposalId]);
+
+  useEffect(() => {
+    actionLoadingRef.current = actionLoading;
+  }, [actionLoading]);
+
+  useEffect(() => {
     if (!initialEditProposal || initialEditAppliedRef.current) return;
     if (!proposal || !canEditProposalContent) return;
     initialEditAppliedRef.current = true;
@@ -843,6 +939,21 @@ export function ProposalConversationClient({
     }
   }
 
+  async function refreshProposalThread(options?: { force?: boolean }) {
+    if (!auth.isAuthenticated) return;
+    if (!options?.force && actionLoadingRef.current) return;
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    try {
+      await Promise.all([
+        loadProposal({ quiet: true }),
+        loadMessages({ quiet: true }),
+      ]);
+    } finally {
+      refreshInFlightRef.current = false;
+    }
+  }
+
   useEffect(() => {
     if (!auth.hydrated || !auth.isAuthenticated) {
       setLoading(false);
@@ -890,17 +1001,32 @@ export function ProposalConversationClient({
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
-    const proposalInterval = window.setInterval(() => {
-      if (document.visibilityState !== "hidden")
-        void loadProposal({ quiet: true });
-    }, PROPOSAL_REFRESH_INTERVAL_MS);
-    const messageInterval = window.setInterval(() => {
-      if (document.visibilityState !== "hidden")
-        void loadMessages({ quiet: true });
-    }, MESSAGE_REFRESH_INTERVAL_MS);
+
+    const canRefresh = () =>
+      document.visibilityState === "visible" &&
+      (typeof document.hasFocus !== "function" || document.hasFocus());
+
+    const refreshIfFocused = () => {
+      if (!canRefresh()) return;
+      void refreshProposalThread();
+    };
+
+    const refreshOnFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshProposalThread({ force: true });
+    };
+
+    const interval = window.setInterval(
+      refreshIfFocused,
+      THREAD_REFRESH_INTERVAL_MS,
+    );
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+
     return () => {
-      window.clearInterval(proposalInterval);
-      window.clearInterval(messageInterval);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
     };
   }, [auth.isAuthenticated, proposalId, tradeId]);
 
@@ -1025,6 +1151,7 @@ export function ProposalConversationClient({
       if (updatedProposal) setProposal(updatedProposal);
       setReply("");
       setReplyError(null);
+      await loadMessages({ quiet: true });
     } catch {
       setNotice(t("trade.errors.couldNotSendMessage"));
     } finally {
@@ -1137,6 +1264,13 @@ export function ProposalConversationClient({
     setEditingMessageId(message.id);
     setMessageDraft(message.body);
     setMessageEditError(null);
+    setOpenMessageMenuId(null);
+  }
+
+  function openPrivateMessageReport(messageId: string) {
+    setReportMessageId(messageId);
+    setOpenMessageMenuId(null);
+    setThreadView("report-message");
   }
 
   async function saveMessageEdit(event: FormEvent<HTMLFormElement>, messageId: string) {
@@ -1158,6 +1292,7 @@ export function ProposalConversationClient({
       setEditingMessageId(null);
       setMessageDraft("");
       setMessageEditError(null);
+      await loadMessages({ quiet: true });
     } catch {
       setMessageEditError(t("trade.proposals.couldNotUpdateMessage"));
     } finally {
@@ -1175,6 +1310,7 @@ export function ProposalConversationClient({
       setMessages((current) => current.map((item) => item.id === updatedMessage.id ? updatedMessage : item));
       if (updatedProposal) setProposal(updatedProposal);
       setDeleteConfirmTarget(null);
+      await loadMessages({ quiet: true });
     } catch {
       setNotice(t("trade.proposals.couldNotUpdateMessage"));
     } finally {
@@ -1184,12 +1320,17 @@ export function ProposalConversationClient({
 
   if (!auth.hydrated || loading) {
     return (
-      <article className="trade-detail-page proposal-conversation-page">
-        <section className="trade-hero-section">
+      <article className="trade-detail-page proposal-conversation-page proposal-conversation-page--messages-only" aria-busy="true">
+        <section className="thread-page-header thread-page-header--loading">
           <span className="semantic-badge instruction">
             {t("common.states.loading")}
           </span>
-          <h2>{t("trade.proposals.loadingProposal")}</h2>
+          <h1>{t("trade.proposals.loadingProposal")}</h1>
+        </section>
+        <section className="web-thread-loading-list web-thread-loading-list--bubbles" aria-hidden="true">
+          <span />
+          <span />
+          <span />
         </section>
       </article>
     );
@@ -1233,39 +1374,53 @@ export function ProposalConversationClient({
     );
   }
 
+  const acceptedAgreement = proposal.status === "accepted" ? acceptedDealAgreement(proposal) : null;
+  const dealStatus = proposal.trade?.status ?? "in_progress";
+  const submittedByYou = Boolean(actorId && proposal.trade?.deliverySubmittedById === actorId);
+  const dealRoleGuard = proposal.status === "accepted" ? getDealRoleGuard(dealStatus, canMarkSubmitted, canConfirmCompleted, submittedByYou, i18n) : null;
+
   return (
-    <article className="trade-detail-page proposal-conversation-page">
-      <section className="trade-hero-section">
-        <Link href={`/trades/${tradeId}`} className="button secondary">
-          ← {t("common.actions.back")}
-        </Link>
-        <div className="status-row">
-          <span className="semantic-badge proposal">
-            <WebIcon
-              name={proposalStatusIcon(proposal.status)}
-              size={14}
-              decorative
-            />{" "}
-            {getStatusLabel(proposal.status, i18n)}
-          </span>
-          <span className="semantic-badge trade">
-            {proposalApplicantStatus(proposal, i18n)}
-          </span>
-        </div>
-        <h2>
-          {proposal.status === "accepted"
-            ? t("trade.deal.title")
-            : t("trade.proposals.privateProposalConversation")}
-        </h2>
-        <p>
-          {proposal.status === "accepted"
-            ? t("trade.proposals.acceptedConversationBody")
-            : isOwner
-              ? t("trade.proposals.ownerPendingHint")
-              : t("trade.proposals.applicantPendingHint")}
-        </p>
-        {notice ? <p className="notice-box info">{notice}</p> : null}
-      </section>
+    <article className="trade-detail-page proposal-conversation-page proposal-conversation-page--messages-only">
+      <ProposalThreadHeader
+        title={
+          threadView === "options"
+            ? tr(i18n, "trade.proposals.threadMenuTitle", "Thread options")
+            : threadView === "guide"
+              ? tr(i18n, "trade.proposals.privateGuideTitle", "Private thread guide")
+              : threadView === "details"
+                ? tr(i18n, "trade.proposals.detailsMenuTitle", "See details")
+                : threadView === "proposal"
+                  ? tr(i18n, "trade.proposals.proposalDetails", "Proposal details")
+                  : threadView === "deal-agreement"
+                    ? tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")
+                    : threadView === "deal-progress"
+                      ? tr(i18n, "trade.deal.progressTitle", "Progress")
+                      : threadView === "report"
+                        ? tr(i18n, "trade.publicThread.reportThread", "Report thread")
+                        : threadView === "report-message"
+                          ? tr(i18n, "trade.proposals.reportMessage", "Report message")
+                          : proposal.status === "accepted"
+                        ? tr(i18n, "trade.proposals.privateDealTitle", "Private deal")
+                        : t("trade.proposals.privateProposalConversation")
+        }
+        backLabel={t("common.actions.back")}
+        backHref={threadView === "thread" ? `/trades/${tradeId}/proposals` : undefined}
+        onBack={
+          threadView === "options"
+            ? () => setThreadView("thread")
+            : threadView === "guide"
+              ? () => setThreadView("options")
+              : threadView === "details"
+                ? () => setThreadView("options")
+                : threadView === "report"
+                  ? () => setThreadView("options")
+                  : threadView === "report-message"
+                    ? () => { setThreadView("thread"); setReportMessageId(null); }
+                    : () => setThreadView("details")
+        }
+        onMenu={threadView === "thread" ? () => setThreadView("options") : undefined}
+      />
+      {notice ? <p className="notice-box info proposal-thread-notice">{notice}</p> : null}
 
       {withdrawConfirmOpen ? (
         <div
@@ -1505,331 +1660,346 @@ export function ProposalConversationClient({
         </div>
       ) : null}
 
-      <section className="trade-social-section trade-social-section--compact conversation-panel proposal-conversation-panel">
-        <div className="trade-section-heading">
-          <div>
-            <p className="eyebrow">{t("trade.labels.privateThread")}</p>
-            <h2 className="icon-heading">
-              <WebIcon
-                name={proposalStatusIcon(proposal.status)}
-                size={21}
-                decorative
-              />{" "}
-              {proposal.status === "accepted"
-                ? t("trade.proposals.acceptedConversation")
-                : t("trade.proposals.proposalConversation")}
-            </h2>
+      {threadView === "options" ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.proposals.threadMenuTitle", "Thread options")}</h2>
+          <div className="thread-option-list">
+            <ThreadOptionButton
+              title={tr(i18n, "trade.publicThread.seeDetails", "See details")}
+              body={tr(i18n, "trade.proposals.seeDetailsBody", "Choose trade, proposal, or deal information.")}
+              icon="trade"
+              onClick={() => setThreadView("details")}
+            />
+            <ThreadOptionButton
+              title={tr(i18n, "trade.publicThread.seeGuide", "See guide")}
+              body={tr(i18n, "trade.proposals.privateGuideBody", "Understand how private proposals and deal chats work.")}
+              icon="help"
+              onClick={() => setThreadView("guide")}
+            />
+            <ThreadOptionButton
+              title={tr(i18n, "trade.publicThread.reportThread", "Report thread")}
+              body={tr(i18n, "trade.proposals.reportPrivateThreadBody", "Report unsafe, spammy, or abusive private activity.")}
+              icon="warning"
+              danger
+              onClick={() => setThreadView("report")}
+            />
           </div>
+        </section>
+      ) : null}
+
+      {threadView === "guide" ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.proposals.privateGuideTitle", "Private thread guide")}</h2>
+          <div className="thread-guide-copy">
+            <p>{tr(i18n, "trade.proposals.privateGuideIntro", "Private threads are for proposal discussion, negotiation, and accepted deal coordination between the trade owner and applicant.")}</p>
+            <p>{tr(i18n, "trade.proposals.privateGuideDetails", "Use the three-dot menu when you need trade details, proposal details, deal agreement, or deal progress. The conversation stays focused on messages.")}</p>
+            <p>{tr(i18n, "trade.proposals.privateGuideSafety", "Keep important agreement details in the chat. Do not share passwords, card details, or sensitive documents.")}</p>
+          </div>
+        </section>
+      ) : null}
+
+
+      {threadView === "report" ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.publicThread.reportThread", "Report thread")}</h2>
+          <ReportContentButton targetType="trade" targetId={tradeId} labelKey="trade.publicThread.reportThread" helperKey="report.helper.trade" initialOpen />
+        </section>
+      ) : null}
+
+      {threadView === "report-message" && reportMessageId ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.proposals.reportMessage", "Report message")}</h2>
+          <ReportContentButton targetType="message" targetId={reportMessageId} labelKey="trade.proposals.reportMessage" helperKey="report.helper.privateMessage" initialOpen />
+        </section>
+      ) : null}
+
+      {threadView === "details" ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.proposals.detailsMenuTitle", "See details")}</h2>
+          <div className="thread-option-list">
+            <ThreadOptionButton
+              title={t("trade.labels.tradeDetails")}
+              body={tr(i18n, "trade.publicThread.seeDetailsBody", "Open the full trade detail page.")}
+              icon="trade"
+              href={`/trades/${tradeId}`}
+            />
+            <ThreadOptionButton
+              title={tr(i18n, "trade.proposals.proposalDetails", "Proposal details")}
+              body={tr(i18n, "trade.proposals.proposalDetailsBody", "Review the proposal package and message.")}
+              icon="proposal"
+              onClick={() => setThreadView("proposal")}
+            />
+            {proposal.status === "accepted" ? (
+              <>
+                <ThreadOptionButton
+                  title={tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")}
+                  body={tr(i18n, "trade.deal.agreementBody", "Review what each participant agreed to give and receive.")}
+                  icon="proposal-accepted"
+                  onClick={() => setThreadView("deal-agreement")}
+                />
+                <ThreadOptionButton
+                  title={tr(i18n, "trade.deal.progressTitle", "Progress")}
+                  body={tr(i18n, "trade.proposals.dealProgressBody", "Submit, complete, cancel, or report the accepted deal.")}
+                  icon="activity"
+                  onClick={() => setThreadView("deal-progress")}
+                />
+              </>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {threadView === "proposal" ? (
+        <section className="thread-full-page proposal-details-page">
+          <h2>{tr(i18n, "trade.proposals.proposalDetails", "Proposal details")}</h2>
           <div className="status-row">
             <span className="semantic-badge proposal">
-              <WebIcon
-                name={proposalStatusIcon(proposal.status)}
-                size={14}
-                decorative
-              />{" "}
-              {getStatusLabel(proposal.status, i18n)}
+              <WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}
             </span>
-            {actionLoading === "reply" ? (
-              <span className="semantic-badge instruction">
-                {t("trade.proposals.sending")}
-              </span>
-            ) : null}
+            <span className="semantic-badge trade">{proposalApplicantStatus(proposal, i18n)}</span>
           </div>
-        </div>
-        {proposal.status === "accepted" ? (
-          <AcceptedDealWorkspace
-            proposal={proposal}
-            canMarkSubmitted={canMarkSubmitted}
-            canConfirmCompleted={canConfirmCompleted}
-            canReportProblem={canReportDealProblem}
-            canCancelAcceptedTrade={canCancelAcceptedTrade}
-            actionLoading={actionLoading}
-            actorId={actorId}
-            onMarkSubmitted={() => setDealConfirmAction("submitted")}
-            onConfirmCompleted={() => setDealConfirmAction("completed")}
-            onReportProblem={() => setProblemReportOpen(true)}
-            onOpenCancel={() => setCancelConfirmOpen(true)}
-            i18n={i18n}
+          <UserIdentityLink
+            user={proposal.applicant}
+            userId={proposal.applicantId}
+            variant="compact"
+            avatarSize="sm"
+            statusText={isApplicant ? t("trade.proposals.youSentProposal") : t("trade.proposals.sentProposal")}
+            showHandle={false}
+            className="message-bubble__identity"
           />
-        ) : null}
-        <div className="message-list proposal-conversation-list proposal-timeline-list">
-          <article className="message-bubble message-bubble--proposal-package proposal-timeline-event">
-            <UserIdentityLink
-              user={proposal.applicant}
-              userId={proposal.applicantId}
-              variant="compact"
-              avatarSize="sm"
-              statusText={
-                isApplicant
-                  ? t("trade.proposals.youSentProposal")
-                  : t("trade.proposals.sentProposal")
-              }
-              showHandle={false}
-              className="message-bubble__identity"
-            />
-            {editingProposal ? (
-              <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
-                <div className="proposal-edit-form__side">
-                  <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
-                  <div className="proposal-edit-form__picker-grid">
-                    <div className="proposal-edit-form__picker-card">
-                      <div>
-                        <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
-                        <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                        <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
-                      </div>
-                      <div className="proposal-edit-form__picker-actions">
-                        <Link
-                          href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
-                          className="button secondary"
-                          onClick={stashProposalEditDraft}
-                        >
-                          {draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}
-                        </Link>
-                        {draftOffer && requiredProposalSide !== "offer" ? (
-                          <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button>
-                        ) : null}
-                      </div>
+          {editingProposal ? (
+            <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
+              <div className="proposal-edit-form__side">
+                <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
+                <div className="proposal-edit-form__picker-grid">
+                  <div className="proposal-edit-form__picker-card">
+                    <div>
+                      <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
+                      <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
+                      <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
                     </div>
-                    <div className="proposal-edit-form__picker-card">
-                      <div>
-                        <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
-                        <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                        <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
-                      </div>
-                      <div className="proposal-edit-form__picker-actions">
-                        <Link
-                          href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)}
-                          className="button secondary"
-                          onClick={stashProposalEditDraft}
-                        >
-                          {draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}
-                        </Link>
-                        {draftNeed && requiredProposalSide !== "need" ? (
-                          <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button>
-                        ) : null}
-                      </div>
+                    <div className="proposal-edit-form__picker-actions">
+                      <Link href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}</Link>
+                      {draftOffer && requiredProposalSide !== "offer" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button> : null}
                     </div>
                   </div>
-                  {draftOffer ? <ProposalSidePreview kind="offer" item={draftOffer} compact i18n={i18n} /> : null}
-                  {draftNeed ? <ProposalSidePreview kind="need" item={draftNeed} compact i18n={i18n} /> : null}
-                </div>
-                <label className="field-label">
-                  {t("trade.labels.proposalMessage")}
-                  <textarea
-                    value={proposalDraft}
-                    onChange={(event) => {
-                      setProposalDraft(event.target.value);
-                      if (proposalEditError) setProposalEditError(null);
-                    }}
-                    placeholder={t("trade.proposals.writeMessage")}
-                    rows={3}
-                  />
-                </label>
-                {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
-                <div className="proposal-edit-form__actions">
-                  <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
-                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
-                </div>
-              </form>
-            ) : (
-              <>
-                {sideItems.length ? (
-                  <div className="proposal-side-review">
-                    {sideItems.map((side) => (
-                      <ProposalSidePreview
-                        key={`${side.kind}-${side.item.id}`}
-                        kind={side.kind}
-                        item={side.item}
-                        compact
-                        i18n={i18n}
-                      />
-                    ))}
-                    <button
-                      type="button"
-                      className="proposal-side-details-toggle"
-                      onClick={() => setProposalDetailsOpen((open) => !open)}
-                    >
-                      {proposalDetailsOpen
-                        ? t("trade.proposals.hideProposalItemDetails")
-                        : t("trade.proposals.showProposalItemDetails")}
-                    </button>
-                    {proposalDetailsOpen ? (
-                      <div className="proposal-side-details-stack">
-                        {sideItems.map((side) => (
-                          <ProposalSideDetails
-                            key={`${side.kind}-details-${side.item.id}`}
-                            kind={side.kind}
-                            item={side.item}
-                            i18n={i18n}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
+                  <div className="proposal-edit-form__picker-card">
+                    <div>
+                      <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
+                      <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
+                      <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
+                    </div>
+                    <div className="proposal-edit-form__picker-actions">
+                      <Link href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}</Link>
+                      {draftNeed && requiredProposalSide !== "need" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button> : null}
+                    </div>
                   </div>
-                ) : null}
-                {proposal.messageDeletedAt ? (
-                  <p className="proposal-card__message proposal-timeline-event__note proposal-message-deleted">
-                    {t("trade.proposals.proposalNoteDeleted")}
-                  </p>
-                ) : proposal.message ? (
-                  <p className="proposal-card__message proposal-timeline-event__note">
-                    {proposal.message}
-                  </p>
-                ) : null}
-                {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
-              </>
-            )}
-            {canEditProposalContent && !editingProposal ? (
-              <div className="message-actions message-actions--proposal">
-                <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
-                {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
+                </div>
               </div>
-            ) : null}
-            <div className="proposal-card__actions proposal-detail-actions">
-              {canActOnProposal ? (
-                <button
-                  type="button"
-                  className="success"
-                  onClick={() => void updateProposalStatus("accepted")}
-                  disabled={Boolean(actionLoading)}
-                >
-                  {actionLoading === "accepted"
-                    ? t("trade.proposals.accepting")
-                    : t("trade.proposals.accept")}
-                </button>
-              ) : null}
-              {canActOnProposal ? (
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => void updateProposalStatus("declined")}
-                  disabled={Boolean(actionLoading)}
-                >
-                  {actionLoading === "declined"
-                    ? t("trade.proposals.declining")
-                    : t("trade.proposals.decline")}
-                </button>
-              ) : null}
-              {canWithdrawProposal ? (
-                <button
-                  type="button"
-                  className="secondary danger-text"
-                  onClick={() => setWithdrawConfirmOpen(true)}
-                  disabled={Boolean(actionLoading)}
-                >
-                  {actionLoading === "withdrawn"
-                    ? t("trade.proposals.withdrawing")
-                    : t("trade.proposals.withdraw")}
-                </button>
-              ) : null}
-              {canCancelAcceptedTrade && proposal.status !== "accepted" ? (
-                <button
-                  type="button"
-                  className="secondary danger-text"
-                  onClick={() => setCancelConfirmOpen(true)}
-                  disabled={Boolean(actionLoading)}
-                >
-                  {t("trade.proposals.cancelAcceptedTrade")}
-                </button>
-              ) : null}
-            </div>
-          </article>
-          {visibleMessages.length ? (
-            visibleMessages.map((message) => (
-              <article
-                key={message.id}
-                className={
-                  message.senderId === actorId
-                    ? "message-bubble message-bubble--own"
-                    : "message-bubble"
-                }
-              >
-                <UserIdentityLink
-                  user={message.sender}
-                  userId={message.senderId}
-                  variant="compact"
-                  avatarSize="sm"
-                  statusText={messageSenderStatus(message, actorId, i18n)}
-                  showHandle={false}
-                  className="message-bubble__identity"
+              <label className="field-label">
+                {t("trade.labels.proposalMessage")}
+                <textarea
+                  value={proposalDraft}
+                  onChange={(event) => {
+                    setProposalDraft(event.target.value);
+                    if (proposalEditError) setProposalEditError(null);
+                  }}
+                  placeholder={t("trade.proposals.writeMessage")}
+                  rows={3}
                 />
-                {editingMessageId === message.id ? (
-                  <form className="message-edit-form" onSubmit={(event) => void saveMessageEdit(event, message.id)}>
-                    <textarea
-                      value={messageDraft}
-                      onChange={(event) => {
-                        setMessageDraft(event.target.value);
-                        if (messageEditError) setMessageEditError(null);
-                      }}
-                      rows={3}
-                      autoFocus
-                    />
-                    {messageEditError ? <p className="field-error" role="alert">{messageEditError}</p> : null}
-                    <div className="message-actions">
-                      <button type="submit" disabled={Boolean(actionLoading)}>{t("trade.proposals.saveMessage")}</button>
-                      <button type="button" className="secondary" onClick={() => { setEditingMessageId(null); setMessageDraft(""); setMessageEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
-                    </div>
-                  </form>
-                ) : message.deletedAt ? (
-                  <>
-                    <p className="message-deleted">{t("trade.proposals.messageDeleted")}</p>
-                    <p className="message-meta">{formatDeletedTrace(message.deletedAt, i18n)}</p>
-                  </>
-                ) : (
-                  <>
-                    <p>{message.body}</p>
-                    {message.editedAt ? <p className="message-meta">{formatEditTrace(message.editCount, message.editedAt, i18n)}</p> : null}
-                    {message.senderId === actorId && canEditOwnPrivateMessages ? (
-                      <div className="message-actions">
-                        <button type="button" className="secondary" onClick={() => startMessageEdit(message)} disabled={Boolean(actionLoading)}>{t("trade.proposals.editMessage")}</button>
-                        <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "message", messageId: message.id })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteMessage")}</button>
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </article>
-            ))
+              </label>
+              {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
+              <div className="proposal-edit-form__actions">
+                <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
+                <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+              </div>
+            </form>
           ) : (
-            <p className="meta proposal-timeline-empty">
-              {t("trade.proposals.noMessages")}
-            </p>
+            <>
+              {sideItems.length ? (
+                <div className="proposal-side-details-stack">
+                  {sideItems.map((side) => (
+                    <div key={`${side.kind}-${side.item.id}`} className="thread-detail-section">
+                      <ProposalSidePreview kind={side.kind} item={side.item} compact i18n={i18n} />
+                      <ProposalSideDetails kind={side.kind} item={side.item} i18n={i18n} />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {proposal.messageDeletedAt ? (
+                <p className="proposal-message-deleted">{t("trade.proposals.proposalNoteDeleted")}</p>
+              ) : proposal.message ? (
+                <p className="proposal-detail-message">{proposal.message}</p>
+              ) : null}
+              {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
+            </>
           )}
-        </div>
-        {canReply ? (
-          <form className="conversation-reply" onSubmit={sendReply}>
-            <label className="sr-only" htmlFor="proposal-reply">
-              {t("trade.proposals.reply")}
-            </label>
-            <textarea
-              id="proposal-reply"
-              value={reply}
-              onChange={(event) => {
-                setReply(event.target.value);
-                if (replyError) setReplyError(null);
-              }}
-              placeholder={t("trade.proposals.replyPrivately")}
-              rows={3}
-              aria-describedby={replyError ? "proposal-reply-error" : undefined}
-              aria-invalid={Boolean(replyError)}
-            />
-            <button type="submit" disabled={Boolean(actionLoading)}>
-              {t("trade.proposals.send")}
-            </button>
-            {replyError ? (
-              <p id="proposal-reply-error" className="field-error" role="alert">
-                {replyError}
-              </p>
-            ) : null}
-          </form>
-        ) : (
-          <p className="meta">
-            {tradeCancelled
-              ? t("trade.proposals.cancelledConversationClosed")
-              : t("trade.proposals.closedConversation")}
-          </p>
-        )}
-      </section>
+          {canEditProposalContent && !editingProposal ? (
+            <div className="message-actions message-actions--proposal">
+              <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
+              {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
+            </div>
+          ) : null}
+          <div className="proposal-card__actions proposal-detail-actions">
+            {canActOnProposal ? <button type="button" className="success" onClick={() => void updateProposalStatus("accepted")} disabled={Boolean(actionLoading)}>{actionLoading === "accepted" ? t("trade.proposals.accepting") : t("trade.proposals.accept")}</button> : null}
+            {canActOnProposal ? <button type="button" className="secondary" onClick={() => void updateProposalStatus("declined")} disabled={Boolean(actionLoading)}>{actionLoading === "declined" ? t("trade.proposals.declining") : t("trade.proposals.decline")}</button> : null}
+            {canWithdrawProposal ? <button type="button" className="secondary danger-text" onClick={() => setWithdrawConfirmOpen(true)} disabled={Boolean(actionLoading)}>{actionLoading === "withdrawn" ? t("trade.proposals.withdrawing") : t("trade.proposals.withdraw")}</button> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {threadView === "deal-agreement" && acceptedAgreement ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")}</h2>
+          {acceptedAgreement.fromSnapshot ? <p className="notice-box info"><strong>{tr(i18n, "trade.deal.snapshotTitle", "Snapshot saved")}</strong><br />{tr(i18n, "trade.deal.snapshotBody", "This agreement is frozen from the moment the proposal was accepted, so later Need or Offer edits do not change the deal.")}</p> : null}
+          {acceptedAgreement.acceptedMessage ? <div className="deal-accepted-message"><span>{tr(i18n, "trade.deal.acceptedMessage", "Accepted proposal message")}</span><p>{acceptedAgreement.acceptedMessage}</p></div> : null}
+          <div className="deal-agreement-grid">
+            <DealAgreementBucket label={tr(i18n, "trade.deal.ownerGives", "Owner gives")} items={acceptedAgreement.ownerGives} kind="offer" i18n={i18n} />
+            <DealAgreementBucket label={tr(i18n, "trade.deal.ownerReceives", "Owner receives")} items={acceptedAgreement.ownerReceives} kind="need" i18n={i18n} />
+            <DealAgreementBucket label={tr(i18n, "trade.deal.applicantGives", "Applicant gives")} items={acceptedAgreement.applicantGives} kind="offer" i18n={i18n} />
+            <DealAgreementBucket label={tr(i18n, "trade.deal.applicantReceives", "Applicant receives")} items={acceptedAgreement.applicantReceives} kind="need" i18n={i18n} />
+          </div>
+        </section>
+      ) : null}
+
+      {threadView === "deal-progress" ? (
+        <section className="thread-full-page">
+          <h2>{tr(i18n, "trade.deal.progressTitle", "Progress")}</h2>
+          <div className="status-row">
+            <span className="semantic-badge proposal">{getStatusLabel(dealStatus, i18n)}</span>
+          </div>
+          <ol className="deal-progress-list">
+            <DealProgressStep label={tr(i18n, "trade.deal.stepAccepted", "Accepted")} index={1} state={dealStepState(dealStatus, "accepted")} />
+            <DealProgressStep label={tr(i18n, "trade.deal.stepInProgress", "In progress")} index={2} state={dealStepState(dealStatus, "in_progress")} />
+            <DealProgressStep label={tr(i18n, "trade.deal.stepSubmitted", "Submitted")} index={3} state={dealStepState(dealStatus, "submitted")} />
+            <DealProgressStep label={tr(i18n, "trade.deal.stepCompleted", "Completed")} index={4} state={dealStepState(dealStatus, "completed")} />
+          </ol>
+          {dealRoleGuard ? (
+            <div className="deal-panel deal-role-guard">
+              <span className={`semantic-badge ${dealRoleGuard.tone}`}>{dealRoleGuard.label}</span>
+              <strong>{dealRoleGuard.title}</strong>
+              <p>{dealRoleGuard.body}</p>
+            </div>
+          ) : null}
+          <div className="proposal-card__actions proposal-detail-actions">
+            {canMarkSubmitted ? <button type="button" onClick={() => setDealConfirmAction("submitted")} disabled={Boolean(actionLoading)}>{actionLoading === "submitted" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.markDelivered", "Mark delivered")}</button> : null}
+            {canConfirmCompleted ? <button type="button" onClick={() => setDealConfirmAction("completed")} disabled={Boolean(actionLoading)}>{actionLoading === "completed" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.confirmCompleted", "Confirm completed")}</button> : null}
+            {canReportDealProblem ? <button type="button" className="secondary danger-text" onClick={() => setProblemReportOpen(true)} disabled={Boolean(actionLoading)}>{actionLoading === "deal-report" ? tr(i18n, "common.states.working", "Working…") : tr(i18n, "trade.detail.reportProblem", "Report problem")}</button> : null}
+            {canCancelAcceptedTrade ? <button type="button" className="secondary danger-text" onClick={() => setCancelConfirmOpen(true)} disabled={Boolean(actionLoading)}>{t("trade.proposals.cancelAcceptedTrade")}</button> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {threadView === "thread" ? (
+        <section className="thread-message-page proposal-conversation-panel">
+          <div className="message-list proposal-conversation-list proposal-timeline-list proposal-thread-message-list">
+            <ThreadSystemEvent>
+              {proposal.status === "accepted"
+                ? tr(i18n, "trade.proposals.dealAcceptedEvent", "Deal accepted")
+                : tr(i18n, "trade.proposals.proposalSentEvent", "Proposal sent")}
+            </ThreadSystemEvent>
+            {visibleMessages.length ? (
+              visibleMessages.map((message) => {
+                const ownMessage = message.senderId === actorId;
+                const canShowMessageMenu = !message.deletedAt && (!ownMessage || canEditOwnPrivateMessages);
+                const menuOpen = canShowMessageMenu && openMessageMenuId === message.id;
+                return (
+                  <article
+                    key={message.id}
+                    className={ownMessage ? "message-bubble message-bubble--own" : "message-bubble"}
+                  >
+                    <div className="message-bubble__header">
+                      <UserIdentityLink
+                        user={message.sender}
+                        userId={message.senderId}
+                        variant="compact"
+                        avatarSize="sm"
+                        statusText={messageSenderStatus(message, actorId, i18n)}
+                        showHandle={false}
+                        className="message-bubble__identity"
+                      />
+                      {canShowMessageMenu && editingMessageId !== message.id ? (
+                        <button
+                          type="button"
+                          className="message-bubble__menu-button"
+                          onClick={() => setOpenMessageMenuId((current) => current === message.id ? null : message.id)}
+                          aria-expanded={menuOpen}
+                          aria-label={t("trade.proposals.messageOptions")}
+                        >
+                          <WebIcon name="more" size={18} decorative />
+                        </button>
+                      ) : null}
+                    </div>
+                    {editingMessageId === message.id ? (
+                      <form className="message-edit-form" onSubmit={(event) => void saveMessageEdit(event, message.id)}>
+                        <textarea
+                          value={messageDraft}
+                          onChange={(event) => {
+                            setMessageDraft(event.target.value);
+                            if (messageEditError) setMessageEditError(null);
+                          }}
+                          rows={3}
+                          autoFocus
+                        />
+                        {messageEditError ? <p className="field-error" role="alert">{messageEditError}</p> : null}
+                        <div className="message-actions">
+                          <button type="submit" disabled={Boolean(actionLoading)}>{t("trade.proposals.saveMessage")}</button>
+                          <button type="button" className="secondary" onClick={() => { setEditingMessageId(null); setMessageDraft(""); setMessageEditError(null); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+                        </div>
+                      </form>
+                    ) : message.deletedAt ? (
+                      <>
+                        <p className="message-deleted">{t("trade.proposals.messageDeleted")}</p>
+                        <p className="message-meta">{formatDeletedTrace(message.deletedAt, i18n)}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p>{message.body}</p>
+                        {message.editedAt ? <p className="message-meta">{formatEditTrace(message.editCount, message.editedAt, i18n)}</p> : null}
+                        {menuOpen ? (
+                          <div className="message-actions message-actions--menu">
+                            {ownMessage && canEditOwnPrivateMessages ? (
+                              <>
+                                <button type="button" className="secondary" onClick={() => startMessageEdit(message)} disabled={Boolean(actionLoading)}>{t("trade.proposals.editMessage")}</button>
+                                <button type="button" className="secondary danger-text" onClick={() => { setDeleteConfirmTarget({ kind: "message", messageId: message.id }); setOpenMessageMenuId(null); }} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteMessage")}</button>
+                              </>
+                            ) : (
+                              <button type="button" className="secondary danger-text" onClick={() => openPrivateMessageReport(message.id)} disabled={Boolean(actionLoading)}><WebIcon name="report-flag" size={16} decorative /> {t("trade.proposals.reportMessage")}</button>
+                            )}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                  </article>
+                );
+              })
+            ) : (
+              <p className="meta proposal-timeline-empty">{t("trade.proposals.noMessages")}</p>
+            )}
+          </div>
+          {canReply ? (
+            <form className="conversation-reply thread-bottom-composer" onSubmit={sendReply}>
+              <label className="sr-only" htmlFor="proposal-reply">{t("trade.proposals.reply")}</label>
+              <textarea
+                id="proposal-reply"
+                value={reply}
+                onChange={(event) => {
+                  setReply(event.target.value);
+                  if (replyError) setReplyError(null);
+                }}
+                placeholder={t("trade.proposals.replyPrivately")}
+                rows={2}
+                aria-describedby={replyError ? "proposal-reply-error" : undefined}
+                aria-invalid={Boolean(replyError)}
+              />
+              <button type="submit" disabled={Boolean(actionLoading)}>{t("trade.proposals.send")}</button>
+              {replyError ? <p id="proposal-reply-error" className="field-error" role="alert">{replyError}</p> : null}
+            </form>
+          ) : (
+            <p className="meta thread-closed-copy">{tradeCancelled ? t("trade.proposals.cancelledConversationClosed") : t("trade.proposals.closedConversation")}</p>
+          )}
+        </section>
+      ) : null}
     </article>
   );
 }

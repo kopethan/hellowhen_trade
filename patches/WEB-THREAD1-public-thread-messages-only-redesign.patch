@@ -1,0 +1,336 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index a18ed96..ba242e4 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -4953,3 +4953,41 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     order: -1;
+   }
+ }
++
++.public-discussion-page--messages-only { min-height: calc(100dvh - var(--app-header-height) - var(--app-tab-height) - 42px); margin: -8px -16px 0; }
++.public-discussion-page--messages-only .trade-social-section { border-bottom: 0; }
++.web-thread-header { display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; align-items: center; gap: 8px; min-height: 56px; padding: 0 16px 10px; border-bottom: 1px solid var(--app-border-strong); }
++.web-thread-header--loading { grid-template-columns: minmax(0, 1fr); align-items: start; }
++.web-thread-header h2 { margin: 0; color: var(--app-text); font-size: 22px; font-weight: 950; line-height: 1.05; letter-spacing: -0.045em; text-align: center; }
++.web-thread-header__back, .web-thread-header__menu { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: var(--app-text); padding: 0; }
++.web-thread-header__back:hover, .web-thread-header__back:focus-visible, .web-thread-header__menu:hover, .web-thread-header__menu:focus-visible { border-color: var(--app-border); background: var(--app-surface-soft); }
++.web-thread-header__menu { justify-self: end; }
++.public-discussion-section--messages-only { display: grid; gap: 0; padding: 0 16px calc(84px + env(safe-area-inset-bottom)); }
++.public-discussion-section--empty { display: grid; gap: 12px; padding: 22px 16px; }
++.public-discussion-section--empty h3 { margin: 0; color: var(--app-text); font-size: 21px; line-height: 1.12; }
++.public-discussion-section--empty p { margin: 0; }
++.public-discussion-empty-text { margin: 26px 0; color: var(--app-text-muted); font-size: 14px; font-weight: 850; text-align: center; }
++.public-discussion-section--messages-only .public-message-date { margin: 14px 0; }
++.public-discussion-section--messages-only .public-message { margin-inline: -16px; padding: 13px 16px; border-bottom: 1px solid var(--app-border-strong); }
++.public-discussion-section--messages-only .public-message__body { font-size: 14px; font-weight: 760; line-height: 1.52; }
++.public-discussion-section--messages-only .public-message__menu { padding-top: 3px; }
++.public-discussion-composer--messages-only { position: sticky; bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 4px); z-index: 30; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; margin: 10px -16px 0; border: 0; border-top: 1px solid var(--app-border-strong); border-radius: 0; background: color-mix(in srgb, var(--app-bg) 94%, transparent); padding: 10px 16px; box-shadow: none; backdrop-filter: blur(16px); }
++.public-discussion-composer--messages-only textarea { min-height: 44px; max-height: 120px; border-radius: 18px; background: var(--app-surface); }
++.web-thread-options-list, .web-thread-info-page { display: grid; gap: 0; padding: 4px 16px 24px; }
++.web-thread-option-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-inline: -16px; border: 0; border-bottom: 1px solid var(--app-border-strong); background: transparent; color: var(--app-text); padding: 16px; text-align: left; text-decoration: none; }
++.web-thread-option-row span { display: grid; min-width: 0; gap: 3px; }
++.web-thread-option-row strong { color: var(--app-text); font-size: 15px; font-weight: 950; line-height: 1.22; }
++.web-thread-option-row small { color: var(--app-text-muted); font-size: 12px; font-weight: 760; line-height: 1.36; }
++.web-thread-option-row:hover, .web-thread-option-row:focus-visible { background: var(--app-surface-soft); }
++.web-thread-info-page { gap: 14px; padding-top: 18px; }
++.web-thread-info-page > p { margin: 0; color: var(--app-text); font-size: 15px; font-weight: 760; line-height: 1.55; }
++.web-thread-info-page .report-content-block { display: grid; gap: 12px; }
++.web-thread-guide-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
++.web-thread-guide-list li { margin-inline: -16px; border-bottom: 1px solid var(--app-border-strong); color: var(--app-text); padding: 14px 16px; font-size: 14px; font-weight: 800; line-height: 1.45; }
++@media (min-width: 760px) {
++  .public-discussion-page--messages-only { min-height: auto; margin-top: -4px; }
++  .public-discussion-composer--messages-only { bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 10px); }
++}
++@media (max-width: 420px) {
++  .public-discussion-composer--messages-only { grid-template-columns: minmax(0, 1fr) auto; }
++}
+diff --git a/apps/web/src/components/ReportContentButton.tsx b/apps/web/src/components/ReportContentButton.tsx
+index d4d6ec5..38b376a 100644
+--- a/apps/web/src/components/ReportContentButton.tsx
++++ b/apps/web/src/components/ReportContentButton.tsx
+@@ -17,15 +17,16 @@ type ReportContentButtonProps = {
+   labelKey?: string;
+   helperKey?: string;
+   buttonClassName?: string;
++  initialOpen?: boolean;
+ };
+ 
+ const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
+ 
+-export function ReportContentButton({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', buttonClassName = 'button secondary danger-text' }: ReportContentButtonProps) {
++export function ReportContentButton({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', buttonClassName = 'button secondary danger-text', initialOpen = false }: ReportContentButtonProps) {
+   const auth = useWebAuth();
+   const pathname = usePathname() || '/trades';
+   const { t } = useWebTranslation();
+-  const [open, setOpen] = useState(false);
++  const [open, setOpen] = useState(initialOpen);
+   const [reason, setReason] = useState<ReportReason>('spam');
+   const [details, setDetails] = useState('');
+   const [loading, setLoading] = useState(false);
+diff --git a/apps/web/src/features/trade/TradePublicDiscussionClient.tsx b/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
+index 687d2af..a6a0751 100644
+--- a/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
++++ b/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
+@@ -15,6 +15,8 @@ import { UserIdentityLink } from '../users/UserIdentityLink';
+ 
+ const PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS = 8000;
+ 
++type PublicDiscussionView = 'messages' | 'menu' | 'guide' | 'report-thread' | 'report-message';
++
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return Boolean(value && typeof value === 'object');
+ }
+@@ -51,6 +53,8 @@ function messageDateKey(value: string) {
+ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+   const auth = useWebAuth();
+   const { t, language } = useWebTranslation();
++  const [view, setView] = useState<PublicDiscussionView>('messages');
++  const [reportMessageId, setReportMessageId] = useState<string | null>(null);
+   const [messages, setMessages] = useState<TradePublicMessageDto[]>([]);
+   const [body, setBody] = useState('');
+   const [editingId, setEditingId] = useState<string | null>(null);
+@@ -162,10 +166,22 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+     }
+   }
+ 
++  function openReportMessage(messageId: string) {
++    setReportMessageId(messageId);
++    setOpenMenuId(null);
++    setView('report-message');
++  }
++
++  function closeSubpage() {
++    setView('messages');
++    setReportMessageId(null);
++    setOpenMenuId(null);
++  }
++
+   if (!auth.hydrated || loading) {
+     return (
+-      <article className="trade-detail-page public-discussion-page">
+-        <section className="trade-hero-section">
++      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++        <section className="web-thread-header web-thread-header--loading">
+           <span className="semantic-badge instruction">{t('common.states.loading')}</span>
+           <h2>{t('trade.publicDiscussion.title')}</h2>
+         </section>
+@@ -175,11 +191,13 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+ 
+   if (!auth.isAuthenticated) {
+     return (
+-      <article className="trade-detail-page public-discussion-page">
+-        <section className="trade-hero-section">
+-          <Link href={`/trades/${tradeId}`} className="button secondary">← {t('common.actions.back')}</Link>
+-          <span className="semantic-badge proposal"><WebIcon name="proposal" size={14} decorative /> {t('trade.publicDiscussion.title')}</span>
+-          <h2>{t('trade.publicDiscussion.signedOutTitle')}</h2>
++      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++        <section className="web-thread-header">
++          <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
++          <h2>{t('trade.publicDiscussion.title')}</h2>
++        </section>
++        <section className="public-discussion-section public-discussion-section--empty">
++          <h3>{t('trade.publicDiscussion.signedOutTitle')}</h3>
+           <p>{t('trade.publicDiscussion.signedOutBody')}</p>
+           <Link href={`/auth?next=${encodeURIComponent(`/trades/${tradeId}/discussion`)}`} className="button primary full">{t('report.loginAction')}</Link>
+         </section>
+@@ -187,21 +205,99 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+     );
+   }
+ 
++  if (view === 'menu') {
++    return (
++      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.publicDiscussion.menuTitle')}</h2>
++        </section>
++        <section className="web-thread-options-list" aria-label={t('trade.publicDiscussion.menuTitle')}>
++          <Link href={`/trades/${tradeId}`} className="web-thread-option-row">
++            <span>
++              <strong>{t('trade.publicDiscussion.seeDetails')}</strong>
++              <small>{t('trade.publicDiscussion.seeDetailsBody')}</small>
++            </span>
++            <WebIcon name="arrow-right" size={18} decorative />
++          </Link>
++          <button type="button" className="web-thread-option-row" onClick={() => setView('guide')}>
++            <span>
++              <strong>{t('trade.publicDiscussion.seeGuide')}</strong>
++              <small>{t('trade.publicDiscussion.seeGuideBody')}</small>
++            </span>
++            <WebIcon name="arrow-right" size={18} decorative />
++          </button>
++          <button type="button" className="web-thread-option-row danger-text" onClick={() => setView('report-thread')}>
++            <span>
++              <strong>{t('trade.publicDiscussion.reportThread')}</strong>
++              <small>{t('trade.publicDiscussion.reportThreadBody')}</small>
++            </span>
++            <WebIcon name="arrow-right" size={18} decorative />
++          </button>
++        </section>
++      </article>
++    );
++  }
++
++  if (view === 'guide') {
++    return (
++      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.publicDiscussion.guideTitle')}</h2>
++        </section>
++        <section className="web-thread-info-page">
++          <p>{t('trade.publicDiscussion.guideBody')}</p>
++          <ul className="web-thread-guide-list">
++            <li>{t('trade.publicDiscussion.guidePublic')}</li>
++            <li>{t('trade.publicDiscussion.guidePrivate')}</li>
++            <li>{t('trade.publicDiscussion.guideSafety')}</li>
++          </ul>
++        </section>
++      </article>
++    );
++  }
++
++  if (view === 'report-thread') {
++    return (
++      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.publicDiscussion.reportThread')}</h2>
++        </section>
++        <section className="web-thread-info-page">
++          <ReportContentButton targetType="trade" targetId={tradeId} labelKey="trade.publicDiscussion.reportThread" helperKey="report.helper.trade" initialOpen />
++        </section>
++      </article>
++    );
++  }
++
++  if (view === 'report-message' && reportMessageId) {
++    return (
++      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.publicDiscussion.reportMessage')}</h2>
++        </section>
++        <section className="web-thread-info-page">
++          <ReportContentButton targetType="public_message" targetId={reportMessageId} labelKey="trade.publicDiscussion.reportMessage" helperKey="report.helper.publicMessage" initialOpen />
++        </section>
++      </article>
++    );
++  }
++
+   return (
+-    <article className="trade-detail-page public-discussion-page">
+-      <section className="trade-hero-section trade-thread-page-hero">
+-        <Link href={`/trades/${tradeId}`} className="button secondary">← {t('trade.labels.trade')}</Link>
+-        <span className="semantic-badge proposal"><WebIcon name="proposal" size={14} decorative /> {t('trade.publicDiscussion.title')}</span>
+-        <h2>{t('trade.publicDiscussion.heading')}</h2>
+-        <p>{t('trade.publicDiscussion.body')}</p>
++    <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
++      <section className="web-thread-header">
++        <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
++        <h2>{t('trade.publicDiscussion.title')}</h2>
++        <button type="button" className="web-thread-header__menu" onClick={() => setView('menu')} aria-label={t('trade.publicDiscussion.menuTitle')}>
++          <WebIcon name="more" size={22} decorative />
++        </button>
+       </section>
+ 
+-      <section className="trade-social-section public-discussion-section">
++      <section className="trade-social-section public-discussion-section public-discussion-section--messages-only">
+         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
+-        <div className="public-discussion-toolbar">
+-          <span className="semantic-badge info">{t('trade.publicDiscussion.messageCount', { count: messages.length })}</span>
+-          <span className="public-discussion-toolbar__hint">{t('trade.publicDiscussion.moderationHint')}</span>
+-        </div>
+         {messages.length ? (
+           <div className="public-message-list">
+             {groupedMessages.map(({ message, showDate }) => {
+@@ -251,7 +347,9 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+                             <button type="button" className="button secondary danger-text" onClick={() => void deleteMessage(message)}>{t('common.actions.remove')}</button>
+                           </>
+                         ) : (
+-                          <ReportContentButton targetType="public_message" targetId={message.id} labelKey="trade.publicDiscussion.reportMessage" helperKey="report.helper.publicMessage" buttonClassName="button secondary danger-text" />
++                          <button type="button" className="button secondary danger-text" onClick={() => openReportMessage(message.id)}>
++                            <WebIcon name="report-flag" size={16} decorative /> {t('trade.publicDiscussion.reportMessage')}
++                          </button>
+                         )}
+                       </div>
+                     ) : null}
+@@ -261,17 +359,13 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+             })}
+           </div>
+         ) : (
+-          <div className="proposal-empty-state proposal-empty-state--compact">
+-            <WebIcon name="proposal" size={30} decorative />
+-            <strong>{t('trade.publicDiscussion.emptyTitle')}</strong>
+-            <span>{t('trade.publicDiscussion.emptyBody')}</span>
+-          </div>
++          <p className="public-discussion-empty-text">{t('trade.publicDiscussion.emptyTitle')}</p>
+         )}
+ 
+         {canWrite ? (
+-          <form className="conversation-reply public-discussion-composer" onSubmit={submitMessage}>
++          <form className="conversation-reply public-discussion-composer public-discussion-composer--messages-only" onSubmit={submitMessage}>
+             <label className="sr-only" htmlFor="public-discussion-message">{t('trade.publicDiscussion.placeholder')}</label>
+-            <textarea id="public-discussion-message" value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('trade.publicDiscussion.placeholder')} rows={2} />
++            <textarea id="public-discussion-message" value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('trade.publicDiscussion.placeholder')} rows={1} />
+             <button type="submit" disabled={sending || trimmedBody.length < 1}>{sending ? t('common.states.sending') : t('common.actions.send')}</button>
+           </form>
+         ) : (
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index 87f51ca..af20baf 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -57,6 +57,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
+   { match: (pathname) => /^\/plans\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.plan', backHref: '/plans' },
+   { match: (pathname) => /^\/users\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.profile', backHref: '/trades' },
+   { match: (pathname) => /^\/trades\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.trade', backHref: '/trades' },
++  { match: (pathname) => /^\/trades\/[^/]+\/discussion$/.test(pathname), titleKey: 'trade.publicDiscussion.title', backHref: '/trades' },
+   { match: (pathname) => pathname === '/needs/new', titleKey: 'navigation.routes.createNeed', backHref: '/needs' },
+   { match: (pathname) => /^\/needs\/[^/]+\/edit$/.test(pathname), titleKey: 'navigation.routes.editNeed', backHref: '/needs' },
+   { match: (pathname) => /^\/needs\/[^/]+$/.test(pathname), titleKey: 'navigation.routes.need', backHref: '/needs' },
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 40b2cc9..2aa840f 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -179,6 +179,18 @@ export const trade = {
+     messageActions: 'Message actions',
+     edited: 'edited {{date}}',
+     unknownDate: 'Date unknown',
++    menuTitle: 'Thread options',
++    seeDetails: 'See details',
++    seeDetailsBody: 'Open the full trade detail page.',
++    seeGuide: 'See guide',
++    seeGuideBody: 'Understand how public and private threads work.',
++    reportThread: 'Report thread',
++    reportThreadBody: 'Report unsafe, spammy, or abusive public activity.',
++    guideTitle: 'Public thread guide',
++    guideBody: 'Public threads are for simple questions and clarifications that can help everyone understand the trade.',
++    guidePublic: 'Public messages can be seen by logged-in members who can view this trade.',
++    guidePrivate: 'Use a private proposal for negotiation, personal details, files, addresses, and accepted deal steps.',
++    guideSafety: 'Do not share passwords, payment details, private contact details, or sensitive documents in public comments.',
+   },
+   proposals: {
+     status: {
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index 04c4e67..be07799 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -179,6 +179,18 @@ export const trade = {
+     messageActions: 'Actions du message',
+     edited: 'modifié {{date}}',
+     unknownDate: 'Date inconnue',
++    menuTitle: 'Options du fil',
++    seeDetails: 'Voir les détails',
++    seeDetailsBody: 'Ouvrir la page complète de l’échange.',
++    seeGuide: 'Voir le guide',
++    seeGuideBody: 'Comprendre le fonctionnement des fils publics et privés.',
++    reportThread: 'Signaler le fil',
++    reportThreadBody: 'Signaler une activité publique dangereuse, abusive ou indésirable.',
++    guideTitle: 'Guide du fil public',
++    guideBody: 'Les fils publics servent aux questions simples et aux clarifications qui aident tout le monde à comprendre l’échange.',
++    guidePublic: 'Les messages publics peuvent être vus par les membres connectés qui peuvent voir cet échange.',
++    guidePrivate: 'Utilisez une proposition privée pour la négociation, les détails personnels, les fichiers, les adresses et les étapes d’un accord accepté.',
++    guideSafety: 'Ne partagez pas de mots de passe, détails de paiement, contacts privés ou documents sensibles dans les commentaires publics.',
+   },
+   proposals: {
+     status: {

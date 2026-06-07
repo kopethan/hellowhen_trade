@@ -1,0 +1,534 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index ba242e4..c2e40eb 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -843,6 +843,31 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .public-discussion-composer { position: sticky; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 20; border: 1px solid color-mix(in srgb, var(--proposal-border) 55%, var(--app-border)); border-radius: 24px; background: color-mix(in srgb, var(--app-bg) 88%, transparent); padding: 10px; box-shadow: 0 20px 58px rgba(15, 23, 42, 0.16); backdrop-filter: blur(16px); }
+ .public-discussion-composer textarea { min-height: 48px; max-height: 140px; }
+ .private-proposals-section { padding-top: 16px; }
++.private-proposals-page--messages-only { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
++.private-proposals-section--clean { gap: 0; padding: 0 16px 24px; }
++.private-proposals-section--clean .notice-box { margin: 12px 0; }
++.private-proposals-section--clean .proposal-composer { gap: 10px; margin-inline: -16px; border-bottom: 1px solid var(--app-border-strong); padding: 14px 16px 16px; }
++.private-proposals-section--clean .proposal-message-field--minimal { gap: 7px; }
++.private-proposals-section--clean .proposal-message-field--minimal textarea { min-height: 92px; border-radius: 18px; background: transparent; }
++.proposal-attachment-lines { display: grid; gap: 8px; }
++.proposal-attachment-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--app-border-strong); color: var(--app-text); margin-inline: -16px; padding: 12px 16px; text-decoration: none; }
++.proposal-attachment-line:hover, .proposal-attachment-line:focus-visible { background: var(--app-surface-soft); }
++.proposal-attachment-line span { display: grid; min-width: 0; gap: 2px; }
++.proposal-attachment-line strong { color: var(--app-text-muted); font-size: 10px; font-weight: 950; letter-spacing: .09em; text-transform: uppercase; }
++.proposal-attachment-line small { display: block; overflow: hidden; color: var(--app-text); font-size: 13px; font-weight: 880; line-height: 1.28; text-overflow: ellipsis; white-space: nowrap; }
++.proposal-attachment-hint { margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.42; }
++.private-proposal-row-list { display: grid; gap: 0; margin-inline: -16px; }
++.private-proposal-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; border-bottom: 1px solid var(--app-border-strong); color: var(--app-text); padding: 13px 16px; text-decoration: none; }
++.private-proposal-row:hover, .private-proposal-row:focus-visible { background: var(--app-surface-soft); }
++.private-proposal-row--active { background: color-mix(in srgb, var(--proposal-bg) 24%, transparent); }
++.private-proposal-row__person { min-width: 0; }
++.private-proposal-row__status { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
++.private-proposal-empty-text { margin: 16px 0 0; color: var(--app-text-muted); font-size: 14px; font-weight: 800; line-height: 1.45; }
++@media (max-width: 560px) {
++  .private-proposal-row { grid-template-columns: minmax(0, 1fr) auto; }
++  .private-proposal-row__status { grid-column: 1; justify-content: flex-start; padding-left: 42px; }
++  .private-proposal-row > .web-icon:last-child { grid-column: 2; grid-row: 1 / span 2; }
++}
+ @media (max-width: 420px) {
+   .trade-thread-action-card { grid-template-columns: auto minmax(0, 1fr); }
+   .trade-thread-action-card__cta { grid-column: 2; width: fit-content; }
+diff --git a/apps/web/src/features/trade/TradePrivateProposalsClient.tsx b/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
+index 16793ab..0088d88 100644
+--- a/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
++++ b/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
+@@ -1,19 +1,31 @@
+ 'use client';
+ 
+ import Link from 'next/link';
++import { useSearchParams } from 'next/navigation';
+ import type { TradeDto } from '@hellowhen/contracts';
+ import { useEffect, useState } from 'react';
++import { ReportContentButton } from '../../components/ReportContentButton';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { TradeProposalPanel } from './TradeProposalPanel';
+-import { getTradeHeadline } from './tradePresentation';
+ 
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return Boolean(value && typeof value === 'object');
+ }
+ 
++
++function proposalAttachHref(tradeId: string, side: 'need' | 'offer', currentNeedId?: string, currentOfferId?: string) {
++  const params = new URLSearchParams();
++  if (currentNeedId) params.set('proposalNeedId', currentNeedId);
++  if (currentOfferId) params.set('proposalOfferId', currentOfferId);
++  const query = params.toString();
++  return `/trades/${tradeId}/propose/choose-${side}${query ? `?${query}` : ''}`;
++}
++
++type PrivateProposalEntryView = 'thread' | 'menu' | 'guide' | 'report-thread';
++
+ function normalizeTrade(value: unknown): TradeDto | null {
+   if (isRecord(value) && typeof value.id === 'string') return value as TradeDto;
+   if (isRecord(value) && isRecord(value.trade) && typeof value.trade.id === 'string') return value.trade as TradeDto;
+@@ -22,11 +34,12 @@ function normalizeTrade(value: unknown): TradeDto | null {
+ 
+ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+   const auth = useWebAuth();
+-  const { t, language } = useWebTranslation();
+-  const i18n = { t, language };
++  const searchParams = useSearchParams();
++  const { t } = useWebTranslation();
+   const [trade, setTrade] = useState<TradeDto | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [notice, setNotice] = useState<string | null>(null);
++  const [view, setView] = useState<PrivateProposalEntryView>('thread');
+ 
+   useEffect(() => {
+     if (!auth.hydrated) return;
+@@ -54,6 +67,13 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+     return () => { mounted = false; };
+   }, [auth.hydrated, auth.isAuthenticated, t, tradeId]);
+ 
++  const currentProposalNeedId = searchParams.get('proposalNeedId') ?? '';
++  const currentProposalOfferId = searchParams.get('proposalOfferId') ?? '';
++
++  function closeSubpage() {
++    setView('thread');
++  }
++
+   if (!auth.hydrated || loading) {
+     return (
+       <article className="trade-detail-page private-proposals-page">
+@@ -92,13 +112,99 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+     );
+   }
+ 
++  if (view === 'menu') {
++    return (
++      <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.proposals.privateMenuTitle')}</h2>
++        </section>
++        <section className="web-thread-options-list" aria-label={t('trade.proposals.privateMenuTitle')}>
++          <Link href={`/trades/${trade.id}`} className="web-thread-option-row">
++            <span>
++              <strong>{t('trade.proposals.privateMenuSeeDetails')}</strong>
++              <small>{t('trade.proposals.privateMenuSeeDetailsBody')}</small>
++            </span>
++            <WebIcon name="arrow-right" size={18} decorative />
++          </Link>
++          <button type="button" className="web-thread-option-row" onClick={() => setView('guide')}>
++            <span>
++              <strong>{t('trade.proposals.privateMenuSeeGuide')}</strong>
++              <small>{t('trade.proposals.privateMenuSeeGuideBody')}</small>
++            </span>
++            <WebIcon name="arrow-right" size={18} decorative />
++          </button>
++          {!auth.user || auth.user.id === trade.ownerId ? null : (
++            <>
++              <Link href={proposalAttachHref(trade.id, 'offer', currentProposalNeedId, currentProposalOfferId)} className="web-thread-option-row">
++                <span>
++                  <strong>{t(currentProposalOfferId ? 'trade.proposals.privateMenuChangeOffer' : 'trade.proposals.privateMenuAttachOffer')}</strong>
++                  <small>{t('trade.proposals.privateMenuAttachOfferBody')}</small>
++                </span>
++                <WebIcon name="arrow-right" size={18} decorative />
++              </Link>
++              <Link href={proposalAttachHref(trade.id, 'need', currentProposalNeedId, currentProposalOfferId)} className="web-thread-option-row">
++                <span>
++                  <strong>{t(currentProposalNeedId ? 'trade.proposals.privateMenuChangeNeed' : 'trade.proposals.privateMenuAttachNeed')}</strong>
++                  <small>{t('trade.proposals.privateMenuAttachNeedBody')}</small>
++                </span>
++                <WebIcon name="arrow-right" size={18} decorative />
++              </Link>
++            </>
++          )}
++          <button type="button" className="web-thread-option-row danger-text" onClick={() => setView('report-thread')}>
++            <span>
++              <strong>{t('trade.proposals.privateMenuReportThread')}</strong>
++              <small>{t('trade.proposals.privateMenuReportThreadBody')}</small>
++            </span>
++            <WebIcon name="arrow-right" size={18} decorative />
++          </button>
++        </section>
++      </article>
++    );
++  }
++
++  if (view === 'guide') {
++    return (
++      <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.proposals.privateGuideTitle')}</h2>
++        </section>
++        <section className="web-thread-info-page">
++          <p>{t('trade.proposals.privateGuideBody')}</p>
++          <ul className="web-thread-guide-list">
++            <li>{t('trade.proposals.privateGuideProposal')}</li>
++            <li>{t('trade.proposals.privateGuideDetails')}</li>
++            <li>{t('trade.proposals.privateGuideSafety')}</li>
++          </ul>
++        </section>
++      </article>
++    );
++  }
++
++  if (view === 'report-thread') {
++    return (
++      <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only">
++        <section className="web-thread-header">
++          <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
++          <h2>{t('trade.proposals.privateMenuReportThread')}</h2>
++        </section>
++        <section className="web-thread-info-page">
++          <ReportContentButton targetType="trade" targetId={trade.id} labelKey="trade.proposals.privateMenuReportThread" helperKey="report.helper.trade" initialOpen />
++        </section>
++      </article>
++    );
++  }
++
+   return (
+-    <article className="trade-detail-page private-proposals-page">
+-      <section className="trade-hero-section trade-thread-page-hero">
+-        <Link href={`/trades/${trade.id}`} className="button secondary">← {t('trade.labels.trade')}</Link>
+-        <span className="semantic-badge proposal"><WebIcon name="proposal" size={14} decorative /> {t('trade.threadSplit.privateTitle')}</span>
+-        <h2>{getTradeHeadline(trade, i18n)}</h2>
+-        <p>{t(auth.user?.id === trade.ownerId ? 'trade.threadSplit.privateOwnerBody' : 'trade.threadSplit.privateApplicantBody')}</p>
++    <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only">
++      <section className="web-thread-header">
++        <Link href={`/trades/${trade.id}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
++        <h2>{t('trade.threadSplit.privateTitle')}</h2>
++        <button type="button" className="web-thread-header__menu" onClick={() => setView('menu')} aria-label={t('trade.proposals.privateMenuTitle')}>
++          <WebIcon name="more" size={21} decorative />
++        </button>
+       </section>
+       <TradeProposalPanel trade={trade} variant="page" />
+     </article>
+diff --git a/apps/web/src/features/trade/TradeProposalPanel.tsx b/apps/web/src/features/trade/TradeProposalPanel.tsx
+index 0e47211..f8990a3 100644
+--- a/apps/web/src/features/trade/TradeProposalPanel.tsx
++++ b/apps/web/src/features/trade/TradeProposalPanel.tsx
+@@ -166,6 +166,21 @@ function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18
+   );
+ }
+ 
++
++function ProposalAttachmentLine({ kind, item, href, i18n }: { kind: 'need' | 'offer'; item: NeedDto | OfferDto; href: string; i18n: TradeI18n }) {
++  const t = i18n.t ?? ((key: string) => key);
++  return (
++    <Link href={href} className="proposal-attachment-line">
++      <WebIcon name={kind} size={17} decorative />
++      <span>
++        <strong>{kind === 'need' ? t('trade.labels.selectedNeed') : t('trade.labels.selectedOffer')}</strong>
++        <small>{item.title}</small>
++      </span>
++      <WebIcon name="arrow-right" size={16} decorative />
++    </Link>
++  );
++}
++
+ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string; proposal: TradeProposalDto; i18n: TradeI18n }) {
+   const t = i18n.t ?? ((key: string) => key);
+   const sideItems: Array<{ kind: 'need'; item: NeedDto } | { kind: 'offer'; item: OfferDto }> = [];
+@@ -233,6 +248,7 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+   const { t, language } = useWebTranslation();
+   const i18n = { t, language };
+   const isOwner = auth.user?.id === trade.ownerId;
++  const isPage = variant === 'page';
+   const proposalCopy = getTradeProposalCopy(trade, i18n);
+   const requiredProposalSide = proposalSideRequirement(trade);
+   const proposalNeedIdFromUrl = searchParams.get('proposalNeedId') ?? '';
+@@ -442,62 +458,97 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+     );
+   }
+ 
++  const pageProposalList = acceptedProposal ? [acceptedProposal, ...visibleProposalList] : visibleProposalList;
++
+   return (
+-    <section className={variant === 'page' ? 'trade-social-section private-proposals-section' : 'trade-social-section'}>
+-      <div className="trade-section-heading">
+-        <div>
+-          <p className="eyebrow">{t('trade.threadSplit.privateTitle')}</p>
+-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownActiveProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
++    <section className={isPage ? 'trade-social-section private-proposals-section private-proposals-section--clean' : 'trade-social-section'}>
++      {!isPage ? (
++        <div className="trade-section-heading">
++          <div>
++            <p className="eyebrow">{t('trade.threadSplit.privateTitle')}</p>
++            <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownActiveProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
++          </div>
++          {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
+         </div>
+-        {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
+-      </div>
++      ) : null}
+ 
+-      {acceptedProposal ? <AcceptedProposalPackage tradeId={trade.id} proposal={acceptedProposal} i18n={i18n} /> : null}
++      {!isPage && acceptedProposal ? <AcceptedProposalPackage tradeId={trade.id} proposal={acceptedProposal} i18n={i18n} /> : null}
+ 
+-      {isOwner && visibleProposalList.length ? <p className="proposal-list-helper">{acceptedProposal ? t('trade.proposals.previousProposalListHint') : t('trade.proposals.proposalListHint')}</p> : null}
++      {!isPage && isOwner && visibleProposalList.length ? <p className="proposal-list-helper">{acceptedProposal ? t('trade.proposals.previousProposalListHint') : t('trade.proposals.proposalListHint')}</p> : null}
+       {notice ? <p className="notice-box info">{notice}</p> : null}
+ 
+       {latestOwnClosedProposal && canSendProposal ? <p className="notice-box info">{t('trade.proposals.canSendRevisedProposal')}</p> : null}
+ 
+       {canSendProposal ? (
+         <form className="proposal-composer proposal-composer--with-side" onSubmit={submitProposal}>
+-          {requiredProposalSide ? (
+-            <p className="proposal-side-callout">
+-              <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
+-              {requiredProposalSide === 'offer'
+-                ? t('trade.proposals.chooseOfferFirst')
+-                : t('trade.proposals.chooseNeedFirst')}
+-            </p>
+-          ) : null}
+-          {!requiredProposalSide ? (
+-            <p className="proposal-side-callout">
+-              <WebIcon name="proposal" size={17} decorative />
+-              {t('trade.proposals.attachSavedItemOptionalBody')}
+-            </p>
+-          ) : null}
+-
+-          <ProposalPickerShortcut
+-              side="offer"
+-              title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
+-              count={activeProposalOffers.length}
+-              item={selectedOffer}
+-              emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
+-              href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
+-              i18n={i18n}
+-            />
+-
+-          <ProposalPickerShortcut
+-              side="need"
+-              title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
+-              count={activeProposalNeeds.length}
+-              item={selectedNeed}
+-              emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
+-              href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
+-              i18n={i18n}
+-            />
+-
++          {isPage ? (
++            <div className="proposal-attachment-lines" aria-label={t('trade.proposals.privateAttachmentsLabel')}>
++              {selectedOffer ? (
++                <ProposalAttachmentLine
++                  kind="offer"
++                  item={selectedOffer}
++                  href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
++                  i18n={i18n}
++                />
++              ) : null}
++              {selectedNeed ? (
++                <ProposalAttachmentLine
++                  kind="need"
++                  item={selectedNeed}
++                  href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
++                  i18n={i18n}
++                />
++              ) : null}
++              {!selectedOffer && !selectedNeed ? (
++                <p className="proposal-attachment-hint">
++                  {requiredProposalSide === 'offer'
++                    ? t('trade.proposals.privateAttachOfferHint')
++                    : requiredProposalSide === 'need'
++                      ? t('trade.proposals.privateAttachNeedHint')
++                      : t('trade.proposals.privateAttachOptionalHint')}
++                </p>
++              ) : null}
++            </div>
++          ) : (
++            <>
++              {requiredProposalSide ? (
++                <p className="proposal-side-callout">
++                  <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
++                  {requiredProposalSide === 'offer'
++                    ? t('trade.proposals.chooseOfferFirst')
++                    : t('trade.proposals.chooseNeedFirst')}
++                </p>
++              ) : null}
++              {!requiredProposalSide ? (
++                <p className="proposal-side-callout">
++                  <WebIcon name="proposal" size={17} decorative />
++                  {t('trade.proposals.attachSavedItemOptionalBody')}
++                </p>
++              ) : null}
+ 
+-          {cashPromiseAvailable ? (
++              <ProposalPickerShortcut
++                side="offer"
++                title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
++                count={activeProposalOffers.length}
++                item={selectedOffer}
++                emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
++                href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
++                i18n={i18n}
++              />
++
++              <ProposalPickerShortcut
++                side="need"
++                title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
++                count={activeProposalNeeds.length}
++                item={selectedNeed}
++                emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
++                href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
++                i18n={i18n}
++              />
++            </>
++          )}
++
++          {!isPage && cashPromiseAvailable ? (
+             <div className="notice-box warning proposal-cash-promise-box">
+               <p className="eyebrow">{t('trade.cashPromise.title')}</p>
+               <p>{t('trade.cashPromise.outsideAppBody')}</p>
+@@ -518,6 +569,7 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+             </div>
+           ) : null}
+ 
++          {!isPage ? (
+           <ProTradePackagePrototype
+             requiredSide={requiredProposalSide}
+             enabled={packagePrototypeEnabled}
+@@ -529,7 +581,9 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+             onSupportingNeedIdsChange={setSupportingNeedIds}
+             onSupportingOfferIdsChange={setSupportingOfferIds}
+           />
++          ) : null}
+ 
++          {!isPage ? (
+           <ProposalAiAssistPanel
+             message={proposalMessage}
+             context={[trade.need?.title, trade.offer?.title, trade.need?.description, trade.offer?.description].filter(Boolean).join('\n')}
+@@ -539,8 +593,9 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+               if (proposalFormError) setProposalFormError(null);
+             }}
+           />
++          ) : null}
+ 
+-          <label className="field-label proposal-message-field">
++          <label className={isPage ? 'field-label proposal-message-field proposal-message-field--minimal' : 'field-label proposal-message-field'}>
+             {t('trade.labels.message')}
+             <textarea
+               value={proposalMessage}
+@@ -559,11 +614,29 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+         </form>
+       ) : null}
+ 
+-      {visibleProposalList.length ? (
+-        <div className="proposal-list proposal-list--simple">
+-          {visibleProposalList.map((proposal) => {
++      {(isPage ? pageProposalList : visibleProposalList).length ? (
++        <div className={isPage ? 'private-proposal-row-list' : 'proposal-list proposal-list--simple'}>
++          {(isPage ? pageProposalList : visibleProposalList).map((proposal) => {
+             const active = proposal.status === 'accepted';
+             const threadHref = `/trades/${trade.id}/proposals/${proposal.id}`;
++            if (isPage) {
++              return (
++                <Link key={proposal.id} href={threadHref} className={active ? 'private-proposal-row private-proposal-row--active' : 'private-proposal-row'}>
++                  <UserIdentityLink
++                    user={proposal.applicant}
++                    userId={proposal.applicantId}
++                    variant="compact"
++                    avatarSize="sm"
++                    statusText={proposalApplicantStatus(proposal, i18n)}
++                    showHandle={false}
++                    ariaLabel={t('trade.proposals.openPrivateThread')}
++                    className="private-proposal-row__person"
++                  />
++                  <span className="private-proposal-row__status"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}</span>
++                  <WebIcon name="arrow-right" size={16} decorative />
++                </Link>
++              );
++            }
+             return (
+               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active proposal-card--simple' : 'proposal-card proposal-card--simple'}>
+                 <div className="proposal-card__header proposal-card__header--thread">
+@@ -588,11 +661,15 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
+           })}
+         </div>
+       ) : isOwner && !acceptedProposal && !notice ? (
+-        <div className="proposal-empty-state">
+-          <WebIcon name="proposal" size={30} decorative />
+-          <strong>{t('trade.proposals.noProposals')}</strong>
+-          <span>{proposalCopy.ownerEmpty}</span>
+-        </div>
++        <p className={isPage ? 'private-proposal-empty-text' : 'proposal-empty-state'}>
++          {isPage ? t('trade.proposals.noProposals') : (
++            <>
++              <WebIcon name="proposal" size={30} decorative />
++              <strong>{t('trade.proposals.noProposals')}</strong>
++              <span>{proposalCopy.ownerEmpty}</span>
++            </>
++          )}
++        </p>
+       ) : null}
+     </section>
+   );
+diff --git a/packages/i18n/src/locales/en/trade.ts b/packages/i18n/src/locales/en/trade.ts
+index 2aa840f..0103178 100644
+--- a/packages/i18n/src/locales/en/trade.ts
++++ b/packages/i18n/src/locales/en/trade.ts
+@@ -345,6 +345,28 @@ export const trade = {
+     acceptedConversationBody: 'Only you and the accepted applicant can see this thread.',
+     noMessages: 'No messages yet.',
+     openPrivateThread: 'Open private thread',
++    privateMenuTitle: 'Private proposal options',
++    privateMenuSeeDetails: 'See details',
++    privateMenuSeeDetailsBody: 'Open the full trade detail page.',
++    privateMenuSeeGuide: 'See guide',
++    privateMenuSeeGuideBody: 'Understand how private proposals work.',
++    privateMenuAttachOffer: 'Attach Offer',
++    privateMenuChangeOffer: 'Change Offer',
++    privateMenuAttachOfferBody: 'Choose one of your saved Offers for this proposal.',
++    privateMenuAttachNeed: 'Attach Need',
++    privateMenuChangeNeed: 'Change Need',
++    privateMenuAttachNeedBody: 'Choose one of your saved Needs for this proposal.',
++    privateMenuReportThread: 'Report thread',
++    privateMenuReportThreadBody: 'Report unsafe, spammy, or abusive private proposal activity.',
++    privateGuideTitle: 'Private proposal guide',
++    privateGuideBody: 'Private proposals are one-to-one spaces for proposing, negotiating, and continuing a deal with the trade owner.',
++    privateGuideProposal: 'Use the message box for your short proposal. Add a Need or Offer from the three-dot menu only when it helps explain the exchange.',
++    privateGuideDetails: 'Trade, proposal, and deal details stay outside the message view so the conversation stays clean.',
++    privateGuideSafety: 'Keep important agreement details in the private conversation and report suspicious behavior before completing a deal.',
++    privateAttachmentsLabel: 'Proposal attachments',
++    privateAttachOfferHint: 'Attach an Offer from the three-dot menu before sending this proposal.',
++    privateAttachNeedHint: 'Attach a Need from the three-dot menu before sending this proposal.',
++    privateAttachOptionalHint: 'Optional: attach a saved Need or Offer from the three-dot menu.',
+     proposalListHint: 'Open a name to review the private Need/Offer and continue the conversation.',
+     previousProposalListHint: 'Previous proposal threads stay visible for history. Open one to review the private context.',
+     acceptedProposalPackageEyebrow: 'Accepted proposal',
+diff --git a/packages/i18n/src/locales/fr/trade.ts b/packages/i18n/src/locales/fr/trade.ts
+index be07799..de425b9 100644
+--- a/packages/i18n/src/locales/fr/trade.ts
++++ b/packages/i18n/src/locales/fr/trade.ts
+@@ -345,6 +345,28 @@ export const trade = {
+     acceptedConversationBody: 'Seuls vous et le candidat accepté pouvez voir ce fil.',
+     noMessages: 'Aucun message pour le moment.',
+     openPrivateThread: 'Ouvrir le fil privé',
++    privateMenuTitle: 'Options de proposition privée',
++    privateMenuSeeDetails: 'Voir les détails',
++    privateMenuSeeDetailsBody: 'Ouvrir la page complète de l’échange.',
++    privateMenuSeeGuide: 'Voir le guide',
++    privateMenuSeeGuideBody: 'Comprendre le fonctionnement des propositions privées.',
++    privateMenuAttachOffer: 'Joindre une offre',
++    privateMenuChangeOffer: 'Changer l’offre',
++    privateMenuAttachOfferBody: 'Choisissez une de vos offres enregistrées pour cette proposition.',
++    privateMenuAttachNeed: 'Joindre un besoin',
++    privateMenuChangeNeed: 'Changer le besoin',
++    privateMenuAttachNeedBody: 'Choisissez un de vos besoins enregistrés pour cette proposition.',
++    privateMenuReportThread: 'Signaler le fil',
++    privateMenuReportThreadBody: 'Signaler une activité privée dangereuse, abusive ou indésirable.',
++    privateGuideTitle: 'Guide de proposition privée',
++    privateGuideBody: 'Les propositions privées sont des espaces individuels pour proposer, négocier et continuer un accord avec le propriétaire de l’échange.',
++    privateGuideProposal: 'Utilisez le champ de message pour votre courte proposition. Ajoutez un besoin ou une offre depuis le menu à trois points seulement si cela aide à expliquer l’échange.',
++    privateGuideDetails: 'Les détails de l’échange, de la proposition et de l’accord restent en dehors de la vue des messages pour garder la conversation claire.',
++    privateGuideSafety: 'Gardez les détails importants de l’accord dans la conversation privée et signalez les comportements suspects avant de terminer un échange.',
++    privateAttachmentsLabel: 'Éléments joints à la proposition',
++    privateAttachOfferHint: 'Joignez une offre depuis le menu à trois points avant d’envoyer cette proposition.',
++    privateAttachNeedHint: 'Joignez un besoin depuis le menu à trois points avant d’envoyer cette proposition.',
++    privateAttachOptionalHint: 'Facultatif : joignez un besoin ou une offre enregistrée depuis le menu à trois points.',
+     proposalListHint: 'Ouvrez un nom pour examiner le besoin/l’offre privé(e) et continuer la conversation.',
+     previousProposalListHint: 'Les anciens fils de proposition restent visibles pour l’historique. Ouvrez-en un pour revoir le contexte privé.',
+     acceptedProposalPackageEyebrow: 'Proposition acceptée',

@@ -44,6 +44,42 @@ function completionHint(trade: TradeDto, _userId?: string | null, i18n?: TradeI1
 }
 
 
+function TradeDetailLoadingSkeleton({ label, title }: { label: string; title: string }) {
+  return (
+    <article className="trade-detail-page trade-detail-page--social trade-detail-page--loading" aria-busy="true">
+      <header className="trade-detail-toolbar trade-detail-toolbar--loading" aria-label={label}>
+        <span className="trade-detail-back-link trade-detail-back-link--loading" aria-hidden="true">←</span>
+        <span className="trade-detail-icon-button trade-detail-icon-button--loading" aria-hidden="true">
+          <WebIcon name="share" size={17} decorative />
+        </span>
+      </header>
+      <section className="trade-hero-section trade-detail-loading-hero">
+        <span className="semantic-badge instruction">{label}</span>
+        <h2>{title}</h2>
+        <div className="trade-detail-skeleton-lines" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      </section>
+      <section className="trade-social-section trade-detail-skeleton-section" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </section>
+      <section className="trade-social-section trade-detail-skeleton-section" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </section>
+      <section className="trade-social-section trade-detail-skeleton-section" aria-hidden="true">
+        <span />
+        <span />
+      </section>
+    </article>
+  );
+}
+
 function SideSection({ side, i18n }: { side: TradeSide; i18n?: TradeI18n }) {
   const badgeClass = side.kind === 'need' ? 'need' : side.kind === 'offer' ? 'offer' : 'instruction';
 
@@ -185,14 +221,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
   }, [demoDataEnabled, initialTrade, tradeId]);
 
   if (!trade && loading) {
-    return (
-      <article className="trade-detail-page trade-detail-page--social">
-        <section className="trade-hero-section">
-          <span className="semantic-badge instruction">{t('common.states.loading')}</span>
-          <h2>{t('trade.detail.loadingTitle')}</h2>
-        </section>
-      </article>
-    );
+    return <TradeDetailLoadingSkeleton label={t('common.states.loading')} title={t('trade.detail.loadingTitle')} />;
   }
 
   if (!trade) {

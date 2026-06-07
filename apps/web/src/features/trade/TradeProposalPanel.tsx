@@ -166,6 +166,21 @@ function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18
   );
 }
 
+
+function ProposalAttachmentLine({ kind, item, href, i18n }: { kind: 'need' | 'offer'; item: NeedDto | OfferDto; href: string; i18n: TradeI18n }) {
+  const t = i18n.t ?? ((key: string) => key);
+  return (
+    <Link href={href} className="proposal-attachment-line">
+      <WebIcon name={kind} size={17} decorative />
+      <span>
+        <strong>{kind === 'need' ? t('trade.labels.selectedNeed') : t('trade.labels.selectedOffer')}</strong>
+        <small>{item.title}</small>
+      </span>
+      <WebIcon name="arrow-right" size={16} decorative />
+    </Link>
+  );
+}
+
 function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string; proposal: TradeProposalDto; i18n: TradeI18n }) {
   const t = i18n.t ?? ((key: string) => key);
   const sideItems: Array<{ kind: 'need'; item: NeedDto } | { kind: 'offer'; item: OfferDto }> = [];
@@ -233,6 +248,7 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
   const { t, language } = useWebTranslation();
   const i18n = { t, language };
   const isOwner = auth.user?.id === trade.ownerId;
+  const isPage = variant === 'page';
   const proposalCopy = getTradeProposalCopy(trade, i18n);
   const requiredProposalSide = proposalSideRequirement(trade);
   const proposalNeedIdFromUrl = searchParams.get('proposalNeedId') ?? '';
@@ -442,62 +458,97 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
     );
   }
 
+  const pageProposalList = acceptedProposal ? [acceptedProposal, ...visibleProposalList] : visibleProposalList;
+
   return (
-    <section className={variant === 'page' ? 'trade-social-section private-proposals-section' : 'trade-social-section'}>
-      <div className="trade-section-heading">
-        <div>
-          <p className="eyebrow">{t('trade.threadSplit.privateTitle')}</p>
-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownActiveProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
+    <section className={isPage ? 'trade-social-section private-proposals-section private-proposals-section--clean' : 'trade-social-section'}>
+      {!isPage ? (
+        <div className="trade-section-heading">
+          <div>
+            <p className="eyebrow">{t('trade.threadSplit.privateTitle')}</p>
+            <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {isOwner ? t('trade.proposals.title') : ownActiveProposal ? t('trade.proposals.yourProposal') : proposalCopy.actionTitle}</h2>
+          </div>
+          {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
         </div>
-        {loading ? <span className="semantic-badge instruction">{t('trade.detail.updated')}</span> : null}
-      </div>
+      ) : null}
 
-      {acceptedProposal ? <AcceptedProposalPackage tradeId={trade.id} proposal={acceptedProposal} i18n={i18n} /> : null}
+      {!isPage && acceptedProposal ? <AcceptedProposalPackage tradeId={trade.id} proposal={acceptedProposal} i18n={i18n} /> : null}
 
-      {isOwner && visibleProposalList.length ? <p className="proposal-list-helper">{acceptedProposal ? t('trade.proposals.previousProposalListHint') : t('trade.proposals.proposalListHint')}</p> : null}
+      {!isPage && isOwner && visibleProposalList.length ? <p className="proposal-list-helper">{acceptedProposal ? t('trade.proposals.previousProposalListHint') : t('trade.proposals.proposalListHint')}</p> : null}
       {notice ? <p className="notice-box info">{notice}</p> : null}
 
       {latestOwnClosedProposal && canSendProposal ? <p className="notice-box info">{t('trade.proposals.canSendRevisedProposal')}</p> : null}
 
       {canSendProposal ? (
         <form className="proposal-composer proposal-composer--with-side" onSubmit={submitProposal}>
-          {requiredProposalSide ? (
-            <p className="proposal-side-callout">
-              <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
-              {requiredProposalSide === 'offer'
-                ? t('trade.proposals.chooseOfferFirst')
-                : t('trade.proposals.chooseNeedFirst')}
-            </p>
-          ) : null}
-          {!requiredProposalSide ? (
-            <p className="proposal-side-callout">
-              <WebIcon name="proposal" size={17} decorative />
-              {t('trade.proposals.attachSavedItemOptionalBody')}
-            </p>
-          ) : null}
+          {isPage ? (
+            <div className="proposal-attachment-lines" aria-label={t('trade.proposals.privateAttachmentsLabel')}>
+              {selectedOffer ? (
+                <ProposalAttachmentLine
+                  kind="offer"
+                  item={selectedOffer}
+                  href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
+                  i18n={i18n}
+                />
+              ) : null}
+              {selectedNeed ? (
+                <ProposalAttachmentLine
+                  kind="need"
+                  item={selectedNeed}
+                  href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
+                  i18n={i18n}
+                />
+              ) : null}
+              {!selectedOffer && !selectedNeed ? (
+                <p className="proposal-attachment-hint">
+                  {requiredProposalSide === 'offer'
+                    ? t('trade.proposals.privateAttachOfferHint')
+                    : requiredProposalSide === 'need'
+                      ? t('trade.proposals.privateAttachNeedHint')
+                      : t('trade.proposals.privateAttachOptionalHint')}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {requiredProposalSide ? (
+                <p className="proposal-side-callout">
+                  <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
+                  {requiredProposalSide === 'offer'
+                    ? t('trade.proposals.chooseOfferFirst')
+                    : t('trade.proposals.chooseNeedFirst')}
+                </p>
+              ) : null}
+              {!requiredProposalSide ? (
+                <p className="proposal-side-callout">
+                  <WebIcon name="proposal" size={17} decorative />
+                  {t('trade.proposals.attachSavedItemOptionalBody')}
+                </p>
+              ) : null}
 
-          <ProposalPickerShortcut
-              side="offer"
-              title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
-              count={activeProposalOffers.length}
-              item={selectedOffer}
-              emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
-              href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
-              i18n={i18n}
-            />
+              <ProposalPickerShortcut
+                side="offer"
+                title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
+                count={activeProposalOffers.length}
+                item={selectedOffer}
+                emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
+                href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
+                i18n={i18n}
+              />
 
-          <ProposalPickerShortcut
-              side="need"
-              title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
-              count={activeProposalNeeds.length}
-              item={selectedNeed}
-              emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
-              href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
-              i18n={i18n}
-            />
+              <ProposalPickerShortcut
+                side="need"
+                title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
+                count={activeProposalNeeds.length}
+                item={selectedNeed}
+                emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
+                href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
+                i18n={i18n}
+              />
+            </>
+          )}
 
-
-          {cashPromiseAvailable ? (
+          {!isPage && cashPromiseAvailable ? (
             <div className="notice-box warning proposal-cash-promise-box">
               <p className="eyebrow">{t('trade.cashPromise.title')}</p>
               <p>{t('trade.cashPromise.outsideAppBody')}</p>
@@ -518,6 +569,7 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
             </div>
           ) : null}
 
+          {!isPage ? (
           <ProTradePackagePrototype
             requiredSide={requiredProposalSide}
             enabled={packagePrototypeEnabled}
@@ -529,7 +581,9 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
             onSupportingNeedIdsChange={setSupportingNeedIds}
             onSupportingOfferIdsChange={setSupportingOfferIds}
           />
+          ) : null}
 
+          {!isPage ? (
           <ProposalAiAssistPanel
             message={proposalMessage}
             context={[trade.need?.title, trade.offer?.title, trade.need?.description, trade.offer?.description].filter(Boolean).join('\n')}
@@ -539,8 +593,9 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
               if (proposalFormError) setProposalFormError(null);
             }}
           />
+          ) : null}
 
-          <label className="field-label proposal-message-field">
+          <label className={isPage ? 'field-label proposal-message-field proposal-message-field--minimal' : 'field-label proposal-message-field'}>
             {t('trade.labels.message')}
             <textarea
               value={proposalMessage}
@@ -559,11 +614,29 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
         </form>
       ) : null}
 
-      {visibleProposalList.length ? (
-        <div className="proposal-list proposal-list--simple">
-          {visibleProposalList.map((proposal) => {
+      {(isPage ? pageProposalList : visibleProposalList).length ? (
+        <div className={isPage ? 'private-proposal-row-list' : 'proposal-list proposal-list--simple'}>
+          {(isPage ? pageProposalList : visibleProposalList).map((proposal) => {
             const active = proposal.status === 'accepted';
             const threadHref = `/trades/${trade.id}/proposals/${proposal.id}`;
+            if (isPage) {
+              return (
+                <Link key={proposal.id} href={threadHref} className={active ? 'private-proposal-row private-proposal-row--active' : 'private-proposal-row'}>
+                  <UserIdentityLink
+                    user={proposal.applicant}
+                    userId={proposal.applicantId}
+                    variant="compact"
+                    avatarSize="sm"
+                    statusText={proposalApplicantStatus(proposal, i18n)}
+                    showHandle={false}
+                    ariaLabel={t('trade.proposals.openPrivateThread')}
+                    className="private-proposal-row__person"
+                  />
+                  <span className="private-proposal-row__status"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}</span>
+                  <WebIcon name="arrow-right" size={16} decorative />
+                </Link>
+              );
+            }
             return (
               <article key={proposal.id} className={active ? 'proposal-card proposal-card--active proposal-card--simple' : 'proposal-card proposal-card--simple'}>
                 <div className="proposal-card__header proposal-card__header--thread">
@@ -588,11 +661,15 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
           })}
         </div>
       ) : isOwner && !acceptedProposal && !notice ? (
-        <div className="proposal-empty-state">
-          <WebIcon name="proposal" size={30} decorative />
-          <strong>{t('trade.proposals.noProposals')}</strong>
-          <span>{proposalCopy.ownerEmpty}</span>
-        </div>
+        <p className={isPage ? 'private-proposal-empty-text' : 'proposal-empty-state'}>
+          {isPage ? t('trade.proposals.noProposals') : (
+            <>
+              <WebIcon name="proposal" size={30} decorative />
+              <strong>{t('trade.proposals.noProposals')}</strong>
+              <span>{proposalCopy.ownerEmpty}</span>
+            </>
+          )}
+        </p>
       ) : null}
     </section>
   );

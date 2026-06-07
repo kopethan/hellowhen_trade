@@ -17,15 +17,16 @@ type ReportContentButtonProps = {
   labelKey?: string;
   helperKey?: string;
   buttonClassName?: string;
+  initialOpen?: boolean;
 };
 
 const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
 
-export function ReportContentButton({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', buttonClassName = 'button secondary danger-text' }: ReportContentButtonProps) {
+export function ReportContentButton({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', buttonClassName = 'button secondary danger-text', initialOpen = false }: ReportContentButtonProps) {
   const auth = useWebAuth();
   const pathname = usePathname() || '/trades';
   const { t } = useWebTranslation();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [reason, setReason] = useState<ReportReason>('spam');
   const [details, setDetails] = useState('');
   const [loading, setLoading] = useState(false);
