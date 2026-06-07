@@ -31,7 +31,7 @@ function buildNextPath(request: NextRequest) {
   return `${request.nextUrl.pathname}${request.nextUrl.search}`;
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (request.method !== 'GET' && request.method !== 'HEAD') return NextResponse.next();

@@ -5948,6 +5948,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
 
 .private-proposal-row__open {
   display: none;
+  gap: 6px;
+  text-decoration: none;
 }
 
 .private-proposals-section--clean .proposal-composer button[type="submit"] {
@@ -6051,7 +6053,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
   }
 
   .private-proposals-page--messages-only .private-proposal-row {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     min-height: 0;
     gap: 12px;
     border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
@@ -6093,6 +6095,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     min-height: 30px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--app-bg) 75%, var(--app-surface));
@@ -6103,6 +6106,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
     letter-spacing: .08em;
     text-transform: uppercase;
     white-space: nowrap;
+    text-decoration: none;
   }
 
   .private-proposals-page--messages-only .private-proposal-row > .web-icon:last-child {
@@ -7191,7 +7195,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
   }
 
   .private-proposals-page--messages-only .private-proposal-row {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
     min-height: 0;
     gap: 12px;
     border: 0;
@@ -7236,6 +7240,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
     min-height: 30px;
     border-radius: 999px;
     background: color-mix(in srgb, var(--app-surface) 72%, transparent);
@@ -7246,6 +7251,7 @@ html[data-theme="dark"] .onboarding-guide-primary {
     letter-spacing: .08em;
     text-transform: uppercase;
     white-space: nowrap;
+    text-decoration: none;
   }
 
   .private-proposals-page--messages-only .private-proposal-row > .web-icon:last-child {
@@ -7290,5 +7296,610 @@ html[data-theme="dark"] .onboarding-guide-primary {
     border: 0;
     background: transparent;
     box-shadow: none;
+  }
+}
+
+/* WEB-THREAD18: public/private guide page theme polish */
+.web-thread-guide-page {
+  padding: 18px 16px 24px;
+}
+
+.web-thread-guide-list--cards,
+.thread-guide-copy--cards {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  list-style: none;
+}
+
+.web-thread-guide-list--cards li,
+.thread-guide-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--app-surface-soft) 72%, var(--app-surface));
+  padding: 13px;
+}
+
+.web-thread-guide-list--cards li p,
+.thread-guide-card p {
+  margin: 0;
+  border: 0;
+  color: var(--app-text);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+  padding: 0;
+}
+
+.web-thread-guide-card__icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--app-bg-muted) 82%, var(--app-surface));
+  color: var(--app-text-soft);
+}
+
+.web-thread-guide-card--warning,
+.thread-guide-card--warning {
+  border-color: color-mix(in srgb, var(--warning-border) 72%, var(--app-border));
+  background: color-mix(in srgb, var(--warning-bg) 44%, var(--app-surface));
+}
+
+.web-thread-guide-card--warning .web-thread-guide-card__icon,
+.thread-guide-card--warning .web-thread-guide-card__icon {
+  color: var(--danger-text);
+}
+
+.web-thread-guide-card--warning p,
+.thread-guide-card--warning p {
+  color: color-mix(in srgb, var(--danger-text) 76%, var(--app-text));
+}
+
+.proposal-conversation-page--messages-only .thread-full-page--guide {
+  gap: 14px;
+}
+
+.proposal-conversation-page--messages-only .thread-guide-copy--cards {
+  margin: 0;
+}
+
+@media (min-width: 760px) {
+  .web-thread-guide-page {
+    padding: 18px 18px 28px;
+  }
+}
+
+/* WEB-THREAD19: public discussion final layout polish */
+.public-discussion-page--flat {
+  width: min(760px, 100%);
+}
+
+.public-discussion-page--flat .public-discussion-section--messages-only {
+  flex: 0 0 auto;
+  padding-bottom: 0;
+}
+
+.public-discussion-page--flat .public-message-list--thread {
+  width: 100%;
+}
+
+.public-discussion-page--flat .public-message-date {
+  margin-top: 14px;
+}
+
+.public-discussion-page--flat .public-message {
+  padding-top: 15px;
+  padding-bottom: 17px;
+}
+
+.public-discussion-page--flat .public-message__header {
+  min-height: 36px;
+}
+
+.public-discussion-page--flat .public-message__body {
+  margin-top: -1px;
+}
+
+@media (min-width: 760px) {
+  .public-discussion-page--flat {
+    min-height: auto;
+    padding-bottom: 44px;
+  }
+
+  .public-discussion-page--flat .public-discussion-section--messages-only {
+    padding-top: 2px;
+    padding-bottom: 0;
+  }
+
+  .public-discussion-page--flat .public-message-date {
+    margin: 8px 0 10px;
+  }
+
+  .public-discussion-page--flat .public-message {
+    padding: 15px 0 17px;
+  }
+
+  .public-discussion-page--flat .public-message__body {
+    max-width: 68ch;
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only {
+    position: static;
+    width: 100%;
+    margin: 22px 0 0;
+    backdrop-filter: none;
+  }
+
+  .public-discussion-page--flat .public-discussion-bottom-notice {
+    position: static;
+    margin: 22px 0 0;
+    border: 1px solid color-mix(in srgb, var(--warning-border) 70%, var(--app-border));
+    border-radius: 20px;
+    padding: 12px 14px;
+    backdrop-filter: none;
+  }
+}
+
+@media (max-width: 759px) {
+  .public-discussion-page--flat .public-discussion-section--messages-only {
+    padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  }
+
+  .public-discussion-page--flat .public-message-date {
+    margin: 12px 0 8px;
+  }
+
+  .public-discussion-page--flat .public-message {
+    padding-top: 13px;
+    padding-bottom: 15px;
+  }
+
+  .public-discussion-page--flat .public-message__header {
+    align-items: flex-start;
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only {
+    margin-top: 0;
+  }
+}
+
+/* WEB-THREAD20: private conversation final layout polish */
+.proposal-conversation-page--messages-only .proposal-conversation-panel {
+  gap: 12px;
+}
+
+.proposal-conversation-page--messages-only .proposal-thread-message-list {
+  align-content: start;
+}
+
+.proposal-conversation-page--messages-only .thread-system-event {
+  margin: 0 auto 4px;
+  background: color-mix(in srgb, var(--app-surface-soft) 82%, transparent);
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip {
+  border-color: color-mix(in srgb, var(--app-border) 78%, transparent);
+  background: color-mix(in srgb, var(--app-surface) 72%, transparent);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__main {
+  gap: 4px;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__main strong {
+  font-size: 15px;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__items span {
+  background: color-mix(in srgb, var(--app-surface-soft) 74%, transparent);
+}
+
+.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.035);
+}
+
+.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble--own {
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--proposal-border) 12%, transparent);
+}
+
+.proposal-conversation-page--messages-only .message-bubble__header {
+  margin-bottom: 6px;
+}
+
+@media (min-width: 760px) {
+  .proposal-conversation-page--messages-only .thread-message-page {
+    gap: 12px;
+    overflow: visible;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip {
+    margin: 8px 0 10px;
+    border-radius: 24px;
+    padding: 13px 14px;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__items {
+    margin-top: -2px;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__actions button {
+    background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  }
+
+  .proposal-conversation-page--messages-only .proposal-thread-message-list {
+    min-height: 0;
+    gap: 8px;
+    background: transparent;
+    padding: 4px 0 0;
+  }
+
+  .proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
+    min-width: min(220px, 70%);
+    max-width: min(70%, 560px);
+    border-color: color-mix(in srgb, var(--app-border) 54%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 86%, transparent);
+    padding: 11px 13px;
+  }
+
+  .proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble--own {
+    border-color: color-mix(in srgb, var(--proposal-border) 30%, transparent);
+    background: color-mix(in srgb, var(--proposal-bg) 26%, var(--app-surface));
+  }
+
+  .proposal-conversation-page--messages-only .thread-bottom-composer {
+    margin: 14px 0 26px;
+  }
+}
+
+@media (max-width: 759px) {
+  .proposal-conversation-page--messages-only .proposal-conversation-panel {
+    gap: 10px;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip {
+    margin: 10px 0 2px;
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--app-surface) 68%, transparent);
+    box-shadow: none;
+  }
+
+  .proposal-conversation-page--messages-only .proposal-thread-message-list {
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
+    max-width: 84%;
+    box-shadow: none;
+  }
+
+  .proposal-conversation-page--messages-only .thread-bottom-composer {
+    margin-right: 0;
+    margin-left: 0;
+  }
+}
+
+/* WEB-THREAD21: private thread header and summary strip polish */
+.proposal-conversation-page--messages-only .thread-page-header__back,
+.proposal-conversation-page--messages-only .thread-page-header__menu {
+  padding: 0;
+}
+
+.proposal-conversation-page--messages-only .thread-page-header__back .web-icon,
+.proposal-conversation-page--messages-only .thread-page-header__menu .web-icon {
+  opacity: 0.92;
+}
+
+.proposal-conversation-page--messages-only .thread-page-header__menu {
+  padding-bottom: 0;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip {
+  gap: 8px;
+  border-color: color-mix(in srgb, var(--app-border) 68%, transparent);
+  background: color-mix(in srgb, var(--app-surface) 82%, transparent);
+  padding: 13px 14px;
+  box-shadow: none;
+}
+
+.private-thread-summary-strip__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.private-thread-summary-strip__kind {
+  overflow: hidden;
+  color: var(--app-text-muted);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__main strong {
+  font-size: 17px;
+  line-height: 1.16;
+  white-space: normal;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__main p {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__actions {
+  justify-content: flex-start;
+}
+
+.proposal-conversation-page--messages-only .private-thread-summary-strip__actions button {
+  border-color: color-mix(in srgb, var(--app-border) 70%, transparent);
+  background: color-mix(in srgb, var(--app-surface-soft) 72%, transparent);
+}
+
+@media (min-width: 760px) {
+  .proposal-conversation-page--messages-only .thread-page-header {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    align-items: center;
+    min-height: 62px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .proposal-conversation-page--messages-only .thread-page-header h1 {
+    font-size: 22px;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px 16px;
+    margin-top: 0;
+    margin-bottom: 6px;
+    border-radius: 26px;
+    padding: 16px;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__topline,
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__main,
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__items {
+    grid-column: 1;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__actions {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: end;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 759px) {
+  .proposal-conversation-page--messages-only .private-thread-summary-strip {
+    margin-top: 8px;
+    border: 1px solid color-mix(in srgb, var(--app-border) 64%, transparent);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--app-surface) 84%, transparent);
+    padding: 13px;
+  }
+
+  .proposal-conversation-page--messages-only .private-thread-summary-strip__actions button {
+    min-height: 38px;
+  }
+}
+
+/* WEB-THREAD23: proposal package details page redesign */
+.proposal-package-page {
+  gap: 14px;
+  padding-bottom: 28px;
+}
+
+.proposal-package-hero,
+.proposal-package-card {
+  display: grid;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--app-surface) 84%, transparent);
+  padding: 14px;
+}
+
+.proposal-package-hero {
+  gap: 9px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--proposal-bg) 30%, transparent), transparent 60%),
+    color-mix(in srgb, var(--app-surface) 88%, transparent);
+}
+
+.proposal-package-hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.proposal-package-card__heading span {
+  margin: 0;
+  color: var(--app-text);
+  font-weight: 950;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+}
+
+
+.proposal-package-hero p,
+.proposal-package-card__heading p,
+.proposal-package-empty,
+.proposal-package-card__eyebrow {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.proposal-package-card__heading {
+  display: grid;
+  gap: 4px;
+}
+
+.proposal-package-card__heading span {
+  font-size: 16px;
+}
+
+.proposal-package-card__eyebrow,
+.proposal-package-section__label {
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.proposal-package-identity.user-identity-link,
+.proposal-package-card--sender .user-identity-link {
+  width: fit-content;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-surface-soft) 62%, transparent);
+  padding: 7px 10px 7px 7px;
+}
+
+.proposal-package-message {
+  margin: 0;
+  border-left: 3px solid color-mix(in srgb, var(--proposal-border) 76%, transparent);
+  color: var(--app-text);
+  padding-left: 11px;
+  font-size: 15px;
+  font-weight: 850;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.proposal-package-message--muted,
+.proposal-package-empty {
+  border-left-color: color-mix(in srgb, var(--app-border) 82%, transparent);
+  color: var(--app-text-muted);
+}
+
+.proposal-package-item-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.proposal-package-item-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--app-bg-muted) 52%, var(--app-surface));
+  padding: 11px;
+}
+
+.proposal-package-item-card .proposal-side-preview {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.proposal-package-item-card .proposal-side-details {
+  border-color: color-mix(in srgb, var(--app-border) 62%, transparent);
+  background: color-mix(in srgb, var(--app-surface) 76%, transparent);
+}
+
+.proposal-package-card--actions {
+  gap: 12px;
+}
+
+.proposal-package-actions__group {
+  margin: 0;
+}
+
+.proposal-package-card--actions .proposal-detail-actions,
+.proposal-package-card--actions .message-actions {
+  gap: 8px;
+}
+
+.proposal-edit-form--package {
+  gap: 12px;
+}
+
+.proposal-edit-form--package textarea {
+  min-height: 110px;
+  border-radius: 18px;
+}
+
+@media (min-width: 760px) {
+  .proposal-package-page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding-top: 2px;
+  }
+
+  .proposal-package-hero,
+  .proposal-package-card {
+    border-radius: 26px;
+    padding: 16px;
+  }
+
+  .proposal-package-card--sender {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+  }
+
+  .proposal-package-card--sender .proposal-package-card__eyebrow {
+    min-width: 74px;
+  }
+
+  .proposal-package-item-card {
+    padding: 13px;
+  }
+}
+
+@media (max-width: 759px) {
+  .proposal-package-page {
+    padding: 12px 0 24px;
+  }
+
+  .proposal-package-hero,
+  .proposal-package-card {
+    border-radius: 22px;
+    padding: 13px;
+  }
+
+
+  .proposal-package-card--actions .proposal-detail-actions,
+  .proposal-package-card--actions .message-actions,
+  .proposal-edit-form--package .proposal-edit-form__actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .proposal-package-card--actions .proposal-detail-actions button,
+  .proposal-package-card--actions .message-actions button,
+  .proposal-edit-form--package .proposal-edit-form__actions button {
+    width: 100%;
   }
 }

@@ -621,7 +621,7 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
             const threadHref = `/trades/${trade.id}/proposals/${proposal.id}`;
             if (isPage) {
               return (
-                <Link key={proposal.id} href={threadHref} className={active ? 'private-proposal-row private-proposal-row--active' : 'private-proposal-row'}>
+                <article key={proposal.id} className={active ? 'private-proposal-row private-proposal-row--active' : 'private-proposal-row'}>
                   <div className="private-proposal-row__main">
                     <UserIdentityLink
                       user={proposal.applicant}
@@ -630,15 +630,16 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
                       avatarSize="sm"
                       statusText={proposalApplicantStatus(proposal, i18n)}
                       showHandle={false}
-                      ariaLabel={t('trade.proposals.openPrivateThread')}
                       className="private-proposal-row__person"
                     />
                     <p className="private-proposal-row__message">{proposal.message}</p>
                   </div>
                   <span className="private-proposal-row__status"><WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}</span>
-                  <span className="private-proposal-row__open">{t('trade.proposals.openPrivateThread')}</span>
-                  <WebIcon name="arrow-right" size={16} decorative />
-                </Link>
+                  <Link href={threadHref} className="private-proposal-row__open">
+                    {t('trade.proposals.openPrivateThread')}
+                    <WebIcon name="arrow-right" size={14} decorative />
+                  </Link>
+                </article>
               );
             }
             return (

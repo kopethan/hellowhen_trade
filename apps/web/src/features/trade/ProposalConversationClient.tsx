@@ -711,11 +711,11 @@ function ProposalThreadHeader({
     <header className="thread-page-header">
       {backHref ? (
         <Link href={backHref} className="thread-page-header__back" aria-label={backLabel}>
-          ←
+          <WebIcon name="back" size={21} decorative />
         </Link>
       ) : (
         <button type="button" className="thread-page-header__back" onClick={onBack} aria-label={backLabel}>
-          ←
+          <WebIcon name="back" size={21} decorative />
         </button>
       )}
       <h1>{title}</h1>
@@ -726,7 +726,7 @@ function ProposalThreadHeader({
           onClick={onMenu}
           aria-label="Thread options"
         >
-          ⋯
+          <WebIcon name="more" size={22} decorative />
         </button>
       ) : (
         <span aria-hidden="true" />
@@ -755,16 +755,19 @@ function PrivateThreadSummaryStrip({
   const statusLabel = isDeal
     ? getStatusLabel(proposal.trade?.status ?? "in_progress", i18n)
     : getStatusLabel(proposal.status, i18n);
-  const title = proposal.trade?.title ?? tr(i18n, "trade.proposals.privateProposalConversation", "Private proposal conversation");
+  const title = proposal.trade?.title ?? tr(i18n, "trade.proposals.privateProposalTitle", "Private proposal");
 
   return (
     <aside className="private-thread-summary-strip" aria-label={tr(i18n, "trade.proposals.threadSummary", "Thread summary")}>
-      <div className="private-thread-summary-strip__main">
+      <div className="private-thread-summary-strip__topline">
         <span className="semantic-badge proposal">
           <WebIcon name={isDeal ? "proposal-accepted" : proposalStatusIcon(proposal.status)} size={14} decorative /> {statusLabel}
         </span>
-        <strong>{isDeal ? tr(i18n, "trade.proposals.privateDealTitle", "Private deal") : tr(i18n, "trade.proposals.privateProposalConversation", "Private proposal conversation")}</strong>
-        <p>{title}</p>
+        <span className="private-thread-summary-strip__kind">{proposalApplicantStatus(proposal, i18n)}</span>
+      </div>
+      <div className="private-thread-summary-strip__main">
+        <strong>{title}</strong>
+        <p>{isDeal ? tr(i18n, "trade.deal.acceptedDeal", "Accepted deal") : tr(i18n, "trade.proposals.privateProposalTitle", "Private proposal")}</p>
       </div>
       {sideItems.length ? (
         <div className="private-thread-summary-strip__items">
@@ -772,12 +775,10 @@ function PrivateThreadSummaryStrip({
             <span key={`${kind}-${item.id}`}>{kind === "offer" ? tr(i18n, "trade.labels.offer", "Offer") : tr(i18n, "trade.labels.need", "Need")} · {item.title}</span>
           ))}
         </div>
-      ) : (
-        <p className="private-thread-summary-strip__empty">{proposalApplicantStatus(proposal, i18n)}</p>
-      )}
+      ) : null}
       <div className="private-thread-summary-strip__actions">
         <button type="button" className="secondary" onClick={onOpenDetails}>
-          {tr(i18n, "trade.proposals.detailsMenuTitle", "See details")}
+          {tr(i18n, "trade.proposals.proposalPackage", "Proposal package")}
         </button>
         {onOpenProgress ? (
           <button type="button" className="secondary" onClick={onOpenProgress}>
@@ -838,6 +839,7 @@ export function ProposalConversationClient({
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
   const [threadView, setThreadView] = useState<ProposalThreadView>("thread");
+  const [threadSubpageReturnView, setThreadSubpageReturnView] = useState<"thread" | "options">("thread");
   const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const initialEditAppliedRef = useRef(false);
   const actionLoadingRef = useRef<string | null>(null);
@@ -912,6 +914,7 @@ export function ProposalConversationClient({
 
   useEffect(() => {
     setThreadView("thread");
+    setThreadSubpageReturnView("thread");
   }, [proposalId]);
 
   useEffect(() => {
@@ -1421,6 +1424,11 @@ export function ProposalConversationClient({
     setThreadView("options");
   }
 
+  function openThreadSubpage(view: ProposalThreadView, returnView: "thread" | "options") {
+    setThreadSubpageReturnView(returnView);
+    setThreadView(view);
+  }
+
   return (
     <article className="trade-detail-page proposal-conversation-page proposal-conversation-page--messages-only">
       <ProposalThreadHeader
@@ -1432,7 +1440,7 @@ export function ProposalConversationClient({
               : threadView === "details"
                 ? tr(i18n, "trade.proposals.detailsMenuTitle", "See details")
                 : threadView === "proposal"
-                  ? tr(i18n, "trade.proposals.proposalDetails", "Proposal details")
+                  ? tr(i18n, "trade.proposals.proposalPackage", "Proposal package")
                   : threadView === "deal-agreement"
                     ? tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")
                     : threadView === "deal-progress"
@@ -1443,7 +1451,7 @@ export function ProposalConversationClient({
                           ? tr(i18n, "trade.proposals.reportMessage", "Report message")
                           : proposal.status === "accepted"
                         ? tr(i18n, "trade.proposals.privateDealTitle", "Private deal")
-                        : t("trade.proposals.privateProposalConversation")
+                        : tr(i18n, "trade.proposals.privateProposalTitle", "Private proposal")
         }
         backLabel={t("common.actions.back")}
         backHref={threadView === "thread" ? `/trades/${tradeId}/proposals` : undefined}
@@ -1454,11 +1462,13 @@ export function ProposalConversationClient({
               ? () => setThreadView("options")
               : threadView === "details"
                 ? () => setThreadView("options")
-                : threadView === "report"
-                  ? () => setThreadView("options")
-                  : threadView === "report-message"
-                    ? () => { setThreadView("thread"); setReportMessageId(null); }
-                    : () => setThreadView("details")
+                : threadView === "proposal" || threadView === "deal-agreement" || threadView === "deal-progress"
+                  ? () => setThreadView(threadSubpageReturnView)
+                  : threadView === "report"
+                    ? () => setThreadView("options")
+                    : threadView === "report-message"
+                      ? () => { setThreadView("thread"); setReportMessageId(null); }
+                      : () => setThreadView("thread")
         }
         onMenu={threadView === "thread" ? openPrivateThreadMenu : undefined}
       />
@@ -1707,11 +1717,25 @@ export function ProposalConversationClient({
           <h2>{tr(i18n, "trade.proposals.threadMenuTitle", "Thread options")}</h2>
           <WebOptionPickerPanel className="web-thread-options-picker">
             <WebOptionPickerCard
+              href={`/trades/${tradeId}`}
               iconName="trade"
-              title={tr(i18n, "trade.publicThread.seeDetails", "See details")}
-              description={tr(i18n, "trade.proposals.seeDetailsBody", "Choose trade, proposal, or deal information.")}
-              onClick={() => setThreadView("details")}
+              title={tr(i18n, "trade.proposals.tradeDetails", "Trade details")}
+              description={tr(i18n, "trade.publicThread.seeDetailsBody", "Open the full trade detail page.")}
             />
+            <WebOptionPickerCard
+              iconName="proposal"
+              title={tr(i18n, "trade.proposals.proposalPackage", "Proposal package")}
+              description={tr(i18n, "trade.proposals.proposalDetailsBody", "Review the proposal message, attached Need or Offer, and status.")}
+              onClick={() => openThreadSubpage("proposal", "options")}
+            />
+            {proposal.status === "accepted" ? (
+              <WebOptionPickerCard
+                iconName="activity"
+                title={tr(i18n, "trade.deal.progressTitle", "Progress")}
+                description={tr(i18n, "trade.proposals.dealProgressBody", "Submit, complete, cancel, or report the accepted deal.")}
+                onClick={() => openThreadSubpage("deal-progress", "options")}
+              />
+            ) : null}
             <WebOptionPickerCard
               iconName="help"
               title={tr(i18n, "trade.publicThread.seeGuide", "See guide")}
@@ -1729,12 +1753,21 @@ export function ProposalConversationClient({
       ) : null}
 
       {threadView === "guide" ? (
-        <section className="thread-full-page">
+        <section className="thread-full-page thread-full-page--guide">
           <h2>{tr(i18n, "trade.proposals.privateGuideTitle", "Private thread guide")}</h2>
-          <div className="thread-guide-copy">
-            <p>{tr(i18n, "trade.proposals.privateGuideIntro", "Private threads are for proposal discussion, negotiation, and accepted deal coordination between the trade owner and applicant.")}</p>
-            <p>{tr(i18n, "trade.proposals.privateGuideDetails", "Use the three-dot menu when you need trade details, proposal details, deal agreement, or deal progress. The conversation stays focused on messages.")}</p>
-            <p>{tr(i18n, "trade.proposals.privateGuideSafety", "Keep important agreement details in the chat. Do not share passwords, card details, or sensitive documents.")}</p>
+          <div className="thread-guide-copy thread-guide-copy--cards">
+            <article className="thread-guide-card">
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="proposal" size={20} decorative /></span>
+              <p>{tr(i18n, "trade.proposals.privateGuideIntro", "Private threads are for proposal discussion, negotiation, and accepted deal coordination between the trade owner and applicant.")}</p>
+            </article>
+            <article className="thread-guide-card">
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="trade" size={20} decorative /></span>
+              <p>{tr(i18n, "trade.proposals.privateGuideDetails", "Use the three-dot menu when you need trade details, proposal details, deal agreement, or deal progress. The conversation stays focused on messages.")}</p>
+            </article>
+            <article className="thread-guide-card thread-guide-card--warning">
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="warning" size={20} decorative /></span>
+              <p>{tr(i18n, "trade.proposals.privateGuideSafety", "Keep important agreement details in the chat. Do not share passwords, card details, or sensitive documents.")}</p>
+            </article>
           </div>
         </section>
       ) : null}
@@ -1791,101 +1824,140 @@ export function ProposalConversationClient({
       ) : null}
 
       {threadView === "proposal" ? (
-        <section className="thread-full-page proposal-details-page">
-          <h2>{tr(i18n, "trade.proposals.proposalDetails", "Proposal details")}</h2>
-          <div className="status-row">
-            <span className="semantic-badge proposal">
-              <WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}
-            </span>
-            <span className="semantic-badge trade">{proposalApplicantStatus(proposal, i18n)}</span>
+        <section className="thread-full-page proposal-package-page">
+          <div className="proposal-package-hero">
+            <div className="proposal-package-hero__badges">
+              <span className="semantic-badge proposal">
+                <WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}
+              </span>
+              <span className="semantic-badge trade">{proposalApplicantStatus(proposal, i18n)}</span>
+            </div>
+            <p>{tr(i18n, "trade.proposals.proposalPackageBody", "Review the proposal message, attached Need or Offer, and available actions for this private thread.")}</p>
           </div>
-          <UserIdentityLink
-            user={proposal.applicant}
-            userId={proposal.applicantId}
-            variant="compact"
-            avatarSize="sm"
-            statusText={isApplicant ? t("trade.proposals.youSentProposal") : t("trade.proposals.sentProposal")}
-            showHandle={false}
-            className="message-bubble__identity"
-          />
+
+          <section className="proposal-package-card proposal-package-card--sender" aria-label={tr(i18n, "trade.proposals.proposalSender", "Proposal sender")}>
+            <span className="proposal-package-card__eyebrow">{tr(i18n, "trade.proposals.from", "From")}</span>
+            <UserIdentityLink
+              user={proposal.applicant}
+              userId={proposal.applicantId}
+              variant="compact"
+              avatarSize="sm"
+              statusText={isApplicant ? t("trade.proposals.youSentProposal") : t("trade.proposals.sentProposal")}
+              showHandle={false}
+              className="proposal-package-identity"
+            />
+          </section>
+
           {editingProposal ? (
-            <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
-              <div className="proposal-edit-form__side">
-                <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
-                <div className="proposal-edit-form__picker-grid">
-                  <div className="proposal-edit-form__picker-card">
-                    <div>
-                      <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
-                      <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                      <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
+            <section className="proposal-package-card proposal-package-card--edit">
+              <div className="proposal-package-card__heading">
+                <span>{tr(i18n, "trade.proposals.editProposal", "Edit proposal")}</span>
+                <p>{tr(i18n, "trade.proposals.editProposalBody", "Update the attached items or the message before this proposal is accepted.")}</p>
+              </div>
+              <form className="proposal-edit-form proposal-edit-form--package" onSubmit={saveProposalEdit}>
+                <div className="proposal-edit-form__side">
+                  <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
+                  <div className="proposal-edit-form__picker-grid">
+                    <div className="proposal-edit-form__picker-card">
+                      <div>
+                        <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
+                        <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
+                        <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
+                      </div>
+                      <div className="proposal-edit-form__picker-actions">
+                        <Link href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}</Link>
+                        {draftOffer && requiredProposalSide !== "offer" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button> : null}
+                      </div>
                     </div>
-                    <div className="proposal-edit-form__picker-actions">
-                      <Link href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}</Link>
-                      {draftOffer && requiredProposalSide !== "offer" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button> : null}
-                    </div>
-                  </div>
-                  <div className="proposal-edit-form__picker-card">
-                    <div>
-                      <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
-                      <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
-                      <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
-                    </div>
-                    <div className="proposal-edit-form__picker-actions">
-                      <Link href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}</Link>
-                      {draftNeed && requiredProposalSide !== "need" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button> : null}
+                    <div className="proposal-edit-form__picker-card">
+                      <div>
+                        <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
+                        <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
+                        <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
+                      </div>
+                      <div className="proposal-edit-form__picker-actions">
+                        <Link href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}</Link>
+                        {draftNeed && requiredProposalSide !== "need" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button> : null}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-              <label className="field-label">
-                {t("trade.labels.proposalMessage")}
-                <textarea
-                  value={proposalDraft}
-                  onChange={(event) => {
-                    setProposalDraft(event.target.value);
-                    if (proposalEditError) setProposalEditError(null);
-                  }}
-                  placeholder={t("trade.proposals.writeMessage")}
-                  rows={3}
-                />
-              </label>
-              {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
-              <div className="proposal-edit-form__actions">
-                <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
-                <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
-              </div>
-            </form>
+                <label className="field-label">
+                  {t("trade.labels.proposalMessage")}
+                  <textarea
+                    value={proposalDraft}
+                    onChange={(event) => {
+                      setProposalDraft(event.target.value);
+                      if (proposalEditError) setProposalEditError(null);
+                    }}
+                    placeholder={t("trade.proposals.writeMessage")}
+                    rows={3}
+                  />
+                </label>
+                {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
+                <div className="proposal-edit-form__actions">
+                  <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
+                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+                </div>
+              </form>
+            </section>
           ) : (
             <>
-              {sideItems.length ? (
-                <div className="proposal-side-details-stack">
-                  {sideItems.map((side) => (
-                    <div key={`${side.kind}-${side.item.id}`} className="thread-detail-section">
-                      <ProposalSidePreview kind={side.kind} item={side.item} compact i18n={i18n} />
-                      <ProposalSideDetails kind={side.kind} item={side.item} i18n={i18n} />
-                    </div>
-                  ))}
+              <section className="proposal-package-card proposal-package-card--message">
+                <div className="proposal-package-card__heading">
+                  <span>{tr(i18n, "trade.proposals.proposalMessage", "Proposal message")}</span>
+                  <p>{tr(i18n, "trade.proposals.proposalMessageBody", "The message that introduced this private proposal.")}</p>
                 </div>
-              ) : null}
-              {proposal.messageDeletedAt ? (
-                <p className="proposal-message-deleted">{t("trade.proposals.proposalNoteDeleted")}</p>
-              ) : proposal.message ? (
-                <p className="proposal-detail-message">{proposal.message}</p>
-              ) : null}
-              {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
+                {proposal.messageDeletedAt ? (
+                  <p className="proposal-package-message proposal-package-message--muted">{t("trade.proposals.proposalNoteDeleted")}</p>
+                ) : proposal.message ? (
+                  <p className="proposal-package-message">{proposal.message}</p>
+                ) : (
+                  <p className="proposal-package-message proposal-package-message--muted">{tr(i18n, "trade.proposals.noProposalMessage", "No proposal message yet.")}</p>
+                )}
+                {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
+              </section>
+
+              <section className="proposal-package-card proposal-package-card--items">
+                <div className="proposal-package-card__heading">
+                  <span>{tr(i18n, "trade.proposals.attachedItems", "Attached items")}</span>
+                  <p>{tr(i18n, "trade.proposals.attachedItemsBody", "Needs or Offers attached to this proposal stay private to both participants.")}</p>
+                </div>
+                {sideItems.length ? (
+                  <div className="proposal-package-item-stack">
+                    {sideItems.map((side) => (
+                      <article key={`${side.kind}-${side.item.id}`} className="proposal-package-item-card">
+                        <ProposalSidePreview kind={side.kind} item={side.item} compact i18n={i18n} />
+                        <ProposalSideDetails kind={side.kind} item={side.item} i18n={i18n} />
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="proposal-package-empty">{tr(i18n, "trade.proposals.noAttachedItems", "No Need or Offer is attached to this proposal yet.")}</p>
+                )}
+              </section>
             </>
           )}
-          {canEditProposalContent && !editingProposal ? (
-            <div className="message-actions message-actions--proposal">
-              <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
-              {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
-            </div>
+
+          {!editingProposal && (canEditProposalContent || canActOnProposal || canWithdrawProposal) ? (
+            <section className="proposal-package-card proposal-package-card--actions">
+              <div className="proposal-package-card__heading">
+                <span>{tr(i18n, "trade.proposals.packageActions", "Actions")}</span>
+                <p>{tr(i18n, "trade.proposals.packageActionsBody", "Actions are shown only when your role and the proposal status allow them.")}</p>
+              </div>
+              {canEditProposalContent ? (
+                <div className="message-actions message-actions--proposal proposal-package-actions__group">
+                  <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
+                  {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
+                </div>
+              ) : null}
+              <div className="proposal-card__actions proposal-detail-actions proposal-package-actions__group">
+                {canActOnProposal ? <button type="button" className="success" onClick={() => void updateProposalStatus("accepted")} disabled={Boolean(actionLoading)}>{actionLoading === "accepted" ? t("trade.proposals.accepting") : t("trade.proposals.accept")}</button> : null}
+                {canActOnProposal ? <button type="button" className="secondary" onClick={() => void updateProposalStatus("declined")} disabled={Boolean(actionLoading)}>{actionLoading === "declined" ? t("trade.proposals.declining") : t("trade.proposals.decline")}</button> : null}
+                {canWithdrawProposal ? <button type="button" className="secondary danger-text" onClick={() => setWithdrawConfirmOpen(true)} disabled={Boolean(actionLoading)}>{actionLoading === "withdrawn" ? t("trade.proposals.withdrawing") : t("trade.proposals.withdraw")}</button> : null}
+              </div>
+            </section>
           ) : null}
-          <div className="proposal-card__actions proposal-detail-actions">
-            {canActOnProposal ? <button type="button" className="success" onClick={() => void updateProposalStatus("accepted")} disabled={Boolean(actionLoading)}>{actionLoading === "accepted" ? t("trade.proposals.accepting") : t("trade.proposals.accept")}</button> : null}
-            {canActOnProposal ? <button type="button" className="secondary" onClick={() => void updateProposalStatus("declined")} disabled={Boolean(actionLoading)}>{actionLoading === "declined" ? t("trade.proposals.declining") : t("trade.proposals.decline")}</button> : null}
-            {canWithdrawProposal ? <button type="button" className="secondary danger-text" onClick={() => setWithdrawConfirmOpen(true)} disabled={Boolean(actionLoading)}>{actionLoading === "withdrawn" ? t("trade.proposals.withdrawing") : t("trade.proposals.withdraw")}</button> : null}
-          </div>
         </section>
       ) : null}
 
@@ -1936,8 +2008,8 @@ export function ProposalConversationClient({
           <PrivateThreadSummaryStrip
             proposal={proposal}
             i18n={i18n}
-            onOpenDetails={() => setThreadView("details")}
-            onOpenProgress={proposal.status === "accepted" ? () => setThreadView("deal-progress") : undefined}
+            onOpenDetails={() => openThreadSubpage("proposal", "thread")}
+            onOpenProgress={proposal.status === "accepted" ? () => openThreadSubpage("deal-progress", "thread") : undefined}
           />
           <div className="message-list proposal-conversation-list proposal-timeline-list proposal-thread-message-list">
             <ThreadSystemEvent>

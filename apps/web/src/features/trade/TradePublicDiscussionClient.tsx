@@ -273,12 +273,24 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
           <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
           <h2>{t('trade.publicDiscussion.guideTitle')}</h2>
         </section>
-        <section className="web-thread-info-page">
-          <p>{t('trade.publicDiscussion.guideBody')}</p>
-          <ul className="web-thread-guide-list">
-            <li>{t('trade.publicDiscussion.guidePublic')}</li>
-            <li>{t('trade.publicDiscussion.guidePrivate')}</li>
-            <li>{t('trade.publicDiscussion.guideSafety')}</li>
+        <section className="web-thread-info-page web-thread-guide-page">
+          <ul className="web-thread-guide-list web-thread-guide-list--cards">
+            <li>
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="help" size={20} decorative /></span>
+              <p>{t('trade.publicDiscussion.guideBody')}</p>
+            </li>
+            <li>
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="trade" size={20} decorative /></span>
+              <p>{t('trade.publicDiscussion.guidePublic')}</p>
+            </li>
+            <li>
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="proposal" size={20} decorative /></span>
+              <p>{t('trade.publicDiscussion.guidePrivate')}</p>
+            </li>
+            <li className="web-thread-guide-card--warning">
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="warning" size={20} decorative /></span>
+              <p>{t('trade.publicDiscussion.guideSafety')}</p>
+            </li>
           </ul>
         </section>
       </article>

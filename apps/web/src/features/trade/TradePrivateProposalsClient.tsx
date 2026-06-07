@@ -184,12 +184,24 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
           <button type="button" className="web-thread-header__back" onClick={() => setView('menu')} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
           <h2>{t('trade.proposals.privateGuideTitle')}</h2>
         </section>
-        <section className="web-thread-info-page">
-          <p>{t('trade.proposals.privateGuideBody')}</p>
-          <ul className="web-thread-guide-list">
-            <li>{t('trade.proposals.privateGuideProposal')}</li>
-            <li>{t('trade.proposals.privateGuideDetails')}</li>
-            <li>{t('trade.proposals.privateGuideSafety')}</li>
+        <section className="web-thread-info-page web-thread-guide-page">
+          <ul className="web-thread-guide-list web-thread-guide-list--cards">
+            <li>
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="proposal" size={20} decorative /></span>
+              <p>{t('trade.proposals.privateGuideBody')}</p>
+            </li>
+            <li>
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="offer" size={20} decorative /></span>
+              <p>{t('trade.proposals.privateGuideProposal')}</p>
+            </li>
+            <li>
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="trade" size={20} decorative /></span>
+              <p>{t('trade.proposals.privateGuideDetails')}</p>
+            </li>
+            <li className="web-thread-guide-card--warning">
+              <span className="web-thread-guide-card__icon" aria-hidden="true"><WebIcon name="warning" size={20} decorative /></span>
+              <p>{t('trade.proposals.privateGuideSafety')}</p>
+            </li>
           </ul>
         </section>
       </article>

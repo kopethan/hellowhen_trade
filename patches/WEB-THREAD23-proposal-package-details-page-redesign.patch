@@ -1,0 +1,430 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 8bd48f5..27ef593 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -7709,3 +7709,197 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     min-height: 38px;
+   }
+ }
++
++/* WEB-THREAD23: proposal package details page redesign */
++.proposal-package-page {
++  gap: 14px;
++  padding-bottom: 28px;
++}
++
++.proposal-package-hero,
++.proposal-package-card {
++  display: grid;
++  gap: 11px;
++  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
++  border-radius: 24px;
++  background: color-mix(in srgb, var(--app-surface) 84%, transparent);
++  padding: 14px;
++}
++
++.proposal-package-hero {
++  gap: 9px;
++  background:
++    linear-gradient(135deg, color-mix(in srgb, var(--proposal-bg) 30%, transparent), transparent 60%),
++    color-mix(in srgb, var(--app-surface) 88%, transparent);
++}
++
++.proposal-package-hero__badges {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px;
++  align-items: center;
++}
++
++.proposal-package-card__heading span {
++  margin: 0;
++  color: var(--app-text);
++  font-weight: 950;
++  letter-spacing: -0.035em;
++  line-height: 1.12;
++}
++
++
++.proposal-package-hero p,
++.proposal-package-card__heading p,
++.proposal-package-empty,
++.proposal-package-card__eyebrow {
++  margin: 0;
++  color: var(--app-text-muted);
++  font-size: 13px;
++  font-weight: 800;
++  line-height: 1.45;
++}
++
++.proposal-package-card__heading {
++  display: grid;
++  gap: 4px;
++}
++
++.proposal-package-card__heading span {
++  font-size: 16px;
++}
++
++.proposal-package-card__eyebrow,
++.proposal-package-section__label {
++  font-size: 10px;
++  font-weight: 950;
++  letter-spacing: .1em;
++  text-transform: uppercase;
++}
++
++.proposal-package-identity.user-identity-link,
++.proposal-package-card--sender .user-identity-link {
++  width: fit-content;
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--app-surface-soft) 62%, transparent);
++  padding: 7px 10px 7px 7px;
++}
++
++.proposal-package-message {
++  margin: 0;
++  border-left: 3px solid color-mix(in srgb, var(--proposal-border) 76%, transparent);
++  color: var(--app-text);
++  padding-left: 11px;
++  font-size: 15px;
++  font-weight: 850;
++  line-height: 1.5;
++  overflow-wrap: anywhere;
++}
++
++.proposal-package-message--muted,
++.proposal-package-empty {
++  border-left-color: color-mix(in srgb, var(--app-border) 82%, transparent);
++  color: var(--app-text-muted);
++}
++
++.proposal-package-item-stack {
++  display: grid;
++  gap: 12px;
++}
++
++.proposal-package-item-card {
++  display: grid;
++  gap: 10px;
++  border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
++  border-radius: 22px;
++  background: color-mix(in srgb, var(--app-bg-muted) 52%, var(--app-surface));
++  padding: 11px;
++}
++
++.proposal-package-item-card .proposal-side-preview {
++  border: 0;
++  background: transparent;
++  padding: 0;
++  box-shadow: none;
++}
++
++.proposal-package-item-card .proposal-side-details {
++  border-color: color-mix(in srgb, var(--app-border) 62%, transparent);
++  background: color-mix(in srgb, var(--app-surface) 76%, transparent);
++}
++
++.proposal-package-card--actions {
++  gap: 12px;
++}
++
++.proposal-package-actions__group {
++  margin: 0;
++}
++
++.proposal-package-card--actions .proposal-detail-actions,
++.proposal-package-card--actions .message-actions {
++  gap: 8px;
++}
++
++.proposal-edit-form--package {
++  gap: 12px;
++}
++
++.proposal-edit-form--package textarea {
++  min-height: 110px;
++  border-radius: 18px;
++}
++
++@media (min-width: 760px) {
++  .proposal-package-page {
++    max-width: 760px;
++    margin: 0 auto;
++    padding-top: 2px;
++  }
++
++  .proposal-package-hero,
++  .proposal-package-card {
++    border-radius: 26px;
++    padding: 16px;
++  }
++
++  .proposal-package-card--sender {
++    grid-template-columns: auto minmax(0, 1fr);
++    align-items: center;
++    gap: 14px;
++  }
++
++  .proposal-package-card--sender .proposal-package-card__eyebrow {
++    min-width: 74px;
++  }
++
++  .proposal-package-item-card {
++    padding: 13px;
++  }
++}
++
++@media (max-width: 759px) {
++  .proposal-package-page {
++    padding: 12px 0 24px;
++  }
++
++  .proposal-package-hero,
++  .proposal-package-card {
++    border-radius: 22px;
++    padding: 13px;
++  }
++
++
++  .proposal-package-card--actions .proposal-detail-actions,
++  .proposal-package-card--actions .message-actions,
++  .proposal-edit-form--package .proposal-edit-form__actions {
++    display: grid;
++    grid-template-columns: 1fr;
++  }
++
++  .proposal-package-card--actions .proposal-detail-actions button,
++  .proposal-package-card--actions .message-actions button,
++  .proposal-edit-form--package .proposal-edit-form__actions button {
++    width: 100%;
++  }
++}
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index e3dced3..9cb6a2b 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -1824,101 +1824,140 @@ export function ProposalConversationClient({
+       ) : null}
+ 
+       {threadView === "proposal" ? (
+-        <section className="thread-full-page proposal-details-page">
+-          <h2>{tr(i18n, "trade.proposals.proposalPackage", "Proposal package")}</h2>
+-          <div className="status-row">
+-            <span className="semantic-badge proposal">
+-              <WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}
+-            </span>
+-            <span className="semantic-badge trade">{proposalApplicantStatus(proposal, i18n)}</span>
++        <section className="thread-full-page proposal-package-page">
++          <div className="proposal-package-hero">
++            <div className="proposal-package-hero__badges">
++              <span className="semantic-badge proposal">
++                <WebIcon name={proposalStatusIcon(proposal.status)} size={14} decorative /> {getStatusLabel(proposal.status, i18n)}
++              </span>
++              <span className="semantic-badge trade">{proposalApplicantStatus(proposal, i18n)}</span>
++            </div>
++            <p>{tr(i18n, "trade.proposals.proposalPackageBody", "Review the proposal message, attached Need or Offer, and available actions for this private thread.")}</p>
+           </div>
+-          <UserIdentityLink
+-            user={proposal.applicant}
+-            userId={proposal.applicantId}
+-            variant="compact"
+-            avatarSize="sm"
+-            statusText={isApplicant ? t("trade.proposals.youSentProposal") : t("trade.proposals.sentProposal")}
+-            showHandle={false}
+-            className="message-bubble__identity"
+-          />
++
++          <section className="proposal-package-card proposal-package-card--sender" aria-label={tr(i18n, "trade.proposals.proposalSender", "Proposal sender")}>
++            <span className="proposal-package-card__eyebrow">{tr(i18n, "trade.proposals.from", "From")}</span>
++            <UserIdentityLink
++              user={proposal.applicant}
++              userId={proposal.applicantId}
++              variant="compact"
++              avatarSize="sm"
++              statusText={isApplicant ? t("trade.proposals.youSentProposal") : t("trade.proposals.sentProposal")}
++              showHandle={false}
++              className="proposal-package-identity"
++            />
++          </section>
++
+           {editingProposal ? (
+-            <form className="proposal-edit-form" onSubmit={saveProposalEdit}>
+-              <div className="proposal-edit-form__side">
+-                <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
+-                <div className="proposal-edit-form__picker-grid">
+-                  <div className="proposal-edit-form__picker-card">
+-                    <div>
+-                      <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
+-                      <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
+-                      <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
+-                    </div>
+-                    <div className="proposal-edit-form__picker-actions">
+-                      <Link href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}</Link>
+-                      {draftOffer && requiredProposalSide !== "offer" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button> : null}
+-                    </div>
+-                  </div>
+-                  <div className="proposal-edit-form__picker-card">
+-                    <div>
+-                      <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
+-                      <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
+-                      <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
++            <section className="proposal-package-card proposal-package-card--edit">
++              <div className="proposal-package-card__heading">
++                <span>{tr(i18n, "trade.proposals.editProposal", "Edit proposal")}</span>
++                <p>{tr(i18n, "trade.proposals.editProposalBody", "Update the attached items or the message before this proposal is accepted.")}</p>
++              </div>
++              <form className="proposal-edit-form proposal-edit-form--package" onSubmit={saveProposalEdit}>
++                <div className="proposal-edit-form__side">
++                  <span className="proposal-package-section__label">{t("trade.proposals.changeProposalItem")}</span>
++                  <div className="proposal-edit-form__picker-grid">
++                    <div className="proposal-edit-form__picker-card">
++                      <div>
++                        <span className="proposal-side-preview__label">{t("trade.labels.proposedOffer")}</span>
++                        <strong>{draftOffer ? draftOffer.title : t("trade.proposals.noProposalItemSelected")}</strong>
++                        <p>{draftOffer ? sideMeta(draftOffer, i18n) : requiredProposalSide === "offer" ? t("trade.proposals.chooseExistingOfferBody") : t("trade.proposals.optionalOfferBody")}</p>
++                      </div>
++                      <div className="proposal-edit-form__picker-actions">
++                        <Link href={proposalEditChooseHref("offer", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftOffer ? t("trade.proposals.changeOffer") : t("trade.proposals.chooseOffer")}</Link>
++                        {draftOffer && requiredProposalSide !== "offer" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftOfferId("")}>{t("trade.proposals.removeOffer")}</button> : null}
++                      </div>
+                     </div>
+-                    <div className="proposal-edit-form__picker-actions">
+-                      <Link href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}</Link>
+-                      {draftNeed && requiredProposalSide !== "need" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button> : null}
++                    <div className="proposal-edit-form__picker-card">
++                      <div>
++                        <span className="proposal-side-preview__label">{t("trade.labels.proposedNeed")}</span>
++                        <strong>{draftNeed ? draftNeed.title : t("trade.proposals.noProposalItemSelected")}</strong>
++                        <p>{draftNeed ? sideMeta(draftNeed, i18n) : requiredProposalSide === "need" ? t("trade.proposals.chooseExistingNeedBody") : t("trade.proposals.optionalNeedBody")}</p>
++                      </div>
++                      <div className="proposal-edit-form__picker-actions">
++                        <Link href={proposalEditChooseHref("need", tradeId, proposal.id, proposalDraftNeedId, proposalDraftOfferId)} className="button secondary" onClick={stashProposalEditDraft}>{draftNeed ? t("trade.proposals.changeNeed") : t("trade.proposals.chooseNeed")}</Link>
++                        {draftNeed && requiredProposalSide !== "need" ? <button type="button" className="secondary danger-text" onClick={() => setProposalDraftNeedId("")}>{t("trade.proposals.removeNeed")}</button> : null}
++                      </div>
+                     </div>
+                   </div>
+                 </div>
+-              </div>
+-              <label className="field-label">
+-                {t("trade.labels.proposalMessage")}
+-                <textarea
+-                  value={proposalDraft}
+-                  onChange={(event) => {
+-                    setProposalDraft(event.target.value);
+-                    if (proposalEditError) setProposalEditError(null);
+-                  }}
+-                  placeholder={t("trade.proposals.writeMessage")}
+-                  rows={3}
+-                />
+-              </label>
+-              {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
+-              <div className="proposal-edit-form__actions">
+-                <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
+-                <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
+-              </div>
+-            </form>
++                <label className="field-label">
++                  {t("trade.labels.proposalMessage")}
++                  <textarea
++                    value={proposalDraft}
++                    onChange={(event) => {
++                      setProposalDraft(event.target.value);
++                      if (proposalEditError) setProposalEditError(null);
++                    }}
++                    placeholder={t("trade.proposals.writeMessage")}
++                    rows={3}
++                  />
++                </label>
++                {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
++                <div className="proposal-edit-form__actions">
++                  <button type="submit" disabled={Boolean(actionLoading) || proposalSideLoading}>{t("trade.proposals.saveProposal")}</button>
++                  <button type="button" className="secondary" onClick={() => { setEditingProposal(false); setProposalEditError(null); clearProposalEditDraft(proposal.id); }} disabled={Boolean(actionLoading)}>{t("common.actions.cancel")}</button>
++                </div>
++              </form>
++            </section>
+           ) : (
+             <>
+-              {sideItems.length ? (
+-                <div className="proposal-side-details-stack">
+-                  {sideItems.map((side) => (
+-                    <div key={`${side.kind}-${side.item.id}`} className="thread-detail-section">
+-                      <ProposalSidePreview kind={side.kind} item={side.item} compact i18n={i18n} />
+-                      <ProposalSideDetails kind={side.kind} item={side.item} i18n={i18n} />
+-                    </div>
+-                  ))}
++              <section className="proposal-package-card proposal-package-card--message">
++                <div className="proposal-package-card__heading">
++                  <span>{tr(i18n, "trade.proposals.proposalMessage", "Proposal message")}</span>
++                  <p>{tr(i18n, "trade.proposals.proposalMessageBody", "The message that introduced this private proposal.")}</p>
+                 </div>
+-              ) : null}
+-              {proposal.messageDeletedAt ? (
+-                <p className="proposal-message-deleted">{t("trade.proposals.proposalNoteDeleted")}</p>
+-              ) : proposal.message ? (
+-                <p className="proposal-detail-message">{proposal.message}</p>
+-              ) : null}
+-              {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
++                {proposal.messageDeletedAt ? (
++                  <p className="proposal-package-message proposal-package-message--muted">{t("trade.proposals.proposalNoteDeleted")}</p>
++                ) : proposal.message ? (
++                  <p className="proposal-package-message">{proposal.message}</p>
++                ) : (
++                  <p className="proposal-package-message proposal-package-message--muted">{tr(i18n, "trade.proposals.noProposalMessage", "No proposal message yet.")}</p>
++                )}
++                {proposal.messageDeletedAt ? <p className="message-meta">{formatDeletedTrace(proposal.messageDeletedAt, i18n)}</p> : proposal.messageEditedAt ? <p className="message-meta">{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, i18n)}</p> : null}
++              </section>
++
++              <section className="proposal-package-card proposal-package-card--items">
++                <div className="proposal-package-card__heading">
++                  <span>{tr(i18n, "trade.proposals.attachedItems", "Attached items")}</span>
++                  <p>{tr(i18n, "trade.proposals.attachedItemsBody", "Needs or Offers attached to this proposal stay private to both participants.")}</p>
++                </div>
++                {sideItems.length ? (
++                  <div className="proposal-package-item-stack">
++                    {sideItems.map((side) => (
++                      <article key={`${side.kind}-${side.item.id}`} className="proposal-package-item-card">
++                        <ProposalSidePreview kind={side.kind} item={side.item} compact i18n={i18n} />
++                        <ProposalSideDetails kind={side.kind} item={side.item} i18n={i18n} />
++                      </article>
++                    ))}
++                  </div>
++                ) : (
++                  <p className="proposal-package-empty">{tr(i18n, "trade.proposals.noAttachedItems", "No Need or Offer is attached to this proposal yet.")}</p>
++                )}
++              </section>
+             </>
+           )}
+-          {canEditProposalContent && !editingProposal ? (
+-            <div className="message-actions message-actions--proposal">
+-              <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
+-              {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
+-            </div>
++
++          {!editingProposal && (canEditProposalContent || canActOnProposal || canWithdrawProposal) ? (
++            <section className="proposal-package-card proposal-package-card--actions">
++              <div className="proposal-package-card__heading">
++                <span>{tr(i18n, "trade.proposals.packageActions", "Actions")}</span>
++                <p>{tr(i18n, "trade.proposals.packageActionsBody", "Actions are shown only when your role and the proposal status allow them.")}</p>
++              </div>
++              {canEditProposalContent ? (
++                <div className="message-actions message-actions--proposal proposal-package-actions__group">
++                  <button type="button" className="secondary" onClick={() => startProposalEdit()} disabled={Boolean(actionLoading)}>{proposal.messageDeletedAt ? t("trade.proposals.addProposalNote") : t("trade.proposals.editProposal")}</button>
++                  {!proposal.messageDeletedAt ? <button type="button" className="secondary danger-text" onClick={() => setDeleteConfirmTarget({ kind: "proposal-note" })} disabled={Boolean(actionLoading)}>{t("trade.proposals.deleteProposalNote")}</button> : null}
++                </div>
++              ) : null}
++              <div className="proposal-card__actions proposal-detail-actions proposal-package-actions__group">
++                {canActOnProposal ? <button type="button" className="success" onClick={() => void updateProposalStatus("accepted")} disabled={Boolean(actionLoading)}>{actionLoading === "accepted" ? t("trade.proposals.accepting") : t("trade.proposals.accept")}</button> : null}
++                {canActOnProposal ? <button type="button" className="secondary" onClick={() => void updateProposalStatus("declined")} disabled={Boolean(actionLoading)}>{actionLoading === "declined" ? t("trade.proposals.declining") : t("trade.proposals.decline")}</button> : null}
++                {canWithdrawProposal ? <button type="button" className="secondary danger-text" onClick={() => setWithdrawConfirmOpen(true)} disabled={Boolean(actionLoading)}>{actionLoading === "withdrawn" ? t("trade.proposals.withdrawing") : t("trade.proposals.withdraw")}</button> : null}
++              </div>
++            </section>
+           ) : null}
+-          <div className="proposal-card__actions proposal-detail-actions">
+-            {canActOnProposal ? <button type="button" className="success" onClick={() => void updateProposalStatus("accepted")} disabled={Boolean(actionLoading)}>{actionLoading === "accepted" ? t("trade.proposals.accepting") : t("trade.proposals.accept")}</button> : null}
+-            {canActOnProposal ? <button type="button" className="secondary" onClick={() => void updateProposalStatus("declined")} disabled={Boolean(actionLoading)}>{actionLoading === "declined" ? t("trade.proposals.declining") : t("trade.proposals.decline")}</button> : null}
+-            {canWithdrawProposal ? <button type="button" className="secondary danger-text" onClick={() => setWithdrawConfirmOpen(true)} disabled={Boolean(actionLoading)}>{actionLoading === "withdrawn" ? t("trade.proposals.withdrawing") : t("trade.proposals.withdraw")}</button> : null}
+-          </div>
+         </section>
+       ) : null}
+ 
