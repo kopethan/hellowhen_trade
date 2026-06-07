@@ -1,0 +1,81 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index af46aaa..f013c7e 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -829,15 +829,17 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
+ .deal-panel--actions .proposal-card__actions { justify-content: flex-start; }
+ .proposal-timeline-empty { justify-self: stretch; padding: 8px 2px 0; }
+ .conversation-reply .field-error { grid-column: 1 / -1; }
+-.trade-thread-split-section { gap: 14px; }
+-.trade-thread-action-grid { display: grid; gap: 10px; }
+-.trade-thread-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--app-border); border-radius: 24px; background: var(--app-surface); color: var(--app-text); padding: 13px; text-decoration: none; box-shadow: 0 16px 42px rgba(15, 23, 42, 0.07); }
+-.trade-thread-action-card:hover, .trade-thread-action-card:focus-visible { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 28%, var(--app-surface)); transform: translateY(-1px); }
+-.trade-thread-action-card__icon { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid color-mix(in srgb, var(--proposal-border) 60%, var(--app-border)); border-radius: 16px; background: color-mix(in srgb, var(--proposal-bg) 52%, var(--app-surface)); color: var(--proposal-text); }
++.trade-thread-split-section { gap: 12px; }
++.trade-thread-section-heading { margin-bottom: -2px; }
++.trade-thread-action-grid { display: grid; gap: 8px; }
++.trade-thread-action-grid--simple { gap: 8px; }
++.trade-thread-action-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--app-border); border-radius: 18px; background: color-mix(in srgb, var(--app-surface) 82%, var(--app-surface-soft)); color: var(--app-text); padding: 11px 12px; text-decoration: none; box-shadow: none; }
++.trade-thread-action-card:hover, .trade-thread-action-card:focus-visible { border-color: var(--proposal-border); background: color-mix(in srgb, var(--proposal-bg) 22%, var(--app-surface)); transform: translateY(-1px); }
++.trade-thread-action-card__icon { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid color-mix(in srgb, var(--proposal-border) 55%, var(--app-border)); border-radius: 14px; background: color-mix(in srgb, var(--proposal-bg) 46%, var(--app-surface)); color: var(--proposal-text); }
+ .trade-thread-action-card__body { display: grid; min-width: 0; gap: 3px; }
+-.trade-thread-action-card__body strong { font-size: 15px; font-weight: 950; }
++.trade-thread-action-card__body strong { font-size: 14px; font-weight: 950; }
+ .trade-thread-action-card__body small { color: var(--app-text-muted); font-size: 12px; font-weight: 750; line-height: 1.35; }
+-.trade-thread-action-card__cta { display: inline-flex; align-items: center; min-height: 32px; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 0 10px; font-size: 11px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
++.trade-thread-action-card__cta { display: inline-flex; align-items: center; min-height: 30px; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 0 10px; font-size: 11px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+ .trade-thread-page-hero > .button { justify-self: start; }
+ .public-discussion-section { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+ .public-discussion-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 8px; }
+diff --git a/apps/web/src/features/trade/TradeDetailClient.tsx b/apps/web/src/features/trade/TradeDetailClient.tsx
+index 8fa445c..0570383 100644
+--- a/apps/web/src/features/trade/TradeDetailClient.tsx
++++ b/apps/web/src/features/trade/TradeDetailClient.tsx
+@@ -126,31 +126,27 @@ function OpenResponseSection({ trade, i18n }: { trade: TradeDto; i18n?: TradeI18
+ }
+ 
+ 
+-function TradeThreadSplitSection({ trade, isOwner, i18n }: { trade: TradeDto; isOwner: boolean; i18n: TradeI18n }) {
++function TradeThreadSplitSection({ trade, i18n }: { trade: TradeDto; i18n: TradeI18n }) {
+   const t = i18n.t ?? ((key: string) => key);
+   return (
+-    <section className="trade-social-section trade-thread-split-section">
+-      <div className="trade-section-heading">
++    <section className="trade-social-section trade-thread-split-section" aria-labelledby="trade-conversations-title">
++      <div className="trade-section-heading trade-thread-section-heading">
+         <div>
+-          <p className="eyebrow">{t('trade.threadSplit.eyebrow')}</p>
+-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {t('trade.threadSplit.title')}</h2>
++          <h2 id="trade-conversations-title" className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {t('trade.threadSplit.eyebrow')}</h2>
+         </div>
+       </div>
+-      <p className="meta">{t('trade.threadSplit.body')}</p>
+-      <div className="trade-thread-action-grid">
++      <div className="trade-thread-action-grid trade-thread-action-grid--simple">
+         <Link href={`/trades/${trade.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public">
+-          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={22} decorative /></span>
++          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={20} decorative /></span>
+           <span className="trade-thread-action-card__body">
+             <strong>{t('trade.publicDiscussion.title')}</strong>
+-            <small>{t('trade.threadSplit.publicBody')}</small>
+           </span>
+           <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
+         </Link>
+         <Link href={`/trades/${trade.id}/proposals`} className="trade-thread-action-card trade-thread-action-card--private">
+-          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={22} decorative /></span>
++          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={20} decorative /></span>
+           <span className="trade-thread-action-card__body">
+             <strong>{t('trade.threadSplit.privateTitle')}</strong>
+-            <small>{t(isOwner ? 'trade.threadSplit.privateOwnerPreview' : 'trade.threadSplit.privateApplicantPreview')}</small>
+           </span>
+           <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
+         </Link>
+@@ -446,7 +442,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string;
+         </div>
+       </section>
+ 
+-      <TradeThreadSplitSection trade={currentTrade} isOwner={isOwner} i18n={i18n} />
++      <TradeThreadSplitSection trade={currentTrade} i18n={i18n} />
+ 
+       {isOwner ? (
+         <section className="trade-social-section trade-social-section--compact trade-danger-zone">

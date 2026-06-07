@@ -126,31 +126,27 @@ function OpenResponseSection({ trade, i18n }: { trade: TradeDto; i18n?: TradeI18
 }
 
 
-function TradeThreadSplitSection({ trade, isOwner, i18n }: { trade: TradeDto; isOwner: boolean; i18n: TradeI18n }) {
+function TradeThreadSplitSection({ trade, i18n }: { trade: TradeDto; i18n: TradeI18n }) {
   const t = i18n.t ?? ((key: string) => key);
   return (
-    <section className="trade-social-section trade-thread-split-section">
-      <div className="trade-section-heading">
+    <section className="trade-social-section trade-thread-split-section" aria-labelledby="trade-conversations-title">
+      <div className="trade-section-heading trade-thread-section-heading">
         <div>
-          <p className="eyebrow">{t('trade.threadSplit.eyebrow')}</p>
-          <h2 className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {t('trade.threadSplit.title')}</h2>
+          <h2 id="trade-conversations-title" className="icon-heading"><WebIcon name="proposal" size={21} decorative /> {t('trade.threadSplit.eyebrow')}</h2>
         </div>
       </div>
-      <p className="meta">{t('trade.threadSplit.body')}</p>
-      <div className="trade-thread-action-grid">
+      <div className="trade-thread-action-grid trade-thread-action-grid--simple">
         <Link href={`/trades/${trade.id}/discussion`} className="trade-thread-action-card trade-thread-action-card--public">
-          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={22} decorative /></span>
+          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={20} decorative /></span>
           <span className="trade-thread-action-card__body">
             <strong>{t('trade.publicDiscussion.title')}</strong>
-            <small>{t('trade.threadSplit.publicBody')}</small>
           </span>
           <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
         </Link>
         <Link href={`/trades/${trade.id}/proposals`} className="trade-thread-action-card trade-thread-action-card--private">
-          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={22} decorative /></span>
+          <span className="trade-thread-action-card__icon"><WebIcon name="proposal" size={20} decorative /></span>
           <span className="trade-thread-action-card__body">
             <strong>{t('trade.threadSplit.privateTitle')}</strong>
-            <small>{t(isOwner ? 'trade.threadSplit.privateOwnerPreview' : 'trade.threadSplit.privateApplicantPreview')}</small>
           </span>
           <span className="trade-thread-action-card__cta">{t('common.actions.open')}</span>
         </Link>
@@ -446,7 +442,7 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
         </div>
       </section>
 
-      <TradeThreadSplitSection trade={currentTrade} isOwner={isOwner} i18n={i18n} />
+      <TradeThreadSplitSection trade={currentTrade} i18n={i18n} />
 
       {isOwner ? (
         <section className="trade-social-section trade-social-section--compact trade-danger-zone">

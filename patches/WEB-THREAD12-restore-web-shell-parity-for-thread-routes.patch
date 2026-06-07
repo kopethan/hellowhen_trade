@@ -1,0 +1,151 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f013c7e..2216ffd 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -5698,3 +5698,61 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .web-thread-state .button {
+   justify-self: stretch;
+ }
++
++/* WEB-THREAD12: restore thread routes to the normal web app shell */
++.public-discussion-page--messages-only,
++.private-proposals-page--messages-only,
++.proposal-conversation-page--messages-only {
++  width: 100%;
++  max-width: none;
++  height: auto;
++  min-height: calc(100dvh - var(--app-header-height) - var(--app-tab-height) - 54px);
++  margin: 0;
++  overflow: hidden;
++  border: 0;
++  border-radius: 0;
++  background: var(--app-bg);
++  box-shadow: none;
++}
++
++.public-discussion-page--messages-only .web-thread-header,
++.private-proposals-page--messages-only .web-thread-header,
++.proposal-conversation-page--messages-only .thread-page-header {
++  background: color-mix(in srgb, var(--app-bg) 96%, transparent);
++}
++
++@media (min-width: 760px) {
++  .public-discussion-page--messages-only,
++  .private-proposals-page--messages-only,
++  .proposal-conversation-page--messages-only {
++    max-width: 760px;
++    min-height: min(760px, calc(100dvh - 178px));
++    margin-right: auto;
++    margin-left: auto;
++    border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent);
++    border-radius: 28px;
++    background: var(--app-surface);
++    box-shadow: var(--app-card-shadow);
++  }
++
++  .public-discussion-page--messages-only .web-thread-header,
++  .private-proposals-page--messages-only .web-thread-header,
++  .proposal-conversation-page--messages-only .thread-page-header {
++    border-radius: 28px 28px 0 0;
++    background: color-mix(in srgb, var(--app-surface) 94%, transparent);
++  }
++
++  .public-discussion-section--messages-only,
++  .private-proposals-page--messages-only .private-proposals-section--clean,
++  .proposal-conversation-page--messages-only .proposal-thread-message-list {
++    background: color-mix(in srgb, var(--app-surface-soft) 40%, transparent);
++  }
++
++  .public-discussion-composer--messages-only,
++  .proposal-conversation-page--messages-only .thread-bottom-composer,
++  .proposal-conversation-page--messages-only .thread-closed-copy,
++  .public-discussion-bottom-notice {
++    border-radius: 0 0 28px 28px;
++    background: color-mix(in srgb, var(--app-surface) 96%, transparent);
++  }
++}
+diff --git a/apps/web/src/components/WebMobileShell.tsx b/apps/web/src/components/WebMobileShell.tsx
+index e8bfa78..d62f9dc 100644
+--- a/apps/web/src/components/WebMobileShell.tsx
++++ b/apps/web/src/components/WebMobileShell.tsx
+@@ -9,14 +9,6 @@ import { WebTopHeader } from './WebTopHeader';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+ import { useWebAuth } from '../providers/WebAuthProvider';
+ 
+-function isThreadRoute(pathname: string) {
+-  const segments = pathname.split('/').filter(Boolean);
+-  if (segments[0] !== 'trades' || !segments[1]) return false;
+-  if (segments[2] === 'discussion') return segments.length === 3;
+-  if (segments[2] === 'proposals') return segments.length === 3 || segments.length === 4;
+-  return false;
+-}
+-
+ export function WebMobileShell({ children }: { children: ReactNode }) {
+   const pathname = usePathname() || '/';
+   const { t } = useWebTranslation();
+@@ -24,13 +16,12 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+   const adminRoute = pathname === '/admin' || pathname.startsWith('/admin/');
+   const shouldUsePublicShellForAdminNotFound = adminRoute && auth.hydrated && auth.user?.role !== 'admin';
+   const utility = isUtilityRoute(pathname) && !shouldUsePublicShellForAdminNotFound;
+-  const threadRoute = !utility && isThreadRoute(pathname);
+   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+   const [showScrollTop, setShowScrollTop] = useState(false);
+   const [hideTopHeader, setHideTopHeader] = useState(false);
+ 
+   useEffect(() => {
+-    if (utility || threadRoute) {
++    if (utility) {
+       setHideTopHeader(false);
+       return;
+     }
+@@ -61,7 +52,7 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+     updateChromeVisibility();
+     scrollArea.addEventListener('scroll', updateChromeVisibility, { passive: true });
+     return () => scrollArea.removeEventListener('scroll', updateChromeVisibility);
+-  }, [pathname, threadRoute, utility]);
++  }, [pathname, utility]);
+ 
+   function scrollToTop() {
+     const scrollArea = scrollAreaRef.current;
+@@ -75,10 +66,10 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+   }
+ 
+   return (
+-    <main className={threadRoute ? 'web-app-viewport web-app-viewport--thread' : 'web-app-viewport'}>
+-      <section className={threadRoute ? 'web-app-shell web-app-shell--thread' : 'web-app-shell'} aria-label={t('common.messages.webAppLabel')}>
+-        {threadRoute ? null : <WebTopHeader hiddenOnMobile={hideTopHeader} />}
+-        <div ref={scrollAreaRef} className={threadRoute ? 'web-scroll-area web-scroll-area--thread' : 'web-scroll-area'}>
++    <main className="web-app-viewport">
++      <section className="web-app-shell" aria-label={t('common.messages.webAppLabel')}>
++        <WebTopHeader hiddenOnMobile={hideTopHeader} />
++        <div ref={scrollAreaRef} className="web-scroll-area">
+           {auth.user?.trustTier === 'restricted' ? (
+             <section className="account-restricted-banner" role="status">
+               <strong>{t('common.messages.accountRestrictedTitle')}</strong>
+@@ -88,17 +79,15 @@ export function WebMobileShell({ children }: { children: ReactNode }) {
+           ) : null}
+           {children}
+         </div>
+-        {threadRoute ? null : (
+-          <button
+-            type="button"
+-            className={showScrollTop ? 'web-scroll-top-button is-visible' : 'web-scroll-top-button'}
+-            onClick={scrollToTop}
+-            aria-label={t('common.actions.backToTop')}
+-          >
+-            ↑
+-          </button>
+-        )}
+-        {threadRoute ? null : <WebBottomTabs />}
++        <button
++          type="button"
++          className={showScrollTop ? 'web-scroll-top-button is-visible' : 'web-scroll-top-button'}
++          onClick={scrollToTop}
++          aria-label={t('common.actions.backToTop')}
++        >
++          ↑
++        </button>
++        <WebBottomTabs />
+       </section>
+     </main>
+   );

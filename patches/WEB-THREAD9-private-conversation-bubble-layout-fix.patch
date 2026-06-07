@@ -1,0 +1,158 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 9f41f21..7e71500 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -5460,7 +5460,153 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   padding-left: 16px;
+ }
+ 
++
++/* WEB-THREAD9: compact private conversation chat layout */
++.proposal-conversation-page--messages-only .thread-page-header {
++  min-height: 54px;
++  grid-template-columns: 40px minmax(0, 1fr) 40px;
++  padding: 6px 14px;
++}
++
++.proposal-conversation-page--messages-only .thread-page-header h1 {
++  font-size: 16px;
++  letter-spacing: -0.015em;
++}
++
++.proposal-conversation-page--messages-only .thread-page-header__back,
++.proposal-conversation-page--messages-only .thread-page-header__menu {
++  width: 38px;
++  height: 38px;
++}
++
++.proposal-conversation-page--messages-only .thread-page-header__menu {
++  padding-bottom: 5px;
++}
++
++.proposal-conversation-page--messages-only .proposal-thread-notice {
++  margin: 8px 14px 0;
++}
++
++.proposal-conversation-page--messages-only .proposal-thread-message-list {
++  align-content: start;
++  gap: 8px;
++  padding: 14px 14px 12px;
++}
++
++.proposal-conversation-page--messages-only .thread-system-event {
++  margin: 0 auto 6px;
++  padding: 6px 10px;
++  font-size: 11px;
++}
++
++.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
++  width: fit-content;
++  max-width: min(74%, 420px);
++  border-color: color-mix(in srgb, var(--app-border) 54%, transparent);
++  border-radius: 18px 18px 18px 7px;
++  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
++  padding: 8px 10px;
++  box-shadow: none;
++}
++
++.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble--own {
++  border-color: color-mix(in srgb, var(--proposal-border) 38%, transparent);
++  border-radius: 18px 18px 7px 18px;
++  background: color-mix(in srgb, var(--proposal-bg) 42%, var(--app-surface-soft));
++}
++
++.proposal-conversation-page--messages-only .message-bubble__header {
++  align-items: center;
++  gap: 6px;
++  margin-bottom: 5px;
++}
++
++.proposal-conversation-page--messages-only .message-bubble__identity {
++  min-width: 0;
++}
++
++.proposal-conversation-page--messages-only .message-bubble .user-identity-link {
++  gap: 6px;
++  padding: 0;
++}
++
++.proposal-conversation-page--messages-only .message-bubble .user-avatar--sm {
++  width: 24px;
++  height: 24px;
++  box-shadow: none;
++}
++
++.proposal-conversation-page--messages-only .message-bubble .user-avatar--sm .user-avatar__initial {
++  font-size: 11px;
++}
++
++.proposal-conversation-page--messages-only .message-bubble .user-identity-link__name {
++  font-size: 12px;
++}
++
++.proposal-conversation-page--messages-only .message-bubble .user-identity-link__meta,
++.proposal-conversation-page--messages-only .message-meta {
++  font-size: 10px;
++}
++
++.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble > p:not(.message-meta):not(.message-deleted) {
++  font-size: 14px;
++  font-weight: 760;
++  line-height: 1.42;
++}
++
++.proposal-conversation-page--messages-only .message-actions--menu {
++  gap: 6px;
++  margin-top: 8px;
++}
++
++.proposal-conversation-page--messages-only .message-actions--menu button {
++  min-height: 32px;
++  padding: 0 10px;
++  font-size: 11px;
++}
++
++.proposal-conversation-page--messages-only .message-edit-form {
++  gap: 8px;
++}
++
++.proposal-conversation-page--messages-only .message-edit-form textarea {
++  min-height: 86px;
++  border-radius: 15px;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: end;
++  gap: 8px;
++  padding: 8px 14px max(8px, env(safe-area-inset-bottom));
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer textarea {
++  min-height: 42px;
++  max-height: 118px;
++  border-radius: 16px;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer button {
++  min-height: 42px;
++  padding: 0 14px;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer .field-error {
++  grid-column: 1 / -1;
++}
++
++.proposal-conversation-page--messages-only .thread-closed-copy {
++  padding: 12px 14px max(12px, env(safe-area-inset-bottom));
++}
++
+ @media (max-width: 640px) {
++  .proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
++    max-width: 84%;
++  }
++
+   .web-app-shell--thread,
+   .public-discussion-page--messages-only,
+   .private-proposals-page--messages-only,

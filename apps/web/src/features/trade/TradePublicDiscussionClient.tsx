@@ -298,7 +298,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   }
 
   return (
-    <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
+    <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only public-discussion-page--flat">
       <section className="web-thread-header">
         <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
         <h2>{t('trade.publicDiscussion.title')}</h2>
@@ -324,7 +324,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
       <section className="trade-social-section public-discussion-section public-discussion-section--messages-only">
         {notice ? <p className={`notice-box ${notice.tone}`}>{notice.body}</p> : null}
         {messages.length ? (
-          <div className="public-message-list">
+          <div className="public-message-list public-message-list--thread">
             {groupedMessages.map(({ message, showDate }) => {
               const ownMessage = message.authorId === auth.user?.id;
               const deleted = message.status === 'deleted' || Boolean(message.deletedAt);
@@ -386,17 +386,17 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
         ) : (
           <p className="public-discussion-empty-text">{t('trade.publicDiscussion.emptyTitle')}</p>
         )}
-
-        {canWrite ? (
-          <form className="conversation-reply public-discussion-composer public-discussion-composer--messages-only" onSubmit={submitMessage}>
-            <label className="sr-only" htmlFor="public-discussion-message">{t('trade.publicDiscussion.placeholder')}</label>
-            <textarea id="public-discussion-message" value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('trade.publicDiscussion.placeholder')} rows={1} />
-            <button type="submit" disabled={sending || trimmedBody.length < 1}>{sending ? t('common.states.sending') : t('common.actions.send')}</button>
-          </form>
-        ) : (
-          <p className="notice-box warning">{t('trade.publicDiscussion.restricted')}</p>
-        )}
       </section>
+
+      {canWrite ? (
+        <form className="conversation-reply public-discussion-composer public-discussion-composer--messages-only" onSubmit={submitMessage}>
+          <label className="sr-only" htmlFor="public-discussion-message">{t('trade.publicDiscussion.placeholder')}</label>
+          <textarea id="public-discussion-message" value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('trade.publicDiscussion.placeholder')} rows={1} />
+          <button type="submit" disabled={sending || trimmedBody.length < 1}>{sending ? t('common.states.sending') : t('common.actions.send')}</button>
+        </form>
+      ) : (
+        <p className="notice-box warning public-discussion-bottom-notice">{t('trade.publicDiscussion.restricted')}</p>
+      )}
     </article>
   );
 }

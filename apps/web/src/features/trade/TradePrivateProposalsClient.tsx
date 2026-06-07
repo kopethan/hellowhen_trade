@@ -92,11 +92,15 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
 
   if (!auth.isAuthenticated) {
     return (
-      <article className="trade-detail-page private-proposals-page">
-        <section className="trade-hero-section">
-          <Link href={`/trades/${tradeId}`} className="button secondary">← {t('common.actions.back')}</Link>
+      <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only">
+        <section className="web-thread-header">
+          <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
+          <h2>{t('trade.threadSplit.privateTitle')}</h2>
+          <span aria-hidden="true" />
+        </section>
+        <section className="web-thread-info-page web-thread-state">
           <span className="semantic-badge proposal"><WebIcon name="proposal" size={14} decorative /> {t('trade.threadSplit.privateTitle')}</span>
-          <h2>{t('trade.threadSplit.privateSignedOutTitle')}</h2>
+          <h3>{t('trade.threadSplit.privateSignedOutTitle')}</h3>
           <p>{t('trade.threadSplit.privateSignedOutBody')}</p>
           <Link href={`/auth?next=${encodeURIComponent(`/trades/${tradeId}/proposals`)}`} className="button primary full">{t('trade.proposals.signInToSend')}</Link>
         </section>
@@ -106,11 +110,15 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
 
   if (!trade) {
     return (
-      <article className="trade-detail-page private-proposals-page">
-        <section className="trade-hero-section">
-          <Link href={`/trades/${tradeId}`} className="button secondary">← {t('common.actions.back')}</Link>
+      <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only">
+        <section className="web-thread-header">
+          <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
+          <h2>{t('trade.threadSplit.privateTitle')}</h2>
+          <span aria-hidden="true" />
+        </section>
+        <section className="web-thread-info-page web-thread-state">
           <span className="semantic-badge danger">{t('trade.labels.notFound')}</span>
-          <h2>{t('trade.detail.couldNotLoad')}</h2>
+          <h3>{t('trade.detail.couldNotLoad')}</h3>
           {notice ? <p className="notice-box warning">{notice}</p> : null}
         </section>
       </article>
