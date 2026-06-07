@@ -16,15 +16,16 @@ type ReportContentPanelProps = {
   targetId: string;
   labelKey?: string;
   helperKey?: string;
+  initialOpen?: boolean;
 };
 
 const reportReasons: ReportReason[] = ['spam', 'scam', 'harassment', 'illegal_unsafe', 'fake_profile', 'impersonation', 'inappropriate_image', 'other'];
 
-export function ReportContentPanel({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content' }: ReportContentPanelProps) {
+export function ReportContentPanel({ targetType, targetId, labelKey = 'report.button', helperKey = 'report.helper.content', initialOpen = false }: ReportContentPanelProps) {
   const auth = useAuth();
   const theme = useThemeTokens();
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [reason, setReason] = useState<ReportReason>('spam');
   const [details, setDetails] = useState('');
   const [loading, setLoading] = useState(false);

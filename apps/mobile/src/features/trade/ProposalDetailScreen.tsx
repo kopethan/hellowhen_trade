@@ -11,7 +11,7 @@ import { AppActionSheet, type AppActionSheetAction } from '../../components/AppA
 import { AppHeader } from '../../components/AppHeader';
 import { AppScreen } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
-import { MobileIcon } from '../../components/MobileIcon';
+import { MobileIcon, type MobileIconName } from '../../components/MobileIcon';
 import { MoneyPill, InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { ConversationComposerBar, DetailEmptyState, DetailMetadataChips, DetailSection } from '../../components/detail';
 import { useAuth } from '../../providers/AuthProvider';
@@ -35,6 +35,8 @@ type RequiredProposalSide = ProposalSideKind | null;
 type ProposalSideItem = NeedItem | OfferItem;
 type DealAgreementItem = ProposalSideItem | AcceptedDealSnapshotItemDto;
 type ActionLoading = ProposalActionStatus | TradeActionStatus | 'send' | 'proposal-note' | 'proposal-package' | 'delete-proposal-note' | 'message-edit' | 'message-delete' | 'cancel-trade' | 'deal-report' | null;
+type ThreadInfoMode = 'menu' | 'proposal' | 'agreement' | 'progress' | null;
+type ActiveThreadInfoMode = Exclude<ThreadInfoMode, null>;
 type ProposalActionSheet =
   | { type: 'status'; status: ProposalActionStatus }
   | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
@@ -244,7 +246,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const [actionLoading, setActionLoading] = useState<ActionLoading>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [threadInfoMode, setThreadInfoMode] = useState<ThreadInfoMode>(null);
   const [scrolledCompact, setScrolledCompact] = useState(false);
   const [proposalNeeds, setProposalNeeds] = useState<NeedItem[]>([]);
   const [proposalOffers, setProposalOffers] = useState<OfferItem[]>([]);
@@ -399,7 +401,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       if (result.proposal.messages) setMessages(result.proposal.messages);
       setNotice(status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : status === 'declined' ? t('trade.proposals.proposalDeclined') : t('trade.proposals.proposalWithdrawn'));
       setActionSheet(null);
-      setDetailsOpen(false);
+      setThreadInfoMode(null);
       setCancelTradeOpen(false);
       setCancelReason('');
       setCancelError(null);
@@ -635,7 +637,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       setCancelTradeOpen(false);
       setCancelReason('');
       setCancelError(null);
-      setDetailsOpen(false);
+      setThreadInfoMode(null);
       setNotice(t('trade.proposals.tradeCancelled'));
       await refreshConversation();
     } catch (caughtError) {
@@ -735,12 +737,94 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   const baseHeaderTitle = proposal?.status === 'accepted' ? t('trade.deal.title') : t('trade.proposals.proposalThread');
   const headerTitle = scrolledCompact && proposal ? `${baseHeaderTitle} · ${formatStatus(proposal.status, t)}` : baseHeaderTitle;
 
+  function openTradeDetailFromThread() {
+    if (!proposal?.trade?.id) return;
+    setThreadInfoMode(null);
+    navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
+  }
+
+  if (proposal && threadInfoMode) {
+    return (
+      <AppScreen style={styles.screen}>
+        <ProposalThreadInfoScreen
+          mode={threadInfoMode}
+          proposal={proposal}
+          requiredPackageSide={requiredPackageSide}
+          selectedPackageNeed={selectedPackageNeed}
+          selectedPackageOffer={selectedPackageOffer}
+          packageLoading={packageLoading}
+          packageError={packageError}
+          packageChanged={packageChanged}
+          canEditProposalContent={canEditProposalContent}
+          canCancelAcceptedTrade={canCancelAcceptedTrade}
+          canMarkSubmitted={canMarkSubmitted}
+          canConfirmCompleted={canConfirmCompleted}
+          canReportDealProblem={canReportDealProblem}
+          isOwner={Boolean(isOwner)}
+          isApplicant={Boolean(isApplicant)}
+          isProvider={Boolean(isProvider)}
+          editingProposalNote={editingProposalNote}
+          proposalNoteDraft={proposalNoteDraft}
+          proposalNoteError={proposalNoteError}
+          cancelTradeOpen={cancelTradeOpen}
+          cancelReason={cancelReason}
+          cancelError={cancelError}
+          actionLoading={actionLoading}
+          actorId={actorId}
+          language={language}
+          onClose={() => setThreadInfoMode(null)}
+          onOpenMode={setThreadInfoMode}
+          onOpenTradeDetail={openTradeDetailFromThread}
+          onChooseNeed={() => openPackagePicker('need')}
+          onChooseOffer={() => openPackagePicker('offer')}
+          onClearNeed={() => setPackageNeedId('')}
+          onClearOffer={() => setPackageOfferId('')}
+          onSavePackage={() => { void saveProposalPackage(); }}
+          onStartProposalNoteEdit={startProposalNoteEdit}
+          onChangeProposalNote={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }}
+          onSaveProposalNote={() => { void saveProposalNote(); }}
+          onCancelProposalNoteEdit={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }}
+          onDeleteProposalNote={confirmDeleteProposalNote}
+          onAccept={() => confirmStatus('accepted')}
+          onDecline={() => confirmStatus('declined')}
+          onWithdraw={() => confirmStatus('withdrawn')}
+          onMarkSubmitted={() => confirmDealStatus('submitted')}
+          onConfirmCompleted={() => confirmDealStatus('completed')}
+          onReportProblem={() => setProblemReportOpen(true)}
+          onOpenCancelTrade={() => setCancelTradeOpen(true)}
+          onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
+          onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
+          onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
+          t={t}
+        />
+        <ProblemReportSheet
+          visible={problemReportOpen}
+          summary={problemSummary}
+          error={problemError}
+          loading={actionLoading === 'deal-report'}
+          onChangeSummary={(text) => { setProblemSummary(text); if (problemError) setProblemError(null); }}
+          onCancel={() => { if (actionLoading) return; setProblemReportOpen(false); setProblemSummary(''); setProblemError(null); }}
+          onSubmit={() => { void submitDealProblemReport(); }}
+          t={t}
+        />
+        <AppActionSheet
+          visible={Boolean(actionSheet)}
+          title={actionSheetConfig.title}
+          body={actionSheetConfig.body}
+          actions={actionSheetConfig.actions}
+          cancelLabel={t('common.actions.cancel')}
+          onClose={() => setActionSheet(null)}
+        />
+      </AppScreen>
+    );
+  }
+
   return (
     <AppScreen style={styles.screen}>
       <AppHeader
         title={headerTitle}
         onBack={() => navigation.goBack()}
-        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setDetailsOpen(true)} label={t('trade.proposals.showProposalItemDetails')} /> : null}
+        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setThreadInfoMode('menu')} label={t('trade.proposals.threadInfo')} /> : null}
       />
 
       {!proposal ? (
@@ -763,96 +847,49 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             }}
             refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadProposal(); }} />}
           >
-            <ThreadTradeStrip proposal={proposal} onOpenTradeDetail={() => {
-              if (!proposal.trade?.id) return;
-              navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
-            }} t={t} />
-
-            <ProposalStatusBlock proposal={proposal} statusHint={statusHint} tradeCancelled={tradeCancelled} t={t} />
+            <ThreadMessageContextBar
+              proposal={proposal}
+              onOpenInfo={() => setThreadInfoMode('menu')}
+              t={t}
+            />
 
             {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
             {notice ? <InfoNotice tone="success" title={t('trade.proposals.proposalUpdated')} body={notice} /> : null}
             {proposal.trade?.cancelledAt ? <InfoNotice tone="warning" title={t('trade.proposals.tradeCancelled')} body={t('trade.proposals.tradeCancelledWithReason', { date: formatTraceDate(proposal.trade.cancelledAt, language), reason: proposal.trade.cancelReason || t('trade.proposals.noCancelReason') })} /> : null}
 
-            {proposal.status === 'accepted' ? (
-              <AcceptedDealWorkspace
-                proposal={proposal}
-                canMarkSubmitted={canMarkSubmitted}
-                canConfirmCompleted={canConfirmCompleted}
-                canReportProblem={canReportDealProblem}
-                canCancelAcceptedTrade={canCancelAcceptedTrade}
-                cancelTradeOpen={cancelTradeOpen}
-                cancelReason={cancelReason}
-                cancelError={cancelError}
-                actionLoading={actionLoading}
-                actorId={actorId}
-                onMarkSubmitted={() => confirmDealStatus('submitted')}
-                onConfirmCompleted={() => confirmDealStatus('completed')}
-                onReportProblem={() => setProblemReportOpen(true)}
-                onOpenCancelTrade={() => setCancelTradeOpen(true)}
-                onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
-                onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
-                onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
-                onDetails={() => setDetailsOpen(true)}
-                t={t}
-              />
-            ) : (
-              <>
-                <ProposalPackageThreadBlock
-                  proposal={proposal}
-                  canEditProposalContent={canEditProposalContent}
-                  onDetails={() => setDetailsOpen(true)}
-                  t={t}
-                />
+            <View style={[styles.timelineShell, { borderTopColor: theme.color.border }]}>
+              <View style={styles.timelineHeader}>
+                <View style={styles.timelineHeaderCopy}>
+                  <AppText style={styles.timelineTitle}>{proposal.status === 'accepted' ? t('trade.proposals.acceptedTradeConversation') : t('trade.proposals.privateProposalConversation')}</AppText>
+                  <AppText style={[styles.timelineBody, { color: theme.color.muted }]}>{proposal.status === 'accepted' ? t('trade.proposals.acceptedConversationBody') : t('trade.proposals.proposalConversationPrivateBody')}</AppText>
+                </View>
+                <SemanticBadge label={formatStatus(proposal.status, t)} tone={proposal.status === 'accepted' ? 'success' : proposal.status === 'pending' ? 'proposal' : 'muted'} size="sm" />
+              </View>
 
-                <ProposalActionCenter
-                  proposal={proposal}
-                  canCancelAcceptedTrade={canCancelAcceptedTrade}
-                  isOwner={Boolean(isOwner)}
-                  isApplicant={Boolean(isApplicant)}
-                  isProvider={Boolean(isProvider)}
-                  cancelTradeOpen={cancelTradeOpen}
-                  cancelReason={cancelReason}
-                  cancelError={cancelError}
-                  actionLoading={actionLoading}
-                  onAccept={() => confirmStatus('accepted')}
-                  onDecline={() => confirmStatus('declined')}
-                  onWithdraw={() => confirmStatus('withdrawn')}
-                  onOpenCancelTrade={() => setCancelTradeOpen(true)}
-                  onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
-                  onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
-                  onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
-                  onOpenTradeDetail={() => {
-                    if (!proposal.trade?.id) return;
-                    navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
-                  }}
-                  t={t}
-                />
-              </>
-            )}
-
-            <DetailSection title={t('trade.proposals.privateProposalConversation')} description={t('trade.proposals.proposalConversationPrivateBody')} compact>
+              <SystemEvent label={proposal.status === 'accepted' ? t('trade.proposals.proposalAcceptedNative') : isApplicant ? t('trade.proposals.youSentProposal') : t('trade.proposals.sentProposal')} />
               <ProposalNoteChatBubble proposal={proposal} mine={isApplicant} canEdit={canEditProposalContent} editing={editingProposalNote} draft={proposalNoteDraft} error={proposalNoteError} onOptions={openProposalNoteOptions} onChangeDraft={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }} onSave={() => { void saveProposalNote(); }} onCancel={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }} actionLoading={actionLoading} language={language} t={t} />
 
-              {visibleMessages.length === 0 ? <DetailEmptyState icon="proposal" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
-              <PrivateMessageBubble
-                key={message.id}
-                message={message}
-                mine={message.senderId === actorId}
-                canEdit={message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt}
-                editing={editingMessageId === message.id}
-                draft={messageDraft}
-                error={editingMessageId === message.id ? messageEditError : null}
-                onOptions={() => openMessageOptions(message)}
-                onChangeDraft={(text) => { setMessageDraft(text); if (messageEditError) setMessageEditError(null); }}
-                onSaveEdit={() => { void saveMessageEdit(message.id); }}
-                onCancelEdit={() => { setEditingMessageId(null); setMessageDraft(''); setMessageEditError(null); }}
-                actionLoading={actionLoading}
-                language={language}
-                t={t}
-              />
-            ))}
-            </DetailSection>
+              <View style={styles.timelineMessages}>
+                {visibleMessages.length === 0 ? <DetailEmptyState icon="proposal" title={t('trade.proposals.conversationEmptyTitle')} body={t('trade.proposals.conversationEmptyBody')} style={styles.inlineEmptyState} /> : visibleMessages.map((message) => (
+                  <PrivateMessageBubble
+                    key={message.id}
+                    message={message}
+                    mine={message.senderId === actorId}
+                    canEdit={message.senderId === actorId && canEditOwnPrivateMessages && !message.deletedAt}
+                    editing={editingMessageId === message.id}
+                    draft={messageDraft}
+                    error={editingMessageId === message.id ? messageEditError : null}
+                    onOptions={() => openMessageOptions(message)}
+                    onChangeDraft={(text) => { setMessageDraft(text); if (messageEditError) setMessageEditError(null); }}
+                    onSaveEdit={() => { void saveMessageEdit(message.id); }}
+                    onCancelEdit={() => { setEditingMessageId(null); setMessageDraft(''); setMessageEditError(null); }}
+                    actionLoading={actionLoading}
+                    language={language}
+                    t={t}
+                  />
+                ))}
+              </View>
+            </View>
           </ScrollView>
 
           {canMessage ? (
@@ -884,53 +921,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
             t={t}
           />
 
-          <ProposalDetailsSheet
-            visible={detailsOpen}
-            proposal={proposal}
-            requiredPackageSide={requiredPackageSide}
-            selectedPackageNeed={selectedPackageNeed}
-            selectedPackageOffer={selectedPackageOffer}
-            packageLoading={packageLoading}
-            packageError={packageError}
-            packageChanged={packageChanged}
-            canEditProposalContent={canEditProposalContent}
-            canCancelAcceptedTrade={canCancelAcceptedTrade}
-            isOwner={Boolean(isOwner)}
-            isApplicant={Boolean(isApplicant)}
-            isProvider={Boolean(isProvider)}
-            editingProposalNote={editingProposalNote}
-            proposalNoteDraft={proposalNoteDraft}
-            proposalNoteError={proposalNoteError}
-            cancelTradeOpen={cancelTradeOpen}
-            cancelReason={cancelReason}
-            cancelError={cancelError}
-            actionLoading={actionLoading}
-            language={language}
-            onClose={() => setDetailsOpen(false)}
-            onChooseNeed={() => openPackagePicker('need')}
-            onChooseOffer={() => openPackagePicker('offer')}
-            onClearNeed={() => setPackageNeedId('')}
-            onClearOffer={() => setPackageOfferId('')}
-            onSavePackage={() => { void saveProposalPackage(); }}
-            onStartProposalNoteEdit={startProposalNoteEdit}
-            onChangeProposalNote={(text) => { setProposalNoteDraft(text); if (proposalNoteError) setProposalNoteError(null); }}
-            onSaveProposalNote={() => { void saveProposalNote(); }}
-            onCancelProposalNoteEdit={() => { setEditingProposalNote(false); setProposalNoteDraft(''); setProposalNoteError(null); }}
-            onDeleteProposalNote={confirmDeleteProposalNote}
-            onAccept={() => confirmStatus('accepted')}
-            onDecline={() => confirmStatus('declined')}
-            onWithdraw={() => confirmStatus('withdrawn')}
-            onOpenCancelTrade={() => setCancelTradeOpen(true)}
-            onChangeCancelReason={(text) => { setCancelReason(text); if (cancelError) setCancelError(null); }}
-            onCancelCancelTrade={() => { setCancelTradeOpen(false); setCancelReason(''); setCancelError(null); }}
-            onSubmitCancelTrade={() => { void cancelAcceptedTrade(); }}
-            onOpenTradeDetail={() => {
-              setDetailsOpen(false);
-              if (!proposal.trade?.id) return;
-              navigation.navigate('TradeDetail', { tradeId: proposal.trade.id, title: proposal.trade.title, description: proposal.trade.description, amountCents: proposal.trade.amountCents ?? 0, currency: proposal.trade.currency ?? 'eur', creditAmount: proposal.trade.creditAmount, status: proposal.trade.status, expiresAt: proposal.trade.expiresAt ?? null });
-            }}
-            t={t}
-          />
           <AppActionSheet
             visible={Boolean(actionSheet)}
             title={actionSheetConfig.title}
@@ -942,6 +932,199 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
         </KeyboardAvoidingView>
       )}
     </AppScreen>
+  );
+}
+
+function ThreadMessageContextBar({ proposal, onOpenInfo, t }: { proposal: TradeProposalItem; onOpenInfo: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const trade = proposal.trade;
+  const needTitle = trade?.need?.title || t('trade.labels.need');
+  const offerTitle = trade?.offer?.title || t('trade.labels.offer');
+  const title = trade?.title || `${needTitle} ↔ ${offerTitle}`;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.threadInfo')} onPress={onOpenInfo} style={({ pressed }) => [styles.threadMessageContextBar, { backgroundColor: theme.color.surface, borderBottomColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={styles.threadMessageContextCopy}>
+        <AppText style={styles.threadMessageContextTitle} numberOfLines={1}>{title}</AppText>
+        <AppText style={[styles.threadMessageContextMeta, { color: theme.color.muted }]} numberOfLines={1}>{formatStatus(proposal.status, t)}{trade ? ` · ${formatStatus(trade.status, t)}` : ''}</AppText>
+      </View>
+      <View style={[styles.threadViewButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+        <AppText style={[styles.threadViewButtonText, { color: theme.color.text }]}>{t('trade.proposals.threadInfoView')}</AppText>
+        <MobileIcon name="chevron-right" size={16} color={theme.color.muted} decorative />
+      </View>
+    </Pressable>
+  );
+}
+
+function ProposalThreadInfoScreen({ mode, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, canMarkSubmitted, canConfirmCompleted, canReportDealProblem, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, language, onClose, onOpenMode, onOpenTradeDetail, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, t }: { mode: ActiveThreadInfoMode; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportDealProblem: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; language: SupportedLanguage; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; t: TFunction }) {
+  if (mode === 'menu') {
+    return <ThreadInfoMenu proposal={proposal} onClose={onClose} onOpenMode={onOpenMode} onOpenTradeDetail={onOpenTradeDetail} t={t} />;
+  }
+  if (mode === 'agreement') {
+    return <DealAgreementInfoScreen proposal={proposal} onClose={() => onOpenMode('menu')} t={t} />;
+  }
+  if (mode === 'progress') {
+    return <DealProgressInfoScreen proposal={proposal} canMarkSubmitted={canMarkSubmitted} canConfirmCompleted={canConfirmCompleted} canReportProblem={canReportDealProblem} canCancelAcceptedTrade={canCancelAcceptedTrade} cancelTradeOpen={cancelTradeOpen} cancelReason={cancelReason} cancelError={cancelError} actionLoading={actionLoading} actorId={actorId} onClose={() => onOpenMode('menu')} onMarkSubmitted={onMarkSubmitted} onConfirmCompleted={onConfirmCompleted} onReportProblem={onReportProblem} onOpenCancelTrade={onOpenCancelTrade} onChangeCancelReason={onChangeCancelReason} onCancelCancelTrade={onCancelCancelTrade} onSubmitCancelTrade={onSubmitCancelTrade} t={t} />;
+  }
+  return (
+    <ProposalDetailsSheet
+      visible
+      proposal={proposal}
+      requiredPackageSide={requiredPackageSide}
+      selectedPackageNeed={selectedPackageNeed}
+      selectedPackageOffer={selectedPackageOffer}
+      packageLoading={packageLoading}
+      packageError={packageError}
+      packageChanged={packageChanged}
+      canEditProposalContent={canEditProposalContent}
+      canCancelAcceptedTrade={canCancelAcceptedTrade}
+      isOwner={isOwner}
+      isApplicant={isApplicant}
+      isProvider={isProvider}
+      editingProposalNote={editingProposalNote}
+      proposalNoteDraft={proposalNoteDraft}
+      proposalNoteError={proposalNoteError}
+      cancelTradeOpen={cancelTradeOpen}
+      cancelReason={cancelReason}
+      cancelError={cancelError}
+      actionLoading={actionLoading}
+      language={language}
+      onClose={() => onOpenMode('menu')}
+      onChooseNeed={onChooseNeed}
+      onChooseOffer={onChooseOffer}
+      onClearNeed={onClearNeed}
+      onClearOffer={onClearOffer}
+      onSavePackage={onSavePackage}
+      onStartProposalNoteEdit={onStartProposalNoteEdit}
+      onChangeProposalNote={onChangeProposalNote}
+      onSaveProposalNote={onSaveProposalNote}
+      onCancelProposalNoteEdit={onCancelProposalNoteEdit}
+      onDeleteProposalNote={onDeleteProposalNote}
+      onAccept={onAccept}
+      onDecline={onDecline}
+      onWithdraw={onWithdraw}
+      onOpenCancelTrade={onOpenCancelTrade}
+      onChangeCancelReason={onChangeCancelReason}
+      onCancelCancelTrade={onCancelCancelTrade}
+      onSubmitCancelTrade={onSubmitCancelTrade}
+      onOpenTradeDetail={onOpenTradeDetail}
+      t={t}
+    />
+  );
+}
+
+function ThreadInfoMenu({ proposal, onClose, onOpenMode, onOpenTradeDetail, t }: { proposal: TradeProposalItem; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const isAccepted = proposal.status === 'accepted';
+  return (
+    <View style={styles.infoScreenRoot}>
+      <AppHeader title={t('trade.proposals.threadInfoTitle')} onBack={onClose} />
+      <ScrollView contentContainerStyle={styles.infoScreenContent}>
+        <View style={[styles.infoHero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+          <SemanticBadge label={formatStatus(proposal.status, t)} tone={isAccepted ? 'success' : proposal.status === 'pending' ? 'proposal' : 'muted'} size="sm" />
+          <AppText style={styles.infoHeroTitle}>{proposal.trade?.title ?? t('trade.proposals.proposalThread')}</AppText>
+          <AppText style={[styles.infoHeroBody, { color: theme.color.muted }]}>{t('trade.proposals.threadInfoBody')}</AppText>
+        </View>
+        <ThreadInfoMenuItem icon="trade" title={t('trade.proposals.threadInfoTradeDetail')} body={t('trade.proposals.threadInfoTradeDetailBody')} onPress={onOpenTradeDetail} />
+        <ThreadInfoMenuItem icon="proposal" title={t('trade.proposals.threadInfoProposalDetails')} body={t('trade.proposals.threadInfoProposalDetailsBody')} onPress={() => onOpenMode('proposal')} />
+        {isAccepted ? <ThreadInfoMenuItem icon="proposal-accepted" title={t('trade.proposals.threadInfoDealAgreement')} body={t('trade.proposals.threadInfoDealAgreementBody')} onPress={() => onOpenMode('agreement')} /> : null}
+        {isAccepted ? <ThreadInfoMenuItem icon="activity" title={t('trade.proposals.threadInfoDealProgress')} body={t('trade.proposals.threadInfoDealProgressBody')} onPress={() => onOpenMode('progress')} /> : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+function ThreadInfoMenuItem({ icon, title, body, onPress }: { icon: MobileIconName; title: string; body: string; onPress: () => void }) {
+  const theme = useThemeTokens();
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.infoMenuItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+      <View style={[styles.infoMenuIcon, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><MobileIcon name={icon} size={20} color={theme.color.text} decorative /></View>
+      <View style={styles.infoMenuCopy}>
+        <AppText style={styles.infoMenuTitle}>{title}</AppText>
+        <AppText style={[styles.infoMenuBody, { color: theme.color.muted }]}>{body}</AppText>
+      </View>
+      <MobileIcon name="chevron-right" size={18} color={theme.color.muted} decorative />
+    </Pressable>
+  );
+}
+
+function DealAgreementInfoScreen({ proposal, onClose, t }: { proposal: TradeProposalItem; onClose: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const agreement = acceptedDealAgreement(proposal);
+  return (
+    <View style={styles.infoScreenRoot}>
+      <AppHeader title={t('trade.deal.agreementTitle')} onBack={onClose} />
+      <ScrollView contentContainerStyle={styles.infoScreenContent}>
+        <View style={[styles.infoHero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+          <SemanticBadge label={agreement.fromSnapshot ? t('trade.deal.snapshotBadge') : t('trade.deal.acceptedDeal')} tone="proposal" size="sm" />
+          <AppText style={styles.infoHeroTitle}>{proposal.trade?.title ?? t('trade.deal.title')}</AppText>
+          <AppText style={[styles.infoHeroBody, { color: theme.color.muted }]}>{t('trade.proposals.threadInfoDealAgreementBody')}</AppText>
+        </View>
+        {agreement.fromSnapshot ? <InfoNotice tone="info" title={t('trade.deal.snapshotTitle')} body={t('trade.deal.snapshotBody')} /> : null}
+        {agreement.acceptedMessage ? <View style={[styles.dealAcceptedMessage, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <AppText style={[styles.dealAcceptedMessageLabel, { color: theme.color.muted }]}>{t('trade.deal.acceptedMessage')}</AppText>
+          <AppText style={styles.dealAcceptedMessageText}>{agreement.acceptedMessage}</AppText>
+        </View> : null}
+        <View style={styles.dealAgreementGrid}>
+          <DealAgreementColumn label={t('trade.deal.ownerGives')} items={agreement.ownerGives} emptyLabel={t('trade.deal.notSet')} tone="offer" t={t} />
+          <DealAgreementColumn label={t('trade.deal.ownerReceives')} items={agreement.ownerReceives} emptyLabel={t('trade.deal.notSet')} tone="need" t={t} />
+          <DealAgreementColumn label={t('trade.deal.applicantGives')} items={agreement.applicantGives} emptyLabel={t('trade.deal.notSet')} tone="offer" t={t} />
+          <DealAgreementColumn label={t('trade.deal.applicantReceives')} items={agreement.applicantReceives} emptyLabel={t('trade.deal.notSet')} tone="need" t={t} />
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function DealProgressInfoScreen({ proposal, canMarkSubmitted, canConfirmCompleted, canReportProblem, canCancelAcceptedTrade, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, onClose, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, t }: { proposal: TradeProposalItem; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportProblem: boolean; canCancelAcceptedTrade: boolean; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; onClose: () => void; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const trade = proposal.trade;
+  const status = trade?.status ?? 'in_progress';
+  const stateBody = status === 'submitted'
+    ? t('trade.deal.submittedStateBody')
+    : status === 'completed'
+      ? t('trade.deal.completedStateBody')
+      : status === 'disputed'
+        ? t('trade.deal.disputedStateBody')
+        : status === 'cancelled'
+          ? t('trade.deal.cancelledStateBody')
+          : t('trade.deal.inProgressStateBody');
+  const submittedByYou = Boolean(actorId && trade?.deliverySubmittedById === actorId);
+  const roleGuard = getDealRoleGuard(status, canMarkSubmitted, canConfirmCompleted, submittedByYou, t);
+  return (
+    <View style={styles.infoScreenRoot}>
+      <AppHeader title={t('trade.deal.progressTitle')} onBack={onClose} />
+      <ScrollView contentContainerStyle={styles.infoScreenContent}>
+        <View style={[styles.infoHero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+          <SemanticBadge label={formatStatus(status, t)} tone={status === 'completed' ? 'success' : status === 'disputed' || status === 'cancelled' ? 'warning' : 'proposal'} size="sm" />
+          <AppText style={styles.infoHeroTitle}>{trade?.title ?? t('trade.deal.title')}</AppText>
+          <AppText style={[styles.infoHeroBody, { color: theme.color.muted }]}>{stateBody}</AppText>
+        </View>
+        {roleGuard ? <View style={[styles.dealGuardCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}> 
+          <SemanticBadge label={roleGuard.label} tone={roleGuard.tone} size="sm" />
+          <View style={styles.dealGuardCopy}>
+            <AppText style={styles.dealGuardTitle}>{roleGuard.title}</AppText>
+            <AppText style={[styles.dealGuardBody, { color: theme.color.muted }]}>{roleGuard.body}</AppText>
+          </View>
+        </View> : null}
+        <View style={[styles.infoSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+          <AppText style={styles.sectionTitle}>{t('trade.deal.progressTitle')}</AppText>
+          <View style={styles.dealProgressList}>{(['accepted', 'in_progress', 'submitted', 'completed'] as const).map((step, index) => <DealProgressStep key={step} step={step} index={index + 1} state={dealStepState(status, step)} t={t} />)}</View>
+          {status === 'disputed' ? <InfoNotice tone="warning" title={t('trade.deal.problemReportedTitle')} body={t('trade.deal.disputedStateBody')} /> : null}
+          {status === 'cancelled' ? <InfoNotice tone="warning" title={t('trade.deal.cancelledTitle')} body={trade?.cancelReason ? t('trade.deal.cancelledWithReason', { reason: trade.cancelReason }) : t('trade.deal.cancelledStateBody')} /> : null}
+        </View>
+        <View style={[styles.infoSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+          <AppText style={styles.sectionTitle}>{t('trade.deal.safeActionsTitle')}</AppText>
+          <View style={styles.actionRowWrap}>
+            {canMarkSubmitted ? <SmallActionButton label={actionLoading === 'submitted' ? t('common.states.working') : t('trade.detail.markDelivered')} onPress={onMarkSubmitted} disabled={Boolean(actionLoading)} /> : null}
+            {canConfirmCompleted ? <SmallActionButton label={actionLoading === 'completed' ? t('common.states.working') : t('trade.detail.confirmCompleted')} onPress={onConfirmCompleted} disabled={Boolean(actionLoading)} /> : null}
+            {canReportProblem ? <SmallActionButton label={actionLoading === 'deal-report' ? t('common.states.working') : t('trade.detail.reportProblem')} onPress={onReportProblem} disabled={Boolean(actionLoading)} danger /> : null}
+            {canCancelAcceptedTrade ? cancelTradeOpen ? null : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
+          </View>
+          {!canMarkSubmitted && !canConfirmCompleted && !canReportProblem && !canCancelAcceptedTrade ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.deal.noSafeActionsBody')}</AppText> : null}
+          {cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : null}
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1019,21 +1202,36 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
           : t('trade.deal.inProgressStateBody');
   const submittedByYou = Boolean(actorId && trade?.deliverySubmittedById === actorId);
   const roleGuard = getDealRoleGuard(status, canMarkSubmitted, canConfirmCompleted, submittedByYou, t);
+  const canTakeSafeAction = canMarkSubmitted || canConfirmCompleted || canReportProblem || canCancelAcceptedTrade || cancelTradeOpen;
+  const [agreementOpen, setAgreementOpen] = useState(false);
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(canTakeSafeAction);
+
+  useEffect(() => {
+    if (canTakeSafeAction) setActionsOpen(true);
+  }, [canTakeSafeAction]);
 
   return (
     <View style={styles.dealStack}>
-      <DetailSection title={t('trade.deal.summaryTitle')} description={t('trade.deal.summaryBody')} compact withTopBorder={false}>
-        <View style={[styles.dealSummaryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
-          <View style={styles.dealSummaryHeader}>
-            <SemanticBadge label={t('trade.deal.acceptedDeal')} tone="proposal" size="sm" />
-            <SemanticBadge label={formatStatus(status, t)} tone={statusTone} size="sm" />
-          </View>
-          <AppText style={styles.dealSummaryTitle}>{trade?.title ?? t('trade.deal.title')}</AppText>
-          <AppText style={[styles.dealSummaryMeta, { color: theme.color.muted }]}>{t('trade.deal.privateBody')}</AppText>
+      <View style={[styles.dealSummaryCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+        <View style={styles.dealSummaryHeader}>
+          <SemanticBadge label={t('trade.deal.acceptedDeal')} tone="proposal" size="sm" />
+          <SemanticBadge label={formatStatus(status, t)} tone={statusTone} size="sm" />
         </View>
-      </DetailSection>
+        <AppText style={styles.dealSummaryTitle}>{trade?.title ?? t('trade.deal.title')}</AppText>
+        <AppText style={[styles.dealSummaryMeta, { color: theme.color.muted }]}>{stateBody}</AppText>
+      </View>
 
-      <DetailSection title={t('trade.deal.agreementTitle')} description={t('trade.deal.agreementBody')} compact>
+      {roleGuard ? <View style={[styles.dealGuardCard, styles.dealGuardCardCompact, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+        <SemanticBadge label={roleGuard.label} tone={roleGuard.tone} size="sm" />
+        <View style={styles.dealGuardCopy}>
+          <AppText style={styles.dealGuardTitle}>{roleGuard.title}</AppText>
+          <AppText style={[styles.dealGuardBody, { color: theme.color.muted }]}>{roleGuard.body}</AppText>
+        </View>
+      </View> : null}
+
+      <DealCollapsibleSection title={t('trade.deal.agreementTitle')} body={t('trade.deal.agreementBody')} badge={agreement.fromSnapshot ? t('trade.deal.snapshotBadge') : undefined} open={agreementOpen} onToggle={() => setAgreementOpen((value) => !value)}>
         {agreement.fromSnapshot ? <InfoNotice tone="info" title={t('trade.deal.snapshotTitle')} body={t('trade.deal.snapshotBody')} /> : null}
         {agreement.acceptedMessage ? <View style={[styles.dealAcceptedMessage, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
           <AppText style={[styles.dealAcceptedMessageLabel, { color: theme.color.muted }]}>{t('trade.deal.acceptedMessage')}</AppText>
@@ -1048,9 +1246,9 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
         <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.showProposalItemDetails')} onPress={onDetails} style={({ pressed }) => [styles.dealDetailsButton, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
           <AppText style={[styles.dealDetailsText, { color: theme.color.text }]}>{t('trade.proposals.showProposalItemDetails')}</AppText>
         </Pressable>
-      </DetailSection>
+      </DealCollapsibleSection>
 
-      <DetailSection title={t('trade.deal.safetyTitle')} compact>
+      <DealCollapsibleSection title={t('trade.deal.safetyTitle')} body={t('trade.deal.safetyBody')} badge={t('trade.deal.safetyBadge')} open={safetyOpen} onToggle={() => setSafetyOpen((value) => !value)}>
         <View style={styles.safetyChecklist}>
           {[t('trade.deal.safetyKeepChat'), t('trade.deal.safetyConfirmScope'), t('trade.deal.safetyNoSensitive'), t('trade.deal.safetyReportSuspicious')].map((item) => (
             <View key={item} style={styles.safetyChecklistItem}>
@@ -1061,33 +1259,48 @@ function AcceptedDealWorkspace({ proposal, canMarkSubmitted, canConfirmCompleted
             </View>
           ))}
         </View>
-      </DetailSection>
+      </DealCollapsibleSection>
 
-      <DetailSection title={t('trade.deal.progressTitle')} description={stateBody} compact>
+      <DealCollapsibleSection title={t('trade.deal.progressTitle')} body={stateBody} badge={formatStatus(status, t)} open={progressOpen} onToggle={() => setProgressOpen((value) => !value)}>
         <View style={styles.dealProgressList}>
           {(['accepted', 'in_progress', 'submitted', 'completed'] as const).map((step, index) => <DealProgressStep key={step} step={step} index={index + 1} state={dealStepState(status, step)} t={t} />)}
         </View>
         {status === 'disputed' ? <InfoNotice tone="warning" title={t('trade.deal.problemReportedTitle')} body={t('trade.deal.disputedStateBody')} /> : null}
         {status === 'cancelled' ? <InfoNotice tone="warning" title={t('trade.deal.cancelledTitle')} body={trade?.cancelReason ? t('trade.deal.cancelledWithReason', { reason: trade.cancelReason }) : t('trade.deal.cancelledStateBody')} /> : null}
-      </DetailSection>
+      </DealCollapsibleSection>
 
-      {roleGuard ? <DetailSection title={t('trade.deal.roleGuardTitle')} compact>
-        <View style={[styles.dealGuardCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
-          <SemanticBadge label={roleGuard.label} tone={roleGuard.tone} size="sm" />
-          <AppText style={styles.dealGuardTitle}>{roleGuard.title}</AppText>
-          <AppText style={[styles.dealGuardBody, { color: theme.color.muted }]}>{roleGuard.body}</AppText>
-        </View>
-      </DetailSection> : null}
+      <DealCollapsibleSection title={t('trade.deal.safeActionsTitle')} body={canTakeSafeAction ? t('trade.deal.safeActionsBody') : t('trade.deal.noSafeActionsBody')} badge={canTakeSafeAction ? t('trade.deal.actionsAvailable') : t('trade.deal.actionsClosed')} open={actionsOpen} onToggle={() => setActionsOpen((value) => !value)}>
+        {canTakeSafeAction ? <>
+          <View style={styles.actionRowWrap}>
+            {canMarkSubmitted ? <SmallActionButton label={actionLoading === 'submitted' ? t('common.states.working') : t('trade.detail.markDelivered')} onPress={onMarkSubmitted} disabled={Boolean(actionLoading)} /> : null}
+            {canConfirmCompleted ? <SmallActionButton label={actionLoading === 'completed' ? t('common.states.working') : t('trade.detail.confirmCompleted')} onPress={onConfirmCompleted} disabled={Boolean(actionLoading)} /> : null}
+            {canReportProblem ? <SmallActionButton label={actionLoading === 'deal-report' ? t('common.states.working') : t('trade.detail.reportProblem')} onPress={onReportProblem} disabled={Boolean(actionLoading)} danger /> : null}
+            {canCancelAcceptedTrade ? cancelTradeOpen ? null : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
+          </View>
+          {cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : null}
+        </> : <AppText style={[styles.dealCollapsedBody, { color: theme.color.muted }]}>{t('trade.deal.noSafeActionsBody')}</AppText>}
+      </DealCollapsibleSection>
+    </View>
+  );
+}
 
-      <DetailSection title={t('trade.deal.safeActionsTitle')} description={t('trade.deal.safeActionsBody')} compact>
-        <View style={styles.actionRowWrap}>
-          {canMarkSubmitted ? <SmallActionButton label={actionLoading === 'submitted' ? t('common.states.working') : t('trade.detail.markDelivered')} onPress={onMarkSubmitted} disabled={Boolean(actionLoading)} /> : null}
-          {canConfirmCompleted ? <SmallActionButton label={actionLoading === 'completed' ? t('common.states.working') : t('trade.detail.confirmCompleted')} onPress={onConfirmCompleted} disabled={Boolean(actionLoading)} /> : null}
-          {canReportProblem ? <SmallActionButton label={actionLoading === 'deal-report' ? t('common.states.working') : t('trade.detail.reportProblem')} onPress={onReportProblem} disabled={Boolean(actionLoading)} danger /> : null}
-          {canCancelAcceptedTrade ? cancelTradeOpen ? null : <SmallActionButton label={t('trade.proposals.cancelAcceptedTrade')} onPress={onOpenCancelTrade} disabled={Boolean(actionLoading)} danger /> : null}
+function DealCollapsibleSection({ title, body, badge, open, onToggle, children }: { title: string; body?: string; badge?: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const theme = useThemeTokens();
+  return (
+    <View style={[styles.dealCollapsedSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={({ pressed }) => [styles.dealCollapsedHeader, pressed && styles.pressed]}>
+        <View style={styles.dealCollapsedCopy}>
+          <View style={styles.dealCollapsedTitleRow}>
+            <AppText style={styles.dealCollapsedTitle}>{title}</AppText>
+            {badge ? <SemanticBadge label={badge} tone={open ? 'proposal' : 'muted'} size="sm" /> : null}
+          </View>
+          {body ? <AppText style={[styles.dealCollapsedBody, { color: theme.color.muted }]} numberOfLines={open ? 3 : 2}>{body}</AppText> : null}
         </View>
-        {cancelTradeOpen ? <CancelTradeForm reason={cancelReason} error={cancelError} loading={actionLoading === 'cancel-trade'} onChangeReason={onChangeCancelReason} onCancel={onCancelCancelTrade} onSubmit={onSubmitCancelTrade} t={t} /> : null}
-      </DetailSection>
+        <View style={[styles.dealCollapsedIcon, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+          <MobileIcon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={theme.color.muted} decorative />
+        </View>
+      </Pressable>
+      {open ? <View style={styles.dealCollapsedContent}>{children}</View> : null}
     </View>
   );
 }
@@ -1131,8 +1344,8 @@ function ProposalStatusBlock({ proposal, statusHint, tradeCancelled, t }: { prop
         <DetailMetadataChips
           compact
           chips={[
-            { label: formatStatus(proposal.status, t), tone: proposal.status === 'accepted' ? 'success' : proposal.status === 'pending' ? 'proposal' : proposal.status === 'declined' || proposal.status === 'withdrawn' ? 'danger' : 'neutral', icon: proposal.status === 'accepted' ? 'proposal-accepted' : proposal.status === 'declined' || proposal.status === 'withdrawn' ? 'proposal-declined' : 'proposal' },
-            proposal.trade ? { label: formatStatus(proposal.trade.status, t), tone: tradeCancelled ? 'warning' : 'neutral', icon: tradeCancelled ? 'warning' : 'trade' } : null,
+            { label: formatStatus(proposal.status, t), tone: proposal.status === 'accepted' ? 'success' : proposal.status === 'pending' ? 'proposal' : proposal.status === 'declined' || proposal.status === 'withdrawn' ? 'danger' : 'muted', icon: proposal.status === 'accepted' ? 'proposal-accepted' : proposal.status === 'declined' || proposal.status === 'withdrawn' ? 'proposal-declined' : 'proposal' },
+            proposal.trade ? { label: formatStatus(proposal.trade.status, t), tone: tradeCancelled ? 'warning' : 'muted', icon: tradeCancelled ? 'warning' : 'trade' } : null,
           ]}
         />
         <AppText style={[styles.statusHintText, { color: theme.color.text }]}>{statusHint}</AppText>
@@ -1225,6 +1438,80 @@ function HeaderDetailsButton({ label, onPress }: { label: string; onPress: () =>
   );
 }
 
+function ThreadDetailsPanel({ expanded, proposal, tradeCancelled, onClose, children, t }: { expanded: boolean; proposal: TradeProposalItem; tradeCancelled: boolean; onClose: () => void; children?: React.ReactNode; t: TFunction }) {
+  const theme = useThemeTokens();
+  if (!expanded) return null;
+  const tone = proposal.status === 'accepted' ? 'success' : proposal.status === 'pending' ? 'proposal' : tradeCancelled ? 'warning' : 'muted';
+
+  return (
+    <View style={[styles.threadDetailsPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+      <View style={styles.threadDetailsPanelHeader}>
+        <View style={styles.threadDetailsPanelTitleWrap}>
+          <View style={styles.threadDetailsPanelBadges}>
+            <SemanticBadge label={proposal.status === 'accepted' ? t('trade.deal.acceptedDeal') : t('trade.proposals.tradeProposal')} tone={tone} size="sm" />
+            {proposal.trade ? <SemanticBadge label={formatStatus(proposal.trade.status, t)} tone={tradeCancelled ? 'warning' : 'muted'} size="sm" /> : null}
+          </View>
+          <AppText style={styles.threadDetailsPanelTitle}>{t('trade.proposals.threadDetailsTitle')}</AppText>
+          <AppText style={[styles.threadDetailsPanelBody, { color: theme.color.muted }]}>{t('trade.proposals.threadDetailsBody')}</AppText>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.hideThreadDetails')} hitSlop={8} onPress={onClose} style={({ pressed }) => [styles.threadDetailsPanelClose, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+          <MobileIcon name="chevron-up" size={18} color={theme.color.text} decorative />
+        </Pressable>
+      </View>
+
+      <View style={styles.threadDetailsPanelContent}>{children}</View>
+    </View>
+  );
+}
+
+function PrivateThreadContextCard({ proposal, statusHint, tradeCancelled, expanded, onToggle, onOpenTradeDetail, t }: { proposal: TradeProposalItem; statusHint: string; tradeCancelled: boolean; expanded: boolean; onToggle: () => void; onOpenTradeDetail: () => void; t: TFunction }) {
+  const theme = useThemeTokens();
+  const trade = proposal.trade;
+  const needTitle = trade?.need?.title || t('trade.labels.need');
+  const offerTitle = trade?.offer?.title || t('trade.labels.offer');
+  const title = trade?.title || `${needTitle} ↔ ${offerTitle}`;
+  const tradeStatusLabel = trade ? formatStatus(trade.status, t) : null;
+  const detailLabel = expanded ? t('trade.proposals.hideThreadDetails') : t('trade.proposals.showThreadDetails');
+  const tone = proposal.status === 'accepted' ? 'success' : proposal.status === 'pending' ? 'proposal' : tradeCancelled ? 'warning' : 'muted';
+
+  return (
+    <View style={[styles.threadContextCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+      <View style={styles.threadContextTop}>
+        <View style={[styles.threadContextIcon, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }]}>
+          <MobileIcon name={proposal.status === 'accepted' ? 'proposal-accepted' : 'proposal'} size={19} color={theme.semantic.proposal.text} decorative />
+        </View>
+        <View style={styles.threadContextCopy}>
+          <View style={styles.threadContextBadges}>
+            <SemanticBadge label={proposal.status === 'accepted' ? t('trade.deal.acceptedDeal') : t('trade.proposals.tradeProposal')} tone={tone} size="sm" />
+            {tradeStatusLabel ? <SemanticBadge label={tradeStatusLabel} tone={tradeCancelled ? 'warning' : 'muted'} size="sm" /> : null}
+          </View>
+          <Pressable accessibilityRole={trade?.id ? 'button' : undefined} disabled={!trade?.id} onPress={onOpenTradeDetail} style={({ pressed }) => [styles.threadContextTitleButton, pressed && trade?.id && styles.pressed]}>
+            <AppText style={styles.threadContextTitle} numberOfLines={2}>{title}</AppText>
+          </Pressable>
+          <AppText style={[styles.threadContextMeta, { color: theme.color.muted }]} numberOfLines={1}>{needTitle} ↔ {offerTitle}</AppText>
+        </View>
+      </View>
+
+      <View style={[styles.threadContextStatus, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+        <AppText style={[styles.threadContextHint, { color: theme.color.text }]} numberOfLines={2}>{statusHint}</AppText>
+        {!expanded ? <AppText style={[styles.threadContextCollapsedHint, { color: theme.color.muted }]}>{t('trade.proposals.threadDetailsCollapsedHint')}</AppText> : null}
+      </View>
+
+      <View style={styles.threadContextActions}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded }} accessibilityLabel={detailLabel} onPress={onToggle} style={({ pressed }) => [styles.threadContextAction, { backgroundColor: theme.color.text, borderColor: theme.color.text }, pressed && styles.pressed]}>
+          <AppText style={[styles.threadContextActionText, { color: theme.color.background }]}>{detailLabel}</AppText>
+          <MobileIcon name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={theme.color.background} decorative />
+        </Pressable>
+        {trade?.id ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.openTradeDetail')} onPress={onOpenTradeDetail} style={({ pressed }) => [styles.threadContextAction, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }, pressed && styles.pressed]}>
+            <AppText style={[styles.threadContextActionText, { color: theme.color.text }]}>{t('trade.proposals.openTradeDetail')}</AppText>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 function ProposalTopSummary({ proposal, statusHint, isOwner, isApplicant, tradeCancelled, onDetails, t }: { proposal: TradeProposalItem; statusHint: string; isOwner: boolean; isApplicant: boolean; tradeCancelled: boolean; onDetails: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   const sides = proposalSideItems(proposal);
@@ -1292,12 +1579,42 @@ function ProposalNoteChatBubble({ proposal, mine, canEdit, editing, draft, error
   if (!proposal.message && !proposal.messageDeletedAt && !editing) return null;
   return (
     <View style={[styles.messageRow, mine && styles.messageRowMine]}>
-      <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
+      <Pressable
+        disabled={!canEdit}
+        onLongPress={onOptions}
+        style={[
+          styles.chatBubble,
+          { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
+          mine ? styles.chatBubbleMine : styles.chatBubbleOther,
+        ]}
+      >
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={proposal.applicant} userId={proposal.applicantId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
           {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
-        {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={Boolean(actionLoading)} muted /></View></View> : proposal.messageDeletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(proposal.messageDeletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{proposal.message}</AppText>{proposal.messageEditedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, language, t)}</AppText> : null}</>}
+        {editing ? (
+          <View style={styles.noteEditBox}>
+            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.proposalNote')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+            {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
+            <View style={styles.inlineActions}>
+              <SmallActionButton label={actionLoading === 'proposal-note' ? t('common.states.saving') : t('trade.proposals.saveProposal')} onPress={onSave} disabled={Boolean(actionLoading)} />
+              <SmallActionButton label={t('common.actions.cancel')} onPress={onCancel} disabled={Boolean(actionLoading)} muted />
+            </View>
+          </View>
+        ) : proposal.messageDeletedAt ? (
+          <>
+            <AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText>
+            <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(proposal.messageDeletedAt, language, t)}</AppText>
+          </>
+        ) : (
+          <>
+            <AppText style={styles.messageBody}>{proposal.message}</AppText>
+            <View style={styles.bubbleFooter}>
+              <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatTraceDate(proposal.createdAt, language)}</AppText>
+              {proposal.messageEditedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(proposal.messageEditCount, proposal.messageEditedAt, language, t)}</AppText> : null}
+            </View>
+          </>
+        )}
       </Pressable>
     </View>
   );
@@ -1307,12 +1624,42 @@ function PrivateMessageBubble({ message, mine, canEdit, editing, draft, error, o
   const theme = useThemeTokens();
   return (
     <View style={[styles.messageRow, mine && styles.messageRowMine]}>
-      <Pressable disabled={!canEdit} onLongPress={onOptions} style={[styles.chatBubble, { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border }, mine && styles.chatBubbleMine]}>
+      <Pressable
+        disabled={!canEdit}
+        onLongPress={onOptions}
+        style={[
+          styles.chatBubble,
+          { backgroundColor: mine ? theme.semantic.proposal.softBg : theme.color.subtleSurface, borderColor: mine ? theme.semantic.proposal.border : theme.color.border },
+          mine ? styles.chatBubbleMine : styles.chatBubbleOther,
+        ]}
+      >
         <View style={styles.bubbleHeader}>
           <UserIdentityPressable user={message.sender} userId={message.senderId} displayName={mine ? t('trade.labels.you') : undefined} variant="compact" avatarSize="xs" showHandle={false} />
           {canEdit && !editing ? <Pressable accessibilityRole="button" accessibilityLabel={t('trade.proposals.messageOptions')} onPress={onOptions} hitSlop={10} style={styles.moreButton}><MobileIcon name="more" size={20} color={theme.color.muted} /></Pressable> : null}
         </View>
-        {editing ? <View style={styles.noteEditBox}><TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />{error ? <AppText style={styles.errorText}>{error}</AppText> : null}<View style={styles.inlineActions}><SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} /><SmallActionButton label={t('common.actions.cancel')} onPress={onCancelEdit} disabled={Boolean(actionLoading)} muted /></View></View> : message.deletedAt ? <><AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText><AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(message.deletedAt, language, t)}</AppText></> : <><AppText style={styles.messageBody}>{message.body}</AppText>{message.editedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(message.editCount, message.editedAt, language, t)}</AppText> : null}</>}
+        {editing ? (
+          <View style={styles.noteEditBox}>
+            <TextInput value={draft} onChangeText={onChangeDraft} multiline autoFocus placeholder={t('trade.proposals.writeMessage')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
+            {error ? <AppText style={styles.errorText}>{error}</AppText> : null}
+            <View style={styles.inlineActions}>
+              <SmallActionButton label={actionLoading === 'message-edit' ? t('common.states.saving') : t('trade.proposals.saveMessage')} onPress={onSaveEdit} disabled={Boolean(actionLoading)} />
+              <SmallActionButton label={t('common.actions.cancel')} onPress={onCancelEdit} disabled={Boolean(actionLoading)} muted />
+            </View>
+          </View>
+        ) : message.deletedAt ? (
+          <>
+            <AppText style={styles.messageDeleted}>{t('trade.proposals.messageDeleted')}</AppText>
+            <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatDeletedTrace(message.deletedAt, language, t)}</AppText>
+          </>
+        ) : (
+          <>
+            <AppText style={styles.messageBody}>{message.body}</AppText>
+            <View style={styles.bubbleFooter}>
+              <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatTraceDate(message.createdAt, language)}</AppText>
+              {message.editedAt ? <AppText style={[styles.messageMeta, { color: theme.color.muted }]}>{formatEditTrace(message.editCount, message.editedAt, language, t)}</AppText> : null}
+            </View>
+          </>
+        )}
       </Pressable>
     </View>
   );
@@ -1328,20 +1675,16 @@ function CompactCashPromisePill({ proposal, t }: { proposal: TradeProposalItem; 
 function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, language, onClose, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, onOpenTradeDetail, t }: { visible: boolean; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; language: SupportedLanguage; onClose: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; onOpenTradeDetail: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   const sideItems = proposalSideItems(proposal);
+  if (!visible) return null;
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalRoot}>
-        <Pressable style={styles.modalBackdrop} onPress={onClose} />
-        <View style={[styles.sheet, { backgroundColor: theme.color.background, borderColor: theme.color.border }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <View style={styles.sheetTitleWrap}>
-              <AppText style={styles.sheetTitle}>{t('trade.proposals.showProposalItemDetails')}</AppText>
-              <AppText style={[styles.sheetSubtitle, { color: theme.color.muted }]}>{proposalPackageTitle(proposal, t)} · {formatStatus(proposal.status, t)}</AppText>
-            </View>
-            <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.closeButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={styles.closeButtonText}>×</AppText></Pressable>
-          </View>
-          <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
+    <View style={styles.infoScreenRoot}>
+      <AppHeader title={t('trade.proposals.showProposalItemDetails')} onBack={onClose} />
+      <ScrollView contentContainerStyle={styles.infoScreenContent} keyboardShouldPersistTaps="handled">
+        <View style={[styles.infoHero, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}> 
+          <SemanticBadge label={proposalPackageTitle(proposal, t)} tone="proposal" size="sm" />
+          <AppText style={styles.infoHeroTitle}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
+          <AppText style={[styles.infoHeroBody, { color: theme.color.muted }]}>{formatStatus(proposal.status, t)}{proposal.trade ? ` · ${formatStatus(proposal.trade.status, t)}` : ''}</AppText>
+        </View>
             <View style={[styles.sheetSection, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
               <View style={styles.statusLine}><StatusBadge status={proposal.status} label={formatStatus(proposal.status, t)} />{proposal.trade ? <SemanticBadge label={formatStatus(proposal.trade.status, t)} tone="proposal" size="sm" /> : null}</View>
               <AppText style={styles.sheetTradeTitle}>{proposal.trade?.title ?? t('trade.proposals.tradeProposal')}</AppText>
@@ -1385,10 +1728,8 @@ function ProposalDetailsSheet({ visible, proposal, requiredPackageSide, selected
               onOpenTradeDetail={onOpenTradeDetail}
               t={t}
             />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -1571,9 +1912,54 @@ const styles = StyleSheet.create({
   screen: { paddingBottom: 0 },
   chatRoot: { flex: 1, minHeight: 0 },
   chatScroll: { flex: 1 },
-  chatContent: { paddingTop: 14, paddingBottom: 24, gap: 14 },
+  chatContent: { paddingTop: 10, paddingBottom: 24, gap: 12 },
+  threadMessageContextBar: { minHeight: 58, borderBottomWidth: StyleSheet.hairlineWidth, paddingVertical: 10, paddingHorizontal: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  threadMessageContextCopy: { flex: 1, minWidth: 0, gap: 2 },
+  threadMessageContextTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900', letterSpacing: -0.2 },
+  threadMessageContextMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  threadViewButton: { minHeight: 34, borderRadius: 17, borderWidth: 1, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  threadViewButtonText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  infoScreenRoot: { flex: 1, minHeight: 0 },
+  infoScreenContent: { paddingTop: 14, paddingBottom: 28, gap: 12 },
+  infoHero: { borderRadius: 24, borderWidth: 1, padding: 16, gap: 9 },
+  infoHeroTitle: { fontSize: 24, lineHeight: 29, fontWeight: '900', letterSpacing: -0.55 },
+  infoHeroBody: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  infoMenuItem: { borderRadius: 22, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  infoMenuIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  infoMenuCopy: { flex: 1, minWidth: 0, gap: 4 },
+  infoMenuTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900', letterSpacing: -0.2 },
+  infoMenuBody: { fontSize: 13, lineHeight: 18, fontWeight: '700' },
+  infoSection: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 12 },
   loadingContent: { paddingTop: 18, paddingBottom: 28 },
   loadingCard: { borderRadius: 22, borderWidth: 1, padding: 16, gap: 12 },
+  threadContextCard: { borderRadius: 24, borderWidth: 1, padding: 14, gap: 11 },
+  threadContextTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  threadContextIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  threadContextCopy: { flex: 1, minWidth: 0, gap: 5 },
+  threadContextBadges: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+  threadContextTitleButton: { alignSelf: 'stretch' },
+  threadContextTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.25 },
+  threadContextMeta: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  threadContextStatus: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 5 },
+  threadContextHint: { fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  threadContextCollapsedHint: { fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  threadContextActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  threadContextAction: { minHeight: 38, borderRadius: 18, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: 12 },
+  threadContextActionText: { fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  threadDetailsPanel: { borderRadius: 24, borderWidth: 1, padding: 14, gap: 12 },
+  threadDetailsPanelHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  threadDetailsPanelTitleWrap: { flex: 1, minWidth: 0, gap: 5 },
+  threadDetailsPanelBadges: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+  threadDetailsPanelTitle: { fontSize: 20, lineHeight: 25, fontWeight: '900', letterSpacing: -0.35 },
+  threadDetailsPanelBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  threadDetailsPanelClose: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  threadDetailsPanelContent: { gap: 12 },
+  timelineShell: { paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, gap: 12 },
+  timelineHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  timelineHeaderCopy: { flex: 1, minWidth: 0, gap: 3 },
+  timelineTitle: { fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.25 },
+  timelineBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  timelineMessages: { gap: 7 },
   threadTradeStrip: { paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, gap: 12 },
   threadTradeIconRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   threadTradeIcon: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
@@ -1599,6 +1985,16 @@ const styles = StyleSheet.create({
   dealDetailsButton: { minHeight: 40, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   dealDetailsText: { fontSize: 13, lineHeight: 17, fontWeight: '900' },
   dealGuardCard: { borderRadius: 18, borderWidth: 1, padding: 13, gap: 8 },
+  dealGuardCardCompact: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  dealGuardCopy: { flex: 1, minWidth: 0, gap: 4 },
+  dealCollapsedSection: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+  dealCollapsedHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13 },
+  dealCollapsedCopy: { flex: 1, minWidth: 0, gap: 6 },
+  dealCollapsedTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  dealCollapsedTitle: { fontSize: 17, lineHeight: 22, fontWeight: '900', letterSpacing: -0.2 },
+  dealCollapsedBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  dealCollapsedIcon: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  dealCollapsedContent: { paddingHorizontal: 13, paddingBottom: 13, gap: 12 },
   dealGuardTitle: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
   dealGuardBody: { lineHeight: 20, fontWeight: '700' },
   safetyChecklist: { gap: 10 },
@@ -1648,14 +2044,16 @@ const styles = StyleSheet.create({
   systemLine: { flex: 1, height: StyleSheet.hairlineWidth },
   systemText: { maxWidth: '74%', textAlign: 'center', fontSize: 12, lineHeight: 17, fontWeight: '800' },
   emptyChat: { alignSelf: 'center', paddingVertical: 18, fontWeight: '800' },
-  messageRow: { alignItems: 'flex-start' },
+  messageRow: { alignItems: 'flex-start', paddingVertical: 1 },
   messageRowMine: { alignItems: 'flex-end' },
-  chatBubble: { maxWidth: '88%', borderRadius: 22, borderWidth: 1, padding: 12, gap: 8 },
+  chatBubble: { maxWidth: '84%', borderRadius: 22, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 7 },
   chatBubbleMine: { borderBottomRightRadius: 7 },
+  chatBubbleOther: { borderBottomLeftRadius: 7 },
   bubbleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  bubbleFooter: { gap: 3, alignItems: 'flex-end' },
   moreButton: { minWidth: 32, minHeight: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
-  messageBody: { lineHeight: 21, fontWeight: '600' },
-  messageMeta: { fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  messageBody: { lineHeight: 21, fontWeight: '700' },
+  messageMeta: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
   messageDeleted: { fontStyle: 'italic', lineHeight: 20, fontWeight: '800', opacity: 0.74 },
   composerBar: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
   chatInput: { flex: 1, maxHeight: 118, minHeight: 44, borderRadius: 22, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, lineHeight: 20, fontWeight: '600' },

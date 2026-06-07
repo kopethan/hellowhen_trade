@@ -11,6 +11,8 @@ export type MobileIconName =
   | 'deck-back'
   | 'business'
   | 'chevron-right'
+  | 'chevron-down'
+  | 'chevron-up'
   | 'close'
   | 'dispute'
   | 'edit'
@@ -64,6 +66,10 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M4.5 9.5H19.5V19.5H4.5V9.5Z" strokeWidth={1.8} {...strokeProps} /><Path d="M9 9.5V6.75C9 5.92 9.67 5.25 10.5 5.25H13.5C14.33 5.25 15 5.92 15 6.75V9.5" strokeWidth={1.8} {...strokeProps} /><Path d="M9 13H15" strokeWidth={1.8} {...strokeProps} /></>;
     case 'chevron-right':
       return <Path d="M9 5L16 12L9 19" strokeWidth={2} {...strokeProps} />;
+    case 'chevron-down':
+      return <Path d="M5 9L12 16L19 9" strokeWidth={2} {...strokeProps} />;
+    case 'chevron-up':
+      return <Path d="M5 15L12 8L19 15" strokeWidth={2} {...strokeProps} />;
     case 'close':
       return <><Path d="M6 6L18 18" strokeWidth={2} {...strokeProps} /><Path d="M18 6L6 18" strokeWidth={2} {...strokeProps} /></>;
     case 'dispute':
