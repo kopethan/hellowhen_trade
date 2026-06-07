@@ -1,0 +1,615 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 6c49bed..99886cf 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -6400,82 +6400,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ }
+ 
+ /* WEB-THREAD13C: public discussion composer and options polish */
+-.public-thread-menu {
+-  position: relative;
+-  justify-self: end;
+-  pointer-events: auto;
+-}
+-
+-.public-thread-menu__popover {
+-  position: absolute;
+-  z-index: 80;
+-  top: calc(100% + 10px);
+-  right: 0;
+-  display: grid;
+-  width: min(290px, calc(100vw - 32px));
+-  gap: 6px;
+-  border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent);
+-  border-radius: 20px;
+-  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
+-  padding: 8px;
+-  box-shadow: var(--app-card-shadow);
+-  backdrop-filter: blur(18px);
+-}
+-
+-.public-thread-menu__popover a,
+-.public-thread-menu__popover button {
+-  display: grid;
+-  grid-template-columns: 20px minmax(0, 1fr);
+-  align-items: center;
+-  gap: 10px;
+-  width: 100%;
+-  border: 0;
+-  border-radius: 15px;
+-  background: transparent;
+-  color: var(--app-text);
+-  padding: 11px 12px;
+-  text-align: left;
+-  text-decoration: none;
+-}
+-
+-.public-thread-menu__popover a:hover,
+-.public-thread-menu__popover a:focus-visible,
+-.public-thread-menu__popover button:hover,
+-.public-thread-menu__popover button:focus-visible {
+-  background: var(--app-surface-soft);
+-  outline: none;
+-}
+-
+-.public-thread-menu__popover .danger-text {
+-  color: var(--danger-text);
+-}
+-
+-.public-thread-menu__popover span {
+-  display: grid;
+-  min-width: 0;
+-  gap: 2px;
+-}
+-
+-.public-thread-menu__popover strong {
+-  overflow: hidden;
+-  color: currentColor;
+-  font-size: 13px;
+-  font-weight: 950;
+-  line-height: 1.2;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+-.public-thread-menu__popover small {
+-  overflow: hidden;
+-  color: var(--app-text-muted);
+-  font-size: 11px;
+-  font-weight: 760;
+-  line-height: 1.28;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+ .public-discussion-page--menu .web-thread-options-list {
+   display: grid;
+   gap: 12px;
+@@ -6537,10 +6461,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ }
+ 
+ @media (max-width: 759px) {
+-  .public-thread-menu__popover {
+-    display: none;
+-  }
+-
+   .public-discussion-page--flat .public-discussion-composer--messages-only {
+     bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 8px);
+     grid-template-columns: minmax(0, 1fr);
+@@ -6911,81 +6831,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ }
+ 
+ /* WEB-THREAD15: private conversation web redesign */
+-.private-thread-menu {
+-  position: relative;
+-  justify-self: end;
+-}
+-
+-.private-thread-menu__popover {
+-  position: absolute;
+-  z-index: 80;
+-  top: calc(100% + 10px);
+-  right: 0;
+-  display: grid;
+-  width: min(320px, calc(100vw - 32px));
+-  gap: 6px;
+-  border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent);
+-  border-radius: 20px;
+-  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
+-  padding: 8px;
+-  box-shadow: var(--app-card-shadow);
+-  backdrop-filter: blur(18px);
+-}
+-
+-.private-thread-menu__popover a,
+-.private-thread-menu__popover button {
+-  display: grid;
+-  grid-template-columns: 20px minmax(0, 1fr);
+-  align-items: center;
+-  gap: 10px;
+-  width: 100%;
+-  border: 0;
+-  border-radius: 15px;
+-  background: transparent;
+-  color: var(--app-text);
+-  padding: 11px 12px;
+-  text-align: left;
+-  text-decoration: none;
+-}
+-
+-.private-thread-menu__popover a:hover,
+-.private-thread-menu__popover a:focus-visible,
+-.private-thread-menu__popover button:hover,
+-.private-thread-menu__popover button:focus-visible {
+-  background: var(--app-surface-soft);
+-  outline: none;
+-}
+-
+-.private-thread-menu__popover .danger-text {
+-  color: var(--danger-text);
+-}
+-
+-.private-thread-menu__popover span {
+-  display: grid;
+-  min-width: 0;
+-  gap: 2px;
+-}
+-
+-.private-thread-menu__popover strong {
+-  overflow: hidden;
+-  color: currentColor;
+-  font-size: 13px;
+-  font-weight: 950;
+-  line-height: 1.2;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+-.private-thread-menu__popover small {
+-  overflow: hidden;
+-  color: var(--app-text-muted);
+-  font-size: 11px;
+-  font-weight: 760;
+-  line-height: 1.28;
+-  text-overflow: ellipsis;
+-  white-space: nowrap;
+-}
+-
+ .private-thread-summary-strip {
+   display: grid;
+   flex: 0 0 auto;
+@@ -7204,10 +7049,6 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ }
+ 
+ @media (max-width: 759px) {
+-  .private-thread-menu__popover {
+-    display: none;
+-  }
+-
+   .private-thread-summary-strip {
+     margin: 10px 12px 0;
+     border-radius: 20px;
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index a644fae..ca685db 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import type { FormEvent, ReactNode, RefObject } from "react";
++import type { FormEvent, ReactNode } from "react";
+ import type {
+   AcceptedDealSnapshotItemDto,
+   NeedDto,
+@@ -700,18 +700,12 @@ function ProposalThreadHeader({
+   backHref,
+   onBack,
+   onMenu,
+-  menuOpen = false,
+-  menuRef,
+-  menuDropdown,
+ }: {
+   title: string;
+   backLabel: string;
+   backHref?: string;
+   onBack?: () => void;
+   onMenu?: () => void;
+-  menuOpen?: boolean;
+-  menuRef?: RefObject<HTMLDivElement | null>;
+-  menuDropdown?: ReactNode;
+ }) {
+   return (
+     <header className="thread-page-header">
+@@ -726,18 +720,14 @@ function ProposalThreadHeader({
+       )}
+       <h1>{title}</h1>
+       {onMenu ? (
+-        <div className="private-thread-menu" ref={menuRef}>
+-          <button
+-            type="button"
+-            className="thread-page-header__menu"
+-            onClick={onMenu}
+-            aria-label="Thread options"
+-            aria-expanded={menuOpen}
+-          >
+-            ⋯
+-          </button>
+-          {menuOpen ? menuDropdown : null}
+-        </div>
++        <button
++          type="button"
++          className="thread-page-header__menu"
++          onClick={onMenu}
++          aria-label="Thread options"
++        >
++          ⋯
++        </button>
+       ) : (
+         <span aria-hidden="true" />
+       )}
+@@ -848,8 +838,6 @@ export function ProposalConversationClient({
+   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
+   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
+   const [threadView, setThreadView] = useState<ProposalThreadView>("thread");
+-  const [privateThreadMenuOpen, setPrivateThreadMenuOpen] = useState(false);
+-  const privateThreadMenuRef = useRef<HTMLDivElement | null>(null);
+   const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+   const initialEditAppliedRef = useRef(false);
+   const actionLoadingRef = useRef<string | null>(null);
+@@ -924,38 +912,12 @@ export function ProposalConversationClient({
+ 
+   useEffect(() => {
+     setThreadView("thread");
+-    setPrivateThreadMenuOpen(false);
+   }, [proposalId]);
+ 
+-  useEffect(() => {
+-    if (threadView !== "thread") setPrivateThreadMenuOpen(false);
+-  }, [threadView]);
+-
+   useEffect(() => {
+     resizePrivateReplyComposer(replyTextareaRef.current);
+   }, [reply]);
+ 
+-  useEffect(() => {
+-    if (!privateThreadMenuOpen) return;
+-
+-    function handlePointerDown(event: PointerEvent) {
+-      if (!privateThreadMenuRef.current) return;
+-      if (privateThreadMenuRef.current.contains(event.target as Node)) return;
+-      setPrivateThreadMenuOpen(false);
+-    }
+-
+-    function handleKeyDown(event: KeyboardEvent) {
+-      if (event.key === "Escape") setPrivateThreadMenuOpen(false);
+-    }
+-
+-    document.addEventListener("pointerdown", handlePointerDown);
+-    document.addEventListener("keydown", handleKeyDown);
+-    return () => {
+-      document.removeEventListener("pointerdown", handlePointerDown);
+-      document.removeEventListener("keydown", handleKeyDown);
+-    };
+-  }, [privateThreadMenuOpen]);
+-
+   useEffect(() => {
+     actionLoadingRef.current = actionLoading;
+   }, [actionLoading]);
+@@ -1456,69 +1418,9 @@ export function ProposalConversationClient({
+   const dealRoleGuard = proposal.status === "accepted" ? getDealRoleGuard(dealStatus, canMarkSubmitted, canConfirmCompleted, submittedByYou, i18n) : null;
+ 
+   function openPrivateThreadMenu() {
+-    if (typeof window !== "undefined" && window.matchMedia("(min-width: 760px)").matches) {
+-      setPrivateThreadMenuOpen((current) => !current);
+-      return;
+-    }
+     setThreadView("options");
+   }
+ 
+-  function openThreadViewFromMenu(nextView: ProposalThreadView) {
+-    setPrivateThreadMenuOpen(false);
+-    setThreadView(nextView);
+-  }
+-
+-  const privateThreadMenuDropdown = (
+-    <div className="private-thread-menu__popover" role="menu" aria-label={tr(i18n, "trade.proposals.threadMenuTitle", "Thread options")}>
+-      <Link href={`/trades/${tradeId}`} role="menuitem" onClick={() => setPrivateThreadMenuOpen(false)}>
+-        <WebIcon name="trade" size={16} decorative />
+-        <span>
+-          <strong>{t("trade.labels.tradeDetails")}</strong>
+-          <small>{tr(i18n, "trade.publicThread.seeDetailsBody", "Open the full trade detail page.")}</small>
+-        </span>
+-      </Link>
+-      <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("proposal")}>
+-        <WebIcon name="proposal" size={16} decorative />
+-        <span>
+-          <strong>{tr(i18n, "trade.proposals.proposalDetails", "Proposal details")}</strong>
+-          <small>{tr(i18n, "trade.proposals.proposalDetailsBody", "Review the proposal package and message.")}</small>
+-        </span>
+-      </button>
+-      {proposal.status === "accepted" ? (
+-        <>
+-          <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("deal-agreement")}>
+-            <WebIcon name="proposal-accepted" size={16} decorative />
+-            <span>
+-              <strong>{tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")}</strong>
+-              <small>{tr(i18n, "trade.deal.agreementBody", "Review what each participant agreed to give and receive.")}</small>
+-            </span>
+-          </button>
+-          <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("deal-progress")}>
+-            <WebIcon name="activity" size={16} decorative />
+-            <span>
+-              <strong>{tr(i18n, "trade.deal.progressTitle", "Progress")}</strong>
+-              <small>{tr(i18n, "trade.proposals.dealProgressBody", "Submit, complete, cancel, or report the accepted deal.")}</small>
+-            </span>
+-          </button>
+-        </>
+-      ) : null}
+-      <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("guide")}>
+-        <WebIcon name="help" size={16} decorative />
+-        <span>
+-          <strong>{tr(i18n, "trade.publicThread.seeGuide", "See guide")}</strong>
+-          <small>{tr(i18n, "trade.proposals.privateGuideBody", "Understand how private proposals and deal chats work.")}</small>
+-        </span>
+-      </button>
+-      <button type="button" role="menuitem" className="danger-text" onClick={() => openThreadViewFromMenu("report")}>
+-        <WebIcon name="report-flag" size={16} decorative />
+-        <span>
+-          <strong>{tr(i18n, "trade.publicThread.reportThread", "Report thread")}</strong>
+-          <small>{tr(i18n, "trade.proposals.reportPrivateThreadBody", "Report unsafe, spammy, or abusive private activity.")}</small>
+-        </span>
+-      </button>
+-    </div>
+-  );
+-
+   return (
+     <article className="trade-detail-page proposal-conversation-page proposal-conversation-page--messages-only">
+       <ProposalThreadHeader
+@@ -1559,9 +1461,6 @@ export function ProposalConversationClient({
+                     : () => setThreadView("details")
+         }
+         onMenu={threadView === "thread" ? openPrivateThreadMenu : undefined}
+-        menuOpen={privateThreadMenuOpen}
+-        menuRef={privateThreadMenuRef}
+-        menuDropdown={privateThreadMenuDropdown}
+       />
+       {notice ? <p className="notice-box info proposal-thread-notice">{notice}</p> : null}
+ 
+diff --git a/apps/web/src/features/trade/TradePrivateProposalsClient.tsx b/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
+index 7140c41..766fd30 100644
+--- a/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
++++ b/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useSearchParams } from 'next/navigation';
+ import type { TradeDto } from '@hellowhen/contracts';
+-import { useEffect, useRef, useState } from 'react';
++import { useEffect, useState } from 'react';
+ import { ReportContentButton } from '../../components/ReportContentButton';
+ import { WebIcon } from '../../components/WebIcon';
+ import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from '../../components/WebOptionPicker';
+@@ -41,8 +41,6 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+   const [loading, setLoading] = useState(true);
+   const [notice, setNotice] = useState<string | null>(null);
+   const [view, setView] = useState<PrivateProposalEntryView>('thread');
+-  const [threadMenuOpen, setThreadMenuOpen] = useState(false);
+-  const threadMenuRef = useRef<HTMLDivElement | null>(null);
+ 
+   useEffect(() => {
+     if (!auth.hydrated) return;
+@@ -74,44 +72,13 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+   const currentProposalOfferId = searchParams.get('proposalOfferId') ?? '';
+ 
+   function closeSubpage() {
+-    setThreadMenuOpen(false);
+     setView('thread');
+   }
+ 
+-  useEffect(() => {
+-    if (!threadMenuOpen) return;
+-
+-    function handlePointerDown(event: MouseEvent) {
+-      if (!threadMenuRef.current?.contains(event.target as Node)) setThreadMenuOpen(false);
+-    }
+-
+-    function handleKeyDown(event: KeyboardEvent) {
+-      if (event.key === 'Escape') setThreadMenuOpen(false);
+-    }
+-
+-    document.addEventListener('mousedown', handlePointerDown);
+-    document.addEventListener('keydown', handleKeyDown);
+-    return () => {
+-      document.removeEventListener('mousedown', handlePointerDown);
+-      document.removeEventListener('keydown', handleKeyDown);
+-    };
+-  }, [threadMenuOpen]);
+-
+-  function toggleThreadMenu() {
+-    const desktopMenu = typeof window !== 'undefined' && window.matchMedia('(min-width: 760px)').matches;
+-    if (desktopMenu) {
+-      setThreadMenuOpen((current) => !current);
+-      return;
+-    }
+-    setThreadMenuOpen(false);
++  function openThreadMenu() {
+     setView('menu');
+   }
+ 
+-  function openThreadViewFromMenu(nextView: PrivateProposalEntryView) {
+-    setThreadMenuOpen(false);
+-    setView(nextView);
+-  }
+-
+   if (!auth.hydrated || loading) {
+     return (
+       <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only" aria-busy="true">
+@@ -248,54 +215,9 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+       <section className="web-thread-header">
+         <Link href={`/trades/${trade.id}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
+         <h2>{t('trade.threadSplit.privateTitle')}</h2>
+-        <div className="private-thread-menu private-proposals-list-menu" ref={threadMenuRef}>
+-          <button type="button" className="web-thread-header__menu" onClick={toggleThreadMenu} aria-expanded={threadMenuOpen} aria-haspopup="menu" aria-label={t('trade.proposals.privateMenuTitle')}>
+-            <WebIcon name="more" size={21} decorative />
+-          </button>
+-          {threadMenuOpen ? (
+-            <div className="private-thread-menu__popover" role="menu" aria-label={t('trade.proposals.privateMenuTitle')}>
+-              <Link href={`/trades/${trade.id}`} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
+-                <WebIcon name="trade" size={16} decorative />
+-                <span>
+-                  <strong>{t('trade.proposals.privateMenuSeeDetails')}</strong>
+-                  <small>{t('trade.proposals.privateMenuSeeDetailsBody')}</small>
+-                </span>
+-              </Link>
+-              <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu('guide')}>
+-                <WebIcon name="help" size={16} decorative />
+-                <span>
+-                  <strong>{t('trade.proposals.privateMenuSeeGuide')}</strong>
+-                  <small>{t('trade.proposals.privateMenuSeeGuideBody')}</small>
+-                </span>
+-              </button>
+-              {!auth.user || auth.user.id === trade.ownerId ? null : (
+-                <>
+-                  <Link href={proposalAttachHref(trade.id, 'offer', currentProposalNeedId, currentProposalOfferId)} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
+-                    <WebIcon name="offer" size={16} decorative />
+-                    <span>
+-                      <strong>{t(currentProposalOfferId ? 'trade.proposals.privateMenuChangeOffer' : 'trade.proposals.privateMenuAttachOffer')}</strong>
+-                      <small>{t('trade.proposals.privateMenuAttachOfferBody')}</small>
+-                    </span>
+-                  </Link>
+-                  <Link href={proposalAttachHref(trade.id, 'need', currentProposalNeedId, currentProposalOfferId)} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
+-                    <WebIcon name="need" size={16} decorative />
+-                    <span>
+-                      <strong>{t(currentProposalNeedId ? 'trade.proposals.privateMenuChangeNeed' : 'trade.proposals.privateMenuAttachNeed')}</strong>
+-                      <small>{t('trade.proposals.privateMenuAttachNeedBody')}</small>
+-                    </span>
+-                  </Link>
+-                </>
+-              )}
+-              <button type="button" role="menuitem" className="danger-text" onClick={() => openThreadViewFromMenu('report-thread')}>
+-                <WebIcon name="report-flag" size={16} decorative />
+-                <span>
+-                  <strong>{t('trade.proposals.privateMenuReportThread')}</strong>
+-                  <small>{t('trade.proposals.privateMenuReportThreadBody')}</small>
+-                </span>
+-              </button>
+-            </div>
+-          ) : null}
+-        </div>
++        <button type="button" className="web-thread-header__menu" onClick={openThreadMenu} aria-label={t('trade.proposals.privateMenuTitle')}>
++          <WebIcon name="more" size={21} decorative />
++        </button>
+       </section>
+       <TradeProposalPanel trade={trade} variant="page" />
+     </article>
+diff --git a/apps/web/src/features/trade/TradePublicDiscussionClient.tsx b/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
+index cfac3d6..1fb1ea5 100644
+--- a/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
++++ b/apps/web/src/features/trade/TradePublicDiscussionClient.tsx
+@@ -72,8 +72,6 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+   const [editingId, setEditingId] = useState<string | null>(null);
+   const [editingBody, setEditingBody] = useState('');
+   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+-  const [threadMenuOpen, setThreadMenuOpen] = useState(false);
+-  const threadMenuRef = useRef<HTMLDivElement | null>(null);
+   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [sending, setSending] = useState(false);
+@@ -126,26 +124,6 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+     }, PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS);
+     return () => window.clearInterval(intervalId);
+   }, [auth.isAuthenticated, tradeId]);
+-  useEffect(() => {
+-    if (!threadMenuOpen) return;
+-
+-    function handlePointerDown(event: MouseEvent) {
+-      if (!threadMenuRef.current?.contains(event.target as Node)) setThreadMenuOpen(false);
+-    }
+-
+-    function handleKeyDown(event: KeyboardEvent) {
+-      if (event.key === 'Escape') setThreadMenuOpen(false);
+-    }
+-
+-    document.addEventListener('mousedown', handlePointerDown);
+-    document.addEventListener('keydown', handleKeyDown);
+-    return () => {
+-      document.removeEventListener('mousedown', handlePointerDown);
+-      document.removeEventListener('keydown', handleKeyDown);
+-    };
+-  }, [threadMenuOpen]);
+-
+-
+   async function submitMessage(event: FormEvent<HTMLFormElement>) {
+     event.preventDefault();
+     if (!canWrite || trimmedBody.length < 1) return;
+@@ -219,29 +197,12 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+     setView('messages');
+     setReportMessageId(null);
+     setOpenMenuId(null);
+-    setThreadMenuOpen(false);
+   }
+ 
+-  function toggleThreadMenu() {
+-    const desktopMenu = typeof window !== 'undefined' && window.matchMedia('(min-width: 760px)').matches;
+-    if (desktopMenu) {
+-      setThreadMenuOpen((current) => !current);
+-      return;
+-    }
+-    setThreadMenuOpen(false);
++  function openThreadMenu() {
+     setView('menu');
+   }
+ 
+-  function openThreadGuide() {
+-    setThreadMenuOpen(false);
+-    setView('guide');
+-  }
+-
+-  function openThreadReport() {
+-    setThreadMenuOpen(false);
+-    setView('report-thread');
+-  }
+-
+   if (!auth.hydrated || loading) {
+     return (
+       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only" aria-busy="true">
+@@ -357,36 +318,9 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
+       <section className="web-thread-header">
+         <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
+         <h2>{t('trade.publicDiscussion.title')}</h2>
+-        <div className="public-thread-menu" ref={threadMenuRef}>
+-          <button type="button" className="web-thread-header__menu" onClick={toggleThreadMenu} aria-expanded={threadMenuOpen} aria-haspopup="menu" aria-label={t('trade.publicDiscussion.menuTitle')}>
+-            <WebIcon name="more" size={22} decorative />
+-          </button>
+-          {threadMenuOpen ? (
+-            <div className="public-thread-menu__popover" role="menu" aria-label={t('trade.publicDiscussion.menuTitle')}>
+-              <Link href={`/trades/${tradeId}`} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
+-                <WebIcon name="trade" size={16} decorative />
+-                <span>
+-                  <strong>{t('trade.publicDiscussion.seeDetails')}</strong>
+-                  <small>{t('trade.publicDiscussion.seeDetailsBody')}</small>
+-                </span>
+-              </Link>
+-              <button type="button" role="menuitem" onClick={openThreadGuide}>
+-                <WebIcon name="help" size={16} decorative />
+-                <span>
+-                  <strong>{t('trade.publicDiscussion.seeGuide')}</strong>
+-                  <small>{t('trade.publicDiscussion.seeGuideBody')}</small>
+-                </span>
+-              </button>
+-              <button type="button" role="menuitem" className="danger-text" onClick={openThreadReport}>
+-                <WebIcon name="report-flag" size={16} decorative />
+-                <span>
+-                  <strong>{t('trade.publicDiscussion.reportThread')}</strong>
+-                  <small>{t('trade.publicDiscussion.reportThreadBody')}</small>
+-                </span>
+-              </button>
+-            </div>
+-          ) : null}
+-        </div>
++        <button type="button" className="web-thread-header__menu" onClick={openThreadMenu} aria-label={t('trade.publicDiscussion.menuTitle')}>
++          <WebIcon name="more" size={22} decorative />
++        </button>
+       </section>
+ 
+       {deleteConfirmTarget ? (

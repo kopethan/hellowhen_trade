@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import type { FormEvent } from 'react';
 import type { TradePublicMessageDto } from '@hellowhen/contracts';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ReportContentButton } from '../../components/ReportContentButton';
 import { WebIcon } from '../../components/WebIcon';
+import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from '../../components/WebOptionPicker';
 import { api } from '../../lib/api';
 import { formatWebDate, formatWebDateTime } from '../../lib/webFormat';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -14,6 +15,7 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { UserIdentityLink } from '../users/UserIdentityLink';
 
 const PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS = 8000;
+const PUBLIC_DISCUSSION_COMPOSER_MAX_HEIGHT_PX = 144;
 
 type PublicDiscussionView = 'messages' | 'menu' | 'guide' | 'report-thread' | 'report-message';
 
@@ -44,6 +46,15 @@ function mergeMessages(current: TradePublicMessageDto[], next: TradePublicMessag
   return Array.from(byId.values()).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
+
+function resizePublicDiscussionComposer(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  const nextHeight = Math.min(textarea.scrollHeight, PUBLIC_DISCUSSION_COMPOSER_MAX_HEIGHT_PX);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > PUBLIC_DISCUSSION_COMPOSER_MAX_HEIGHT_PX ? 'auto' : 'hidden';
+}
+
 function messageDateKey(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -61,6 +72,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingBody, setEditingBody] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'info' | 'success' | 'warning' | 'danger'; body: string } | null>(null);
@@ -76,6 +88,10 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
       return { message, showDate };
     });
   }, [messages]);
+
+  useEffect(() => {
+    resizePublicDiscussionComposer(composerTextareaRef.current);
+  }, [body]);
 
   async function loadMessages(options?: { quiet?: boolean }) {
     if (!auth.isAuthenticated) {
@@ -108,7 +124,6 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     }, PUBLIC_DISCUSSION_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, [auth.isAuthenticated, tradeId]);
-
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite || trimmedBody.length < 1) return;
@@ -184,6 +199,10 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
     setOpenMenuId(null);
   }
 
+  function openThreadMenu() {
+    setView('menu');
+  }
+
   if (!auth.hydrated || loading) {
     return (
       <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only" aria-busy="true">
@@ -218,34 +237,31 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
 
   if (view === 'menu') {
     return (
-      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only">
+      <article className="trade-detail-page public-discussion-page public-discussion-page--messages-only public-discussion-page--menu">
         <section className="web-thread-header">
           <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
           <h2>{t('trade.publicDiscussion.menuTitle')}</h2>
         </section>
-        <section className="web-thread-options-list" aria-label={t('trade.publicDiscussion.menuTitle')}>
-          <Link href={`/trades/${tradeId}`} className="web-thread-option-row">
-            <span>
-              <strong>{t('trade.publicDiscussion.seeDetails')}</strong>
-              <small>{t('trade.publicDiscussion.seeDetailsBody')}</small>
-            </span>
-            <WebIcon name="arrow-right" size={18} decorative />
-          </Link>
-          <button type="button" className="web-thread-option-row" onClick={() => setView('guide')}>
-            <span>
-              <strong>{t('trade.publicDiscussion.seeGuide')}</strong>
-              <small>{t('trade.publicDiscussion.seeGuideBody')}</small>
-            </span>
-            <WebIcon name="arrow-right" size={18} decorative />
-          </button>
-          <button type="button" className="web-thread-option-row danger-text" onClick={() => setView('report-thread')}>
-            <span>
-              <strong>{t('trade.publicDiscussion.reportThread')}</strong>
-              <small>{t('trade.publicDiscussion.reportThreadBody')}</small>
-            </span>
-            <WebIcon name="arrow-right" size={18} decorative />
-          </button>
-        </section>
+        <WebOptionPickerPanel className="web-thread-options-picker">
+          <WebOptionPickerCard
+            href={`/trades/${tradeId}`}
+            iconName="trade"
+            title={t('trade.publicDiscussion.seeDetails')}
+            description={t('trade.publicDiscussion.seeDetailsBody')}
+          />
+          <WebOptionPickerCard
+            iconName="help"
+            title={t('trade.publicDiscussion.seeGuide')}
+            description={t('trade.publicDiscussion.seeGuideBody')}
+            onClick={() => setView('guide')}
+          />
+          <WebOptionPickerDangerCard
+            iconName="report-flag"
+            title={t('trade.publicDiscussion.reportThread')}
+            description={t('trade.publicDiscussion.reportThreadBody')}
+            onClick={() => setView('report-thread')}
+          />
+        </WebOptionPickerPanel>
       </article>
     );
   }
@@ -302,7 +318,7 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
       <section className="web-thread-header">
         <Link href={`/trades/${tradeId}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
         <h2>{t('trade.publicDiscussion.title')}</h2>
-        <button type="button" className="web-thread-header__menu" onClick={() => setView('menu')} aria-label={t('trade.publicDiscussion.menuTitle')}>
+        <button type="button" className="web-thread-header__menu" onClick={openThreadMenu} aria-label={t('trade.publicDiscussion.menuTitle')}>
           <WebIcon name="more" size={22} decorative />
         </button>
       </section>
@@ -391,7 +407,17 @@ export function TradePublicDiscussionClient({ tradeId }: { tradeId: string }) {
       {canWrite ? (
         <form className="conversation-reply public-discussion-composer public-discussion-composer--messages-only" onSubmit={submitMessage}>
           <label className="sr-only" htmlFor="public-discussion-message">{t('trade.publicDiscussion.placeholder')}</label>
-          <textarea id="public-discussion-message" value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('trade.publicDiscussion.placeholder')} rows={1} />
+          <textarea
+            id="public-discussion-message"
+            ref={composerTextareaRef}
+            value={body}
+            onChange={(event) => {
+              setBody(event.target.value);
+              resizePublicDiscussionComposer(event.currentTarget);
+            }}
+            placeholder={t('trade.publicDiscussion.placeholder')}
+            rows={1}
+          />
           <button type="submit" disabled={sending || trimmedBody.length < 1}>{sending ? t('common.states.sending') : t('common.actions.send')}</button>
         </form>
       ) : (

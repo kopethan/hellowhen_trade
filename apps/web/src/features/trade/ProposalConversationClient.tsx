@@ -14,6 +14,7 @@ import type {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ReportContentButton } from "../../components/ReportContentButton";
 import { WebIcon, type WebIconName } from "../../components/WebIcon";
+import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from "../../components/WebOptionPicker";
 import { api } from "../../lib/api";
 import { formatWebDateTime, formatWebMoney } from "../../lib/webFormat";
 import { useWebAuth } from "../../providers/WebAuthProvider";
@@ -22,6 +23,7 @@ import { UserIdentityLink } from "../users/UserIdentityLink";
 import { getStatusLabel, type TradeI18n } from "./tradePresentation";
 
 const THREAD_REFRESH_INTERVAL_MS = 7000;
+const PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX = 144;
 
 type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
 type TradeStatusResponse = { trade?: TradeDto };
@@ -52,6 +54,14 @@ type ProposalEditDraftSnapshot = {
   offerId?: string;
   sideChoice?: "none" | "need" | "offer" | "both";
 };
+
+function resizePrivateReplyComposer(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(textarea.scrollHeight, PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
+}
 
 function proposalEditDraftKey(proposalId: string) {
   return `proposal-edit-draft:${proposalId}`;
@@ -710,7 +720,12 @@ function ProposalThreadHeader({
       )}
       <h1>{title}</h1>
       {onMenu ? (
-        <button type="button" className="thread-page-header__menu" onClick={onMenu} aria-label="Thread options">
+        <button
+          type="button"
+          className="thread-page-header__menu"
+          onClick={onMenu}
+          aria-label="Thread options"
+        >
           ⋯
         </button>
       ) : (
@@ -720,40 +735,58 @@ function ProposalThreadHeader({
   );
 }
 
-function ThreadOptionButton({
-  title,
-  body,
-  icon,
-  onClick,
-  href,
-  danger = false,
-}: {
-  title: string;
-  body: string;
-  icon: WebIconName;
-  onClick?: () => void;
-  href?: string;
-  danger?: boolean;
-}) {
-  const content = (
-    <>
-      <span className="thread-option-row__icon"><WebIcon name={icon} size={18} decorative /></span>
-      <span className="thread-option-row__body">
-        <strong>{title}</strong>
-        <small>{body}</small>
-      </span>
-      <span className="thread-option-row__chevron">›</span>
-    </>
-  );
-
-  if (href) {
-    return <Link href={href} className={`thread-option-row${danger ? " thread-option-row--danger" : ""}`}>{content}</Link>;
-  }
-  return <button type="button" className={`thread-option-row${danger ? " thread-option-row--danger" : ""}`} onClick={onClick}>{content}</button>;
-}
-
 function ThreadSystemEvent({ children }: { children: ReactNode }) {
   return <p className="thread-system-event">{children}</p>;
+}
+
+function PrivateThreadSummaryStrip({
+  proposal,
+  i18n,
+  onOpenDetails,
+  onOpenProgress,
+}: {
+  proposal: TradeProposalDto;
+  i18n: TradeI18n;
+  onOpenDetails: () => void;
+  onOpenProgress?: () => void;
+}) {
+  const isDeal = proposal.status === "accepted";
+  const sideItems = proposalSideItems(proposal).slice(0, 2);
+  const statusLabel = isDeal
+    ? getStatusLabel(proposal.trade?.status ?? "in_progress", i18n)
+    : getStatusLabel(proposal.status, i18n);
+  const title = proposal.trade?.title ?? tr(i18n, "trade.proposals.privateProposalConversation", "Private proposal conversation");
+
+  return (
+    <aside className="private-thread-summary-strip" aria-label={tr(i18n, "trade.proposals.threadSummary", "Thread summary")}>
+      <div className="private-thread-summary-strip__main">
+        <span className="semantic-badge proposal">
+          <WebIcon name={isDeal ? "proposal-accepted" : proposalStatusIcon(proposal.status)} size={14} decorative /> {statusLabel}
+        </span>
+        <strong>{isDeal ? tr(i18n, "trade.proposals.privateDealTitle", "Private deal") : tr(i18n, "trade.proposals.privateProposalConversation", "Private proposal conversation")}</strong>
+        <p>{title}</p>
+      </div>
+      {sideItems.length ? (
+        <div className="private-thread-summary-strip__items">
+          {sideItems.map(({ kind, item }) => (
+            <span key={`${kind}-${item.id}`}>{kind === "offer" ? tr(i18n, "trade.labels.offer", "Offer") : tr(i18n, "trade.labels.need", "Need")} · {item.title}</span>
+          ))}
+        </div>
+      ) : (
+        <p className="private-thread-summary-strip__empty">{proposalApplicantStatus(proposal, i18n)}</p>
+      )}
+      <div className="private-thread-summary-strip__actions">
+        <button type="button" className="secondary" onClick={onOpenDetails}>
+          {tr(i18n, "trade.proposals.detailsMenuTitle", "See details")}
+        </button>
+        {onOpenProgress ? (
+          <button type="button" className="secondary" onClick={onOpenProgress}>
+            {tr(i18n, "trade.deal.progressTitle", "Progress")}
+          </button>
+        ) : null}
+      </div>
+    </aside>
+  );
 }
 
 export function ProposalConversationClient({
@@ -805,6 +838,7 @@ export function ProposalConversationClient({
   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
   const [threadView, setThreadView] = useState<ProposalThreadView>("thread");
+  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const initialEditAppliedRef = useRef(false);
   const actionLoadingRef = useRef<string | null>(null);
   const refreshInFlightRef = useRef(false);
@@ -879,6 +913,10 @@ export function ProposalConversationClient({
   useEffect(() => {
     setThreadView("thread");
   }, [proposalId]);
+
+  useEffect(() => {
+    resizePrivateReplyComposer(replyTextareaRef.current);
+  }, [reply]);
 
   useEffect(() => {
     actionLoadingRef.current = actionLoading;
@@ -1379,6 +1417,10 @@ export function ProposalConversationClient({
   const submittedByYou = Boolean(actorId && proposal.trade?.deliverySubmittedById === actorId);
   const dealRoleGuard = proposal.status === "accepted" ? getDealRoleGuard(dealStatus, canMarkSubmitted, canConfirmCompleted, submittedByYou, i18n) : null;
 
+  function openPrivateThreadMenu() {
+    setThreadView("options");
+  }
+
   return (
     <article className="trade-detail-page proposal-conversation-page proposal-conversation-page--messages-only">
       <ProposalThreadHeader
@@ -1418,7 +1460,7 @@ export function ProposalConversationClient({
                     ? () => { setThreadView("thread"); setReportMessageId(null); }
                     : () => setThreadView("details")
         }
-        onMenu={threadView === "thread" ? () => setThreadView("options") : undefined}
+        onMenu={threadView === "thread" ? openPrivateThreadMenu : undefined}
       />
       {notice ? <p className="notice-box info proposal-thread-notice">{notice}</p> : null}
 
@@ -1661,29 +1703,28 @@ export function ProposalConversationClient({
       ) : null}
 
       {threadView === "options" ? (
-        <section className="thread-full-page">
+        <section className="thread-full-page thread-full-page--options">
           <h2>{tr(i18n, "trade.proposals.threadMenuTitle", "Thread options")}</h2>
-          <div className="thread-option-list">
-            <ThreadOptionButton
+          <WebOptionPickerPanel className="web-thread-options-picker">
+            <WebOptionPickerCard
+              iconName="trade"
               title={tr(i18n, "trade.publicThread.seeDetails", "See details")}
-              body={tr(i18n, "trade.proposals.seeDetailsBody", "Choose trade, proposal, or deal information.")}
-              icon="trade"
+              description={tr(i18n, "trade.proposals.seeDetailsBody", "Choose trade, proposal, or deal information.")}
               onClick={() => setThreadView("details")}
             />
-            <ThreadOptionButton
+            <WebOptionPickerCard
+              iconName="help"
               title={tr(i18n, "trade.publicThread.seeGuide", "See guide")}
-              body={tr(i18n, "trade.proposals.privateGuideBody", "Understand how private proposals and deal chats work.")}
-              icon="help"
+              description={tr(i18n, "trade.proposals.privateGuideBody", "Understand how private proposals and deal chats work.")}
               onClick={() => setThreadView("guide")}
             />
-            <ThreadOptionButton
+            <WebOptionPickerDangerCard
+              iconName="report-flag"
               title={tr(i18n, "trade.publicThread.reportThread", "Report thread")}
-              body={tr(i18n, "trade.proposals.reportPrivateThreadBody", "Report unsafe, spammy, or abusive private activity.")}
-              icon="warning"
-              danger
+              description={tr(i18n, "trade.proposals.reportPrivateThreadBody", "Report unsafe, spammy, or abusive private activity.")}
               onClick={() => setThreadView("report")}
             />
-          </div>
+          </WebOptionPickerPanel>
         </section>
       ) : null}
 
@@ -1714,38 +1755,38 @@ export function ProposalConversationClient({
       ) : null}
 
       {threadView === "details" ? (
-        <section className="thread-full-page">
+        <section className="thread-full-page thread-full-page--options">
           <h2>{tr(i18n, "trade.proposals.detailsMenuTitle", "See details")}</h2>
-          <div className="thread-option-list">
-            <ThreadOptionButton
-              title={t("trade.labels.tradeDetails")}
-              body={tr(i18n, "trade.publicThread.seeDetailsBody", "Open the full trade detail page.")}
-              icon="trade"
+          <WebOptionPickerPanel className="web-thread-options-picker">
+            <WebOptionPickerCard
               href={`/trades/${tradeId}`}
+              iconName="trade"
+              title={t("trade.labels.tradeDetails")}
+              description={tr(i18n, "trade.publicThread.seeDetailsBody", "Open the full trade detail page.")}
             />
-            <ThreadOptionButton
+            <WebOptionPickerCard
+              iconName="proposal"
               title={tr(i18n, "trade.proposals.proposalDetails", "Proposal details")}
-              body={tr(i18n, "trade.proposals.proposalDetailsBody", "Review the proposal package and message.")}
-              icon="proposal"
+              description={tr(i18n, "trade.proposals.proposalDetailsBody", "Review the proposal package and message.")}
               onClick={() => setThreadView("proposal")}
             />
             {proposal.status === "accepted" ? (
               <>
-                <ThreadOptionButton
+                <WebOptionPickerCard
+                  iconName="proposal-accepted"
                   title={tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")}
-                  body={tr(i18n, "trade.deal.agreementBody", "Review what each participant agreed to give and receive.")}
-                  icon="proposal-accepted"
+                  description={tr(i18n, "trade.deal.agreementBody", "Review what each participant agreed to give and receive.")}
                   onClick={() => setThreadView("deal-agreement")}
                 />
-                <ThreadOptionButton
+                <WebOptionPickerCard
+                  iconName="activity"
                   title={tr(i18n, "trade.deal.progressTitle", "Progress")}
-                  body={tr(i18n, "trade.proposals.dealProgressBody", "Submit, complete, cancel, or report the accepted deal.")}
-                  icon="activity"
+                  description={tr(i18n, "trade.proposals.dealProgressBody", "Submit, complete, cancel, or report the accepted deal.")}
                   onClick={() => setThreadView("deal-progress")}
                 />
               </>
             ) : null}
-          </div>
+          </WebOptionPickerPanel>
         </section>
       ) : null}
 
@@ -1892,6 +1933,12 @@ export function ProposalConversationClient({
 
       {threadView === "thread" ? (
         <section className="thread-message-page proposal-conversation-panel">
+          <PrivateThreadSummaryStrip
+            proposal={proposal}
+            i18n={i18n}
+            onOpenDetails={() => setThreadView("details")}
+            onOpenProgress={proposal.status === "accepted" ? () => setThreadView("deal-progress") : undefined}
+          />
           <div className="message-list proposal-conversation-list proposal-timeline-list proposal-thread-message-list">
             <ThreadSystemEvent>
               {proposal.status === "accepted"
@@ -1982,13 +2029,15 @@ export function ProposalConversationClient({
               <label className="sr-only" htmlFor="proposal-reply">{t("trade.proposals.reply")}</label>
               <textarea
                 id="proposal-reply"
+                ref={replyTextareaRef}
                 value={reply}
                 onChange={(event) => {
                   setReply(event.target.value);
+                  resizePrivateReplyComposer(event.currentTarget);
                   if (replyError) setReplyError(null);
                 }}
                 placeholder={t("trade.proposals.replyPrivately")}
-                rows={2}
+                rows={1}
                 aria-describedby={replyError ? "proposal-reply-error" : undefined}
                 aria-invalid={Boolean(replyError)}
               />

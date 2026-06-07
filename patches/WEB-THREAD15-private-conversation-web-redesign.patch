@@ -1,0 +1,631 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index e31925b..0e83aac 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -6909,3 +6909,330 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     margin: 0;
+   }
+ }
++
++/* WEB-THREAD15: private conversation web redesign */
++.private-thread-menu {
++  position: relative;
++  justify-self: end;
++}
++
++.private-thread-menu__popover {
++  position: absolute;
++  z-index: 80;
++  top: calc(100% + 10px);
++  right: 0;
++  display: grid;
++  width: min(320px, calc(100vw - 32px));
++  gap: 6px;
++  border: 1px solid color-mix(in srgb, var(--app-border) 86%, transparent);
++  border-radius: 20px;
++  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
++  padding: 8px;
++  box-shadow: var(--app-card-shadow);
++  backdrop-filter: blur(18px);
++}
++
++.private-thread-menu__popover a,
++.private-thread-menu__popover button {
++  display: grid;
++  grid-template-columns: 20px minmax(0, 1fr);
++  align-items: center;
++  gap: 10px;
++  width: 100%;
++  border: 0;
++  border-radius: 15px;
++  background: transparent;
++  color: var(--app-text);
++  padding: 11px 12px;
++  text-align: left;
++  text-decoration: none;
++}
++
++.private-thread-menu__popover a:hover,
++.private-thread-menu__popover a:focus-visible,
++.private-thread-menu__popover button:hover,
++.private-thread-menu__popover button:focus-visible {
++  background: var(--app-surface-soft);
++  outline: none;
++}
++
++.private-thread-menu__popover .danger-text {
++  color: var(--danger-text);
++}
++
++.private-thread-menu__popover span {
++  display: grid;
++  min-width: 0;
++  gap: 2px;
++}
++
++.private-thread-menu__popover strong {
++  overflow: hidden;
++  color: currentColor;
++  font-size: 13px;
++  font-weight: 950;
++  line-height: 1.2;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.private-thread-menu__popover small {
++  overflow: hidden;
++  color: var(--app-text-muted);
++  font-size: 11px;
++  font-weight: 760;
++  line-height: 1.28;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.private-thread-summary-strip {
++  display: grid;
++  flex: 0 0 auto;
++  gap: 10px;
++  margin: 14px 14px 0;
++  border: 1px solid color-mix(in srgb, var(--proposal-border) 34%, var(--app-border));
++  border-radius: 22px;
++  background: color-mix(in srgb, var(--proposal-bg) 16%, var(--app-surface));
++  padding: 12px;
++}
++
++.private-thread-summary-strip__main {
++  display: grid;
++  min-width: 0;
++  gap: 5px;
++}
++
++.private-thread-summary-strip__main .semantic-badge {
++  justify-self: start;
++}
++
++.private-thread-summary-strip__main strong {
++  overflow: hidden;
++  color: var(--app-text);
++  font-size: 16px;
++  font-weight: 950;
++  letter-spacing: -0.025em;
++  line-height: 1.15;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.private-thread-summary-strip__main p,
++.private-thread-summary-strip__empty {
++  margin: 0;
++  color: var(--app-text-muted);
++  font-size: 12px;
++  font-weight: 800;
++  line-height: 1.35;
++}
++
++.private-thread-summary-strip__items {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 6px;
++}
++
++.private-thread-summary-strip__items span {
++  max-width: 100%;
++  overflow: hidden;
++  border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--app-surface) 86%, transparent);
++  color: var(--app-text-muted);
++  padding: 5px 9px;
++  font-size: 11px;
++  font-weight: 900;
++  line-height: 1.1;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.private-thread-summary-strip__actions {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px;
++}
++
++.private-thread-summary-strip__actions button {
++  min-height: 34px;
++  border-radius: 999px;
++  padding: 0 12px;
++  font-size: 11px;
++}
++
++.proposal-conversation-page--messages-only .proposal-thread-message-list {
++  gap: 10px;
++  padding-top: 12px;
++}
++
++.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
++  max-width: min(68%, 540px);
++  border-color: color-mix(in srgb, var(--app-border) 46%, transparent);
++  border-radius: 19px 19px 19px 8px;
++  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
++  padding: 10px 12px;
++}
++
++.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble--own {
++  border-color: color-mix(in srgb, var(--proposal-border) 34%, transparent);
++  border-radius: 19px 19px 8px 19px;
++  background: color-mix(in srgb, var(--proposal-bg) 34%, var(--app-surface));
++}
++
++.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble > p:not(.message-meta):not(.message-deleted) {
++  font-size: 14px;
++  line-height: 1.5;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto;
++  align-items: end;
++  gap: 8px;
++  margin: 10px 14px max(10px, env(safe-area-inset-bottom));
++  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
++  border-radius: 24px;
++  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
++  padding: 8px;
++  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.065);
++  backdrop-filter: blur(16px);
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer:focus-within {
++  border-color: color-mix(in srgb, var(--proposal-border) 42%, var(--app-border-strong));
++  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.085);
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer textarea {
++  min-height: 46px;
++  max-height: 144px;
++  border: 0;
++  border-radius: 17px;
++  background: transparent;
++  padding: 13px 14px;
++  box-shadow: none;
++  line-height: 1.45;
++  overflow-y: hidden;
++  resize: none;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer textarea:focus {
++  box-shadow: none;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer button {
++  align-self: end;
++  min-height: 46px;
++  border-radius: 17px;
++}
++
++.proposal-conversation-page--messages-only .thread-bottom-composer .field-error {
++  grid-column: 1 / -1;
++}
++
++@media (min-width: 760px) {
++  .proposal-conversation-page--messages-only {
++    display: grid;
++    grid-template-rows: auto minmax(0, auto);
++    max-width: 760px;
++    min-height: auto;
++    overflow: visible;
++    border: 0;
++    border-radius: 0;
++    background: transparent;
++    box-shadow: none;
++  }
++
++  .proposal-conversation-page--messages-only .thread-page-header {
++    grid-template-columns: 44px minmax(0, 1fr) 44px;
++    min-height: 70px;
++    border: 0;
++    border-radius: 0;
++    background: transparent;
++    padding: 12px 0;
++  }
++
++  .proposal-conversation-page--messages-only .thread-page-header h1 {
++    justify-self: start;
++    font-size: 23px;
++    letter-spacing: -0.04em;
++    line-height: 1.05;
++    text-align: left;
++  }
++
++  .proposal-conversation-page--messages-only .thread-page-header__back,
++  .proposal-conversation-page--messages-only .thread-page-header__menu {
++    width: 40px;
++    height: 40px;
++    border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
++    background: color-mix(in srgb, var(--app-surface) 84%, transparent);
++    box-shadow: var(--app-control-shadow);
++  }
++
++  .proposal-conversation-page--messages-only .thread-message-page {
++    overflow: visible;
++    border-radius: 30px;
++    background: var(--app-surface);
++    box-shadow: var(--app-card-shadow);
++  }
++
++  .private-thread-summary-strip {
++    grid-template-columns: minmax(0, 1fr) auto;
++    align-items: center;
++    margin: 18px 18px 0;
++    padding: 14px;
++  }
++
++  .private-thread-summary-strip__items {
++    grid-column: 1 / -1;
++  }
++
++  .private-thread-summary-strip__actions {
++    justify-content: flex-end;
++  }
++
++  .proposal-conversation-page--messages-only .proposal-thread-message-list {
++    min-height: min(520px, calc(100dvh - 380px));
++    background: color-mix(in srgb, var(--app-surface-soft) 24%, transparent);
++    padding: 16px 18px 14px;
++  }
++
++  .proposal-conversation-page--messages-only .thread-bottom-composer {
++    margin: 14px 18px 18px;
++  }
++}
++
++@media (max-width: 759px) {
++  .private-thread-menu__popover {
++    display: none;
++  }
++
++  .private-thread-summary-strip {
++    margin: 10px 12px 0;
++    border-radius: 20px;
++    padding: 11px;
++  }
++
++  .proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
++    max-width: 86%;
++  }
++
++  .proposal-conversation-page--messages-only .thread-bottom-composer {
++    grid-template-columns: minmax(0, 1fr);
++    gap: 8px;
++    margin: 10px 12px max(10px, env(safe-area-inset-bottom));
++    border-radius: 22px;
++  }
++
++  .proposal-conversation-page--messages-only .thread-bottom-composer textarea {
++    min-height: 48px;
++    border-radius: 16px;
++  }
++
++  .proposal-conversation-page--messages-only .thread-bottom-composer button {
++    width: 100%;
++    min-height: 46px;
++    border-radius: 16px;
++  }
++}
+diff --git a/apps/web/src/features/trade/ProposalConversationClient.tsx b/apps/web/src/features/trade/ProposalConversationClient.tsx
+index 2ca06bb..a644fae 100644
+--- a/apps/web/src/features/trade/ProposalConversationClient.tsx
++++ b/apps/web/src/features/trade/ProposalConversationClient.tsx
+@@ -1,7 +1,7 @@
+ "use client";
+ 
+ import Link from "next/link";
+-import type { FormEvent, ReactNode } from "react";
++import type { FormEvent, ReactNode, RefObject } from "react";
+ import type {
+   AcceptedDealSnapshotItemDto,
+   NeedDto,
+@@ -23,6 +23,7 @@ import { UserIdentityLink } from "../users/UserIdentityLink";
+ import { getStatusLabel, type TradeI18n } from "./tradePresentation";
+ 
+ const THREAD_REFRESH_INTERVAL_MS = 7000;
++const PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX = 144;
+ 
+ type ProposalStatusResponse = { proposal?: TradeProposalDto; trade?: TradeDto };
+ type TradeStatusResponse = { trade?: TradeDto };
+@@ -54,6 +55,14 @@ type ProposalEditDraftSnapshot = {
+   sideChoice?: "none" | "need" | "offer" | "both";
+ };
+ 
++function resizePrivateReplyComposer(textarea: HTMLTextAreaElement | null) {
++  if (!textarea) return;
++  textarea.style.height = "auto";
++  const nextHeight = Math.min(textarea.scrollHeight, PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX);
++  textarea.style.height = `${nextHeight}px`;
++  textarea.style.overflowY = textarea.scrollHeight > PRIVATE_REPLY_COMPOSER_MAX_HEIGHT_PX ? "auto" : "hidden";
++}
++
+ function proposalEditDraftKey(proposalId: string) {
+   return `proposal-edit-draft:${proposalId}`;
+ }
+@@ -691,12 +700,18 @@ function ProposalThreadHeader({
+   backHref,
+   onBack,
+   onMenu,
++  menuOpen = false,
++  menuRef,
++  menuDropdown,
+ }: {
+   title: string;
+   backLabel: string;
+   backHref?: string;
+   onBack?: () => void;
+   onMenu?: () => void;
++  menuOpen?: boolean;
++  menuRef?: RefObject<HTMLDivElement | null>;
++  menuDropdown?: ReactNode;
+ }) {
+   return (
+     <header className="thread-page-header">
+@@ -711,9 +726,18 @@ function ProposalThreadHeader({
+       )}
+       <h1>{title}</h1>
+       {onMenu ? (
+-        <button type="button" className="thread-page-header__menu" onClick={onMenu} aria-label="Thread options">
+-          ⋯
+-        </button>
++        <div className="private-thread-menu" ref={menuRef}>
++          <button
++            type="button"
++            className="thread-page-header__menu"
++            onClick={onMenu}
++            aria-label="Thread options"
++            aria-expanded={menuOpen}
++          >
++            ⋯
++          </button>
++          {menuOpen ? menuDropdown : null}
++        </div>
+       ) : (
+         <span aria-hidden="true" />
+       )}
+@@ -725,6 +749,56 @@ function ThreadSystemEvent({ children }: { children: ReactNode }) {
+   return <p className="thread-system-event">{children}</p>;
+ }
+ 
++function PrivateThreadSummaryStrip({
++  proposal,
++  i18n,
++  onOpenDetails,
++  onOpenProgress,
++}: {
++  proposal: TradeProposalDto;
++  i18n: TradeI18n;
++  onOpenDetails: () => void;
++  onOpenProgress?: () => void;
++}) {
++  const isDeal = proposal.status === "accepted";
++  const sideItems = proposalSideItems(proposal).slice(0, 2);
++  const statusLabel = isDeal
++    ? getStatusLabel(proposal.trade?.status ?? "in_progress", i18n)
++    : getStatusLabel(proposal.status, i18n);
++  const title = proposal.trade?.title ?? tr(i18n, "trade.proposals.privateProposalConversation", "Private proposal conversation");
++
++  return (
++    <aside className="private-thread-summary-strip" aria-label={tr(i18n, "trade.proposals.threadSummary", "Thread summary")}>
++      <div className="private-thread-summary-strip__main">
++        <span className="semantic-badge proposal">
++          <WebIcon name={isDeal ? "proposal-accepted" : proposalStatusIcon(proposal.status)} size={14} decorative /> {statusLabel}
++        </span>
++        <strong>{isDeal ? tr(i18n, "trade.proposals.privateDealTitle", "Private deal") : tr(i18n, "trade.proposals.privateProposalConversation", "Private proposal conversation")}</strong>
++        <p>{title}</p>
++      </div>
++      {sideItems.length ? (
++        <div className="private-thread-summary-strip__items">
++          {sideItems.map(({ kind, item }) => (
++            <span key={`${kind}-${item.id}`}>{kind === "offer" ? tr(i18n, "trade.labels.offer", "Offer") : tr(i18n, "trade.labels.need", "Need")} · {item.title}</span>
++          ))}
++        </div>
++      ) : (
++        <p className="private-thread-summary-strip__empty">{proposalApplicantStatus(proposal, i18n)}</p>
++      )}
++      <div className="private-thread-summary-strip__actions">
++        <button type="button" className="secondary" onClick={onOpenDetails}>
++          {tr(i18n, "trade.proposals.detailsMenuTitle", "See details")}
++        </button>
++        {onOpenProgress ? (
++          <button type="button" className="secondary" onClick={onOpenProgress}>
++            {tr(i18n, "trade.deal.progressTitle", "Progress")}
++          </button>
++        ) : null}
++      </div>
++    </aside>
++  );
++}
++
+ export function ProposalConversationClient({
+   tradeId,
+   proposalId,
+@@ -774,6 +848,9 @@ export function ProposalConversationClient({
+   const [reportMessageId, setReportMessageId] = useState<string | null>(null);
+   const [proposalDetailsOpen, setProposalDetailsOpen] = useState(false);
+   const [threadView, setThreadView] = useState<ProposalThreadView>("thread");
++  const [privateThreadMenuOpen, setPrivateThreadMenuOpen] = useState(false);
++  const privateThreadMenuRef = useRef<HTMLDivElement | null>(null);
++  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+   const initialEditAppliedRef = useRef(false);
+   const actionLoadingRef = useRef<string | null>(null);
+   const refreshInFlightRef = useRef(false);
+@@ -847,8 +924,38 @@ export function ProposalConversationClient({
+ 
+   useEffect(() => {
+     setThreadView("thread");
++    setPrivateThreadMenuOpen(false);
+   }, [proposalId]);
+ 
++  useEffect(() => {
++    if (threadView !== "thread") setPrivateThreadMenuOpen(false);
++  }, [threadView]);
++
++  useEffect(() => {
++    resizePrivateReplyComposer(replyTextareaRef.current);
++  }, [reply]);
++
++  useEffect(() => {
++    if (!privateThreadMenuOpen) return;
++
++    function handlePointerDown(event: PointerEvent) {
++      if (!privateThreadMenuRef.current) return;
++      if (privateThreadMenuRef.current.contains(event.target as Node)) return;
++      setPrivateThreadMenuOpen(false);
++    }
++
++    function handleKeyDown(event: KeyboardEvent) {
++      if (event.key === "Escape") setPrivateThreadMenuOpen(false);
++    }
++
++    document.addEventListener("pointerdown", handlePointerDown);
++    document.addEventListener("keydown", handleKeyDown);
++    return () => {
++      document.removeEventListener("pointerdown", handlePointerDown);
++      document.removeEventListener("keydown", handleKeyDown);
++    };
++  }, [privateThreadMenuOpen]);
++
+   useEffect(() => {
+     actionLoadingRef.current = actionLoading;
+   }, [actionLoading]);
+@@ -1348,6 +1455,70 @@ export function ProposalConversationClient({
+   const submittedByYou = Boolean(actorId && proposal.trade?.deliverySubmittedById === actorId);
+   const dealRoleGuard = proposal.status === "accepted" ? getDealRoleGuard(dealStatus, canMarkSubmitted, canConfirmCompleted, submittedByYou, i18n) : null;
+ 
++  function openPrivateThreadMenu() {
++    if (typeof window !== "undefined" && window.matchMedia("(min-width: 760px)").matches) {
++      setPrivateThreadMenuOpen((current) => !current);
++      return;
++    }
++    setThreadView("options");
++  }
++
++  function openThreadViewFromMenu(nextView: ProposalThreadView) {
++    setPrivateThreadMenuOpen(false);
++    setThreadView(nextView);
++  }
++
++  const privateThreadMenuDropdown = (
++    <div className="private-thread-menu__popover" role="menu" aria-label={tr(i18n, "trade.proposals.threadMenuTitle", "Thread options")}>
++      <Link href={`/trades/${tradeId}`} role="menuitem" onClick={() => setPrivateThreadMenuOpen(false)}>
++        <WebIcon name="trade" size={16} decorative />
++        <span>
++          <strong>{t("trade.labels.tradeDetails")}</strong>
++          <small>{tr(i18n, "trade.publicThread.seeDetailsBody", "Open the full trade detail page.")}</small>
++        </span>
++      </Link>
++      <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("proposal")}>
++        <WebIcon name="proposal" size={16} decorative />
++        <span>
++          <strong>{tr(i18n, "trade.proposals.proposalDetails", "Proposal details")}</strong>
++          <small>{tr(i18n, "trade.proposals.proposalDetailsBody", "Review the proposal package and message.")}</small>
++        </span>
++      </button>
++      {proposal.status === "accepted" ? (
++        <>
++          <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("deal-agreement")}>
++            <WebIcon name="proposal-accepted" size={16} decorative />
++            <span>
++              <strong>{tr(i18n, "trade.deal.agreementTitle", "Accepted agreement")}</strong>
++              <small>{tr(i18n, "trade.deal.agreementBody", "Review what each participant agreed to give and receive.")}</small>
++            </span>
++          </button>
++          <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("deal-progress")}>
++            <WebIcon name="activity" size={16} decorative />
++            <span>
++              <strong>{tr(i18n, "trade.deal.progressTitle", "Progress")}</strong>
++              <small>{tr(i18n, "trade.proposals.dealProgressBody", "Submit, complete, cancel, or report the accepted deal.")}</small>
++            </span>
++          </button>
++        </>
++      ) : null}
++      <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu("guide")}>
++        <WebIcon name="help" size={16} decorative />
++        <span>
++          <strong>{tr(i18n, "trade.publicThread.seeGuide", "See guide")}</strong>
++          <small>{tr(i18n, "trade.proposals.privateGuideBody", "Understand how private proposals and deal chats work.")}</small>
++        </span>
++      </button>
++      <button type="button" role="menuitem" className="danger-text" onClick={() => openThreadViewFromMenu("report")}>
++        <WebIcon name="report-flag" size={16} decorative />
++        <span>
++          <strong>{tr(i18n, "trade.publicThread.reportThread", "Report thread")}</strong>
++          <small>{tr(i18n, "trade.proposals.reportPrivateThreadBody", "Report unsafe, spammy, or abusive private activity.")}</small>
++        </span>
++      </button>
++    </div>
++  );
++
+   return (
+     <article className="trade-detail-page proposal-conversation-page proposal-conversation-page--messages-only">
+       <ProposalThreadHeader
+@@ -1387,7 +1558,10 @@ export function ProposalConversationClient({
+                     ? () => { setThreadView("thread"); setReportMessageId(null); }
+                     : () => setThreadView("details")
+         }
+-        onMenu={threadView === "thread" ? () => setThreadView("options") : undefined}
++        onMenu={threadView === "thread" ? openPrivateThreadMenu : undefined}
++        menuOpen={privateThreadMenuOpen}
++        menuRef={privateThreadMenuRef}
++        menuDropdown={privateThreadMenuDropdown}
+       />
+       {notice ? <p className="notice-box info proposal-thread-notice">{notice}</p> : null}
+ 
+@@ -1860,6 +2034,12 @@ export function ProposalConversationClient({
+ 
+       {threadView === "thread" ? (
+         <section className="thread-message-page proposal-conversation-panel">
++          <PrivateThreadSummaryStrip
++            proposal={proposal}
++            i18n={i18n}
++            onOpenDetails={() => setThreadView("details")}
++            onOpenProgress={proposal.status === "accepted" ? () => setThreadView("deal-progress") : undefined}
++          />
+           <div className="message-list proposal-conversation-list proposal-timeline-list proposal-thread-message-list">
+             <ThreadSystemEvent>
+               {proposal.status === "accepted"
+@@ -1950,13 +2130,15 @@ export function ProposalConversationClient({
+               <label className="sr-only" htmlFor="proposal-reply">{t("trade.proposals.reply")}</label>
+               <textarea
+                 id="proposal-reply"
++                ref={replyTextareaRef}
+                 value={reply}
+                 onChange={(event) => {
+                   setReply(event.target.value);
++                  resizePrivateReplyComposer(event.currentTarget);
+                   if (replyError) setReplyError(null);
+                 }}
+                 placeholder={t("trade.proposals.replyPrivately")}
+-                rows={2}
++                rows={1}
+                 aria-describedby={replyError ? "proposal-reply-error" : undefined}
+                 aria-invalid={Boolean(replyError)}
+               />

@@ -6398,3 +6398,897 @@ html[data-theme="dark"] .onboarding-guide-primary {
     padding: 14px 0 0;
   }
 }
+
+/* WEB-THREAD13C: public discussion composer and options polish */
+.public-discussion-page--menu .web-thread-options-list {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 24px;
+}
+
+.public-discussion-page--menu .web-thread-option-row {
+  margin-inline: 0;
+  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--app-surface) 86%, transparent);
+  padding: 15px 16px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.045);
+}
+
+.public-discussion-page--menu .web-thread-option-row:hover,
+.public-discussion-page--menu .web-thread-option-row:focus-visible {
+  border-color: var(--app-border-strong);
+  background: var(--app-surface);
+}
+
+.public-discussion-page--menu .web-thread-option-row.danger-text {
+  border-color: color-mix(in srgb, var(--danger-text) 34%, var(--app-border));
+  background: color-mix(in srgb, var(--warning-bg) 52%, var(--app-surface));
+  color: var(--danger-text);
+}
+
+.public-discussion-page--menu .web-thread-option-row.danger-text small {
+  color: color-mix(in srgb, var(--danger-text) 68%, var(--app-text-muted));
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only {
+  border: 0;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--app-surface) 82%, transparent);
+  padding: 8px;
+  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only textarea {
+  min-height: 46px;
+  border: 0;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--app-bg) 72%, var(--app-surface));
+  padding: 13px 14px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-border) 78%, transparent);
+  resize: none;
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only textarea:focus {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--proposal-border) 34%, var(--app-border-strong));
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only button {
+  min-height: 46px;
+  border-radius: 16px;
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
+@media (max-width: 759px) {
+  .public-discussion-page--flat .public-discussion-composer--messages-only {
+    bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 8px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin: auto 0 0;
+    border-radius: 0;
+    background: color-mix(in srgb, var(--app-bg) 94%, transparent);
+    padding: 10px 0 max(10px, env(safe-area-inset-bottom));
+    box-shadow: none;
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only textarea {
+    min-height: 48px;
+    border-radius: 18px;
+    background: var(--app-surface);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--app-border) 86%, transparent);
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only button {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 16px;
+  }
+}
+
+@media (min-width: 760px) {
+  .public-discussion-page--flat .public-discussion-composer--messages-only {
+    bottom: 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+    margin-top: 18px;
+  }
+}
+
+/* WEB-THREAD13D: public discussion autosizing composer with one clean border */
+.public-discussion-page--flat .public-discussion-composer--messages-only {
+  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  padding: 8px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.065);
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only:focus-within {
+  border-color: color-mix(in srgb, var(--proposal-border) 42%, var(--app-border-strong));
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.085);
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only textarea {
+  min-height: 46px;
+  max-height: 144px;
+  border: 0;
+  border-radius: 17px;
+  background: transparent;
+  padding: 13px 14px;
+  box-shadow: none;
+  line-height: 1.45;
+  overflow-y: hidden;
+  resize: none;
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only textarea:focus {
+  box-shadow: none;
+}
+
+.public-discussion-page--flat .public-discussion-composer--messages-only button {
+  align-self: end;
+  min-height: 46px;
+  border-radius: 17px;
+}
+
+@media (max-width: 759px) {
+  .public-discussion-page--flat .public-discussion-composer--messages-only {
+    bottom: calc(var(--app-tab-height) + env(safe-area-inset-bottom) + 8px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin: auto 0 0;
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+    padding: 8px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only textarea {
+    min-height: 48px;
+    max-height: 144px;
+    border-radius: 16px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only textarea:focus {
+    box-shadow: none;
+  }
+
+  .public-discussion-page--flat .public-discussion-composer--messages-only button {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 16px;
+  }
+}
+
+@media (min-width: 760px) {
+  .public-discussion-page--flat .public-discussion-composer--messages-only {
+    bottom: 14px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+    margin-top: 18px;
+  }
+}
+
+/* WEB-OPTIONS1: shared web option picker layout */
+.web-option-picker {
+  display: grid;
+  gap: 16px;
+  width: min(760px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.web-option-picker__intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.web-option-picker__intro h2 {
+  margin-bottom: 8px;
+}
+
+.web-option-picker__intro p:not(.eyebrow) {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.web-option-picker__action {
+  flex: 0 0 auto;
+}
+
+.web-option-picker-panel {
+  display: grid;
+  gap: 14px;
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+  padding: 18px;
+  box-shadow: var(--app-card-shadow);
+}
+
+.web-option-picker-panel__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.web-option-picker-panel__top span,
+.web-option-picker-panel__top em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid var(--instruction-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--instruction-bg) 72%, var(--app-surface));
+  color: var(--instruction-text);
+  padding: 0 12px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.web-option-picker-panel__top em {
+  border-color: var(--app-border-strong);
+  background: var(--app-surface-soft);
+  color: var(--app-text-muted);
+}
+
+.web-option-picker-panel__list {
+  display: grid;
+  gap: 10px;
+}
+
+.web-option-picker-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 76px;
+  border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent);
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--app-surface-soft) 72%, var(--app-surface));
+  color: var(--app-text);
+  padding: 12px;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.web-option-picker-card:hover,
+.web-option-picker-card:focus-visible {
+  border-color: color-mix(in srgb, var(--app-border-strong) 86%, var(--app-text-muted));
+  background: var(--app-surface);
+  box-shadow: var(--app-control-shadow);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.web-option-picker-card--dashed {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--app-surface) 76%, var(--app-bg-muted));
+}
+
+.web-option-picker-card.is-disabled,
+.web-option-picker-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  transform: none;
+}
+
+.web-option-picker-card--danger {
+  border-color: color-mix(in srgb, var(--danger-border) 62%, var(--app-border));
+  background: color-mix(in srgb, var(--warning-bg) 46%, var(--app-surface));
+}
+
+.web-option-picker-card--danger .web-option-picker-card__icon,
+.web-option-picker-card--danger .web-option-picker-card__body strong,
+.web-option-picker-card--danger .web-option-picker-card__chevron {
+  color: var(--danger-text);
+}
+
+.web-option-picker-card--danger .web-option-picker-card__body small,
+.web-option-picker-card--danger .web-option-picker-card__meta {
+  color: color-mix(in srgb, var(--danger-text) 62%, var(--app-text-muted));
+}
+
+.web-option-picker-card--warning {
+  border-color: color-mix(in srgb, var(--warning-border) 72%, var(--app-border));
+  background: color-mix(in srgb, var(--warning-bg) 42%, var(--app-surface));
+}
+
+.web-option-picker-card--muted {
+  background: color-mix(in srgb, var(--app-bg-muted) 68%, var(--app-surface));
+}
+
+.web-option-picker-card__icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--app-bg-muted) 82%, var(--app-surface));
+  color: var(--app-text-soft);
+  font-size: 23px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.web-option-picker-card__body {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.web-option-picker-card__body strong {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 16px;
+  font-weight: 950;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-option-picker-card__body small,
+.web-option-picker-card__meta {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.web-option-picker-card__meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-option-picker-card__chevron {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  color: var(--app-text-muted);
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+@media (max-width: 759px) {
+  .web-option-picker {
+    gap: 14px;
+    width: 100%;
+  }
+
+  .web-option-picker__intro {
+    display: grid;
+    gap: 12px;
+  }
+
+  .web-option-picker__action {
+    justify-self: start;
+  }
+
+  .web-option-picker-panel {
+    border-radius: 24px;
+    padding: 14px;
+  }
+
+  .web-option-picker-card {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    min-height: 76px;
+    border-radius: 20px;
+    padding: 11px;
+  }
+
+  .web-option-picker-card__icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+  }
+}
+
+/* WEB-OPTIONS2: thread option pages use shared option picker cards */
+.web-thread-options-picker {
+  margin: 14px 16px 24px;
+}
+
+.web-thread-options-picker .web-option-picker-card {
+  min-height: 82px;
+}
+
+.proposal-conversation-page--messages-only .thread-full-page--options {
+  gap: 14px;
+}
+
+.proposal-conversation-page--messages-only .thread-full-page--options .web-thread-options-picker {
+  margin: 0;
+}
+
+@media (min-width: 760px) {
+  .web-thread-options-picker {
+    margin: 18px 18px 28px;
+  }
+
+  .proposal-conversation-page--messages-only .thread-full-page--options .web-thread-options-picker {
+    margin: 0;
+  }
+}
+
+/* WEB-THREAD15: private conversation web redesign */
+.private-thread-summary-strip {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 10px;
+  margin: 14px 14px 0;
+  border: 1px solid color-mix(in srgb, var(--proposal-border) 34%, var(--app-border));
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--proposal-bg) 16%, var(--app-surface));
+  padding: 12px;
+}
+
+.private-thread-summary-strip__main {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.private-thread-summary-strip__main .semantic-badge {
+  justify-self: start;
+}
+
+.private-thread-summary-strip__main strong {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: 16px;
+  font-weight: 950;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.private-thread-summary-strip__main p,
+.private-thread-summary-strip__empty {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.private-thread-summary-strip__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.private-thread-summary-strip__items span {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app-surface) 86%, transparent);
+  color: var(--app-text-muted);
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.private-thread-summary-strip__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.private-thread-summary-strip__actions button {
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0 12px;
+  font-size: 11px;
+}
+
+.proposal-conversation-page--messages-only .proposal-thread-message-list {
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
+  max-width: min(68%, 540px);
+  border-color: color-mix(in srgb, var(--app-border) 46%, transparent);
+  border-radius: 19px 19px 19px 8px;
+  background: color-mix(in srgb, var(--app-surface) 96%, transparent);
+  padding: 10px 12px;
+}
+
+.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble--own {
+  border-color: color-mix(in srgb, var(--proposal-border) 34%, transparent);
+  border-radius: 19px 19px 8px 19px;
+  background: color-mix(in srgb, var(--proposal-bg) 34%, var(--app-surface));
+}
+
+.proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble > p:not(.message-meta):not(.message-deleted) {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.proposal-conversation-page--messages-only .thread-bottom-composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin: 10px 14px max(10px, env(safe-area-inset-bottom));
+  border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  padding: 8px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.065);
+  backdrop-filter: blur(16px);
+}
+
+.proposal-conversation-page--messages-only .thread-bottom-composer:focus-within {
+  border-color: color-mix(in srgb, var(--proposal-border) 42%, var(--app-border-strong));
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.085);
+}
+
+.proposal-conversation-page--messages-only .thread-bottom-composer textarea {
+  min-height: 46px;
+  max-height: 144px;
+  border: 0;
+  border-radius: 17px;
+  background: transparent;
+  padding: 13px 14px;
+  box-shadow: none;
+  line-height: 1.45;
+  overflow-y: hidden;
+  resize: none;
+}
+
+.proposal-conversation-page--messages-only .thread-bottom-composer textarea:focus {
+  box-shadow: none;
+}
+
+.proposal-conversation-page--messages-only .thread-bottom-composer button {
+  align-self: end;
+  min-height: 46px;
+  border-radius: 17px;
+}
+
+.proposal-conversation-page--messages-only .thread-bottom-composer .field-error {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 760px) {
+  .proposal-conversation-page--messages-only {
+    display: grid;
+    grid-template-rows: auto minmax(0, auto);
+    max-width: 760px;
+    min-height: auto;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .proposal-conversation-page--messages-only .thread-page-header {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    min-height: 70px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 12px 0;
+  }
+
+  .proposal-conversation-page--messages-only .thread-page-header h1 {
+    justify-self: start;
+    font-size: 23px;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    text-align: left;
+  }
+
+  .proposal-conversation-page--messages-only .thread-page-header__back,
+  .proposal-conversation-page--messages-only .thread-page-header__menu {
+    width: 40px;
+    height: 40px;
+    border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 84%, transparent);
+    box-shadow: var(--app-control-shadow);
+  }
+
+  .proposal-conversation-page--messages-only .thread-message-page {
+    overflow: visible;
+    border-radius: 30px;
+    background: var(--app-surface);
+    box-shadow: var(--app-card-shadow);
+  }
+
+  .private-thread-summary-strip {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    margin: 18px 18px 0;
+    padding: 14px;
+  }
+
+  .private-thread-summary-strip__items {
+    grid-column: 1 / -1;
+  }
+
+  .private-thread-summary-strip__actions {
+    justify-content: flex-end;
+  }
+
+  .proposal-conversation-page--messages-only .proposal-thread-message-list {
+    min-height: min(520px, calc(100dvh - 380px));
+    background: color-mix(in srgb, var(--app-surface-soft) 24%, transparent);
+    padding: 16px 18px 14px;
+  }
+
+  .proposal-conversation-page--messages-only .thread-bottom-composer {
+    margin: 14px 18px 18px;
+  }
+}
+
+@media (max-width: 759px) {
+  .private-thread-summary-strip {
+    margin: 10px 12px 0;
+    border-radius: 20px;
+    padding: 11px;
+  }
+
+  .proposal-conversation-page--messages-only .proposal-conversation-list .message-bubble {
+    max-width: 86%;
+  }
+
+  .proposal-conversation-page--messages-only .thread-bottom-composer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    margin: 10px 12px max(10px, env(safe-area-inset-bottom));
+    border-radius: 22px;
+  }
+
+  .proposal-conversation-page--messages-only .thread-bottom-composer textarea {
+    min-height: 48px;
+    border-radius: 16px;
+  }
+
+  .proposal-conversation-page--messages-only .thread-bottom-composer button {
+    width: 100%;
+    min-height: 46px;
+    border-radius: 16px;
+  }
+}
+
+/* WEB-THREAD16: private proposals list final polish */
+.private-proposals-list-menu {
+  pointer-events: auto;
+}
+
+@media (min-width: 760px) {
+  .private-proposals-page--messages-only {
+    display: flex;
+    max-width: 760px;
+    min-height: calc(100dvh - var(--app-header-height) - 74px);
+    flex-direction: column;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .private-proposals-page--messages-only .web-thread-header {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    min-height: 70px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 12px 0;
+  }
+
+  .private-proposals-page--messages-only .web-thread-header h2 {
+    justify-self: start;
+    font-size: 23px;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    text-align: left;
+  }
+
+  .private-proposals-page--messages-only .web-thread-header__back,
+  .private-proposals-page--messages-only .web-thread-header__menu {
+    width: 40px;
+    height: 40px;
+    border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 84%, transparent);
+    box-shadow: var(--app-control-shadow);
+  }
+
+  .private-proposals-page--messages-only .private-proposals-section--clean {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0;
+    overflow: visible;
+    background: transparent;
+    padding: 4px 0 22px;
+  }
+
+  .private-proposals-page--messages-only .private-proposals-section--clean .notice-box {
+    margin: 0 0 14px;
+  }
+
+  .private-proposals-page--messages-only .private-proposals-section--clean .proposal-composer {
+    gap: 12px;
+    margin: 0 0 20px;
+    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+    border-radius: 24px;
+    background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+    padding: 14px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.065);
+  }
+
+  .private-proposals-page--messages-only .private-proposals-section--clean .proposal-composer:focus-within {
+    border-color: color-mix(in srgb, var(--proposal-border) 42%, var(--app-border-strong));
+    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.085);
+  }
+
+  .private-proposals-page--messages-only .proposal-attachment-lines {
+    gap: 8px;
+    margin: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .private-proposals-page--messages-only .proposal-attachment-line,
+  .private-proposals-page--messages-only .proposal-attachment-hint {
+    margin: 0;
+    border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--app-bg) 72%, var(--app-surface));
+    padding: 11px 12px;
+  }
+
+  .private-proposals-page--messages-only .proposal-message-field--minimal textarea {
+    min-height: 92px;
+    border: 0;
+    border-radius: 18px;
+    background: transparent;
+    padding: 12px 0 4px;
+    box-shadow: none;
+    resize: vertical;
+  }
+
+  .private-proposals-page--messages-only .proposal-message-field--minimal textarea:focus {
+    box-shadow: none;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row-list {
+    display: grid;
+    gap: 0;
+    margin: 0;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    min-height: 0;
+    gap: 12px;
+    border: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--app-divider-strong) 86%, transparent);
+    border-radius: 0;
+    background: transparent;
+    padding: 16px 0;
+    box-shadow: none;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row:hover,
+  .private-proposals-page--messages-only .private-proposal-row:focus-visible {
+    border-color: color-mix(in srgb, var(--app-divider-strong) 86%, transparent);
+    background: transparent;
+    transform: none;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row--active {
+    border-color: color-mix(in srgb, var(--app-divider-strong) 86%, transparent);
+    background: color-mix(in srgb, var(--proposal-bg) 13%, transparent);
+    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--proposal-border) 70%, transparent);
+    padding-left: 14px;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row__message {
+    max-width: 64ch;
+    margin-left: 44px;
+    font-size: 13px;
+    line-height: 1.46;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row__status {
+    min-height: 30px;
+    border: 1px solid color-mix(in srgb, var(--proposal-border) 44%, var(--app-border));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--proposal-bg) 18%, transparent);
+    color: var(--proposal-text);
+    padding: 0 10px;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row__open {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--app-surface) 72%, transparent);
+    color: var(--app-text-muted);
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 950;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .private-proposals-page--messages-only .private-proposal-row > .web-icon:last-child {
+    color: var(--app-text-muted);
+  }
+
+  .private-proposals-page--messages-only .private-proposal-empty-text {
+    margin: 12px 0 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--app-text-muted);
+    padding: 18px 0;
+  }
+}
+
+@media (max-width: 759px) {
+  .private-proposals-page--messages-only .private-proposals-section--clean .proposal-composer {
+    margin: 10px 0 14px;
+    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--app-surface) 94%, transparent);
+    padding: 12px;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
+  }
+
+  .private-proposals-page--messages-only .proposal-attachment-lines {
+    gap: 8px;
+    margin: 0 0 8px;
+  }
+
+  .private-proposals-page--messages-only .proposal-attachment-line,
+  .private-proposals-page--messages-only .proposal-attachment-hint {
+    margin: 0;
+    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
+    border-radius: 17px;
+    background: color-mix(in srgb, var(--app-bg) 72%, var(--app-surface));
+    padding: 11px 12px;
+  }
+
+  .private-proposals-page--messages-only .proposal-message-field--minimal textarea {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}

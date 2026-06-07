@@ -1,0 +1,385 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index f9ef9f1..eca662b 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -6653,3 +6653,232 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     margin-top: 18px;
+   }
+ }
++
++/* WEB-OPTIONS1: shared web option picker layout */
++.web-option-picker {
++  display: grid;
++  gap: 16px;
++  width: min(760px, 100%);
++  margin-right: auto;
++  margin-left: auto;
++}
++
++.web-option-picker__intro {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 14px;
++}
++
++.web-option-picker__intro h2 {
++  margin-bottom: 8px;
++}
++
++.web-option-picker__intro p:not(.eyebrow) {
++  margin: 0;
++  color: var(--app-text-muted);
++  font-size: 15px;
++  font-weight: 650;
++  line-height: 1.45;
++}
++
++.web-option-picker__action {
++  flex: 0 0 auto;
++}
++
++.web-option-picker-panel {
++  display: grid;
++  gap: 14px;
++  border-radius: 28px;
++  background: color-mix(in srgb, var(--app-surface) 94%, transparent);
++  padding: 18px;
++  box-shadow: var(--app-card-shadow);
++}
++
++.web-option-picker-panel__top {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++}
++
++.web-option-picker-panel__top span,
++.web-option-picker-panel__top em {
++  display: inline-flex;
++  align-items: center;
++  min-height: 28px;
++  border: 1px solid var(--instruction-border);
++  border-radius: 999px;
++  background: color-mix(in srgb, var(--instruction-bg) 72%, var(--app-surface));
++  color: var(--instruction-text);
++  padding: 0 12px;
++  font-size: 11px;
++  font-style: normal;
++  font-weight: 950;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++}
++
++.web-option-picker-panel__top em {
++  border-color: var(--app-border-strong);
++  background: var(--app-surface-soft);
++  color: var(--app-text-muted);
++}
++
++.web-option-picker-panel__list {
++  display: grid;
++  gap: 10px;
++}
++
++.web-option-picker-card {
++  display: grid;
++  grid-template-columns: 52px minmax(0, 1fr) auto;
++  align-items: center;
++  gap: 12px;
++  width: 100%;
++  min-height: 76px;
++  border: 1px solid color-mix(in srgb, var(--app-border) 88%, transparent);
++  border-radius: 22px;
++  background: color-mix(in srgb, var(--app-surface-soft) 72%, var(--app-surface));
++  color: var(--app-text);
++  padding: 12px;
++  font: inherit;
++  text-align: left;
++  text-decoration: none;
++  cursor: pointer;
++  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
++}
++
++.web-option-picker-card:hover,
++.web-option-picker-card:focus-visible {
++  border-color: color-mix(in srgb, var(--app-border-strong) 86%, var(--app-text-muted));
++  background: var(--app-surface);
++  box-shadow: var(--app-control-shadow);
++  outline: none;
++  transform: translateY(-1px);
++}
++
++.web-option-picker-card--dashed {
++  border-style: dashed;
++  background: color-mix(in srgb, var(--app-surface) 76%, var(--app-bg-muted));
++}
++
++.web-option-picker-card.is-disabled,
++.web-option-picker-card:disabled {
++  cursor: not-allowed;
++  opacity: 0.56;
++  transform: none;
++}
++
++.web-option-picker-card--danger {
++  border-color: color-mix(in srgb, var(--danger-border) 62%, var(--app-border));
++  background: color-mix(in srgb, var(--warning-bg) 46%, var(--app-surface));
++}
++
++.web-option-picker-card--danger .web-option-picker-card__icon,
++.web-option-picker-card--danger .web-option-picker-card__body strong,
++.web-option-picker-card--danger .web-option-picker-card__chevron {
++  color: var(--danger-text);
++}
++
++.web-option-picker-card--danger .web-option-picker-card__body small,
++.web-option-picker-card--danger .web-option-picker-card__meta {
++  color: color-mix(in srgb, var(--danger-text) 62%, var(--app-text-muted));
++}
++
++.web-option-picker-card--warning {
++  border-color: color-mix(in srgb, var(--warning-border) 72%, var(--app-border));
++  background: color-mix(in srgb, var(--warning-bg) 42%, var(--app-surface));
++}
++
++.web-option-picker-card--muted {
++  background: color-mix(in srgb, var(--app-bg-muted) 68%, var(--app-surface));
++}
++
++.web-option-picker-card__icon {
++  display: grid;
++  place-items: center;
++  width: 52px;
++  height: 52px;
++  border-radius: 18px;
++  background: color-mix(in srgb, var(--app-bg-muted) 82%, var(--app-surface));
++  color: var(--app-text-soft);
++  font-size: 23px;
++  font-weight: 950;
++  line-height: 1;
++}
++
++.web-option-picker-card__body {
++  display: grid;
++  min-width: 0;
++  gap: 4px;
++}
++
++.web-option-picker-card__body strong {
++  overflow: hidden;
++  color: var(--app-text);
++  font-size: 16px;
++  font-weight: 950;
++  line-height: 1.2;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.web-option-picker-card__body small,
++.web-option-picker-card__meta {
++  color: var(--app-text-muted);
++  font-size: 12px;
++  font-weight: 800;
++  line-height: 1.35;
++}
++
++.web-option-picker-card__meta {
++  display: block;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.web-option-picker-card__chevron {
++  display: grid;
++  place-items: center;
++  min-width: 24px;
++  color: var(--app-text-muted);
++  font-size: 22px;
++  font-weight: 950;
++  line-height: 1;
++}
++
++@media (max-width: 759px) {
++  .web-option-picker {
++    gap: 14px;
++    width: 100%;
++  }
++
++  .web-option-picker__intro {
++    display: grid;
++    gap: 12px;
++  }
++
++  .web-option-picker__action {
++    justify-self: start;
++  }
++
++  .web-option-picker-panel {
++    border-radius: 24px;
++    padding: 14px;
++  }
++
++  .web-option-picker-card {
++    grid-template-columns: 48px minmax(0, 1fr) auto;
++    min-height: 76px;
++    border-radius: 20px;
++    padding: 11px;
++  }
++
++  .web-option-picker-card__icon {
++    width: 48px;
++    height: 48px;
++    border-radius: 16px;
++  }
++}
+diff --git a/apps/web/src/components/WebOptionPicker.tsx b/apps/web/src/components/WebOptionPicker.tsx
+new file mode 100644
+index 0000000..0557229
+--- /dev/null
++++ b/apps/web/src/components/WebOptionPicker.tsx
+@@ -0,0 +1,142 @@
++'use client';
++
++import Link from 'next/link';
++import type { ReactNode } from 'react';
++import { WebIcon, type WebIconName } from './WebIcon';
++
++type OptionPickerTone = 'default' | 'danger' | 'warning' | 'muted';
++
++type WebOptionPickerShellProps = {
++  eyebrow?: string;
++  title: string;
++  description?: ReactNode;
++  action?: ReactNode;
++  children: ReactNode;
++  className?: string;
++};
++
++export function WebOptionPickerShell({
++  eyebrow,
++  title,
++  description,
++  action,
++  children,
++  className = '',
++}: WebOptionPickerShellProps) {
++  return (
++    <section className={`web-option-picker ${className}`.trim()}>
++      <div className="web-option-picker__intro">
++        <div>
++          {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
++          <h2>{title}</h2>
++          {description ? <p>{description}</p> : null}
++        </div>
++        {action ? <div className="web-option-picker__action">{action}</div> : null}
++      </div>
++      {children}
++    </section>
++  );
++}
++
++type WebOptionPickerPanelProps = {
++  eyebrow?: string;
++  badge?: ReactNode;
++  children: ReactNode;
++  className?: string;
++};
++
++export function WebOptionPickerPanel({ eyebrow, badge, children, className = '' }: WebOptionPickerPanelProps) {
++  return (
++    <div className={`web-option-picker-panel ${className}`.trim()}>
++      {eyebrow || badge ? (
++        <div className="web-option-picker-panel__top">
++          {eyebrow ? <span>{eyebrow}</span> : <span aria-hidden="true" />}
++          {badge ? <em>{badge}</em> : null}
++        </div>
++      ) : null}
++      <div className="web-option-picker-panel__list">{children}</div>
++    </div>
++  );
++}
++
++type WebOptionPickerCardBaseProps = {
++  title: ReactNode;
++  description?: ReactNode;
++  meta?: ReactNode;
++  icon?: ReactNode;
++  iconName?: WebIconName;
++  trailing?: ReactNode;
++  tone?: OptionPickerTone;
++  dashed?: boolean;
++  disabled?: boolean;
++  className?: string;
++  children?: ReactNode;
++};
++
++type WebOptionPickerCardProps = WebOptionPickerCardBaseProps & {
++  href?: string;
++  onClick?: () => void;
++  type?: 'button' | 'submit' | 'reset';
++};
++
++function cardClassName({ tone = 'default', dashed, disabled, className = '' }: Pick<WebOptionPickerCardProps, 'tone' | 'dashed' | 'disabled' | 'className'>) {
++  return [
++    'web-option-picker-card',
++    tone !== 'default' ? `web-option-picker-card--${tone}` : '',
++    dashed ? 'web-option-picker-card--dashed' : '',
++    disabled ? 'is-disabled' : '',
++    className,
++  ]
++    .filter(Boolean)
++    .join(' ');
++}
++
++function WebOptionPickerCardContent({
++  title,
++  description,
++  meta,
++  icon,
++  iconName,
++  trailing,
++  children,
++}: WebOptionPickerCardBaseProps) {
++  const resolvedTrailing = trailing ?? <span className="web-option-picker-card__chevron" aria-hidden="true">→</span>;
++
++  return (
++    <>
++      <span className="web-option-picker-card__icon" aria-hidden="true">
++        {icon ?? (iconName ? <WebIcon name={iconName} size={22} decorative /> : null)}
++      </span>
++      <span className="web-option-picker-card__body">
++        <strong>{title}</strong>
++        {description ? <small>{description}</small> : null}
++        {meta ? <span className="web-option-picker-card__meta">{meta}</span> : null}
++        {children}
++      </span>
++      {resolvedTrailing}
++    </>
++  );
++}
++
++export function WebOptionPickerCard(props: WebOptionPickerCardProps) {
++  const { href, onClick, type = 'button', disabled, ...contentProps } = props;
++  const className = cardClassName(props);
++
++  if (href && !disabled) {
++    return (
++      <Link className={className} href={href}>
++        <WebOptionPickerCardContent {...contentProps} disabled={disabled} />
++      </Link>
++    );
++  }
++
++  return (
++    <button className={className} type={type} onClick={onClick} disabled={disabled}>
++      <WebOptionPickerCardContent {...contentProps} disabled={disabled} />
++    </button>
++  );
++}
++
++export function WebOptionPickerDangerCard(props: Omit<WebOptionPickerCardProps, 'tone'>) {
++  return <WebOptionPickerCard {...props} tone="danger" />;
++}

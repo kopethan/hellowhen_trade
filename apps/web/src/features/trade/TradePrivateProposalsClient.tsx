@@ -6,6 +6,7 @@ import type { TradeDto } from '@hellowhen/contracts';
 import { useEffect, useState } from 'react';
 import { ReportContentButton } from '../../components/ReportContentButton';
 import { WebIcon } from '../../components/WebIcon';
+import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from '../../components/WebOptionPicker';
 import { api } from '../../lib/api';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
@@ -74,6 +75,10 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
     setView('thread');
   }
 
+  function openThreadMenu() {
+    setView('menu');
+  }
+
   if (!auth.hydrated || loading) {
     return (
       <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only" aria-busy="true">
@@ -132,47 +137,42 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
           <button type="button" className="web-thread-header__back" onClick={closeSubpage} aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></button>
           <h2>{t('trade.proposals.privateMenuTitle')}</h2>
         </section>
-        <section className="web-thread-options-list" aria-label={t('trade.proposals.privateMenuTitle')}>
-          <Link href={`/trades/${trade.id}`} className="web-thread-option-row">
-            <span>
-              <strong>{t('trade.proposals.privateMenuSeeDetails')}</strong>
-              <small>{t('trade.proposals.privateMenuSeeDetailsBody')}</small>
-            </span>
-            <WebIcon name="arrow-right" size={18} decorative />
-          </Link>
-          <button type="button" className="web-thread-option-row" onClick={() => setView('guide')}>
-            <span>
-              <strong>{t('trade.proposals.privateMenuSeeGuide')}</strong>
-              <small>{t('trade.proposals.privateMenuSeeGuideBody')}</small>
-            </span>
-            <WebIcon name="arrow-right" size={18} decorative />
-          </button>
+        <WebOptionPickerPanel className="web-thread-options-picker">
+          <WebOptionPickerCard
+            href={`/trades/${trade.id}`}
+            iconName="trade"
+            title={t('trade.proposals.privateMenuSeeDetails')}
+            description={t('trade.proposals.privateMenuSeeDetailsBody')}
+          />
+          <WebOptionPickerCard
+            iconName="help"
+            title={t('trade.proposals.privateMenuSeeGuide')}
+            description={t('trade.proposals.privateMenuSeeGuideBody')}
+            onClick={() => setView('guide')}
+          />
           {!auth.user || auth.user.id === trade.ownerId ? null : (
             <>
-              <Link href={proposalAttachHref(trade.id, 'offer', currentProposalNeedId, currentProposalOfferId)} className="web-thread-option-row">
-                <span>
-                  <strong>{t(currentProposalOfferId ? 'trade.proposals.privateMenuChangeOffer' : 'trade.proposals.privateMenuAttachOffer')}</strong>
-                  <small>{t('trade.proposals.privateMenuAttachOfferBody')}</small>
-                </span>
-                <WebIcon name="arrow-right" size={18} decorative />
-              </Link>
-              <Link href={proposalAttachHref(trade.id, 'need', currentProposalNeedId, currentProposalOfferId)} className="web-thread-option-row">
-                <span>
-                  <strong>{t(currentProposalNeedId ? 'trade.proposals.privateMenuChangeNeed' : 'trade.proposals.privateMenuAttachNeed')}</strong>
-                  <small>{t('trade.proposals.privateMenuAttachNeedBody')}</small>
-                </span>
-                <WebIcon name="arrow-right" size={18} decorative />
-              </Link>
+              <WebOptionPickerCard
+                href={proposalAttachHref(trade.id, 'offer', currentProposalNeedId, currentProposalOfferId)}
+                iconName="offer"
+                title={t(currentProposalOfferId ? 'trade.proposals.privateMenuChangeOffer' : 'trade.proposals.privateMenuAttachOffer')}
+                description={t('trade.proposals.privateMenuAttachOfferBody')}
+              />
+              <WebOptionPickerCard
+                href={proposalAttachHref(trade.id, 'need', currentProposalNeedId, currentProposalOfferId)}
+                iconName="need"
+                title={t(currentProposalNeedId ? 'trade.proposals.privateMenuChangeNeed' : 'trade.proposals.privateMenuAttachNeed')}
+                description={t('trade.proposals.privateMenuAttachNeedBody')}
+              />
             </>
           )}
-          <button type="button" className="web-thread-option-row danger-text" onClick={() => setView('report-thread')}>
-            <span>
-              <strong>{t('trade.proposals.privateMenuReportThread')}</strong>
-              <small>{t('trade.proposals.privateMenuReportThreadBody')}</small>
-            </span>
-            <WebIcon name="arrow-right" size={18} decorative />
-          </button>
-        </section>
+          <WebOptionPickerDangerCard
+            iconName="report-flag"
+            title={t('trade.proposals.privateMenuReportThread')}
+            description={t('trade.proposals.privateMenuReportThreadBody')}
+            onClick={() => setView('report-thread')}
+          />
+        </WebOptionPickerPanel>
       </article>
     );
   }
@@ -215,7 +215,7 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
       <section className="web-thread-header">
         <Link href={`/trades/${trade.id}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
         <h2>{t('trade.threadSplit.privateTitle')}</h2>
-        <button type="button" className="web-thread-header__menu" onClick={() => setView('menu')} aria-label={t('trade.proposals.privateMenuTitle')}>
+        <button type="button" className="web-thread-header__menu" onClick={openThreadMenu} aria-label={t('trade.proposals.privateMenuTitle')}>
           <WebIcon name="more" size={21} decorative />
         </button>
       </section>

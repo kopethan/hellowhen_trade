@@ -1,0 +1,348 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 0e83aac..6c49bed 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -7236,3 +7236,218 @@ html[data-theme="dark"] .onboarding-guide-primary {
+     border-radius: 16px;
+   }
+ }
++
++/* WEB-THREAD16: private proposals list final polish */
++.private-proposals-list-menu {
++  pointer-events: auto;
++}
++
++@media (min-width: 760px) {
++  .private-proposals-page--messages-only {
++    display: flex;
++    max-width: 760px;
++    min-height: calc(100dvh - var(--app-header-height) - 74px);
++    flex-direction: column;
++    overflow: visible;
++    border: 0;
++    border-radius: 0;
++    background: transparent;
++    box-shadow: none;
++  }
++
++  .private-proposals-page--messages-only .web-thread-header {
++    grid-template-columns: 44px minmax(0, 1fr) 44px;
++    min-height: 70px;
++    border: 0;
++    border-radius: 0;
++    background: transparent;
++    padding: 12px 0;
++  }
++
++  .private-proposals-page--messages-only .web-thread-header h2 {
++    justify-self: start;
++    font-size: 23px;
++    letter-spacing: -0.04em;
++    line-height: 1.05;
++    text-align: left;
++  }
++
++  .private-proposals-page--messages-only .web-thread-header__back,
++  .private-proposals-page--messages-only .web-thread-header__menu {
++    width: 40px;
++    height: 40px;
++    border: 1px solid color-mix(in srgb, var(--app-border) 76%, transparent);
++    background: color-mix(in srgb, var(--app-surface) 84%, transparent);
++    box-shadow: var(--app-control-shadow);
++  }
++
++  .private-proposals-page--messages-only .private-proposals-section--clean {
++    display: flex;
++    min-height: 0;
++    flex: 1 1 auto;
++    flex-direction: column;
++    gap: 0;
++    overflow: visible;
++    background: transparent;
++    padding: 4px 0 22px;
++  }
++
++  .private-proposals-page--messages-only .private-proposals-section--clean .notice-box {
++    margin: 0 0 14px;
++  }
++
++  .private-proposals-page--messages-only .private-proposals-section--clean .proposal-composer {
++    gap: 12px;
++    margin: 0 0 20px;
++    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
++    border-radius: 24px;
++    background: color-mix(in srgb, var(--app-surface) 92%, transparent);
++    padding: 14px;
++    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.065);
++  }
++
++  .private-proposals-page--messages-only .private-proposals-section--clean .proposal-composer:focus-within {
++    border-color: color-mix(in srgb, var(--proposal-border) 42%, var(--app-border-strong));
++    box-shadow: 0 16px 38px rgba(15, 23, 42, 0.085);
++  }
++
++  .private-proposals-page--messages-only .proposal-attachment-lines {
++    gap: 8px;
++    margin: 0;
++    overflow: visible;
++    border: 0;
++    border-radius: 0;
++    background: transparent;
++  }
++
++  .private-proposals-page--messages-only .proposal-attachment-line,
++  .private-proposals-page--messages-only .proposal-attachment-hint {
++    margin: 0;
++    border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
++    border-radius: 18px;
++    background: color-mix(in srgb, var(--app-bg) 72%, var(--app-surface));
++    padding: 11px 12px;
++  }
++
++  .private-proposals-page--messages-only .proposal-message-field--minimal textarea {
++    min-height: 92px;
++    border: 0;
++    border-radius: 18px;
++    background: transparent;
++    padding: 12px 0 4px;
++    box-shadow: none;
++    resize: vertical;
++  }
++
++  .private-proposals-page--messages-only .proposal-message-field--minimal textarea:focus {
++    box-shadow: none;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row-list {
++    display: grid;
++    gap: 0;
++    margin: 0;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row {
++    grid-template-columns: minmax(0, 1fr) auto auto auto;
++    min-height: 0;
++    gap: 12px;
++    border: 0;
++    border-bottom: 1px solid color-mix(in srgb, var(--app-divider-strong) 86%, transparent);
++    border-radius: 0;
++    background: transparent;
++    padding: 16px 0;
++    box-shadow: none;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row:hover,
++  .private-proposals-page--messages-only .private-proposal-row:focus-visible {
++    border-color: color-mix(in srgb, var(--app-divider-strong) 86%, transparent);
++    background: transparent;
++    transform: none;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row--active {
++    border-color: color-mix(in srgb, var(--app-divider-strong) 86%, transparent);
++    background: color-mix(in srgb, var(--proposal-bg) 13%, transparent);
++    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--proposal-border) 70%, transparent);
++    padding-left: 14px;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row__message {
++    max-width: 64ch;
++    margin-left: 44px;
++    font-size: 13px;
++    line-height: 1.46;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row__status {
++    min-height: 30px;
++    border: 1px solid color-mix(in srgb, var(--proposal-border) 44%, var(--app-border));
++    border-radius: 999px;
++    background: color-mix(in srgb, var(--proposal-bg) 18%, transparent);
++    color: var(--proposal-text);
++    padding: 0 10px;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row__open {
++    display: inline-flex;
++    align-items: center;
++    justify-content: center;
++    min-height: 30px;
++    border-radius: 999px;
++    background: color-mix(in srgb, var(--app-surface) 72%, transparent);
++    color: var(--app-text-muted);
++    padding: 0 10px;
++    font-size: 11px;
++    font-weight: 950;
++    letter-spacing: .08em;
++    text-transform: uppercase;
++    white-space: nowrap;
++  }
++
++  .private-proposals-page--messages-only .private-proposal-row > .web-icon:last-child {
++    color: var(--app-text-muted);
++  }
++
++  .private-proposals-page--messages-only .private-proposal-empty-text {
++    margin: 12px 0 0;
++    border: 0;
++    border-radius: 0;
++    background: transparent;
++    color: var(--app-text-muted);
++    padding: 18px 0;
++  }
++}
++
++@media (max-width: 759px) {
++  .private-proposals-page--messages-only .private-proposals-section--clean .proposal-composer {
++    margin: 10px 0 14px;
++    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
++    border-radius: 22px;
++    background: color-mix(in srgb, var(--app-surface) 94%, transparent);
++    padding: 12px;
++    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
++  }
++
++  .private-proposals-page--messages-only .proposal-attachment-lines {
++    gap: 8px;
++    margin: 0 0 8px;
++  }
++
++  .private-proposals-page--messages-only .proposal-attachment-line,
++  .private-proposals-page--messages-only .proposal-attachment-hint {
++    margin: 0;
++    border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent);
++    border-radius: 17px;
++    background: color-mix(in srgb, var(--app-bg) 72%, var(--app-surface));
++    padding: 11px 12px;
++  }
++
++  .private-proposals-page--messages-only .proposal-message-field--minimal textarea {
++    border: 0;
++    background: transparent;
++    box-shadow: none;
++  }
++}
+diff --git a/apps/web/src/features/trade/TradePrivateProposalsClient.tsx b/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
+index a12eb85..7140c41 100644
+--- a/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
++++ b/apps/web/src/features/trade/TradePrivateProposalsClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useSearchParams } from 'next/navigation';
+ import type { TradeDto } from '@hellowhen/contracts';
+-import { useEffect, useState } from 'react';
++import { useEffect, useRef, useState } from 'react';
+ import { ReportContentButton } from '../../components/ReportContentButton';
+ import { WebIcon } from '../../components/WebIcon';
+ import { WebOptionPickerCard, WebOptionPickerDangerCard, WebOptionPickerPanel } from '../../components/WebOptionPicker';
+@@ -41,6 +41,8 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+   const [loading, setLoading] = useState(true);
+   const [notice, setNotice] = useState<string | null>(null);
+   const [view, setView] = useState<PrivateProposalEntryView>('thread');
++  const [threadMenuOpen, setThreadMenuOpen] = useState(false);
++  const threadMenuRef = useRef<HTMLDivElement | null>(null);
+ 
+   useEffect(() => {
+     if (!auth.hydrated) return;
+@@ -72,9 +74,44 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+   const currentProposalOfferId = searchParams.get('proposalOfferId') ?? '';
+ 
+   function closeSubpage() {
++    setThreadMenuOpen(false);
+     setView('thread');
+   }
+ 
++  useEffect(() => {
++    if (!threadMenuOpen) return;
++
++    function handlePointerDown(event: MouseEvent) {
++      if (!threadMenuRef.current?.contains(event.target as Node)) setThreadMenuOpen(false);
++    }
++
++    function handleKeyDown(event: KeyboardEvent) {
++      if (event.key === 'Escape') setThreadMenuOpen(false);
++    }
++
++    document.addEventListener('mousedown', handlePointerDown);
++    document.addEventListener('keydown', handleKeyDown);
++    return () => {
++      document.removeEventListener('mousedown', handlePointerDown);
++      document.removeEventListener('keydown', handleKeyDown);
++    };
++  }, [threadMenuOpen]);
++
++  function toggleThreadMenu() {
++    const desktopMenu = typeof window !== 'undefined' && window.matchMedia('(min-width: 760px)').matches;
++    if (desktopMenu) {
++      setThreadMenuOpen((current) => !current);
++      return;
++    }
++    setThreadMenuOpen(false);
++    setView('menu');
++  }
++
++  function openThreadViewFromMenu(nextView: PrivateProposalEntryView) {
++    setThreadMenuOpen(false);
++    setView(nextView);
++  }
++
+   if (!auth.hydrated || loading) {
+     return (
+       <article className="trade-detail-page private-proposals-page private-proposals-page--messages-only" aria-busy="true">
+@@ -211,9 +248,54 @@ export function TradePrivateProposalsClient({ tradeId }: { tradeId: string }) {
+       <section className="web-thread-header">
+         <Link href={`/trades/${trade.id}`} className="web-thread-header__back" aria-label={t('common.actions.back')}><WebIcon name="back" size={21} decorative /></Link>
+         <h2>{t('trade.threadSplit.privateTitle')}</h2>
+-        <button type="button" className="web-thread-header__menu" onClick={() => setView('menu')} aria-label={t('trade.proposals.privateMenuTitle')}>
+-          <WebIcon name="more" size={21} decorative />
+-        </button>
++        <div className="private-thread-menu private-proposals-list-menu" ref={threadMenuRef}>
++          <button type="button" className="web-thread-header__menu" onClick={toggleThreadMenu} aria-expanded={threadMenuOpen} aria-haspopup="menu" aria-label={t('trade.proposals.privateMenuTitle')}>
++            <WebIcon name="more" size={21} decorative />
++          </button>
++          {threadMenuOpen ? (
++            <div className="private-thread-menu__popover" role="menu" aria-label={t('trade.proposals.privateMenuTitle')}>
++              <Link href={`/trades/${trade.id}`} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
++                <WebIcon name="trade" size={16} decorative />
++                <span>
++                  <strong>{t('trade.proposals.privateMenuSeeDetails')}</strong>
++                  <small>{t('trade.proposals.privateMenuSeeDetailsBody')}</small>
++                </span>
++              </Link>
++              <button type="button" role="menuitem" onClick={() => openThreadViewFromMenu('guide')}>
++                <WebIcon name="help" size={16} decorative />
++                <span>
++                  <strong>{t('trade.proposals.privateMenuSeeGuide')}</strong>
++                  <small>{t('trade.proposals.privateMenuSeeGuideBody')}</small>
++                </span>
++              </button>
++              {!auth.user || auth.user.id === trade.ownerId ? null : (
++                <>
++                  <Link href={proposalAttachHref(trade.id, 'offer', currentProposalNeedId, currentProposalOfferId)} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
++                    <WebIcon name="offer" size={16} decorative />
++                    <span>
++                      <strong>{t(currentProposalOfferId ? 'trade.proposals.privateMenuChangeOffer' : 'trade.proposals.privateMenuAttachOffer')}</strong>
++                      <small>{t('trade.proposals.privateMenuAttachOfferBody')}</small>
++                    </span>
++                  </Link>
++                  <Link href={proposalAttachHref(trade.id, 'need', currentProposalNeedId, currentProposalOfferId)} role="menuitem" onClick={() => setThreadMenuOpen(false)}>
++                    <WebIcon name="need" size={16} decorative />
++                    <span>
++                      <strong>{t(currentProposalNeedId ? 'trade.proposals.privateMenuChangeNeed' : 'trade.proposals.privateMenuAttachNeed')}</strong>
++                      <small>{t('trade.proposals.privateMenuAttachNeedBody')}</small>
++                    </span>
++                  </Link>
++                </>
++              )}
++              <button type="button" role="menuitem" className="danger-text" onClick={() => openThreadViewFromMenu('report-thread')}>
++                <WebIcon name="report-flag" size={16} decorative />
++                <span>
++                  <strong>{t('trade.proposals.privateMenuReportThread')}</strong>
++                  <small>{t('trade.proposals.privateMenuReportThreadBody')}</small>
++                </span>
++              </button>
++            </div>
++          ) : null}
++        </div>
+       </section>
+       <TradeProposalPanel trade={trade} variant="page" />
+     </article>

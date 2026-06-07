@@ -6,6 +6,7 @@ import type { InventoryItemType, InventoryTemplateDto, NeedDto, OfferDto, TradeP
 import { useEffect, useMemo, useState } from 'react';
 import { MobilePage, PageIntro } from '../../components/MobilePage';
 import { WebIcon } from '../../components/WebIcon';
+import { WebOptionPickerCard, WebOptionPickerPanel } from '../../components/WebOptionPicker';
 import { api } from '../../lib/api';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
@@ -393,29 +394,31 @@ export function TradeSideChoosePage({ side, currentNeedId = '', currentOfferId =
       ) : null}
 
       {showSourceChoice ? (
-        <section className="mobile-card trade-side-choose-panel trade-side-source-step">
-          <div className="trade-side-choose-panel__top">
-            <span className={`semantic-badge ${side === 'need' ? 'need' : 'offer'}`}><WebIcon name={side === 'need' ? 'need' : 'offer'} size={14} decorative /> {label}</span>
-            <span className="semantic-badge instruction">{t('trade.create.stepOneOfTwo')}</span>
-          </div>
-          <div className="trade-side-source-grid">
-            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine', context)} className="trade-side-source-card" onClick={() => setSourceMode('mine')}>
-              <span><WebIcon name={side === 'need' ? 'need' : 'offer'} size={22} decorative /></span>
-              <strong>{t('trade.sidePicker.useMine')}</strong>
-              <small>{t('trade.sidePicker.useMineBody', { items: pluralLabel })}</small>
-            </Link>
-            <Link href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter', context)} className="trade-side-source-card" onClick={() => setSourceMode('starter')}>
-              <span><WebIcon name="trade" size={22} decorative /></span>
-              <strong>{t('trade.sidePicker.useStarter')}</strong>
-              <small>{t('trade.sidePicker.useStarterBody')}</small>
-            </Link>
-            <Link href={createHref} className="trade-side-source-card trade-side-source-card--dashed">
-              <span><WebIcon name="add" size={22} decorative /></span>
-              <strong>{t('trade.sidePicker.createNew', { item: label })}</strong>
-              <small>{t('trade.sidePicker.createNewBody')}</small>
-            </Link>
-          </div>
-        </section>
+        <WebOptionPickerPanel
+          className="trade-side-source-picker-panel"
+          eyebrow={label}
+          badge={t('trade.create.stepOneOfTwo')}
+        >
+          <WebOptionPickerCard
+            href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'mine', context)}
+            iconName={side === 'need' ? 'need' : 'offer'}
+            title={t('trade.sidePicker.useMine')}
+            description={t('trade.sidePicker.useMineBody', { items: pluralLabel })}
+          />
+          <WebOptionPickerCard
+            href={choosePageHref(side, { postType, needId: currentNeedId, offerId: currentOfferId }, 'starter', context)}
+            iconName="trade"
+            title={t('trade.sidePicker.useStarter')}
+            description={t('trade.sidePicker.useStarterBody')}
+          />
+          <WebOptionPickerCard
+            href={createHref}
+            iconName="add"
+            title={t('trade.sidePicker.createNew', { item: label })}
+            description={t('trade.sidePicker.createNewBody')}
+            dashed
+          />
+        </WebOptionPickerPanel>
       ) : null}
 
       {sourceMode === 'mine' ? (
