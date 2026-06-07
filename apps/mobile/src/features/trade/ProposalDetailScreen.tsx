@@ -43,7 +43,6 @@ type PrivateThreadReportTarget = { targetType: Extract<ReportTargetType, 'messag
 const PRIVATE_THREAD_POLL_INTERVAL_MS = 7000;
 
 type ProposalActionSheet =
-  | { type: 'thread-menu' }
   | { type: 'status'; status: ProposalActionStatus }
   | { type: 'deal-status'; status: Extract<TradeActionStatus, 'submitted' | 'completed'> }
   | { type: 'message-options'; message: ProposalMessageItem; canEdit: boolean; canReport: boolean }
@@ -707,45 +706,6 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   function getActionSheetConfig(): { title: string; body?: string; actions: AppActionSheetAction[] } {
     if (!actionSheet) return { title: '', actions: [] };
 
-    if (actionSheet.type === 'thread-menu') {
-      const actions: AppActionSheetAction[] = [
-        {
-          key: 'details',
-          label: t('trade.proposals.seeDetails'),
-          helper: t('trade.proposals.seeDetailsBody'),
-          icon: 'trade',
-          onPress: () => { setThreadInfoMode('menu'); setActionSheet(null); },
-        },
-        {
-          key: 'guide',
-          label: t('trade.proposals.seeGuide'),
-          helper: t('trade.proposals.seeGuideBody'),
-          icon: 'help',
-          onPress: () => { setThreadGuideOpen(true); setActionSheet(null); },
-        },
-      ];
-      if (proposal?.status === 'accepted') {
-        actions.push({
-          key: 'report-problem',
-          label: t('trade.proposals.reportProblem'),
-          helper: t('trade.proposals.reportProblemBody'),
-          icon: 'report-flag',
-          tone: 'danger',
-          onPress: () => { setThreadInfoMode('progress'); setActionSheet(null); },
-        });
-      } else if (proposal?.id) {
-        actions.push({
-          key: 'report-thread',
-          label: t('trade.proposals.reportThread'),
-          helper: t('trade.proposals.reportThreadBody'),
-          icon: 'report-flag',
-          tone: 'danger',
-          onPress: () => { setMessageReportTarget({ targetType: 'proposal', targetId: proposal.id, titleKey: 'trade.proposals.reportThreadTitle', helperKey: 'report.helper.proposalMessage' }); setActionSheet(null); },
-        });
-      }
-      return { title: t('trade.proposals.threadMenu'), body: t('trade.proposals.threadMenuBody'), actions };
-    }
-
     if (actionSheet.type === 'status') {
       const status = actionSheet.status;
       if (status === 'accepted') {
@@ -903,6 +863,8 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
           onClose={() => setThreadInfoMode(null)}
           onOpenMode={setThreadInfoMode}
           onOpenTradeDetail={openTradeDetailFromThread}
+          onOpenGuide={() => setThreadGuideOpen(true)}
+          onReportThread={() => { if (proposal?.id) setMessageReportTarget({ targetType: 'proposal', targetId: proposal.id, titleKey: 'trade.proposals.reportThreadTitle', helperKey: 'report.helper.proposalMessage' }); }}
           onChooseNeed={() => openPackagePicker('need')}
           onChooseOffer={() => openPackagePicker('offer')}
           onClearNeed={() => setPackageNeedId('')}
@@ -952,7 +914,7 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
       <AppHeader
         title={headerTitle}
         onBack={() => navigation.goBack()}
-        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setActionSheet({ type: 'thread-menu' })} label={t('trade.proposals.threadMenu')} /> : null}
+        rightSlot={proposal ? <HeaderDetailsButton onPress={() => setThreadInfoMode('menu')} label={t('trade.proposals.threadMenu')} /> : null}
       />
 
       {!proposal ? (
@@ -1058,9 +1020,9 @@ export function ProposalDetailScreen({ route, navigation }: Props) {
   );
 }
 
-function ProposalThreadInfoScreen({ mode, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, canMarkSubmitted, canConfirmCompleted, canReportDealProblem, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, language, onClose, onOpenMode, onOpenTradeDetail, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, t }: { mode: ActiveThreadInfoMode; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportDealProblem: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; language: SupportedLanguage; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; t: TFunction }) {
+function ProposalThreadInfoScreen({ mode, proposal, requiredPackageSide, selectedPackageNeed, selectedPackageOffer, packageLoading, packageError, packageChanged, canEditProposalContent, canCancelAcceptedTrade, canMarkSubmitted, canConfirmCompleted, canReportDealProblem, isOwner, isApplicant, isProvider, editingProposalNote, proposalNoteDraft, proposalNoteError, cancelTradeOpen, cancelReason, cancelError, actionLoading, actorId, language, onClose, onOpenMode, onOpenTradeDetail, onOpenGuide, onReportThread, onChooseNeed, onChooseOffer, onClearNeed, onClearOffer, onSavePackage, onStartProposalNoteEdit, onChangeProposalNote, onSaveProposalNote, onCancelProposalNoteEdit, onDeleteProposalNote, onAccept, onDecline, onWithdraw, onMarkSubmitted, onConfirmCompleted, onReportProblem, onOpenCancelTrade, onChangeCancelReason, onCancelCancelTrade, onSubmitCancelTrade, t }: { mode: ActiveThreadInfoMode; proposal: TradeProposalItem; requiredPackageSide: RequiredProposalSide; selectedPackageNeed: NeedItem | null; selectedPackageOffer: OfferItem | null; packageLoading: boolean; packageError: string | null; packageChanged: boolean; canEditProposalContent: boolean; canCancelAcceptedTrade: boolean; canMarkSubmitted: boolean; canConfirmCompleted: boolean; canReportDealProblem: boolean; isOwner: boolean; isApplicant: boolean; isProvider: boolean; editingProposalNote: boolean; proposalNoteDraft: string; proposalNoteError: string | null; cancelTradeOpen: boolean; cancelReason: string; cancelError: string | null; actionLoading: ActionLoading; actorId: string | null; language: SupportedLanguage; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; onOpenGuide: () => void; onReportThread: () => void; onChooseNeed: () => void; onChooseOffer: () => void; onClearNeed: () => void; onClearOffer: () => void; onSavePackage: () => void; onStartProposalNoteEdit: () => void; onChangeProposalNote: (text: string) => void; onSaveProposalNote: () => void; onCancelProposalNoteEdit: () => void; onDeleteProposalNote: () => void; onAccept: () => void; onDecline: () => void; onWithdraw: () => void; onMarkSubmitted: () => void; onConfirmCompleted: () => void; onReportProblem: () => void; onOpenCancelTrade: () => void; onChangeCancelReason: (text: string) => void; onCancelCancelTrade: () => void; onSubmitCancelTrade: () => void; t: TFunction }) {
   if (mode === 'menu') {
-    return <ThreadInfoMenu proposal={proposal} onClose={onClose} onOpenMode={onOpenMode} onOpenTradeDetail={onOpenTradeDetail} t={t} />;
+    return <ThreadInfoMenu proposal={proposal} onClose={onClose} onOpenMode={onOpenMode} onOpenTradeDetail={onOpenTradeDetail} onOpenGuide={onOpenGuide} onReportThread={onReportThread} t={t} />;
   }
   if (mode === 'agreement') {
     return <DealAgreementInfoScreen proposal={proposal} onClose={() => onOpenMode('menu')} t={t} />;
@@ -1115,7 +1077,7 @@ function ProposalThreadInfoScreen({ mode, proposal, requiredPackageSide, selecte
   );
 }
 
-function ThreadInfoMenu({ proposal, onClose, onOpenMode, onOpenTradeDetail, t }: { proposal: TradeProposalItem; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; t: TFunction }) {
+function ThreadInfoMenu({ proposal, onClose, onOpenMode, onOpenTradeDetail, onOpenGuide, onReportThread, t }: { proposal: TradeProposalItem; onClose: () => void; onOpenMode: (mode: ThreadInfoMode) => void; onOpenTradeDetail: () => void; onOpenGuide: () => void; onReportThread: () => void; t: TFunction }) {
   const theme = useThemeTokens();
   const isAccepted = proposal.status === 'accepted';
   return (
@@ -1129,23 +1091,25 @@ function ThreadInfoMenu({ proposal, onClose, onOpenMode, onOpenTradeDetail, t }:
         </View>
         <ThreadInfoMenuItem icon="trade" title={t('trade.proposals.threadInfoTradeDetail')} body={t('trade.proposals.threadInfoTradeDetailBody')} onPress={onOpenTradeDetail} />
         <ThreadInfoMenuItem icon="proposal" title={t('trade.proposals.threadInfoProposalDetails')} body={t('trade.proposals.threadInfoProposalDetailsBody')} onPress={() => onOpenMode('proposal')} />
-        {isAccepted ? <ThreadInfoMenuItem icon="proposal-accepted" title={t('trade.proposals.threadInfoDealAgreement')} body={t('trade.proposals.threadInfoDealAgreementBody')} onPress={() => onOpenMode('agreement')} /> : null}
         {isAccepted ? <ThreadInfoMenuItem icon="activity" title={t('trade.proposals.threadInfoDealProgress')} body={t('trade.proposals.threadInfoDealProgressBody')} onPress={() => onOpenMode('progress')} /> : null}
+        <ThreadInfoMenuItem icon="help" title={t('trade.proposals.seeGuide')} body={t('trade.proposals.seeGuideBody')} onPress={onOpenGuide} />
+        <ThreadInfoMenuItem icon="report-flag" title={t('trade.proposals.reportThread')} body={t('trade.proposals.reportThreadBody')} onPress={onReportThread} tone="danger" />
       </ScrollView>
     </View>
   );
 }
 
-function ThreadInfoMenuItem({ icon, title, body, onPress }: { icon: MobileIconName; title: string; body: string; onPress: () => void }) {
+function ThreadInfoMenuItem({ icon, title, body, onPress, tone = 'default' }: { icon: MobileIconName; title: string; body: string; onPress: () => void; tone?: 'default' | 'danger' }) {
   const theme = useThemeTokens();
+  const isDanger = tone === 'danger';
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.infoMenuItem, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}>
-      <View style={[styles.infoMenuIcon, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><MobileIcon name={icon} size={20} color={theme.color.text} decorative /></View>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.infoMenuItem, { backgroundColor: theme.color.surface, borderColor: isDanger ? theme.semantic.danger.border : theme.color.border }, isDanger && { backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}>
+      <View style={[styles.infoMenuIcon, { backgroundColor: isDanger ? theme.semantic.danger.softBg : theme.color.subtleSurface, borderColor: isDanger ? theme.semantic.danger.border : theme.color.border }]}><MobileIcon name={icon} size={20} color={isDanger ? theme.semantic.danger.text : theme.color.text} decorative /></View>
       <View style={styles.infoMenuCopy}>
-        <AppText style={styles.infoMenuTitle}>{title}</AppText>
-        <AppText style={[styles.infoMenuBody, { color: theme.color.muted }]}>{body}</AppText>
+        <AppText style={[styles.infoMenuTitle, isDanger && { color: theme.semantic.danger.text }]}>{title}</AppText>
+        <AppText style={[styles.infoMenuBody, { color: isDanger ? theme.semantic.danger.text : theme.color.muted }]}>{body}</AppText>
       </View>
-      <MobileIcon name="chevron-right" size={18} color={theme.color.muted} decorative />
+      <MobileIcon name="chevron-right" size={18} color={isDanger ? theme.semantic.danger.text : theme.color.muted} decorative />
     </Pressable>
   );
 }
