@@ -14,6 +14,7 @@ import { AppHeader } from '../../components/AppHeader';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { APP_SCREEN_HORIZONTAL_PADDING } from '../../components/AppScreen';
 import { AppText } from '../../components/AppText';
+import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { ReportContentPanel } from '../../components/ReportContentPanel';
@@ -93,6 +94,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   const [hasLoadedTrade, setHasLoadedTrade] = useState(false);
   const [creatingProposal, setCreatingProposal] = useState(false);
   const [actionLoading, setActionLoading] = useState<TradeActionStatus | 'report' | 'share' | null>(null);
+  const [cancelTradeConfirmVisible, setCancelTradeConfirmVisible] = useState(false);
   const loadingTradeRef = useRef(false);
 
 
@@ -221,8 +223,12 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     }
   }, [actionLoading, t, trade]);
 
-  const updateStatus = useCallback(async (status: TradeActionStatus) => {
+  const updateStatus = useCallback(async (status: TradeActionStatus, options?: { confirmed?: boolean }) => {
     if (actionLoading) return;
+    if (status === 'cancelled' && !options?.confirmed) {
+      setCancelTradeConfirmVisible(true);
+      return;
+    }
     const runStatusUpdate = async (nextStatus: TradeActionStatus) => {
       setActionLoading(nextStatus); setError(null); setMessage(null);
       try {
@@ -303,7 +309,8 @@ export function TradeDetailScreen({ route, navigation }: Props) {
   }
 
   return <AppFixedHeaderScreen header={header}>
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
+    <>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void loadTrade(); }} />}>
       <DetailHero
         eyebrow={`${formatStatus(trade.status, t)} · ${postTypeLabel(trade, t)}`}
         title={detailTitle(trade, t)}
@@ -355,7 +362,22 @@ export function TradeDetailScreen({ route, navigation }: Props) {
       />
       {error ? <InfoNotice tone="danger" title={t('trade.detail.tradeError')} body={error} /> : null}
       {message ? <InfoNotice tone="success" title={t('trade.detail.updated')} body={message} /> : null}
-    </ScrollView>
+      </ScrollView>
+      <AppConfirmSheet
+        visible={cancelTradeConfirmVisible}
+        title={t('trade.detail.cancelTrade')}
+        body={t('trade.detail.deleteTradeBody')}
+        cancelLabel={t('trade.proposals.keepAcceptedTrade')}
+        confirmLabel={actionLoading === 'cancelled' ? t('common.states.working') : t('trade.detail.cancelTrade')}
+        tone="danger"
+        confirmDisabled={Boolean(actionLoading)}
+        onCancel={() => setCancelTradeConfirmVisible(false)}
+        onConfirm={() => {
+          setCancelTradeConfirmVisible(false);
+          void updateStatus('cancelled', { confirmed: true });
+        }}
+      />
+    </>
   </AppFixedHeaderScreen>;
 
 }
