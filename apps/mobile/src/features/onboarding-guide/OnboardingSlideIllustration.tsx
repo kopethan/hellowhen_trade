@@ -14,22 +14,22 @@ type IllustrationProps = {
 
 const ONBOARDING_IMAGE_ASSETS: Record<OnboardingImageMode, Record<OnboardingGuideSlideKey, ImageSourcePropType>> = {
   light: {
-    welcome: require('../../../assets/onboarding/light/welcome-trade-match-light.png'),
-    createNeed: require('../../../assets/onboarding/light/create-need-light.png'),
-    createOffer: require('../../../assets/onboarding/light/create-offer-light.png'),
-    discoverTrades: require('../../../assets/onboarding/light/discover-trades-light.png'),
-    sendProposal: require('../../../assets/onboarding/light/send-proposal-light.png'),
-    staySafe: require('../../../assets/onboarding/light/stay-safe-light.png'),
-    accountGuide: require('../../../assets/onboarding/light/account-guide-light.png'),
+    welcome: require('../../../assets/onboarding/light/welcome-trade-match-light.jpg'),
+    createNeed: require('../../../assets/onboarding/light/create-need-light.jpg'),
+    createOffer: require('../../../assets/onboarding/light/create-offer-light.jpg'),
+    discoverTrades: require('../../../assets/onboarding/light/discover-trades-light.jpg'),
+    sendProposal: require('../../../assets/onboarding/light/send-proposal-light.jpg'),
+    staySafe: require('../../../assets/onboarding/light/stay-safe-light.jpg'),
+    accountGuide: require('../../../assets/onboarding/light/account-guide-light.jpg'),
   },
   dark: {
-    welcome: require('../../../assets/onboarding/dark/welcome-trade-match-dark.png'),
-    createNeed: require('../../../assets/onboarding/dark/create-need-dark.png'),
-    createOffer: require('../../../assets/onboarding/dark/create-offer-dark.png'),
-    discoverTrades: require('../../../assets/onboarding/dark/discover-trades-dark.png'),
-    sendProposal: require('../../../assets/onboarding/dark/send-proposal-dark.png'),
-    staySafe: require('../../../assets/onboarding/dark/stay-safe-dark.png'),
-    accountGuide: require('../../../assets/onboarding/dark/account-guide-dark.png'),
+    welcome: require('../../../assets/onboarding/dark/welcome-trade-match-dark.jpg'),
+    createNeed: require('../../../assets/onboarding/dark/create-need-dark.jpg'),
+    createOffer: require('../../../assets/onboarding/dark/create-offer-dark.jpg'),
+    discoverTrades: require('../../../assets/onboarding/dark/discover-trades-dark.jpg'),
+    sendProposal: require('../../../assets/onboarding/dark/send-proposal-dark.jpg'),
+    staySafe: require('../../../assets/onboarding/dark/stay-safe-dark.jpg'),
+    accountGuide: require('../../../assets/onboarding/dark/account-guide-dark.jpg'),
   },
 };
 
