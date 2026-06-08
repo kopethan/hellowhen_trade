@@ -2,24 +2,30 @@ import type { OnboardingGuideSlideKey } from './onboardingGuide.slides';
 
 type OnboardingImageMode = 'light' | 'dark';
 
-const ONBOARDING_IMAGE_PATHS: Record<OnboardingImageMode, Record<OnboardingGuideSlideKey, string>> = {
+export type OnboardingImageDescriptor = {
+  src: string;
+  width: number;
+  height: number;
+};
+
+const ONBOARDING_IMAGE_PATHS: Record<OnboardingImageMode, Record<OnboardingGuideSlideKey, OnboardingImageDescriptor>> = {
   light: {
-    welcome: '/onboarding/light/welcome-trade-match-light.png',
-    createNeed: '/onboarding/light/create-need-light.png',
-    createOffer: '/onboarding/light/create-offer-light.png',
-    discoverTrades: '/onboarding/light/discover-trades-light.png',
-    sendProposal: '/onboarding/light/send-proposal-light.png',
-    staySafe: '/onboarding/light/stay-safe-light.png',
-    accountGuide: '/onboarding/light/account-guide-light.png',
+    welcome: { src: '/onboarding/light/welcome-trade-match-light.webp', width: 960, height: 960 },
+    createNeed: { src: '/onboarding/light/create-need-light.webp', width: 960, height: 960 },
+    createOffer: { src: '/onboarding/light/create-offer-light.webp', width: 960, height: 960 },
+    discoverTrades: { src: '/onboarding/light/discover-trades-light.webp', width: 960, height: 960 },
+    sendProposal: { src: '/onboarding/light/send-proposal-light.webp', width: 960, height: 960 },
+    staySafe: { src: '/onboarding/light/stay-safe-light.webp', width: 960, height: 960 },
+    accountGuide: { src: '/onboarding/light/account-guide-light.webp', width: 960, height: 960 },
   },
   dark: {
-    welcome: '/onboarding/dark/welcome-trade-match-dark.png',
-    createNeed: '/onboarding/dark/create-need-dark.png',
-    createOffer: '/onboarding/dark/create-offer-dark.png',
-    discoverTrades: '/onboarding/dark/discover-trades-dark.png',
-    sendProposal: '/onboarding/dark/send-proposal-dark.png',
-    staySafe: '/onboarding/dark/stay-safe-dark.png',
-    accountGuide: '/onboarding/dark/account-guide-dark.png',
+    welcome: { src: '/onboarding/dark/welcome-trade-match-dark.webp', width: 960, height: 960 },
+    createNeed: { src: '/onboarding/dark/create-need-dark.webp', width: 960, height: 960 },
+    createOffer: { src: '/onboarding/dark/create-offer-dark.webp', width: 960, height: 960 },
+    discoverTrades: { src: '/onboarding/dark/discover-trades-dark.webp', width: 960, height: 960 },
+    sendProposal: { src: '/onboarding/dark/send-proposal-dark.webp', width: 960, height: 960 },
+    staySafe: { src: '/onboarding/dark/stay-safe-dark.webp', width: 960, height: 960 },
+    accountGuide: { src: '/onboarding/dark/account-guide-dark.webp', width: 960, height: 960 },
   },
 };
 
@@ -44,7 +50,7 @@ const ONBOARDING_IMAGE_BACKGROUNDS: Record<OnboardingImageMode, Record<Onboardin
   },
 };
 
-export function getOnboardingImagePath(mode: OnboardingImageMode, illustrationKey: OnboardingGuideSlideKey) {
+export function getOnboardingImageDescriptor(mode: OnboardingImageMode, illustrationKey: OnboardingGuideSlideKey) {
   return ONBOARDING_IMAGE_PATHS[mode][illustrationKey];
 }
 

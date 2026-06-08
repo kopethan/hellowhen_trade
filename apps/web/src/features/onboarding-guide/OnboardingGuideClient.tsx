@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppSettings } from '@hellowhen/contracts';
@@ -7,7 +8,7 @@ import type { LanguagePreference } from '@hellowhen/i18n';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { useWebAppSettings } from '../../providers/WebAppSettingsProvider';
 import { useWebAuth } from '../../providers/WebAuthProvider';
-import { getOnboardingImageBackground, getOnboardingImagePath } from './onboardingGuideAssets';
+import { getOnboardingImageBackground, getOnboardingImageDescriptor } from './onboardingGuideAssets';
 import { ONBOARDING_GUIDE_SLIDES } from './onboardingGuide.slides';
 import { markWebOnboardingGuideCompletedForVisitor } from './onboardingGuideStorage';
 
@@ -73,7 +74,8 @@ export function OnboardingGuideClient() {
   const nextHref = useMemo(() => sanitizeNext(searchParams.get('next')), [searchParams]);
   const progressLabel = t('onboarding.progress', { current: currentIndex + 1, total: ONBOARDING_GUIDE_SLIDES.length });
   const backgroundColor = getOnboardingImageBackground(resolvedMode, slide.illustrationKey);
-  const imagePath = isAppearanceReady ? getOnboardingImagePath(resolvedMode, slide.illustrationKey) : null;
+  const imageDescriptor = isAppearanceReady ? getOnboardingImageDescriptor(resolvedMode, slide.illustrationKey) : null;
+  const shouldPrioritizeImage = currentIndex === 0;
   const backgroundStyle = isAppearanceReady ? { backgroundColor } : undefined;
   const currentLanguageLabel = t(languageOptions.find((option) => option.value === settings.language)?.labelKey ?? defaultLanguageLabelKey);
   const currentAppearanceLabel = t(appearanceOptions.find((option) => option.value === settings.appearance)?.labelKey ?? defaultAppearanceLabelKey);
@@ -133,8 +135,19 @@ export function OnboardingGuideClient() {
 
       <div className="onboarding-guide-content" style={backgroundStyle}>
         <figure className="onboarding-guide-figure" style={backgroundStyle}>
-          {imagePath ? (
-            <img src={imagePath} alt="" aria-hidden="true" className="onboarding-guide-image" draggable={false} />
+          {imageDescriptor ? (
+            <Image
+              src={imageDescriptor.src}
+              width={imageDescriptor.width}
+              height={imageDescriptor.height}
+              alt=""
+              aria-hidden="true"
+              className="onboarding-guide-image"
+              draggable={false}
+              sizes="(min-width: 860px) 560px, 330px"
+              loading={shouldPrioritizeImage ? 'eager' : 'lazy'}
+              fetchPriority={shouldPrioritizeImage ? 'high' : 'auto'}
+            />
           ) : (
             <span className="onboarding-guide-image-placeholder" aria-hidden="true" />
           )}
