@@ -14,6 +14,7 @@
         "buildType": "apk"
       },
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
         "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
       }
@@ -24,6 +25,7 @@
         "buildType": "app-bundle"
       },
       "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.hellowhen.com",
         "EXPO_PUBLIC_CASH_PROMISE_ENABLED": "false",
         "EXPO_PUBLIC_CASH_PROMISE_VISIBLE": "false"
       }
