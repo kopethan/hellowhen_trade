@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
+  useWindowDimensions,
   type ImageStyle,
   type StyleProp,
   type ViewStyle,
@@ -96,6 +97,7 @@ type DetailBottomActionBarProps = {
   primary?: DetailPrimaryAction;
   secondary?: DetailSecondaryAction[];
   helper?: string;
+  layout?: 'default' | 'primaryBelow';
   style?: StyleProp<ViewStyle>;
 };
 
@@ -272,46 +274,75 @@ export function DetailImageGrid({ images, maxVisible = 4, onPressImage, style, i
   );
 }
 
-export function DetailBottomActionBar({ primary, secondary = [], helper, style }: DetailBottomActionBarProps) {
+export function DetailBottomActionBar({ primary, secondary = [], helper, layout = 'default', style }: DetailBottomActionBarProps) {
   const theme = useThemeTokens();
+  const { width } = useWindowDimensions();
   const primaryTone = primary?.tone ?? 'primary';
   const primaryBackground = primaryTone === 'danger' ? theme.semantic.danger.bg : primaryTone === 'muted' ? theme.color.subtleSurface : theme.color.text;
   const primaryText = primaryTone === 'muted' ? theme.color.text : theme.color.inverseText;
+  const isPrimaryBelow = layout === 'primaryBelow';
+  const stackPrimaryBelow = isPrimaryBelow && width < 380;
 
   if (!primary && secondary.length === 0 && !helper) return null;
+
+  const renderSecondaryAction = (action: DetailSecondaryAction, actionStyle?: StyleProp<ViewStyle>) => (
+    <Pressable
+      key={action.label}
+      accessibilityRole="button"
+      accessibilityLabel={action.label}
+      accessibilityState={{ disabled: Boolean(action.disabled) }}
+      disabled={action.disabled}
+      onPress={action.onPress}
+      style={({ pressed }) => [styles.secondaryAction, actionStyle, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, action.disabled && styles.disabled]}
+    >
+      {action.icon ? <MobileIcon name={action.icon} color={theme.color.text} size={17} decorative /> : null}
+      <AppText style={styles.secondaryActionText}>{action.label}</AppText>
+    </Pressable>
+  );
+
+  const renderPrimaryAction = (actionStyle?: StyleProp<ViewStyle>) => primary ? (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={primary.label}
+      accessibilityState={{ disabled: Boolean(primary.disabled || primary.loading), busy: Boolean(primary.loading) }}
+      disabled={primary.disabled || primary.loading}
+      onPress={primary.onPress}
+      style={({ pressed }) => [styles.primaryAction, actionStyle, { backgroundColor: primaryBackground }, pressed && styles.pressed, (primary.disabled || primary.loading) && styles.disabled]}
+    >
+      {primary.icon ? <MobileIcon name={primary.icon} color={primaryText} size={18} decorative /> : null}
+      <AppText style={[styles.primaryActionText, { color: primaryText }]}>{primary.loading ? '…' : primary.label}</AppText>
+    </Pressable>
+  ) : null;
+
+  const actionsContent = isPrimaryBelow ? (
+    <View style={styles.bottomActionsPrimaryBelow}>
+      {stackPrimaryBelow ? (
+        <>
+          {secondary.map((action) => renderSecondaryAction(action, styles.fullWidthAction))}
+          {renderPrimaryAction(styles.fullWidthAction)}
+        </>
+      ) : (
+        <>
+          {secondary.length > 0 ? (
+            <View style={styles.secondaryActionsRow}>
+              {secondary.map((action) => renderSecondaryAction(action, styles.secondaryActionCompact))}
+            </View>
+          ) : null}
+          {renderPrimaryAction(styles.fullWidthAction)}
+        </>
+      )}
+    </View>
+  ) : (
+    <View style={styles.bottomActions}>
+      {secondary.map((action) => renderSecondaryAction(action))}
+      {renderPrimaryAction()}
+    </View>
+  );
 
   return (
     <View style={[styles.bottomBar, { backgroundColor: theme.color.background, borderTopColor: theme.color.border }, style]}>
       {helper ? <AppText style={[styles.bottomHelper, { color: theme.color.muted }]}>{helper}</AppText> : null}
-      <View style={styles.bottomActions}>
-        {secondary.map((action) => (
-          <Pressable
-            key={action.label}
-            accessibilityRole="button"
-            accessibilityLabel={action.label}
-            accessibilityState={{ disabled: Boolean(action.disabled) }}
-            disabled={action.disabled}
-            onPress={action.onPress}
-            style={({ pressed }) => [styles.secondaryAction, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed, action.disabled && styles.disabled]}
-          >
-            {action.icon ? <MobileIcon name={action.icon} color={theme.color.text} size={17} decorative /> : null}
-            <AppText style={styles.secondaryActionText}>{action.label}</AppText>
-          </Pressable>
-        ))}
-        {primary ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={primary.label}
-            accessibilityState={{ disabled: Boolean(primary.disabled || primary.loading), busy: Boolean(primary.loading) }}
-            disabled={primary.disabled || primary.loading}
-            onPress={primary.onPress}
-            style={({ pressed }) => [styles.primaryAction, { backgroundColor: primaryBackground }, pressed && styles.pressed, (primary.disabled || primary.loading) && styles.disabled]}
-          >
-            {primary.icon ? <MobileIcon name={primary.icon} color={primaryText} size={18} decorative /> : null}
-            <AppText style={[styles.primaryActionText, { color: primaryText }]}>{primary.loading ? '…' : primary.label}</AppText>
-          </Pressable>
-        ) : null}
-      </View>
+      {actionsContent}
     </View>
   );
 }
@@ -587,6 +618,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 9,
   },
+  bottomActionsPrimaryBelow: {
+    gap: 9,
+  },
+  secondaryActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
   primaryAction: {
     minHeight: 48,
     flex: 1,
@@ -597,7 +636,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  fullWidthAction: {
+    flex: 0,
+    width: '100%',
+  },
   primaryActionText: {
+    flexShrink: 1,
+    textAlign: 'center',
     fontSize: 14,
     fontWeight: '900',
   },
@@ -611,7 +656,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 7,
   },
+  secondaryActionCompact: {
+    flex: 1,
+  },
   secondaryActionText: {
+    flexShrink: 1,
+    textAlign: 'center',
     fontSize: 13,
     fontWeight: '900',
   },

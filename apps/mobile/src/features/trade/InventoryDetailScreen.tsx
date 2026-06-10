@@ -839,6 +839,7 @@ export function InventoryDetailScreen({
                 </DetailSection>
 
                 <DetailBottomActionBar
+                  layout="primaryBelow"
                   primary={{
                     label: t('inventory.actions.useInTrade'),
                     disabled: !isActive || saving,
