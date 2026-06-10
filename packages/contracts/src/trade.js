@@ -18,6 +18,7 @@ export const cloneInventoryTemplateStatusSchema = z.enum(['draft', 'active']);
 export const tradeNeedSideKindSchema = z.enum(['need', 'money']);
 export const tradeOfferSideKindSchema = z.enum(['offer', 'money']);
 export { INVENTORY_DESCRIPTION_MAX_LENGTH, INVENTORY_DESCRIPTION_MIN_LENGTH, INVENTORY_TITLE_MAX_LENGTH, INVENTORY_TITLE_MIN_LENGTH } from './inventoryLimits.js';
+export const PROPOSAL_MESSAGE_MAX_LENGTH = 500;
 export const CASH_PROMISE_NOTE_MAX_LENGTH = 500;
 export const CASH_PROMISE_ACKNOWLEDGEMENT_TEXT = 'Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash promise.';
 const tradeTagsSchema = z.array(z.string().trim().min(1).max(32)).max(8).optional();

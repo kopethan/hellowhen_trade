@@ -80,6 +80,7 @@ const inventoryTranslationInputSchema = z.object({
 });
 const inventoryTranslationsInputSchema = z.array(inventoryTranslationInputSchema).max(4).optional();
 
+export const PROPOSAL_MESSAGE_MAX_LENGTH = 500;
 export const CASH_PROMISE_NOTE_MAX_LENGTH = 500;
 export const CASH_PROMISE_ACKNOWLEDGEMENT_TEXT = 'Cash is arranged outside Hellowhen. Hellowhen does not process, hold, protect, refund, or guarantee this cash promise.';
 
@@ -281,7 +282,7 @@ const tradeProposalPackageRequestFieldsSchema = z.object({
 });
 
 export const createTradeProposalRequestSchema = z.object({
-  message: z.string().trim().max(1200).optional().default(''),
+  message: z.string().trim().max(PROPOSAL_MESSAGE_MAX_LENGTH, `Proposal message must be ${PROPOSAL_MESSAGE_MAX_LENGTH} characters or fewer.`).optional().default(''),
   proposedNeedId: z.string().min(1).optional(),
   proposedOfferId: z.string().min(1).optional(),
   cashPromise: cashPromiseInputSchema.optional()
@@ -304,7 +305,7 @@ export const createTradeProposalRequestSchema = z.object({
 });
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
 export const updateProposalMessageRequestSchema = z.object({
-  message: z.string().trim().min(3).max(1200).optional(),
+  message: z.string().trim().max(PROPOSAL_MESSAGE_MAX_LENGTH, `Proposal message must be ${PROPOSAL_MESSAGE_MAX_LENGTH} characters or fewer.`).optional(),
   proposedNeedId: z.string().min(1).nullable().optional(),
   proposedOfferId: z.string().min(1).nullable().optional(),
   packageKind: tradeProposalPackageKindSchema.optional(),

@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import type { FormEvent } from 'react';
-import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type NeedDto, type OfferDto, type TradeDto, type TradeProposalDto } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, PROPOSAL_MESSAGE_MAX_LENGTH, type CashPromiseInput, type NeedDto, type OfferDto, type TradeDto, type TradeProposalDto } from '@hellowhen/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
@@ -144,8 +144,11 @@ function ProposalSidePreview({ kind, item, label, compact = false, i18n }: { kin
   );
 }
 
-function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18n }: { side: 'need' | 'offer'; title: string; count: number; item: NeedDto | OfferDto | null; emptyText: string; href: string; i18n: TradeI18n }) {
+function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18n, onRemove }: { side: 'need' | 'offer'; title: string; count: number; item: NeedDto | OfferDto | null; emptyText: string; href: string; i18n: TradeI18n; onRemove?: () => void }) {
   const t = i18n.t;
+  const chooseLabel = side === 'need' ? t?.('trade.proposals.chooseNeed') ?? 'Choose Need' : t?.('trade.proposals.chooseOffer') ?? 'Choose Offer';
+  const changeLabel = side === 'need' ? t?.('trade.proposals.changeNeed') ?? 'Change Need' : t?.('trade.proposals.changeOffer') ?? 'Change Offer';
+  const removeLabel = side === 'need' ? t?.('trade.proposals.removeNeed') ?? 'Remove Need' : t?.('trade.proposals.removeOffer') ?? 'Remove Offer';
   return (
     <div className="proposal-side-picker">
       <div className="trade-section-heading compact">
@@ -153,13 +156,20 @@ function ProposalPickerShortcut({ side, title, count, item, emptyText, href, i18
           <p className="eyebrow">{side === 'need' ? t?.('trade.labels.yourNeed') ?? 'Your Need' : t?.('trade.labels.yourOffer') ?? 'Your Offer'}</p>
           <h3 className="icon-heading"><WebIcon name={side} size={18} decorative /> {title}</h3>
         </div>
-        <Link href={href} className="button secondary proposal-picker-link">{item ? t?.('common.actions.edit') ?? 'Edit' : t?.('trade.proposals.openPicker') ?? 'Open picker'}</Link>
       </div>
-      {item ? <ProposalSidePreview kind={side} item={item} label={side === 'need' ? t?.('trade.labels.selectedNeed') : t?.('trade.labels.selectedOffer')} i18n={i18n} /> : (
+      {item ? (
+        <>
+          <ProposalSidePreview kind={side} item={item} label={side === 'need' ? t?.('trade.labels.selectedNeed') : t?.('trade.labels.selectedOffer')} compact i18n={i18n} />
+          <div className="proposal-picker-actions">
+            <Link href={href} className="button secondary proposal-picker-link">{changeLabel}</Link>
+            {onRemove ? <button type="button" className="button secondary danger-text proposal-picker-link" onClick={onRemove}>{removeLabel}</button> : null}
+          </div>
+        </>
+      ) : (
         <Link href={href} className="trade-side-placeholder proposal-side-placeholder">
           <span><WebIcon name={side} size={22} decorative /></span>
           <strong>{count > 0 ? t?.('trade.proposals.chooseFromSavedItems', { count }) : emptyText}</strong>
-          <small>{t?.('trade.proposals.chooseProposalItemOptionalBody')}</small>
+          <small>{chooseLabel}</small>
         </Link>
       )}
     </div>
@@ -244,6 +254,8 @@ function AcceptedProposalPackage({ tradeId, proposal, i18n }: { tradeId: string;
 
 export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: TradeDto; variant?: 'inline' | 'page' }) {
   const auth = useWebAuth();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { t, language } = useWebTranslation();
   const i18n = { t, language };
@@ -284,9 +296,12 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
   const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredProposalSide ?? '');
   const cashPromiseAvailable = betaFeatures.cashPromiseEnabled && betaFeatures.cashPromiseVisible;
   const cashPromiseAmountCents = parseProposalCashAmountCents(cashPromiseAmount);
-  const hasPackageRequiredSide = requiredProposalSide === 'offer' ? supportingOfferIds.length > 0 : requiredProposalSide === 'need' ? supportingNeedIds.length > 0 : false;
-  const hasRequiredCashSide = Boolean(requiredProposalSide && cashPromiseSide === requiredProposalSide);
-  const hasRequiredSide = packagePrototypeActive ? hasPackageRequiredSide : requiredProposalSide === 'need' ? Boolean(selectedNeed) || hasRequiredCashSide : requiredProposalSide === 'offer' ? Boolean(selectedOffer) || hasRequiredCashSide : true;
+  const proposalMessageLength = proposalMessage.length;
+  const proposalMessageOverLimit = proposalMessageLength > PROPOSAL_MESSAGE_MAX_LENGTH;
+  const hasProposalAttachment = Boolean(selectedNeed || selectedOffer || cashPromiseSide);
+  const hasProposalContent = proposalMessage.trim().length > 0 || hasProposalAttachment;
+  const cashPromiseInvalid = Boolean(cashPromiseSide && (!cashPromiseAvailable || !Number.isFinite(cashPromiseAmountCents) || cashPromiseAmountCents < 100 || !cashPromiseAcknowledged));
+  const proposalSubmitDisabled = loading || !hasProposalContent || proposalMessageOverLimit || cashPromiseInvalid;
 
   useEffect(() => {
     setProposedNeedId(proposalNeedIdFromUrl);
@@ -294,6 +309,28 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
     if (proposalNeedIdFromUrl) setCashPromiseSide((current) => (current === 'need' ? '' : current));
     if (proposalOfferIdFromUrl) setCashPromiseSide((current) => (current === 'offer' ? '' : current));
   }, [proposalNeedIdFromUrl, proposalOfferIdFromUrl]);
+
+  function replaceProposalSelectionParams(nextNeedId: string, nextOfferId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextNeedId) params.set('proposalNeedId', nextNeedId);
+    else params.delete('proposalNeedId');
+    if (nextOfferId) params.set('proposalOfferId', nextOfferId);
+    else params.delete('proposalOfferId');
+    const query = params.toString();
+    router.replace(`${pathname}${query ? `?${query}` : ''}`, { scroll: false });
+  }
+
+  function removeProposalNeed() {
+    setProposedNeedId('');
+    setCashPromiseSide((current) => current === 'need' ? '' : current);
+    replaceProposalSelectionParams('', proposedOfferId);
+  }
+
+  function removeProposalOffer() {
+    setProposedOfferId('');
+    setCashPromiseSide((current) => current === 'offer' ? '' : current);
+    replaceProposalSelectionParams(proposedNeedId, '');
+  }
 
   useEffect(() => {
     if (!auth.isAuthenticated) return;
@@ -372,20 +409,24 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
     event.preventDefault();
     const message = proposalMessage.trim();
     setProposalFormError(null);
-    if (!hasRequiredSide) {
-      setProposalFormError(requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferBeforeSending') : requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedBeforeSending') : t('trade.proposals.chooseProposalItem'));
+    if (!hasProposalContent) {
+      setProposalFormError(t('trade.proposals.messageOrAttachmentRequired'));
+      return;
+    }
+    if (message.length > PROPOSAL_MESSAGE_MAX_LENGTH) {
+      setProposalFormError(t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH }));
       return;
     }
     if (cashPromiseSide && (!cashPromiseAvailable || !Number.isFinite(cashPromiseAmountCents) || cashPromiseAmountCents < 100 || !cashPromiseAcknowledged)) {
       setProposalFormError(!cashPromiseAvailable ? t('trade.cashPromise.hidden') : !cashPromiseAcknowledged ? t('trade.cashPromise.validationAcknowledgement') : t('trade.cashPromise.validationAmount'));
       return;
     }
-    if (!message) {
-      setProposalFormError(t('trade.proposals.messageRequired'));
+    if (packagePrototypeActive && requiredProposalSide === 'offer' && supportingOfferIds.length === 0) {
+      setProposalFormError(t('trade.proposals.chooseOfferBeforeSending'));
       return;
     }
-    if (message.length < 3) {
-      setProposalFormError(t('trade.proposals.messageTooShort'));
+    if (packagePrototypeActive && requiredProposalSide === 'need' && supportingNeedIds.length === 0) {
+      setProposalFormError(t('trade.proposals.chooseNeedBeforeSending'));
       return;
     }
     setLoading(true);
@@ -481,72 +522,56 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
 
       {canSendProposal ? (
         <form className="proposal-composer proposal-composer--with-side" onSubmit={submitProposal}>
-          {isPage ? (
-            <div className="proposal-attachment-lines" aria-label={t('trade.proposals.privateAttachmentsLabel')}>
-              {selectedOffer ? (
-                <ProposalAttachmentLine
-                  kind="offer"
-                  item={selectedOffer}
-                  href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
-                  i18n={i18n}
-                />
-              ) : null}
-              {selectedNeed ? (
-                <ProposalAttachmentLine
-                  kind="need"
-                  item={selectedNeed}
-                  href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
-                  i18n={i18n}
-                />
-              ) : null}
-              {!selectedOffer && !selectedNeed ? (
-                <p className="proposal-attachment-hint">
-                  {requiredProposalSide === 'offer'
-                    ? t('trade.proposals.privateAttachOfferHint')
-                    : requiredProposalSide === 'need'
-                      ? t('trade.proposals.privateAttachNeedHint')
-                      : t('trade.proposals.privateAttachOptionalHint')}
-                </p>
-              ) : null}
+          <label className={isPage ? 'field-label proposal-message-field proposal-message-field--minimal' : 'field-label proposal-message-field'}>
+            <span className="proposal-message-label-row">
+              <span>{t('trade.labels.message')}</span>
+              <span className={proposalMessageOverLimit ? 'proposal-message-counter proposal-message-counter--error' : 'proposal-message-counter'}>
+                {t('trade.proposals.messageCounter', { count: proposalMessageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}
+              </span>
+            </span>
+            <textarea
+              value={proposalMessage}
+              onChange={(event) => {
+                setProposalMessage(event.target.value);
+                if (proposalFormError) setProposalFormError(null);
+              }}
+              maxLength={PROPOSAL_MESSAGE_MAX_LENGTH}
+              placeholder={proposalCopy.placeholder}
+              rows={4}
+              aria-describedby={proposalFormError ? 'proposal-form-error' : 'proposal-message-limit'}
+              aria-invalid={Boolean(proposalFormError || proposalMessageOverLimit)}
+            />
+          </label>
+          <p id="proposal-message-limit" className="proposal-message-limit">{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</p>
+          {proposalMessageOverLimit ? <p className="field-error" role="alert">{t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</p> : null}
+
+          <div className="proposal-details-block">
+            <div className="proposal-details-copy">
+              <p className="eyebrow">{t('trade.privateProposalsEntry.optionalDetailsTitle')}</p>
+              <p>{t('trade.privateProposalsEntry.optionalDetailsBody')}</p>
             </div>
-          ) : (
-            <>
-              {requiredProposalSide ? (
-                <p className="proposal-side-callout">
-                  <WebIcon name={requiredProposalSide === 'offer' ? 'offer' : 'need'} size={17} decorative />
-                  {requiredProposalSide === 'offer'
-                    ? t('trade.proposals.chooseOfferFirst')
-                    : t('trade.proposals.chooseNeedFirst')}
-                </p>
-              ) : null}
-              {!requiredProposalSide ? (
-                <p className="proposal-side-callout">
-                  <WebIcon name="proposal" size={17} decorative />
-                  {t('trade.proposals.attachSavedItemOptionalBody')}
-                </p>
-              ) : null}
-
-              <ProposalPickerShortcut
-                side="offer"
-                title={requiredProposalSide === 'offer' ? t('trade.proposals.chooseOfferToPropose') : t('trade.proposals.attachOfferToProposal')}
-                count={activeProposalOffers.length}
-                item={selectedOffer}
-                emptyText={requiredProposalSide === 'offer' ? t('trade.proposals.createOfferFirst') : t('trade.proposals.createOfferOptional')}
-                href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
-                i18n={i18n}
-              />
-
-              <ProposalPickerShortcut
-                side="need"
-                title={requiredProposalSide === 'need' ? t('trade.proposals.chooseNeedToPropose') : t('trade.proposals.attachNeedToProposal')}
-                count={activeProposalNeeds.length}
-                item={selectedNeed}
-                emptyText={requiredProposalSide === 'need' ? t('trade.proposals.createNeedFirst') : t('trade.proposals.createNeedOptional')}
-                href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
-                i18n={i18n}
-              />
-            </>
-          )}
+            {sideLoading ? <p className="proposal-attachment-hint">{t('trade.proposals.loadingInventory')}</p> : null}
+            <ProposalPickerShortcut
+              side="offer"
+              title={t('trade.labels.yourOffer')}
+              count={activeProposalOffers.length}
+              item={selectedOffer}
+              emptyText={t('trade.proposals.createOfferOptional')}
+              href={proposalChooseHref(trade.id, 'offer', proposedNeedId, proposedOfferId)}
+              i18n={i18n}
+              onRemove={selectedOffer ? removeProposalOffer : undefined}
+            />
+            <ProposalPickerShortcut
+              side="need"
+              title={t('trade.labels.yourNeed')}
+              count={activeProposalNeeds.length}
+              item={selectedNeed}
+              emptyText={t('trade.proposals.createNeedOptional')}
+              href={proposalChooseHref(trade.id, 'need', proposedNeedId, proposedOfferId)}
+              i18n={i18n}
+              onRemove={selectedNeed ? removeProposalNeed : undefined}
+            />
+          </div>
 
           {!isPage && cashPromiseAvailable ? (
             <div className="notice-box warning proposal-cash-promise-box">
@@ -595,22 +620,8 @@ export function TradeProposalPanel({ trade, variant = 'inline' }: { trade: Trade
           />
           ) : null}
 
-          <label className={isPage ? 'field-label proposal-message-field proposal-message-field--minimal' : 'field-label proposal-message-field'}>
-            {t('trade.labels.message')}
-            <textarea
-              value={proposalMessage}
-              onChange={(event) => {
-                setProposalMessage(event.target.value);
-                if (proposalFormError) setProposalFormError(null);
-              }}
-              placeholder={proposalCopy.placeholder}
-              rows={4}
-              aria-describedby={proposalFormError ? 'proposal-form-error' : undefined}
-              aria-invalid={Boolean(proposalFormError)}
-            />
-          </label>
           {proposalFormError ? <p id="proposal-form-error" className="field-error" role="alert">{proposalFormError}</p> : null}
-          <button type="submit" disabled={loading || sideLoading}>{proposalCopy.actionButton}</button>
+          <button type="submit" disabled={proposalSubmitDisabled}>{proposalCopy.actionButton}</button>
         </form>
       ) : null}
 

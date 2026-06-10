@@ -695,6 +695,18 @@ button.warning { background: var(--warning-bg); color: var(--warning-text); bord
 .proposal-side-callout { display: flex; align-items: flex-start; gap: 9px; width: 100%; margin: 0; border: 1px solid color-mix(in srgb, var(--proposal-border) 72%, transparent); border-radius: 18px; background: color-mix(in srgb, var(--proposal-bg) 58%, var(--app-surface)); color: var(--proposal-text); padding: 12px 13px; font-size: 13px; font-weight: 850; line-height: 1.38; }
 .proposal-side-callout svg { flex: 0 0 auto; margin-top: 1px; }
 
+
+.proposal-message-label-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; }
+.proposal-message-counter { color: var(--app-text-muted); font-size: 12px; font-weight: 900; letter-spacing: .02em; white-space: nowrap; }
+.proposal-message-counter--error { color: var(--danger-text); }
+.proposal-message-limit { margin: -4px 0 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+.proposal-details-block { display: grid; gap: 10px; width: 100%; border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent); border-radius: 24px; background: color-mix(in srgb, var(--app-surface-soft) 64%, var(--app-surface)); padding: 12px; }
+.proposal-details-copy { display: grid; gap: 3px; }
+.proposal-details-copy p { margin: 0; color: var(--app-text-muted); font-size: 13px; font-weight: 780; line-height: 1.42; }
+.proposal-details-copy .eyebrow { color: var(--app-text); font-size: 11px; font-weight: 950; letter-spacing: .11em; text-transform: uppercase; }
+.proposal-picker-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.proposal-picker-actions .button { min-height: 38px; width: 100%; }
+
 .proposal-composer textarea[aria-invalid="true"], .conversation-reply textarea[aria-invalid="true"] { border-color: var(--danger-border); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-border) 22%, transparent); }
 .field-error { margin: 0; border: 1px solid color-mix(in srgb, var(--danger-border) 82%, transparent); border-radius: 14px; background: color-mix(in srgb, var(--danger-bg) 62%, var(--app-surface)); color: var(--danger-text); padding: 9px 11px; font-size: 12px; font-weight: 900; line-height: 1.35; }
 .proposal-list { display: grid; gap: 10px; }

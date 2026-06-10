@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, type CashPromiseInput, type TradePostType, type TradeStatus } from '@hellowhen/contracts';
+import { CASH_PROMISE_ACKNOWLEDGEMENT_TEXT, PROPOSAL_MESSAGE_MAX_LENGTH, type CashPromiseInput, type TradePostType, type TradeStatus } from '@hellowhen/contracts';
 import type { ThemeTokens } from '@hellowhen/theme';
 import type { RootStackParamList } from '../../navigation/RootNavigator';
 import { api } from '../../lib/api';
@@ -161,6 +161,7 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
   async function createProposal() {
     const trimmed = proposalDraft.trim();
     if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
+    if (proposalDraft.length > PROPOSAL_MESSAGE_MAX_LENGTH) { setError(t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })); return; }
     const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
     if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
     if (packagePrototypeActive && requiredSide === 'need' && supportingProposalNeedIds.length === 0) { setError('Choose at least one supporting Need for the Pro package.'); return; }
@@ -431,8 +432,10 @@ function CashPromiseProposalSummary({ amountCents, currency, side, note, theme, 
 
 function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, onChooseNeed, onChooseOffer, onRemoveNeed, onRemoveOffer, theme, t }: { requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; onChooseNeed: () => void; onChooseOffer: () => void; onRemoveNeed: () => void; onRemoveOffer: () => void; theme: ThemeTokens; t: TFunction }) {
   const cashPromiseSide = selectedCashPromise?.side ?? null;
+  const messageLength = value.length;
+  const messageOverLimit = messageLength > PROPOSAL_MESSAGE_MAX_LENGTH;
   const hasContent = value.trim().length > 0 || Boolean(selectedNeed) || Boolean(selectedOffer);
-  const disabled = loading || !hasContent;
+  const disabled = loading || !hasContent || messageOverLimit;
   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : t('trade.proposals.askToTrade');
   const selectedCashText = selectedCashPromise ? `${formatMoney(selectedCashPromise.amountCents, selectedCashPromise.currency)} · ${t('trade.cashPromise.notProcessed')}` : null;
@@ -442,7 +445,12 @@ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, si
       <AppText style={styles.composerTitle}>{t('trade.privateProposalsEntry.startTitle')}</AppText>
       <View style={styles.messageComposerBlock}>
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
-        <TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
+        <TextInput value={value} onChangeText={onChange} maxLength={PROPOSAL_MESSAGE_MAX_LENGTH} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: messageOverLimit ? theme.semantic.danger.border : theme.color.border, backgroundColor: theme.color.surface }]} />
+        <View style={styles.messageCounterRow}>
+          <AppText style={[styles.messageLimitText, { color: theme.color.muted }]}>{t('trade.proposals.messageLimitHelper', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+          <AppText style={[styles.messageCounterText, { color: messageOverLimit ? theme.semantic.danger.text : theme.color.muted }]}>{t('trade.proposals.messageCounter', { count: messageLength, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText>
+        </View>
+        {messageOverLimit ? <AppText style={[styles.messageErrorText, { color: theme.semantic.danger.text }]}>{t('trade.proposals.messageTooLong', { max: PROPOSAL_MESSAGE_MAX_LENGTH })}</AppText> : null}
       </View>
       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
       <View style={styles.optionalAttachmentBlock}>
@@ -646,6 +654,10 @@ const styles = StyleSheet.create({
   optionalAttachmentCopy: { gap: 4 },
   threadLabel: { fontSize: 13, fontWeight: '900' },
   textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' },
+  messageCounterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  messageLimitText: { flex: 1, fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  messageCounterText: { fontSize: 12, lineHeight: 17, fontWeight: '900' },
+  messageErrorText: { fontSize: 12, lineHeight: 17, fontWeight: '900' },
   attachmentSection: { borderRadius: 20, borderWidth: 1, padding: 12, gap: 10 },
   attachmentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   attachmentHeading: { flex: 1, gap: 7 },

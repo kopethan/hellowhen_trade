@@ -15,11 +15,6 @@ proposalsRoutes.use(requireAuth);
 function canReadProposal(proposal: { applicantId: string; trade: { ownerId: string; providerId?: string | null } }, actorId: string) { return proposal.applicantId === actorId || proposal.trade.ownerId === actorId || proposal.trade.providerId === actorId; }
 function otherProposalMemberId(proposal: { applicantId: string; trade: { ownerId: string } }, actorId: string) { return actorId === proposal.applicantId ? proposal.trade.ownerId : proposal.applicantId; }
 
-function proposalSideRequirement(postType?: string | null) {
-  if (postType === 'open_need') return 'offer' as const;
-  if (postType === 'open_offer') return 'need' as const;
-  return null;
-}
 
 function inventoryUnavailable(status?: string | null) {
   return status !== 'active';
@@ -75,7 +70,6 @@ function buildDealProblemReportDetails(input: {
 }
 
 async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null; proposedOfferId?: string | null }, proposal: { applicantId: string; proposedNeedId?: string | null; proposedOfferId?: string | null; cashPromise?: { side: 'need' | 'offer' } | null; trade: { postType?: string | null } }, cashPromiseSide?: 'need' | 'offer' | null) {
-  const requiredSide = proposalSideRequirement(proposal.trade.postType);
   const nextNeedProvided = Object.prototype.hasOwnProperty.call(input, 'proposedNeedId');
   const nextOfferProvided = Object.prototype.hasOwnProperty.call(input, 'proposedOfferId');
   const nextNeedId = nextNeedProvided ? input.proposedNeedId ?? null : proposal.proposedNeedId ?? null;
@@ -88,13 +82,6 @@ async function resolveProposalSideUpdate(input: { proposedNeedId?: string | null
   if (effectiveCashPromiseSide === 'need' && nextNeedId) {
     throw Object.assign(new Error('cash_promise_side_conflict'), { code: 'CASH_PROMISE_SIDE_CONFLICT' });
   }
-  if (requiredSide === 'offer' && !nextOfferId && effectiveCashPromiseSide !== 'offer') {
-    throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_OFFER_REQUIRED' });
-  }
-  if (requiredSide === 'need' && !nextNeedId && effectiveCashPromiseSide !== 'need') {
-    throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_NEED_REQUIRED' });
-  }
-
   if (nextOfferId) {
     const offer = await prisma.offer.findFirst({ where: { id: nextOfferId, ownerId: proposal.applicantId } });
     if (!offer || inventoryUnavailable(offer.status)) {

@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import type { FormEvent, ReactNode } from "react";
-import type {
-  AcceptedDealSnapshotItemDto,
-  NeedDto,
-  OfferDto,
-  ProposalMessageDto,
-  TradeActionStatus,
-  TradeDto,
-  TradeProposalDto,
+import {
+  PROPOSAL_MESSAGE_MAX_LENGTH,
+  type AcceptedDealSnapshotItemDto,
+  type NeedDto,
+  type OfferDto,
+  type ProposalMessageDto,
+  type TradeActionStatus,
+  type TradeDto,
+  type TradeProposalDto,
 } from "@hellowhen/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ReportContentButton } from "../../components/ReportContentButton";
@@ -1247,16 +1248,8 @@ export function ProposalConversationClient({
     if (!proposal) return;
     const message = proposalDraft.trim();
     setProposalEditError(null);
-    if (message && message.length < 3) {
-      setProposalEditError(t("trade.proposals.messageTooShort"));
-      return;
-    }
-    if (requiredProposalSide === "offer" && !proposalDraftOfferId) {
-      setProposalEditError(t("trade.proposals.chooseOfferBeforeSending"));
-      return;
-    }
-    if (requiredProposalSide === "need" && !proposalDraftNeedId) {
-      setProposalEditError(t("trade.proposals.chooseNeedBeforeSending"));
+    if (message.length > PROPOSAL_MESSAGE_MAX_LENGTH) {
+      setProposalEditError(t("trade.proposals.messageTooLong", { max: PROPOSAL_MESSAGE_MAX_LENGTH }));
       return;
     }
 
@@ -1890,9 +1883,11 @@ export function ProposalConversationClient({
                       setProposalDraft(event.target.value);
                       if (proposalEditError) setProposalEditError(null);
                     }}
+                    maxLength={PROPOSAL_MESSAGE_MAX_LENGTH}
                     placeholder={t("trade.proposals.writeMessage")}
                     rows={3}
                   />
+                  <span className={proposalDraft.length > PROPOSAL_MESSAGE_MAX_LENGTH ? "proposal-message-counter proposal-message-counter--error" : "proposal-message-counter"}>{t("trade.proposals.messageCounter", { count: proposalDraft.length, max: PROPOSAL_MESSAGE_MAX_LENGTH })}</span>
                 </label>
                 {proposalEditError ? <p className="field-error" role="alert">{proposalEditError}</p> : null}
                 <div className="proposal-edit-form__actions">
