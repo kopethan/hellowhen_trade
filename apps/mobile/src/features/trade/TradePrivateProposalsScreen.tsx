@@ -160,13 +160,10 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
 
   async function createProposal() {
     const trimmed = proposalDraft.trim();
-    if (trimmed.length < 3) return;
+    if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
     const packagePrototypeActive = packagePrototypeEnabled && betaFeatures.proTradePackageFeatures.visible && ['need', 'offer'].includes(requiredSide ?? '');
     if (packagePrototypeActive && requiredSide === 'offer' && supportingProposalOfferIds.length === 0) { setError('Choose at least one supporting Offer for the Pro package.'); return; }
     if (packagePrototypeActive && requiredSide === 'need' && supportingProposalNeedIds.length === 0) { setError('Choose at least one supporting Need for the Pro package.'); return; }
-    const cashPromiseSide = selectedCashPromise?.kind === 'cash_promise' ? selectedCashPromise.side : null;
-    if (!packagePrototypeActive && requiredSide === 'offer' && !selectedProposalOffer && cashPromiseSide !== 'offer') { setError(t('trade.proposals.chooseOfferFirst')); return; }
-    if (!packagePrototypeActive && requiredSide === 'need' && !selectedProposalNeed && cashPromiseSide !== 'need') { setError(t('trade.proposals.chooseNeedFirst')); return; }
     setCreatingProposal(true);
     setError(null);
     setMessage(null);
@@ -319,6 +316,10 @@ export function TradePrivateProposalsScreen({ route, navigation }: Props) {
             selectedNeed={selectedProposalNeed}
             selectedOffer={selectedProposalOffer}
             selectedCashPromise={selectedCashPromise?.kind === 'cash_promise' ? selectedCashPromise : null}
+            onChooseNeed={() => openPicker('need')}
+            onChooseOffer={() => openPicker('offer')}
+            onRemoveNeed={() => setSelectedProposalNeedId('')}
+            onRemoveOffer={() => setSelectedProposalOfferId('')}
             theme={theme}
             t={t}
           />
@@ -428,15 +429,12 @@ function CashPromiseProposalSummary({ amountCents, currency, side, note, theme, 
   </View>;
 }
 
-function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, theme, t }: { requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; theme: ThemeTokens; t: TFunction }) {
+function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeed, selectedOffer, selectedCashPromise, onChooseNeed, onChooseOffer, onRemoveNeed, onRemoveOffer, theme, t }: { requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeed: NeedItem | null; selectedOffer: OfferItem | null; selectedCashPromise: Extract<TradeCreateSideSelection, { kind: 'cash_promise' }> | null; onChooseNeed: () => void; onChooseOffer: () => void; onRemoveNeed: () => void; onRemoveOffer: () => void; theme: ThemeTokens; t: TFunction }) {
   const cashPromiseSide = selectedCashPromise?.side ?? null;
-  const cashPromiseSatisfiesRequired = Boolean(requiredSide && cashPromiseSide === requiredSide);
-  const missingInventory = !cashPromiseSatisfiesRequired && ((requiredSide === 'offer' && offers.length === 0) || (requiredSide === 'need' && needs.length === 0));
-  const standardMissingSelection = (requiredSide === 'offer' && !selectedOffer && cashPromiseSide !== 'offer') || (requiredSide === 'need' && !selectedNeed && cashPromiseSide !== 'need');
-  const disabled = loading || value.trim().length < 3 || standardMissingSelection || missingInventory;
+  const hasContent = value.trim().length > 0 || Boolean(selectedNeed) || Boolean(selectedOffer);
+  const disabled = loading || !hasContent;
   const placeholder = requiredSide === 'offer' ? t('trade.proposals.placeholderOffer') : requiredSide === 'need' ? t('trade.proposals.placeholderNeed') : t('trade.proposals.placeholderTrade');
   const submitLabel = loading ? t('trade.proposals.sending') : requiredSide === 'offer' ? t('trade.proposals.sendOfferProposal') : requiredSide === 'need' ? t('trade.proposals.sendNeedProposal') : t('trade.proposals.askToTrade');
-  const requiredAttachHint = requiredSide === 'offer' ? t('trade.privateProposalsEntry.attachRequiredOffer') : requiredSide === 'need' ? t('trade.privateProposalsEntry.attachRequiredNeed') : null;
   const selectedCashText = selectedCashPromise ? `${formatMoney(selectedCashPromise.amountCents, selectedCashPromise.currency)} · ${t('trade.cashPromise.notProcessed')}` : null;
 
   return (
@@ -447,13 +445,81 @@ function ProposalComposer({ requiredSide, value, onChange, onSubmit, loading, si
         <TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
       </View>
       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
-      {selectedOffer && cashPromiseSide !== 'offer' ? <AttachedLine icon="offer" title={t('trade.labels.proposedOffer')} body={selectedOffer.title} theme={theme} /> : null}
-      {selectedNeed && cashPromiseSide !== 'need' ? <AttachedLine icon="need" title={t('trade.labels.proposedNeed')} body={selectedNeed.title} theme={theme} /> : null}
+      <View style={styles.optionalAttachmentBlock}>
+        <View style={styles.optionalAttachmentCopy}>
+          <AppText style={styles.threadLabel}>{t('trade.privateProposalsEntry.optionalDetailsTitle')}</AppText>
+          <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.privateProposalsEntry.optionalDetailsBody')}</AppText>
+        </View>
+        <ProposalAttachmentSection
+          kind="offer"
+          title={t('trade.labels.yourOffer')}
+          count={offers.length}
+          item={cashPromiseSide === 'offer' ? null : selectedOffer}
+          emptyText={t('trade.proposals.createOfferOptional')}
+          onChoose={onChooseOffer}
+          onRemove={onRemoveOffer}
+          theme={theme}
+          t={t}
+        />
+        <ProposalAttachmentSection
+          kind="need"
+          title={t('trade.labels.yourNeed')}
+          count={needs.length}
+          item={cashPromiseSide === 'need' ? null : selectedNeed}
+          emptyText={t('trade.proposals.createNeedOptional')}
+          onChoose={onChooseNeed}
+          onRemove={onRemoveNeed}
+          theme={theme}
+          t={t}
+        />
+      </View>
       {selectedCashText ? <AttachedLine icon="wallet" title={t('trade.cashPromise.title')} body={selectedCashText} theme={theme} /> : null}
-      {standardMissingSelection && requiredAttachHint ? <AppText style={[styles.attachHint, { color: theme.color.muted }]}>{requiredAttachHint}</AppText> : null}
-      {missingInventory ? <AppText style={[styles.attachHint, { color: theme.semantic.warning.text }]}>{requiredSide === 'offer' ? t('trade.proposals.addOfferBeforeProposing') : t('trade.proposals.addNeedBeforeProposing')}</AppText> : null}
       <ActionButton label={submitLabel} variant="primary" disabled={disabled} onPress={onSubmit} theme={theme} />
     </View>
+  );
+}
+
+function ProposalAttachmentSection({ kind, title, count, item, emptyText, onChoose, onRemove, theme, t }: { kind: 'need' | 'offer'; title: string; count: number; item: NeedItem | OfferItem | null; emptyText: string; onChoose: () => void; onRemove: () => void; theme: ThemeTokens; t: TFunction }) {
+  const chooseLabel = kind === 'offer' ? t('trade.proposals.chooseOffer') : t('trade.proposals.chooseNeed');
+  const changeLabel = kind === 'offer' ? t('trade.proposals.changeOffer') : t('trade.proposals.changeNeed');
+  const removeLabel = kind === 'offer' ? t('trade.proposals.removeOffer') : t('trade.proposals.removeNeed');
+
+  return (
+    <View style={[styles.attachmentSection, { backgroundColor: theme.color.subtleSurface, borderColor: item ? theme.semantic[kind].border : theme.color.border }]}>
+      <View style={styles.attachmentHeader}>
+        <View style={styles.attachmentHeading}>
+          <SemanticBadge label={kind === 'need' ? t('inventory.labels.need') : t('inventory.labels.offer')} tone={kind} size="sm" />
+          <AppText style={styles.threadLabel}>{title}</AppText>
+        </View>
+        <View style={[styles.inventoryPickerIcon, { backgroundColor: theme.semantic[kind].softBg }]}><MobileIcon name={kind} size={18} color={theme.semantic[kind].text} /></View>
+      </View>
+      {item ? (
+        <>
+          <InventoryPreviewCard item={item} kind={kind} label={t('trade.labels.selected')} theme={theme} t={t} compact />
+          <View style={styles.attachmentActions}>
+            <AttachmentButton label={changeLabel} onPress={onChoose} theme={theme} />
+            <AttachmentButton label={removeLabel} onPress={onRemove} theme={theme} danger />
+          </View>
+        </>
+      ) : (
+        <View style={styles.attachmentEmptyBody}>
+          <AppText style={[styles.muted, { color: theme.color.muted }]}>{count > 0 ? t('trade.proposals.chooseFromSavedItems', { count }) : emptyText}</AppText>
+          <AttachmentButton label={chooseLabel} onPress={onChoose} theme={theme} />
+        </View>
+      )}
+    </View>
+  );
+}
+
+function AttachmentButton({ label, onPress, theme, danger }: { label: string; onPress: () => void; theme: ThemeTokens; danger?: boolean }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.attachmentButton, { backgroundColor: theme.color.surface, borderColor: danger ? theme.semantic.danger.border : theme.color.border }, pressed && styles.pressed]}
+    >
+      <AppText style={[styles.attachmentButtonText, { color: danger ? theme.semantic.danger.text : theme.color.text }]}>{label}</AppText>
+    </Pressable>
   );
 }
 
@@ -576,8 +642,17 @@ const styles = StyleSheet.create({
   composerShell: { gap: 14 },
   composerTitle: { fontSize: 20, lineHeight: 26, fontWeight: '900', letterSpacing: -0.25 },
   messageComposerBlock: { gap: 8 },
+  optionalAttachmentBlock: { gap: 10 },
+  optionalAttachmentCopy: { gap: 4 },
   threadLabel: { fontSize: 13, fontWeight: '900' },
   textArea: { minHeight: 126, borderRadius: 20, borderWidth: 1, padding: 14, fontSize: 16, lineHeight: 22, fontWeight: '600' },
+  attachmentSection: { borderRadius: 20, borderWidth: 1, padding: 12, gap: 10 },
+  attachmentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  attachmentHeading: { flex: 1, gap: 7 },
+  attachmentActions: { flexDirection: 'row', gap: 8 },
+  attachmentEmptyBody: { gap: 8 },
+  attachmentButton: { minHeight: 38, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 9 },
+  attachmentButtonText: { fontSize: 12, fontWeight: '900' },
   attachedLine: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   attachedLineCopy: { flex: 1, gap: 2 },
   attachedLineTitle: { fontSize: 13, lineHeight: 18, fontWeight: '900' },

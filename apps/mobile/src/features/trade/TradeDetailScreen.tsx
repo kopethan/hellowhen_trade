@@ -253,9 +253,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
     if (creatingProposal) return;
     if (!auth.isAuthenticated) { navigation.navigate('Login'); return; }
     const trimmed = proposalDraft.trim();
-    if (trimmed.length < 3) return;
-    if (requiredSide === 'offer' && !selectedProposalOffer) { setError(t('trade.proposals.chooseOfferFirst')); return; }
-    if (requiredSide === 'need' && !selectedProposalNeed) { setError(t('trade.proposals.chooseNeedFirst')); return; }
+    if (!trimmed && !selectedProposalNeed && !selectedProposalOffer) return;
     setCreatingProposal(true); setError(null); setMessage(null);
     try {
       const result = await api.trades.createProposal(trade.id, {
@@ -272,7 +270,7 @@ export function TradeDetailScreen({ route, navigation }: Props) {
       if (body?.proposal) setProposals((current) => upsertProposal(current, body.proposal!));
       setError(getFriendlyApiErrorMessage(caughtError, t('trade.errors.couldNotSendProposal')));
     } finally { setCreatingProposal(false); }
-  }, [auth.isAuthenticated, creatingProposal, loadTrade, navigation, proposalDraft, requiredSide, selectedProposalNeed, selectedProposalOffer, t, trade.id]);
+  }, [auth.isAuthenticated, creatingProposal, loadTrade, navigation, proposalDraft, selectedProposalNeed, selectedProposalOffer, t, trade.id]);
 
 
   const detailInfoRows = [
@@ -412,10 +410,9 @@ function TradeDetailLoadingState({ title, theme }: { title: string; theme: Theme
 }
 
 function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, loading, sideLoading, needs, offers, selectedNeedId, selectedOfferId, onChooseNeed, onChooseOffer, theme, t }: { trade: TradeDeckItem; requiredSide: RequiredProposalSide; value: string; onChange: (value: string) => void; onSubmit: () => void; loading: boolean; sideLoading: boolean; needs: NeedItem[]; offers: OfferItem[]; selectedNeedId: string; selectedOfferId: string; onChooseNeed: () => void; onChooseOffer: () => void; theme: ThemeTokens; t: TFunction }) {
-  const missingInventory = requiredSide === 'need' ? needs.length === 0 : requiredSide === 'offer' ? offers.length === 0 : false;
   const selectedNeed = needs.find((need) => need.id === selectedNeedId) ?? null;
   const selectedOffer = offers.find((offer) => offer.id === selectedOfferId) ?? null;
-  const disabled = loading || sideLoading || value.trim().length < 3 || (requiredSide === 'need' && !selectedNeed) || (requiredSide === 'offer' && !selectedOffer);
+  const disabled = loading || (!value.trim() && !selectedNeed && !selectedOffer);
   const placeholder = requiredSide === 'offer'
     ? t('trade.proposals.placeholderOffer')
     : requiredSide === 'need'
@@ -439,8 +436,7 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
       {sideLoading ? <AppText style={[styles.muted, { color: theme.color.muted }]}>{t('trade.proposals.loadingInventory')}</AppText> : null}
 
       {!requiredSide ? <InfoNotice tone="info" title={t('trade.proposals.chooseProposalItem')} body={t('trade.proposals.chooseProposalItemOptionalBody')} /> : null}
-      {requiredSide === 'offer' ? <InfoNotice tone="instruction" title={t('trade.proposals.chooseOfferToPropose')} body={t('trade.proposals.chooseOfferFirst')} /> : null}
-      {requiredSide === 'need' ? <InfoNotice tone="instruction" title={t('trade.proposals.chooseNeedToPropose')} body={t('trade.proposals.chooseNeedFirst')} /> : null}
+      <InfoNotice tone="info" title={t('trade.proposals.attachSavedItemOptional')} body={t('trade.proposals.attachSavedItemOptionalBody')} />
 
       {requiredSide === 'need' ? (
         <>
@@ -494,8 +490,6 @@ function ProposalComposer({ trade, requiredSide, value, onChange, onSubmit, load
         <AppText style={styles.threadLabel}>{t('trade.labels.message')}</AppText>
         <TextInput value={value} onChangeText={onChange} multiline textAlignVertical="top" placeholder={placeholder} placeholderTextColor={theme.color.muted} style={[styles.textArea, { color: theme.color.text, borderColor: theme.color.border, backgroundColor: theme.color.surface }]} />
       </View>
-
-      {missingInventory ? <InfoNotice tone="warning" title={t('trade.proposals.savedInventoryNeeded')} body={requiredSide === 'offer' ? t('trade.proposals.addOfferBeforeProposing') : t('trade.proposals.addNeedBeforeProposing')} /> : null}
       <ActionButton label={submitLabel} variant="primary" disabled={disabled} onPress={onSubmit} theme={theme} />
     </View>
   );

@@ -611,8 +611,6 @@ export async function holdOwnerCreditsForProposal(tradeId: string, proposalId: s
     if (!proposal || proposal.applicantId !== applicantId) throw Object.assign(new Error('not_found'), { code: 'NOT_FOUND' });
 
     const acceptedSideUpdate: { needId?: string; offerId?: string } = {};
-    if (trade.postType === 'open_need' && !proposal.proposedOfferId && proposal.cashPromise?.side !== 'offer') throw Object.assign(new Error('proposal_offer_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
-    if (trade.postType === 'open_offer' && !proposal.proposedNeedId && proposal.cashPromise?.side !== 'need') throw Object.assign(new Error('proposal_need_required'), { code: 'PROPOSAL_SIDE_REQUIRED' });
 
     if (proposal.proposedOfferId) {
       const proposedOffer = await tx.offer.findFirst({ where: { id: proposal.proposedOfferId, ownerId: applicantId } });
@@ -1031,7 +1029,6 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
   if (trade.ownerId === actorId) return res.status(400).json({ error: 'cannot_propose_to_own_trade', message: 'You cannot send a proposal to your own trade.' });
   if (await usersHaveBlockBetween(actorId, trade.ownerId)) return res.status(403).json({ error: 'user_blocked', message: 'This proposal is not available because one member has blocked the other.' });
 
-  const requiredSide = proposalSideRequirement(trade.postType);
   const packageInput = hasProposalPackageInput(input);
   const proposalCashPromise = cashPromiseDecision?.ok ? cashPromiseDecision.cashPromise : null;
   const cashPromiseSide = proposalCashPromise?.side ?? null;
@@ -1064,12 +1061,6 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
       throw error;
     }
   } else {
-    if (requiredSide === 'offer' && !input.proposedOfferId && cashPromiseSide !== 'offer') {
-      return res.status(400).json({ error: 'proposal_offer_required', message: 'Choose one of your saved Offers or a Cash Promise to propose for this Open Need.' });
-    }
-    if (requiredSide === 'need' && !input.proposedNeedId && cashPromiseSide !== 'need') {
-      return res.status(400).json({ error: 'proposal_need_required', message: 'Choose one of your saved Needs or a Cash Promise to propose for this Open Offer.' });
-    }
     if (cashPromiseSide === 'offer' && input.proposedOfferId) {
       return res.status(400).json({ error: 'cash_promise_side_conflict', message: 'Cash Promise cannot be combined with a proposed Offer on the same side.' });
     }
@@ -1123,7 +1114,9 @@ tradesRoutes.post('/:tradeId/proposals', requireAuth, requireActiveAccount, asyn
     if (packageItems.length) {
       await tx.tradeProposalPackageItem.createMany({ data: packageItems.map((item) => ({ ...item, proposalId: proposalRecord.id })) });
     }
-    await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
+    if (input.message.trim()) {
+      await tx.proposalMessage.create({ data: { proposalId: proposalRecord.id, senderId: actorId, body: input.message } });
+    }
     return tx.tradeProposal.findUniqueOrThrow({ where: { id: proposalRecord.id }, include: proposalInclude });
   });
   try {

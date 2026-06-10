@@ -281,20 +281,25 @@ const tradeProposalPackageRequestFieldsSchema = z.object({
 });
 
 export const createTradeProposalRequestSchema = z.object({
-  message: z.string().min(3).max(1200),
+  message: z.string().trim().max(1200).optional().default(''),
   proposedNeedId: z.string().min(1).optional(),
   proposedOfferId: z.string().min(1).optional(),
   cashPromise: cashPromiseInputSchema.optional()
 }).merge(tradeProposalPackageRequestFieldsSchema).superRefine((value, ctx) => {
-  if (!value.cashPromise) return;
-  if ((value.packageKind && value.packageKind !== 'standard') || value.mainNeedId || value.mainOfferId || value.supportingNeedIds?.length || value.supportingOfferIds?.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with proposal packages.' });
+  const hasPackageInput = (value.packageKind && value.packageKind !== 'standard') || value.mainNeedId || value.mainOfferId || value.supportingNeedIds?.length || value.supportingOfferIds?.length;
+  if (!value.message.trim() && !value.proposedNeedId && !value.proposedOfferId && !value.cashPromise && !hasPackageInput) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['message'], message: 'Write a message or attach a Need or Offer before sending this proposal.' });
   }
-  if (value.cashPromise.side === 'need' && value.proposedNeedId) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Need on the same side.' });
-  }
-  if (value.cashPromise.side === 'offer' && value.proposedOfferId) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Offer on the same side.' });
+  if (value.cashPromise) {
+    if (hasPackageInput) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with proposal packages.' });
+    }
+    if (value.cashPromise.side === 'need' && value.proposedNeedId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Need on the same side.' });
+    }
+    if (value.cashPromise.side === 'offer' && value.proposedOfferId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['cashPromise'], message: 'Cash Promise cannot be combined with a proposed Offer on the same side.' });
+    }
   }
 });
 export const updateProposalStatusRequestSchema = z.object({ status: proposalActionStatusSchema });
