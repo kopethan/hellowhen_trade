@@ -1,0 +1,217 @@
+diff --git a/apps/api/src/modules/inventory-folders.routes.ts b/apps/api/src/modules/inventory-folders.routes.ts
+new file mode 100644
+index 0000000..308c78b
+--- /dev/null
++++ b/apps/api/src/modules/inventory-folders.routes.ts
+@@ -0,0 +1,173 @@
++import { Router } from 'express';
++import type { InventoryFolderItemType, Prisma } from '@prisma/client';
++import {
++  addInventoryFolderItemRequestSchema,
++  createInventoryFolderRequestSchema,
++  listInventoryFoldersQuerySchema,
++  updateInventoryFolderRequestSchema,
++} from '@hellowhen/contracts';
++import { asyncRoute } from '../lib/asyncRoute.js';
++import { prisma } from '../lib/prisma.js';
++import { requireActiveAccount, requireAuth } from '../middleware/auth.js';
++
++export const inventoryFoldersRoutes = Router();
++inventoryFoldersRoutes.use(requireAuth);
++
++function isUniqueConstraintError(error: unknown) {
++  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
++}
++
++function buildFolderItemInclude(itemType?: InventoryFolderItemType) {
++  return {
++    where: { ...(itemType ? { itemType } : {}) },
++    include: { need: true, offer: true },
++    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
++  } satisfies Prisma.InventoryFolderItemFindManyArgs;
++}
++
++async function loadOwnedFolder(folderId: string, ownerId: string, includeItems = true, itemType?: InventoryFolderItemType) {
++  if (!includeItems) {
++    return prisma.inventoryFolder.findFirst({ where: { id: folderId, ownerId } });
++  }
++
++  return prisma.inventoryFolder.findFirst({
++    where: { id: folderId, ownerId },
++    include: { items: buildFolderItemInclude(itemType) },
++  });
++}
++
++async function ensureOwnedInventoryItem(ownerId: string, itemType: InventoryFolderItemType, itemId: string) {
++  if (itemType === 'need') {
++    return prisma.need.findFirst({ where: { id: itemId, ownerId, businessProfileId: null }, select: { id: true } });
++  }
++  return prisma.offer.findFirst({ where: { id: itemId, ownerId, businessProfileId: null }, select: { id: true } });
++}
++
++function folderItemWhere(folderId: string, ownerId: string, itemType: InventoryFolderItemType, itemId: string): Prisma.InventoryFolderItemWhereInput {
++  return itemType === 'need'
++    ? { folderId, ownerId, itemType, needId: itemId }
++    : { folderId, ownerId, itemType, offerId: itemId };
++}
++
++async function findFolderItem(folderId: string, ownerId: string, itemType: InventoryFolderItemType, itemId: string) {
++  return prisma.inventoryFolderItem.findFirst({
++    where: folderItemWhere(folderId, ownerId, itemType, itemId),
++    include: { need: true, offer: true },
++  });
++}
++
++function duplicateFolderPayload() {
++  return {
++    error: 'inventory_folder_title_exists',
++    message: 'You already have a folder with this title.',
++  };
++}
++
++inventoryFoldersRoutes.get('/', asyncRoute(async (req, res) => {
++  const input = listInventoryFoldersQuerySchema.parse(req.query);
++  const baseQuery = {
++    where: { ownerId: req.user!.id },
++    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
++  } satisfies Prisma.InventoryFolderFindManyArgs;
++  const folders = input.includeItems
++    ? await prisma.inventoryFolder.findMany({ ...baseQuery, include: { items: buildFolderItemInclude(input.itemType) } })
++    : await prisma.inventoryFolder.findMany(baseQuery);
++
++  res.json({ folders });
++}));
++
++inventoryFoldersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = createInventoryFolderRequestSchema.parse(req.body);
++  try {
++    const folder = await prisma.inventoryFolder.create({
++      data: {
++        ownerId: req.user!.id,
++        title: input.title,
++        description: input.description ?? null,
++        sortOrder: input.sortOrder ?? 0,
++      },
++      include: { items: buildFolderItemInclude() },
++    });
++    res.status(201).json({ folder });
++  } catch (error) {
++    if (isUniqueConstraintError(error)) return res.status(409).json(duplicateFolderPayload());
++    throw error;
++  }
++}));
++
++inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = updateInventoryFolderRequestSchema.parse(req.body);
++  const existing = await loadOwnedFolder(req.params.folderId, req.user!.id, false);
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++
++  try {
++    const folder = await prisma.inventoryFolder.update({
++      where: { id: existing.id },
++      data: {
++        ...(input.title !== undefined ? { title: input.title } : {}),
++        ...(input.description !== undefined ? { description: input.description } : {}),
++        ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
++      },
++      include: { items: buildFolderItemInclude() },
++    });
++    res.json({ folder });
++  } catch (error) {
++    if (isUniqueConstraintError(error)) return res.status(409).json(duplicateFolderPayload());
++    throw error;
++  }
++}));
++
++inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
++  const existing = await loadOwnedFolder(req.params.folderId, req.user!.id, false);
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++  await prisma.inventoryFolder.delete({ where: { id: existing.id } });
++  res.status(204).send();
++}));
++
++inventoryFoldersRoutes.post('/:folderId/items', requireActiveAccount, asyncRoute(async (req, res) => {
++  const input = addInventoryFolderItemRequestSchema.parse(req.body);
++  const folder = await loadOwnedFolder(req.params.folderId, req.user!.id, false);
++  if (!folder) return res.status(404).json({ error: 'not_found' });
++
++  const inventoryItem = await ensureOwnedInventoryItem(req.user!.id, input.itemType, input.itemId);
++  if (!inventoryItem) return res.status(404).json({ error: 'inventory_item_not_found' });
++
++  const existing = await findFolderItem(folder.id, req.user!.id, input.itemType, input.itemId);
++  if (existing) return res.json({ item: existing });
++
++  try {
++    const item = await prisma.inventoryFolderItem.create({
++      data: {
++        folderId: folder.id,
++        ownerId: req.user!.id,
++        itemType: input.itemType,
++        needId: input.itemType === 'need' ? input.itemId : null,
++        offerId: input.itemType === 'offer' ? input.itemId : null,
++        sortOrder: input.sortOrder ?? 0,
++      },
++      include: { need: true, offer: true },
++    });
++    res.status(201).json({ item });
++  } catch (error) {
++    if (!isUniqueConstraintError(error)) throw error;
++    const item = await findFolderItem(folder.id, req.user!.id, input.itemType, input.itemId);
++    if (item) return res.json({ item });
++    throw error;
++  }
++}));
++
++inventoryFoldersRoutes.delete('/:folderId/items/:itemId', requireActiveAccount, asyncRoute(async (req, res) => {
++  const existing = await prisma.inventoryFolderItem.findFirst({
++    where: {
++      id: req.params.itemId,
++      folderId: req.params.folderId,
++      ownerId: req.user!.id,
++      folder: { ownerId: req.user!.id },
++    },
++    select: { id: true },
++  });
++  if (!existing) return res.status(404).json({ error: 'not_found' });
++
++  await prisma.inventoryFolderItem.delete({ where: { id: existing.id } });
++  res.status(204).send();
++}));
+diff --git a/apps/api/src/routes.ts b/apps/api/src/routes.ts
+index 68466f5..71fba7d 100644
+--- a/apps/api/src/routes.ts
++++ b/apps/api/src/routes.ts
+@@ -7,6 +7,7 @@ import { businessRoutes } from './modules/business/business.routes.js';
+ import { creditsRoutes } from './modules/credits/credits.routes.js';
+ import { healthRoutes } from './modules/health/health.routes.js';
+ import { inventoryTemplatesRoutes } from './modules/inventory-templates/inventoryTemplates.routes.js';
++import { inventoryFoldersRoutes } from './modules/inventory-folders.routes.js';
+ import { needsRoutes } from './modules/needs/needs.routes.js';
+ import { notificationsRoutes } from './modules/notifications/notifications.routes.js';
+ import { mediaRoutes } from './modules/media/media.routes.js';
+@@ -31,6 +32,7 @@ export const routes = Router();
+ routes.use('/health', healthRoutes);
+ routes.use('/ai', aiAssistRoutes);
+ routes.use('/inventory-templates', inventoryTemplatesRoutes);
++routes.use('/inventory-folders', inventoryFoldersRoutes);
+ routes.use('/auth', authRoutes);
+ routes.use('/account', accountRoutes);
+ routes.use('/business', requireBusinessAccountsEnabled(), businessRoutes);
+diff --git a/packages/api-client/src/index.ts b/packages/api-client/src/index.ts
+index 0ec14da..29a265b 100644
+--- a/packages/api-client/src/index.ts
++++ b/packages/api-client/src/index.ts
+@@ -1,4 +1,4 @@
+-import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse } from '@hellowhen/contracts';
++import type { LoginRequest, RegisterRequest, GoogleAuthRequest, ForgotPasswordRequest, ResetPasswordRequest, ChangePasswordRequest, AuthResponse, AuthMeResponse, LoginResponse, ForgotPasswordResponse, ResetPasswordResponse, ChangePasswordResponse, LogoutRequest, RefreshSessionRequest, TwoFactorChallengeRequest, TwoFactorCodeRequest, DisableTwoFactorRequest, ReauthenticateRequest, UpdateProfileRequest, UpdateSettingsRequest, CreateNeedRequest, CreateOfferRequest, CreateTradeRequest, UpdateNeedRequest, UpdateOfferRequest, ListInventoryTemplatesQuery, CloneInventoryTemplateRequest, ListInventoryFoldersQuery, CreateInventoryFolderRequest, UpdateInventoryFolderRequest, AddInventoryFolderItemRequest, InventoryFoldersResponse, InventoryFolderResponse, InventoryFolderItemResponse, UpdateTradeStatusRequest, RenewTradeRequest, CreateTradeProposalRequest, UpdateProposalStatusRequest, UpdateProposalMessageRequest, CreateProposalMessageRequest, UpdateProposalPrivateMessageRequest, CreateTradePublicMessageRequest, UpdateTradePublicMessageRequest, UpdateMediaStatusRequest, CreateCheckoutSessionRequest, DemoTopUpRequest, DemoPayoutRequest, CreateSupportTicketRequest, CreateGuestSupportTicketRequest, CreateSupportMessageRequest, UpdateSupportTicketStatusRequest, AdminUpdateSupportTicketRequest, AdminCreateSupportMessageRequest, AdminUpdateTrustTierRequest, AdminPayoutActionRequest, AdminTradeDisputeActionRequest, AcknowledgeMoneySafetyRequest, MoneyProviderOnboardingLinkRequest, MoneyProviderWalletBalancesSyncRequest, CreateBusinessProfileRequest, UpdateBusinessProfileRequest, RequestBusinessReviewRequest, PublicBusinessProfileResponse, BusinessProviderOnboardingLinkRequest, BusinessInviteMemberRequest, BusinessUpdateMemberRequest, BusinessRemoveMemberRequest, BusinessInvitationActionRequest, BusinessAcceptInvitationRequest, BusinessCreateInventoryTemplateRequest, BusinessUpdateInventoryTemplateRequest, BusinessListInventoryTemplatesQuery, BusinessInventoryTemplateReviewRequest, BusinessInventoryTemplateArchiveRequest, BusinessCreateNeedRequest, BusinessCreateOfferRequest, BusinessUpdateNeedRequest, BusinessUpdateOfferRequest, BusinessListOwnedInventoryQuery, BusinessOwnedInventoryReviewRequest, BusinessOwnedInventoryArchiveRequest, BusinessSponsoredPlacementListQuery, BusinessCreateSponsoredPlacementRequest, BusinessUpdateSponsoredPlacementRequest, BusinessSponsoredPlacementReviewRequest, BusinessSponsoredPlacementArchiveRequest, BusinessCampaignListQuery, BusinessCreateCampaignRequest, BusinessUpdateCampaignRequest, BusinessCampaignReviewRequest, BusinessCampaignArchiveRequest, BusinessCreateCampaignItemRequest, BusinessUpdateCampaignItemRequest, BusinessCampaignItemActionRequest, BusinessBudgetListQuery, BusinessCreateBudgetRequest, BusinessUpdateBudgetRequest, BusinessBudgetReviewRequest, BusinessBudgetArchiveRequest, AdminBusinessCampaignActionRequest, AdminBusinessBudgetActionRequest, AdminBusinessSponsoredPlacementActionRequest, AdminBusinessProfileActionRequest, PublicProfileResponse, AdminOverviewResponse, CreateReportRequest, CreateDealProblemReportRequest, AdminReportActionRequest, CreateAccountDeletionRequest, AccountDeletionRequestResponse, CreateUserBlockRequest, UserBlockResponse, UserBlocksResponse, CreatePlanRequest, UpdatePlanRequest, CreatePlanPlaceRequest, UpdatePlanPlaceRequest, ListPlansQuery, CreatePlanJoinRequest, UpdatePlanParticipantRequest, UpdateMyPlanParticipantRequest, PlanResponse, PlansResponse, PlanParticipantResponse, PlanParticipantsResponse, UsageHeartbeatRequest, NotificationsResponse, NotificationResponse, NotificationUnreadCountResponse, MarkAllNotificationsReadResponse, ListNotificationsQuery, PlusSubscriptionSnapshotResponse, AdminPlusGrantRequest, AdminPlusUsersResponse, AdminPlusGrantResponse, AdminPlusAiAssistUsageResponse, AiAssistRequest, AiAssistResponse, ListTradeSearchSuggestionsQuery, RecordTradeSearchKeywordRequest, TradeSearchSuggestionsResponse, TradeSearchKeywordResponse } from '@hellowhen/contracts';
+ import { requestFormData, requestJson, type ApiClientOptions } from './http';
+ 
+ function buildQueryString(query?: Record<string, unknown>) {
+@@ -69,6 +69,7 @@ export function createApiClient(options: ApiClientOptions) {
+     needs: { create: (body: CreateNeedRequest) => requestJson(options, '/needs', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/needs/mine'), get: (needId: string) => requestJson(options, `/needs/${needId}`), deleteImpact: (needId: string) => requestJson(options, `/needs/${needId}/delete-impact`), update: (needId: string, body: UpdateNeedRequest) => requestJson(options, `/needs/${needId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (needId: string) => requestJson(options, `/needs/${needId}`, { method: 'DELETE' }) },
+     offers: { create: (body: CreateOfferRequest) => requestJson(options, '/offers', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/offers/mine'), get: (offerId: string) => requestJson(options, `/offers/${offerId}`), deleteImpact: (offerId: string) => requestJson(options, `/offers/${offerId}/delete-impact`), update: (offerId: string, body: UpdateOfferRequest) => requestJson(options, `/offers/${offerId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (offerId: string) => requestJson(options, `/offers/${offerId}`, { method: 'DELETE' }) },
+     inventoryTemplates: { list: (query?: ListInventoryTemplatesQuery) => requestJson(options, `/inventory-templates${buildQueryString(query as Record<string, unknown> | undefined)}`), get: (templateId: string) => requestJson(options, `/inventory-templates/${templateId}`), clone: (templateId: string, body?: CloneInventoryTemplateRequest) => requestJson(options, `/inventory-templates/${templateId}/clone`, { method: 'POST', body: JSON.stringify(body ?? {}) }) },
++    inventoryFolders: { list: (query?: ListInventoryFoldersQuery) => requestJson<InventoryFoldersResponse>(options, `/inventory-folders${buildQueryString(query as Record<string, unknown> | undefined)}`), create: (body: CreateInventoryFolderRequest) => requestJson<InventoryFolderResponse>(options, '/inventory-folders', { method: 'POST', body: JSON.stringify(body) }), update: (folderId: string, body: UpdateInventoryFolderRequest) => requestJson<InventoryFolderResponse>(options, `/inventory-folders/${folderId}`, { method: 'PATCH', body: JSON.stringify(body) }), remove: (folderId: string) => requestJson<void>(options, `/inventory-folders/${folderId}`, { method: 'DELETE' }), addItem: (folderId: string, body: AddInventoryFolderItemRequest) => requestJson<InventoryFolderItemResponse>(options, `/inventory-folders/${folderId}/items`, { method: 'POST', body: JSON.stringify(body) }), removeItem: (folderId: string, folderItemId: string) => requestJson<void>(options, `/inventory-folders/${folderId}/items/${folderItemId}`, { method: 'DELETE' }) },
+     users: { publicProfile: (userId: string) => requestJson<PublicProfileResponse>(options, `/users/${userId}/public-profile`), publicProfileByUsername: (username: string) => requestJson<PublicProfileResponse>(options, `/users/by-username/${encodeURIComponent(username)}/public-profile`), blocked: () => requestJson<UserBlocksResponse>(options, '/users/blocked'), block: (userId: string, body?: CreateUserBlockRequest) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'POST', body: JSON.stringify(body ?? {}) }), unblock: (userId: string) => requestJson<UserBlockResponse>(options, `/users/${userId}/block`, { method: 'DELETE' }) },
+     plans: { feed: (query?: ListPlansQuery) => requestJson<PlansResponse>(options, `/plans/feed${buildQueryString(query as Record<string, unknown> | undefined)}`), mine: () => requestJson<PlansResponse>(options, '/plans/mine'), get: (planId: string) => requestJson<PlanResponse>(options, `/plans/${planId}`), create: (body: CreatePlanRequest) => requestJson<PlanResponse>(options, '/plans', { method: 'POST', body: JSON.stringify(body) }), update: (planId: string, body: UpdatePlanRequest) => requestJson<PlanResponse>(options, `/plans/${planId}`, { method: 'PATCH', body: JSON.stringify(body) }), createPlace: (planId: string, body: CreatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places`, { method: 'POST', body: JSON.stringify(body) }), updatePlace: (planId: string, placeId: string, body: UpdatePlanPlaceRequest) => requestJson<PlanResponse>(options, `/plans/${planId}/places/${placeId}`, { method: 'PATCH', body: JSON.stringify(body) }), requestJoin: (planId: string, body?: CreatePlanJoinRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests`, { method: 'POST', body: JSON.stringify(body ?? {}) }), joinRequests: (planId: string) => requestJson<PlanParticipantsResponse>(options, `/plans/${planId}/join-requests`), updateJoinRequest: (planId: string, participantId: string, body: UpdatePlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/join-requests/${participantId}`, { method: 'PATCH', body: JSON.stringify(body) }), updateMyJoinRequest: (planId: string, body: UpdateMyPlanParticipantRequest) => requestJson<PlanParticipantResponse>(options, `/plans/${planId}/my-join-request`, { method: 'PATCH', body: JSON.stringify(body) }) },
+     reports: { create: (body: CreateReportRequest) => requestJson(options, '/reports', { method: 'POST', body: JSON.stringify(body) }), mine: () => requestJson(options, '/reports/mine') },

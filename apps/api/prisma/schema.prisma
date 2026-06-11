@@ -162,6 +162,11 @@ enum InventoryTemplateStatus {
   archived
 }
 
+enum InventoryFolderItemType {
+  need
+  offer
+}
+
 enum PreviewCardTheme {
   default
   blue
@@ -703,6 +708,8 @@ model User {
   twoFactorChallenges TwoFactorChallenge[]
   needs        Need[]
   offers       Offer[]
+  inventoryFolders InventoryFolder[] @relation("InventoryFolderOwner")
+  inventoryFolderItems InventoryFolderItem[] @relation("InventoryFolderItemOwner")
   inventoryTranslations InventoryTranslation[]
   trades       Trade[] @relation("OwnedTrades")
   providerTrades Trade[] @relation("ProvidedTrades")
@@ -1184,6 +1191,7 @@ model Need {
   trades Trade[]
   proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageNeed")
+  folderItems InventoryFolderItem[] @relation("NeedFolderItems")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
@@ -1227,6 +1235,7 @@ model Offer {
   trades Trade[]
   proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageOffer")
+  folderItems InventoryFolderItem[] @relation("OfferFolderItems")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
@@ -1238,6 +1247,46 @@ model Offer {
   @@index([typicalDurationPreset])
 }
 
+
+model InventoryFolder {
+  id          String   @id @default(cuid())
+  ownerId     String
+  title       String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User @relation("InventoryFolderOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  items InventoryFolderItem[]
+
+  @@unique([ownerId, title])
+  @@index([ownerId, sortOrder, createdAt])
+  @@index([createdAt])
+}
+
+model InventoryFolderItem {
+  id        String                  @id @default(cuid())
+  folderId  String
+  ownerId   String
+  itemType  InventoryFolderItemType
+  needId    String?
+  offerId   String?
+  sortOrder Int                     @default(0)
+  createdAt DateTime                @default(now())
+
+  folder InventoryFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  owner  User            @relation("InventoryFolderItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  need   Need?           @relation("NeedFolderItems", fields: [needId], references: [id], onDelete: Cascade)
+  offer  Offer?          @relation("OfferFolderItems", fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, itemType, needId])
+  @@unique([folderId, itemType, offerId])
+  @@index([ownerId, itemType, createdAt])
+  @@index([folderId, sortOrder, createdAt])
+  @@index([needId])
+  @@index([offerId])
+}
 
 model InventoryTranslation {
   id             String                         @id @default(cuid())

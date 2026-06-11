@@ -995,6 +995,48 @@ html.trade-tools-open, html.trade-tools-open body { overflow: hidden; }
 .inventory-template-section__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 3px; color: var(--app-text-muted); font-size: 12px; font-weight: 950; text-transform: uppercase; letter-spacing: 0.08em; }
 .inventory-template-section__header span { display: grid; place-items: center; min-width: 26px; height: 26px; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); font-size: 11px; letter-spacing: 0; }
 .inventory-library-notice a { color: inherit; font-weight: 950; text-decoration: underline; text-underline-offset: 3px; }
+/* ORG3: web owned Need/Offer folders */
+.inventory-folders-panel { display: grid; gap: 12px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 24px; background: color-mix(in srgb, var(--app-surface) 88%, var(--app-surface-soft)); padding: 12px; box-shadow: var(--app-control-shadow); }
+.inventory-folders-panel__header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; }
+.inventory-folders-panel__header p { margin: 6px 0 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+.inventory-folder-create-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 12px; white-space: nowrap; }
+.inventory-folder-chips { display: flex; gap: 8px; overflow-x: auto; margin-inline: -2px; padding: 0 2px 2px; scrollbar-width: none; }
+.inventory-folder-chips::-webkit-scrollbar { display: none; }
+.inventory-folder-chips button { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; min-height: 38px; max-width: min(220px, 70vw); border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 10px 0 13px; font-size: 12px; font-weight: 950; cursor: pointer; box-shadow: none; }
+.inventory-folder-chips button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inventory-folder-chips button strong { display: grid; place-items: center; min-width: 23px; height: 23px; border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 0 7px; font-size: 11px; }
+.inventory-folder-chips button.is-active { border-color: var(--app-border-strong); background: var(--app-text); color: var(--app-bg); }
+.inventory-folder-chips button.is-active strong { background: color-mix(in srgb, var(--app-bg) 92%, transparent); color: var(--app-text); }
+.inventory-folder-loading { margin: 0; }
+.inventory-folder-form { display: grid; gap: 10px; border: 1px solid var(--app-border); border-radius: 20px; background: var(--app-surface); padding: 12px; }
+.inventory-folder-form label { display: grid; gap: 6px; color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
+.inventory-folder-form label em { color: var(--app-text-soft); font-style: normal; font-weight: 800; }
+.inventory-folder-form input, .inventory-folder-form textarea { width: 100%; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface-soft); color: var(--app-text); padding: 11px 12px; font: inherit; font-size: 13px; font-weight: 800; outline: none; }
+.inventory-folder-form textarea { min-height: 78px; resize: vertical; }
+.inventory-folder-form input:focus, .inventory-folder-form textarea:focus { border-color: var(--accent-ring); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-ring) 22%, transparent); }
+.inventory-folder-form__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.inventory-folder-selected-card { display: grid; gap: 11px; border: 1px solid color-mix(in srgb, var(--proposal-border) 38%, var(--app-border)); border-radius: 22px; background: color-mix(in srgb, var(--proposal-bg) 15%, var(--app-surface)); padding: 12px; }
+.inventory-folder-selected-card__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.inventory-folder-selected-card__header div { display: grid; gap: 3px; min-width: 0; }
+.inventory-folder-selected-card__header strong { overflow: hidden; color: var(--app-text); font-size: 15px; font-weight: 950; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.inventory-folder-selected-card__header p { margin: 0; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.4; }
+.inventory-folder-selected-card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inventory-folder-add-panel { display: grid; gap: 8px; }
+.inventory-folder-add-panel summary { cursor: pointer; color: var(--proposal-text); font-size: 13px; font-weight: 950; }
+.inventory-folder-add-list { display: grid; gap: 7px; margin-top: 8px; }
+.inventory-folder-add-list button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 42px; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); color: var(--app-text); padding: 0 11px; cursor: pointer; }
+.inventory-folder-add-list button:disabled { opacity: 0.62; cursor: not-allowed; }
+.inventory-folder-add-list button span { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 850; }
+.inventory-folder-add-list button strong { color: var(--proposal-text); font-size: 11px; font-weight: 950; letter-spacing: .08em; text-transform: uppercase; }
+.inventory-folder-card { display: grid; gap: 8px; }
+.inventory-folder-card__actions { display: flex; justify-content: flex-end; margin-top: -2px; }
+.inventory-folder-card__actions .ghost-button { min-height: 34px; padding: 0 11px; font-size: 12px; }
+@media (max-width: 520px) {
+  .inventory-folders-panel__header { grid-template-columns: 1fr; }
+  .inventory-folder-create-button { width: 100%; }
+  .inventory-folder-selected-card__header { display: grid; }
+  .inventory-folder-selected-card__actions { display: grid; grid-template-columns: 1fr 1fr; }
+}
 .inventory-form { display: grid; gap: 16px; }
 .inventory-form__hero { display: grid; gap: 14px; }
 .inventory-form__grid { display: grid; gap: 13px; }

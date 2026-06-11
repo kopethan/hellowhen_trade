@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import type { InventoryItemType, InventoryTemplateDto } from '@hellowhen/contracts';
-import { useEffect, useMemo, useState } from 'react';
+import type { InventoryFolderDto, InventoryFolderItemDto, InventoryItemType, InventoryTemplateDto } from '@hellowhen/contracts';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { InventoryEmptyState } from '../../components/InventoryEmptyState';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
@@ -26,6 +26,27 @@ type TemplateSection = {
   label: string;
   items: InventoryTemplateDto[];
 };
+
+type FolderMode = 'create' | 'edit';
+
+function getFolderItemInventoryId(item: InventoryFolderItemDto, kind: InventoryKind) {
+  if (kind === 'need') return item.needId ?? item.need?.id ?? null;
+  return item.offerId ?? item.offer?.id ?? null;
+}
+
+function getFolderInventoryItemIds(folder: InventoryFolderDto | null | undefined, kind: InventoryKind) {
+  return new Set((folder?.items ?? [])
+    .map((item) => getFolderItemInventoryId(item, kind))
+    .filter((itemId): itemId is string => Boolean(itemId)));
+}
+
+function findFolderItem(folder: InventoryFolderDto | null | undefined, kind: InventoryKind, inventoryItemId: string) {
+  return (folder?.items ?? []).find((item) => getFolderItemInventoryId(item, kind) === inventoryItemId) ?? null;
+}
+
+function getFolderItemCount(folder: InventoryFolderDto, kind: InventoryKind) {
+  return getFolderInventoryItemIds(folder, kind).size;
+}
 
 const ITEM_TYPE_FILTERS: ItemTypeFilter[] = ['all', 'service', 'goods', 'other'];
 
@@ -198,15 +219,25 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const { t, language } = useWebTranslation();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [templates, setTemplates] = useState<InventoryTemplateDto[]>([]);
+  const [folders, setFolders] = useState<InventoryFolderDto[]>([]);
   const [query, setQuery] = useState('');
   const [sourceTab, setSourceTab] = useState<SourceTab>(() => searchParams.get('source') === 'starter' ? 'starter' : 'mine');
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all');
+  const [selectedFolderId, setSelectedFolderId] = useState<'all' | string>('all');
+  const [folderMode, setFolderMode] = useState<FolderMode>('create');
+  const [folderTitle, setFolderTitle] = useState('');
+  const [folderDescription, setFolderDescription] = useState('');
+  const [editingFolderId, setEditingFolderId] = useState('');
+  const [folderFormOpen, setFolderFormOpen] = useState(false);
+  const [folderActionId, setFolderActionId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [foldersLoading, setFoldersLoading] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
   const [templateError, setTemplateError] = useState('');
+  const [foldersError, setFoldersError] = useState('');
   const [createdHref, setCreatedHref] = useState('');
   const [cloningTemplateId, setCloningTemplateId] = useState('');
   const demoDataEnabled = isWebDemoDataEnabled();
@@ -217,6 +248,39 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
       setSourceTab('starter');
     }
   }, [searchParams]);
+
+  const loadInventoryFolders = useCallback(async () => {
+    if (!auth.hydrated) return;
+
+    if (!auth.isAuthenticated) {
+      setFolders([]);
+      setSelectedFolderId('all');
+      setFoldersError('');
+      setFoldersLoading(false);
+      return;
+    }
+
+    setFoldersLoading(true);
+    try {
+      const response = await api.inventoryFolders.list({ itemType: kind, includeItems: true });
+      setFolders(Array.isArray(response.folders) ? response.folders : []);
+      setFoldersError('');
+    } catch (loadError) {
+      setFoldersError(getFriendlyApiErrorMessage(loadError, t('inventory.errors.foldersCouldNotLoad')));
+    } finally {
+      setFoldersLoading(false);
+    }
+  }, [auth.hydrated, auth.isAuthenticated, kind, t]);
+
+  useEffect(() => {
+    void loadInventoryFolders();
+  }, [loadInventoryFolders]);
+
+  useEffect(() => {
+    if (selectedFolderId !== 'all' && !folders.some((folder) => folder.id === selectedFolderId)) {
+      setSelectedFolderId('all');
+    }
+  }, [folders, selectedFolderId]);
 
   useEffect(() => {
     let mounted = true;
@@ -269,11 +333,22 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
     return () => { mounted = false; };
   }, [auth.user?.profile?.countryCode, kind, language, t]);
 
+  const selectedFolder = useMemo(() => selectedFolderId === 'all' ? null : folders.find((folder) => folder.id === selectedFolderId) ?? null, [folders, selectedFolderId]);
+  const selectedFolderItemIds = useMemo(() => getFolderInventoryItemIds(selectedFolder, kind), [kind, selectedFolder]);
+  const folderScopedItems = useMemo(() => {
+    if (!selectedFolder) return items;
+    return items.filter((item) => selectedFolderItemIds.has(item.id));
+  }, [items, selectedFolder, selectedFolderItemIds]);
+  const availableItemsForSelectedFolder = useMemo(() => {
+    if (!selectedFolder) return [];
+    return items.filter((item) => !selectedFolderItemIds.has(item.id));
+  }, [items, selectedFolder, selectedFolderItemIds]);
+
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter((item) => [item.title, item.description, item.category, getInventoryMetadata(item, i18n), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle));
-  }, [i18n, items, query]);
+    if (!needle) return folderScopedItems;
+    return folderScopedItems.filter((item) => [item.title, item.description, item.category, getInventoryMetadata(item, i18n), ...getInventoryTags(item)].filter(Boolean).join(' ').toLowerCase().includes(needle));
+  }, [folderScopedItems, i18n, query]);
 
   const filteredTemplates = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -285,6 +360,111 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   }, [i18n, itemTypeFilter, query, templates]);
 
   const templateSections = useMemo(() => groupTemplates(filteredTemplates, i18n), [filteredTemplates, i18n]);
+
+  function openCreateFolderForm() {
+    setFolderMode('create');
+    setEditingFolderId('');
+    setFolderTitle('');
+    setFolderDescription('');
+    setFolderFormOpen(true);
+    setFoldersError('');
+  }
+
+  function openEditFolderForm(folder: InventoryFolderDto) {
+    setFolderMode('edit');
+    setEditingFolderId(folder.id);
+    setFolderTitle(folder.title);
+    setFolderDescription(folder.description ?? '');
+    setFolderFormOpen(true);
+    setFoldersError('');
+  }
+
+  function closeFolderForm() {
+    setFolderFormOpen(false);
+    setFolderMode('create');
+    setEditingFolderId('');
+    setFolderTitle('');
+    setFolderDescription('');
+  }
+
+  async function handleFolderSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = folderTitle.trim();
+    if (!title) {
+      setFoldersError(t('inventory.errors.folderTitleRequired'));
+      return;
+    }
+
+    try {
+      setFolderActionId('folder-form');
+      setFoldersError('');
+      if (folderMode === 'edit' && editingFolderId) {
+        await api.inventoryFolders.update(editingFolderId, { title, description: folderDescription.trim() || null });
+        setNotice(t('inventory.messages.folderUpdated', { title }));
+      } else {
+        const response = await api.inventoryFolders.create({ title, description: folderDescription.trim() || undefined });
+        setSelectedFolderId(response.folder.id);
+        setNotice(t('inventory.messages.folderCreated', { title: response.folder.title }));
+      }
+      closeFolderForm();
+      await loadInventoryFolders();
+    } catch (saveError) {
+      setFoldersError(getFriendlyApiErrorMessage(saveError, t('inventory.errors.folderCouldNotSave')));
+    } finally {
+      setFolderActionId('');
+    }
+  }
+
+  async function handleDeleteFolder(folder: InventoryFolderDto) {
+    const confirmed = window.confirm(t('inventory.messages.confirmDeleteFolder', { title: folder.title }));
+    if (!confirmed) return;
+
+    try {
+      setFolderActionId(folder.id);
+      setFoldersError('');
+      await api.inventoryFolders.remove(folder.id);
+      if (selectedFolderId === folder.id) setSelectedFolderId('all');
+      setFolders((current) => current.filter((candidate) => candidate.id !== folder.id));
+      setNotice(t('inventory.messages.folderDeleted', { title: folder.title }));
+    } catch (deleteError) {
+      setFoldersError(getFriendlyApiErrorMessage(deleteError, t('inventory.errors.folderCouldNotDelete')));
+    } finally {
+      setFolderActionId('');
+    }
+  }
+
+  async function handleAddItemToSelectedFolder(item: InventoryItem) {
+    if (!selectedFolder) return;
+    try {
+      setFolderActionId(`${selectedFolder.id}:${item.id}:add`);
+      setFoldersError('');
+      await api.inventoryFolders.addItem(selectedFolder.id, { itemType: kind, itemId: item.id });
+      setNotice(t('inventory.messages.itemAddedToFolder', { title: item.title, folder: selectedFolder.title }));
+      await loadInventoryFolders();
+    } catch (addError) {
+      setFoldersError(getFriendlyApiErrorMessage(addError, t('inventory.errors.folderItemCouldNotAdd')));
+    } finally {
+      setFolderActionId('');
+    }
+  }
+
+  async function handleRemoveItemFromSelectedFolder(item: InventoryItem) {
+    if (!selectedFolder) return;
+    const folderItem = findFolderItem(selectedFolder, kind, item.id);
+    if (!folderItem) return;
+
+    try {
+      setFolderActionId(`${selectedFolder.id}:${item.id}:remove`);
+      setFoldersError('');
+      await api.inventoryFolders.removeItem(selectedFolder.id, folderItem.id);
+      setNotice(t('inventory.messages.itemRemovedFromFolder', { title: item.title, folder: selectedFolder.title }));
+      await loadInventoryFolders();
+    } catch (removeError) {
+      setFoldersError(getFriendlyApiErrorMessage(removeError, t('inventory.errors.folderItemCouldNotRemove')));
+    } finally {
+      setFolderActionId('');
+    }
+  }
 
   async function handleUseTemplate(template: InventoryTemplateDto) {
     setNotice('');
@@ -353,6 +533,85 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         </div>
       ) : null}
 
+      {!isStarterTab && auth.isAuthenticated ? (
+        <section className="inventory-folders-panel" aria-label={t('inventory.labels.myFolders')}>
+          <div className="inventory-folders-panel__header">
+            <div>
+              <span className="semantic-badge instruction">{t('inventory.labels.myFolders')}</span>
+              <p>{t('inventory.messages.foldersBody', { items: plural })}</p>
+            </div>
+            <button type="button" className="secondary inventory-folder-create-button" onClick={openCreateFolderForm}>
+              <WebIcon name="add" size={16} decorative />
+              {t('inventory.actions.createFolder')}
+            </button>
+          </div>
+
+          <div className="inventory-folder-chips" aria-label={t('inventory.labels.folderFilter')}>
+            <button type="button" className={selectedFolderId === 'all' ? 'is-active' : ''} onClick={() => setSelectedFolderId('all')}>
+              <span>{t('inventory.labels.allFolders')}</span>
+              <strong>{items.length}</strong>
+            </button>
+            {folders.map((folder) => (
+              <button key={folder.id} type="button" className={selectedFolderId === folder.id ? 'is-active' : ''} onClick={() => setSelectedFolderId(folder.id)}>
+                <span>{folder.title}</span>
+                <strong>{getFolderItemCount(folder, kind)}</strong>
+              </button>
+            ))}
+          </div>
+
+          {foldersLoading ? <p className="meta inventory-folder-loading">{t('inventory.messages.foldersLoading')}</p> : null}
+          {foldersError ? <p className="notice-box danger inventory-library-notice">{foldersError}</p> : null}
+
+          {folderFormOpen ? (
+            <form className="inventory-folder-form" onSubmit={handleFolderSubmit}>
+              <label>
+                <span>{t('inventory.labels.title')}</span>
+                <input value={folderTitle} onChange={(event) => setFolderTitle(event.target.value)} maxLength={80} placeholder={t('inventory.form.folderTitlePlaceholder')} />
+              </label>
+              <label>
+                <span>{t('inventory.labels.description')} <em>{t('inventory.labels.optional')}</em></span>
+                <textarea value={folderDescription} onChange={(event) => setFolderDescription(event.target.value)} maxLength={240} placeholder={t('inventory.form.folderDescriptionPlaceholder')} />
+              </label>
+              <div className="inventory-folder-form__actions">
+                <button type="button" className="ghost-button" onClick={closeFolderForm} disabled={folderActionId === 'folder-form'}>{t('inventory.actions.cancel')}</button>
+                <button type="submit" className="secondary" disabled={folderActionId === 'folder-form'}>{folderActionId === 'folder-form' ? t('common.states.saving') : folderMode === 'edit' ? t('inventory.actions.saveFolder') : t('inventory.actions.createFolder')}</button>
+              </div>
+            </form>
+          ) : null}
+
+          {selectedFolder ? (
+            <div className="inventory-folder-selected-card">
+              <div className="inventory-folder-selected-card__header">
+                <div>
+                  <strong>{selectedFolder.title}</strong>
+                  {selectedFolder.description ? <p>{selectedFolder.description}</p> : null}
+                </div>
+                <span className="semantic-badge success">{t('inventory.labels.folderItemCount', { count: selectedFolderItemIds.size })}</span>
+              </div>
+              <div className="inventory-folder-selected-card__actions">
+                <button type="button" className="ghost-button" onClick={() => openEditFolderForm(selectedFolder)} disabled={Boolean(folderActionId)}>{t('inventory.actions.editFolder')}</button>
+                <button type="button" className="ghost-button danger-button" onClick={() => { void handleDeleteFolder(selectedFolder); }} disabled={folderActionId === selectedFolder.id}>{folderActionId === selectedFolder.id ? t('common.states.working') : t('inventory.actions.deleteFolder')}</button>
+              </div>
+              <details className="inventory-folder-add-panel">
+                <summary>{t('inventory.actions.addItemsToFolder', { items: plural })}</summary>
+                {availableItemsForSelectedFolder.length ? (
+                  <div className="inventory-folder-add-list">
+                    {availableItemsForSelectedFolder.slice(0, 20).map((item) => (
+                      <button key={item.id} type="button" onClick={() => { void handleAddItemToSelectedFolder(item); }} disabled={folderActionId === `${selectedFolder.id}:${item.id}:add`}>
+                        <span>{item.title}</span>
+                        <strong>{folderActionId === `${selectedFolder.id}:${item.id}:add` ? t('common.states.saving') : t('inventory.actions.addToFolder')}</strong>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="meta">{t('inventory.empty.allItemsAlreadyInFolder', { items: plural })}</p>
+                )}
+              </details>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="feed-status-row" aria-live="polite">
         <p>{activeLoading ? t('inventory.messages.loadingItems', { items: plural }) : isStarterTab ? t('inventory.messages.visibleStarterItems', { count: visibleCount, items: plural }) : t('inventory.messages.visibleItems', { count: visibleCount, items: plural })}</p>
         {!auth.hydrated || activeLoading ? <span className="semantic-badge instruction">{t('inventory.labels.checkingSession')}</span> : isStarterTab ? <span className="semantic-badge success">{t('inventory.labels.starterLibrary')}</span> : usingFallback ? <span className="semantic-badge instruction">{t('inventory.labels.demoInventory')}</span> : auth.isAuthenticated ? <span className="semantic-badge success">{t('inventory.labels.liveInventory')}</span> : <span className="semantic-badge instruction">{t('inventory.labels.accountNeeded')}</span>}
@@ -410,14 +669,27 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         <InventoryListSkeleton />
       ) : filteredItems.length ? (
         <div className="inventory-list">
-          {filteredItems.map((item) => <InventoryCard key={item.id} item={item} kind={kind} i18n={i18n} />)}
+          {filteredItems.map((item) => (
+            <div className="inventory-folder-card" key={item.id}>
+              <InventoryCard item={item} kind={kind} i18n={i18n} />
+              {selectedFolder ? (
+                <div className="inventory-folder-card__actions">
+                  <button type="button" className="ghost-button" onClick={() => { void handleRemoveItemFromSelectedFolder(item); }} disabled={folderActionId === `${selectedFolder.id}:${item.id}:remove`}>
+                    {folderActionId === `${selectedFolder.id}:${item.id}:remove` ? t('common.states.working') : t('inventory.actions.removeFromFolder')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ))}
         </div>
       ) : (
         <InventoryEmptyState
-          title={kind === 'need' ? t('inventory.empty.createFirstNeed') : t('inventory.empty.createFirstOffer')}
-          body={kind === 'need'
-            ? t('inventory.empty.needBody')
-            : t('inventory.empty.offerBody')}
+          title={selectedFolder ? t('inventory.empty.noFolderItems', { folder: selectedFolder.title }) : kind === 'need' ? t('inventory.empty.createFirstNeed') : t('inventory.empty.createFirstOffer')}
+          body={selectedFolder
+            ? t('inventory.empty.noFolderItemsBody', { items: plural })
+            : kind === 'need'
+              ? t('inventory.empty.needBody')
+              : t('inventory.empty.offerBody')}
           href={newHref}
           actionLabel={kind === 'need' ? t('inventory.actions.createNeed') : t('inventory.actions.createOffer')}
         />

@@ -1,0 +1,231 @@
+diff --git a/apps/api/prisma/migrations/20260611150000_inventory_folders/migration.sql b/apps/api/prisma/migrations/20260611150000_inventory_folders/migration.sql
+new file mode 100644
+index 0000000..2c56e93
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260611150000_inventory_folders/migration.sql
+@@ -0,0 +1,50 @@
++-- ORG1: private folders for users to organize their own Needs and Offers.
++CREATE TYPE "InventoryFolderItemType" AS ENUM ('need', 'offer');
++
++CREATE TABLE "InventoryFolder" (
++    "id" TEXT NOT NULL,
++    "ownerId" TEXT NOT NULL,
++    "title" TEXT NOT NULL,
++    "description" TEXT,
++    "sortOrder" INTEGER NOT NULL DEFAULT 0,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "InventoryFolder_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "InventoryFolderItem" (
++    "id" TEXT NOT NULL,
++    "folderId" TEXT NOT NULL,
++    "ownerId" TEXT NOT NULL,
++    "itemType" "InventoryFolderItemType" NOT NULL,
++    "needId" TEXT,
++    "offerId" TEXT,
++    "sortOrder" INTEGER NOT NULL DEFAULT 0,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "InventoryFolderItem_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "InventoryFolder_ownerId_title_key" ON "InventoryFolder"("ownerId", "title");
++CREATE INDEX "InventoryFolder_ownerId_sortOrder_createdAt_idx" ON "InventoryFolder"("ownerId", "sortOrder", "createdAt");
++CREATE INDEX "InventoryFolder_createdAt_idx" ON "InventoryFolder"("createdAt");
++
++CREATE UNIQUE INDEX "InventoryFolderItem_folderId_itemType_needId_key" ON "InventoryFolderItem"("folderId", "itemType", "needId");
++CREATE UNIQUE INDEX "InventoryFolderItem_folderId_itemType_offerId_key" ON "InventoryFolderItem"("folderId", "itemType", "offerId");
++CREATE INDEX "InventoryFolderItem_ownerId_itemType_createdAt_idx" ON "InventoryFolderItem"("ownerId", "itemType", "createdAt");
++CREATE INDEX "InventoryFolderItem_folderId_sortOrder_createdAt_idx" ON "InventoryFolderItem"("folderId", "sortOrder", "createdAt");
++CREATE INDEX "InventoryFolderItem_needId_idx" ON "InventoryFolderItem"("needId");
++CREATE INDEX "InventoryFolderItem_offerId_idx" ON "InventoryFolderItem"("offerId");
++
++ALTER TABLE "InventoryFolder" ADD CONSTRAINT "InventoryFolder_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "InventoryFolderItem" ADD CONSTRAINT "InventoryFolderItem_folderId_fkey" FOREIGN KEY ("folderId") REFERENCES "InventoryFolder"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "InventoryFolderItem" ADD CONSTRAINT "InventoryFolderItem_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "InventoryFolderItem" ADD CONSTRAINT "InventoryFolderItem_needId_fkey" FOREIGN KEY ("needId") REFERENCES "Need"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "InventoryFolderItem" ADD CONSTRAINT "InventoryFolderItem_offerId_fkey" FOREIGN KEY ("offerId") REFERENCES "Offer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "InventoryFolderItem" ADD CONSTRAINT "InventoryFolderItem_exactly_one_inventory_item_check" CHECK (
++    ("itemType" = 'need' AND "needId" IS NOT NULL AND "offerId" IS NULL)
++    OR
++    ("itemType" = 'offer' AND "offerId" IS NOT NULL AND "needId" IS NULL)
++);
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 49c7ba1..32b74ab 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -162,6 +162,11 @@ enum InventoryTemplateStatus {
+   archived
+ }
+ 
++enum InventoryFolderItemType {
++  need
++  offer
++}
++
+ enum PreviewCardTheme {
+   default
+   blue
+@@ -703,6 +708,8 @@ model User {
+   twoFactorChallenges TwoFactorChallenge[]
+   needs        Need[]
+   offers       Offer[]
++  inventoryFolders InventoryFolder[] @relation("InventoryFolderOwner")
++  inventoryFolderItems InventoryFolderItem[] @relation("InventoryFolderItemOwner")
+   inventoryTranslations InventoryTranslation[]
+   trades       Trade[] @relation("OwnedTrades")
+   providerTrades Trade[] @relation("ProvidedTrades")
+@@ -1184,6 +1191,7 @@ model Need {
+   trades Trade[]
+   proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
+   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageNeed")
++  folderItems InventoryFolderItem[] @relation("NeedFolderItems")
+ 
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+@@ -1227,6 +1235,7 @@ model Offer {
+   trades Trade[]
+   proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
+   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageOffer")
++  folderItems InventoryFolderItem[] @relation("OfferFolderItems")
+ 
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+@@ -1239,6 +1248,46 @@ model Offer {
+ }
+ 
+ 
++model InventoryFolder {
++  id          String   @id @default(cuid())
++  ownerId     String
++  title       String
++  description String?
++  sortOrder   Int      @default(0)
++  createdAt   DateTime @default(now())
++  updatedAt   DateTime @updatedAt
++
++  owner User @relation("InventoryFolderOwner", fields: [ownerId], references: [id], onDelete: Cascade)
++  items InventoryFolderItem[]
++
++  @@unique([ownerId, title])
++  @@index([ownerId, sortOrder, createdAt])
++  @@index([createdAt])
++}
++
++model InventoryFolderItem {
++  id        String                  @id @default(cuid())
++  folderId  String
++  ownerId   String
++  itemType  InventoryFolderItemType
++  needId    String?
++  offerId   String?
++  sortOrder Int                     @default(0)
++  createdAt DateTime                @default(now())
++
++  folder InventoryFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
++  owner  User            @relation("InventoryFolderItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
++  need   Need?           @relation("NeedFolderItems", fields: [needId], references: [id], onDelete: Cascade)
++  offer  Offer?          @relation("OfferFolderItems", fields: [offerId], references: [id], onDelete: Cascade)
++
++  @@unique([folderId, itemType, needId])
++  @@unique([folderId, itemType, offerId])
++  @@index([ownerId, itemType, createdAt])
++  @@index([folderId, sortOrder, createdAt])
++  @@index([needId])
++  @@index([offerId])
++}
++
+ model InventoryTranslation {
+   id             String                         @id @default(cuid())
+   targetType     InventoryTranslationTargetType
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index b4fb565..f902611 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -2,6 +2,7 @@ export * from './auth.js';
+ export * from './profile.js';
+ export * from './settings.js';
+ export * from './trade.js';
++export * from './inventoryFolders.js';
+ export * from './wallet.js';
+ export * from './media.js';
+ export * from './credits.js';
+diff --git a/packages/contracts/src/inventoryFolders.ts b/packages/contracts/src/inventoryFolders.ts
+new file mode 100644
+index 0000000..d57e487
+--- /dev/null
++++ b/packages/contracts/src/inventoryFolders.ts
+@@ -0,0 +1,69 @@
++import { z } from 'zod';
++import { needSchema, offerSchema } from './trade.js';
++
++export const INVENTORY_FOLDER_TITLE_MAX_LENGTH = 80;
++export const INVENTORY_FOLDER_DESCRIPTION_MAX_LENGTH = 240;
++
++export const inventoryFolderItemTypeSchema = z.enum(['need', 'offer']);
++
++export const createInventoryFolderRequestSchema = z.object({
++  title: z.string().trim().min(1).max(INVENTORY_FOLDER_TITLE_MAX_LENGTH),
++  description: z.string().trim().max(INVENTORY_FOLDER_DESCRIPTION_MAX_LENGTH).optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const updateInventoryFolderRequestSchema = z.object({
++  title: z.string().trim().min(1).max(INVENTORY_FOLDER_TITLE_MAX_LENGTH).optional(),
++  description: z.string().trim().max(INVENTORY_FOLDER_DESCRIPTION_MAX_LENGTH).nullable().optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Provide at least one folder field to update.' });
++
++export const addInventoryFolderItemRequestSchema = z.object({
++  itemType: inventoryFolderItemTypeSchema,
++  itemId: z.string().min(1),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const listInventoryFoldersQuerySchema = z.object({
++  itemType: inventoryFolderItemTypeSchema.optional(),
++  includeItems: z.coerce.boolean().optional().default(true),
++});
++
++export const inventoryFolderItemSchema = z.object({
++  id: z.string(),
++  folderId: z.string(),
++  ownerId: z.string(),
++  itemType: inventoryFolderItemTypeSchema,
++  needId: z.string().nullable().optional(),
++  offerId: z.string().nullable().optional(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  need: needSchema.nullable().optional(),
++  offer: offerSchema.nullable().optional(),
++});
++
++export const inventoryFolderSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string().nullable().optional(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  items: z.array(inventoryFolderItemSchema).optional(),
++});
++
++export const inventoryFoldersResponseSchema = z.object({ folders: z.array(inventoryFolderSchema) });
++export const inventoryFolderResponseSchema = z.object({ folder: inventoryFolderSchema });
++export const inventoryFolderItemResponseSchema = z.object({ item: inventoryFolderItemSchema });
++
++export type InventoryFolderItemType = z.infer<typeof inventoryFolderItemTypeSchema>;
++export type InventoryFolderDto = z.infer<typeof inventoryFolderSchema>;
++export type InventoryFolderItemDto = z.infer<typeof inventoryFolderItemSchema>;
++export type CreateInventoryFolderRequest = z.infer<typeof createInventoryFolderRequestSchema>;
++export type UpdateInventoryFolderRequest = z.infer<typeof updateInventoryFolderRequestSchema>;
++export type AddInventoryFolderItemRequest = z.infer<typeof addInventoryFolderItemRequestSchema>;
++export type ListInventoryFoldersQuery = z.infer<typeof listInventoryFoldersQuerySchema>;
++export type InventoryFoldersResponse = z.infer<typeof inventoryFoldersResponseSchema>;
++export type InventoryFolderResponse = z.infer<typeof inventoryFolderResponseSchema>;
++export type InventoryFolderItemResponse = z.infer<typeof inventoryFolderItemResponseSchema>;

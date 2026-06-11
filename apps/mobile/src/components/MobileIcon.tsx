@@ -29,6 +29,7 @@ export type MobileIconName =
   | 'proposal-declined'
   | 'report-flag'
   | 'refresh'
+  | 'save'
   | 'search'
   | 'send'
   | 'share'
@@ -102,6 +103,8 @@ function IconPaths({ name, color }: { name: MobileIconName; color: string }) {
       return <><Path d="M6 20V5.5" strokeWidth={1.9} {...strokeProps} /><Path d="M6 5.5H17.5L15.25 9.25L17.5 13H6" strokeWidth={1.9} {...strokeProps} /><Path d="M10.5 8.25V10.75" strokeWidth={1.7} {...strokeProps} /><Path d="M10.5 12.4H10.51" strokeWidth={2.2} {...strokeProps} /></>;
     case 'refresh':
       return <><Path d="M19 8.5C17.75 6.4 15.46 5 12.85 5C8.95 5 5.75 8.1 5.6 12" strokeWidth={1.9} {...strokeProps} /><Path d="M19 5V8.5H15.5" strokeWidth={1.9} {...strokeProps} /><Path d="M5 15.5C6.25 17.6 8.54 19 11.15 19C15.05 19 18.25 15.9 18.4 12" strokeWidth={1.9} {...strokeProps} /><Path d="M5 19V15.5H8.5" strokeWidth={1.9} {...strokeProps} /></>;
+    case 'save':
+      return <Path d="M18 2C18.5523 2 19 2.44772 19 3V21C19 22 17.7071 22.7071 17 22C16 21 14.5 19.5 14.5 19.5L12.1414 17.1414C12.0633 17.0633 11.9367 17.0633 11.8586 17.1414L9.5 19.5C9.5 19.5 8 21 7 22C6 23 5 22 5 21V3C5 2.44772 5.44772 2 6 2H18ZM7 19L11.8586 14.1414C11.9367 14.0633 12.0633 14.0633 12.1414 14.1414L16.6586 18.6586C16.7846 18.7846 17 18.6953 17 18.5172V4.2C17 4.08954 16.9105 4 16.8 4H7.2C7.08954 4 7 4.08954 7 4.2V19Z" fill={color} />;
     case 'search':
       return <><Circle cx={10} cy={10} r={5} stroke={color} strokeWidth={2} fill="none" /><Line x1={14.4142} y1={14} x2={20} y2={19.5858} stroke={color} strokeWidth={2} strokeLinecap="round" /></>;
     case 'send':

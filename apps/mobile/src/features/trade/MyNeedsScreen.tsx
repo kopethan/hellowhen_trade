@@ -12,6 +12,7 @@ import { MobileIcon } from '../../components/MobileIcon';
 import { InfoNotice, SemanticBadge } from '../../components/SemanticUI';
 import { StarterInventoryLibrary } from './components/StarterInventoryLibrary';
 import { InventoryCompactRow } from './components/InventoryCompactRow';
+import { InventoryFoldersPanel, type InventoryFolderSelection } from './components/InventoryFoldersPanel';
 import type { NeedItem } from './types';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { useTranslation } from '../../providers/MobileI18nProvider';
@@ -37,6 +38,8 @@ export function MyNeedsScreen() {
   const [loading, setLoading] = useState(false);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [cloningTemplateId, setCloningTemplateId] = useState<string | null>(null);
+  const [folderSelection, setFolderSelection] = useState<InventoryFolderSelection>({ folderId: null, folderTitle: null, itemIds: [] });
+  const [folderRefreshKey, setFolderRefreshKey] = useState(0);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -66,12 +69,19 @@ export function MyNeedsScreen() {
     }
   }, [auth.user?.profile?.countryCode, language, t]);
 
-  useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); }, [loadItems, loadTemplates]));
+  useFocusEffect(useCallback(() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }, [loadItems, loadTemplates]));
 
   const activeLoading = sourceTab === 'starter' ? templateLoading : loading;
   const header = <View style={styles.headerRow}><View style={styles.headerCopy}><SemanticBadge label={t('inventory.labels.need')} tone="need" /><AppText style={styles.title}>{t('inventory.labels.needs')}</AppText><AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('inventory.empty.needNativeBody')}</AppText></View><Pressable accessibilityRole="button" onPress={() => navigation.navigate('CreateNeed')} style={({ pressed }) => [styles.createButton, { backgroundColor: theme.semantic.need.bg }, pressed && styles.pressed]}><View style={styles.createButtonContent}><MobileIcon name="add" size={16} color={theme.color.background} /><AppText style={[styles.createButtonText, { color: theme.color.background }]}>{t('common.actions.create')}</AppText></View></Pressable></View>;
 
-  const sortedItems = useMemo(() => items, [items]);
+  const sortedItems = useMemo(() => {
+    if (!folderSelection.folderId) return items;
+    const visibleIds = new Set(folderSelection.itemIds);
+    return items.filter((item) => visibleIds.has(item.id));
+  }, [folderSelection.folderId, folderSelection.itemIds, items]);
+
+  const emptyTitle = folderSelection.folderId && folderSelection.folderTitle ? t('inventory.empty.noFolderItems', { folder: folderSelection.folderTitle }) : t('inventory.empty.createFirstNeed');
+  const emptyBody = folderSelection.folderId ? t('inventory.empty.noFolderItemsBody', { items: t('inventory.labels.needs').toLowerCase() }) : t('inventory.empty.needNativeBody');
 
   async function cloneTemplate(template: InventoryTemplateDto) {
     setNotice(null);
@@ -95,13 +105,14 @@ export function MyNeedsScreen() {
   return (
     <AppCollapsibleHeaderScreen header={header} resetKey={sourceTab}>
       {(scrollProps) => (
-        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); }} />}>
+        <ScrollView {...scrollProps.scrollViewProps} contentContainerStyle={[scrollProps.contentInsetStyle, styles.content]} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={activeLoading} onRefresh={() => { void loadItems(); void loadTemplates(); setFolderRefreshKey((key) => key + 1); }} />}>
           <SourceTabs value={sourceTab} onChange={(nextTab) => { setSourceTab(nextTab); setNotice(null); setCreatedNeed(null); }} />
           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
           {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
           {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+            <InventoryFoldersPanel kind="need" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} />
             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
-            {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={t('inventory.empty.createFirstNeed')} body={t('inventory.empty.needNativeBody')} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
+            {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
           </>}
         </ScrollView>
       )}
