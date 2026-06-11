@@ -20,7 +20,7 @@ import { useThemeTokens } from '../../providers/ThemeProvider';
 
 type SavedLibraryProps = NativeStackScreenProps<RootStackParamList, 'SavedLibrary'>;
 type SavedCollectionProps = NativeStackScreenProps<RootStackParamList, 'SavedLibraryCollection'>;
-type SavedLibraryNavigation = NativeStackNavigationProp<RootStackParamList>;
+type SavedLibraryNavigation = Pick<NativeStackNavigationProp<RootStackParamList>, 'goBack' | 'navigate'>;
 type SavedFilter = 'all' | SavedItemType;
 type CollectionEditorMode = 'create' | 'edit';
 

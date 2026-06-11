@@ -97,7 +97,10 @@ inventoryFoldersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, re
 
 inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateInventoryFolderRequestSchema.parse(req.body);
-  const existing = await loadOwnedFolder(req.params.folderId, req.user!.id, false);
+  const { folderId } = req.params;
+  if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+
+  const existing = await loadOwnedFolder(folderId, req.user!.id, false);
   if (!existing) return res.status(404).json({ error: 'not_found' });
 
   try {
@@ -118,7 +121,10 @@ inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(asyn
 }));
 
 inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
-  const existing = await loadOwnedFolder(req.params.folderId, req.user!.id, false);
+  const { folderId } = req.params;
+  if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+
+  const existing = await loadOwnedFolder(folderId, req.user!.id, false);
   if (!existing) return res.status(404).json({ error: 'not_found' });
   await prisma.inventoryFolder.delete({ where: { id: existing.id } });
   res.status(204).send();
@@ -126,7 +132,10 @@ inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(asy
 
 inventoryFoldersRoutes.post('/:folderId/items', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = addInventoryFolderItemRequestSchema.parse(req.body);
-  const folder = await loadOwnedFolder(req.params.folderId, req.user!.id, false);
+  const { folderId } = req.params;
+  if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+
+  const folder = await loadOwnedFolder(folderId, req.user!.id, false);
   if (!folder) return res.status(404).json({ error: 'not_found' });
 
   const inventoryItem = await ensureOwnedInventoryItem(req.user!.id, input.itemType, input.itemId);
@@ -157,10 +166,14 @@ inventoryFoldersRoutes.post('/:folderId/items', requireActiveAccount, asyncRoute
 }));
 
 inventoryFoldersRoutes.delete('/:folderId/items/:itemId', requireActiveAccount, asyncRoute(async (req, res) => {
+  const { folderId, itemId } = req.params;
+  if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+  if (!itemId) return res.status(400).json({ error: 'missing_folder_item_id' });
+
   const existing = await prisma.inventoryFolderItem.findFirst({
     where: {
-      id: req.params.itemId,
-      folderId: req.params.folderId,
+      id: itemId,
+      folderId,
       ownerId: req.user!.id,
       folder: { ownerId: req.user!.id },
     },
