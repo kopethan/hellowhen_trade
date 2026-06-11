@@ -1,0 +1,1096 @@
+diff --git a/apps/api/src/config/env.ts b/apps/api/src/config/env.ts
+index 1da57bc..6a4bade 100644
+--- a/apps/api/src/config/env.ts
++++ b/apps/api/src/config/env.ts
+@@ -156,6 +156,9 @@ export const env = {
+   plusAiAssistEnabled: enabled(process.env.AI_ASSIST_ENABLED),
+   plusCustomizationEnabled: enabled(process.env.PLUS_CUSTOMIZATION_ENABLED),
+   plusAdminGrantsEnabled: enabled(process.env.PLUS_ADMIN_GRANTS_ENABLED),
++  savedLibraryEnabled: enabled(process.env.SAVED_LIBRARY_ENABLED),
++  savedCollectionsEnabled: enabled(process.env.SAVED_COLLECTIONS_ENABLED),
++  inventoryFoldersEnabled: enabled(process.env.INVENTORY_FOLDERS_ENABLED),
+   plusMonthlyPriceCents: Number(process.env.PLUS_MONTHLY_PRICE_CENTS ?? 499),
+   plusMonthlyPriceCurrency: (process.env.PLUS_MONTHLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
+   plusYearlyPriceCents: Number(process.env.PLUS_YEARLY_PRICE_CENTS ?? 3999),
+@@ -372,6 +375,9 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || env.plusAiAssistEnabled
+     || env.plusCustomizationEnabled
+     || env.plusAdminGrantsEnabled
++    || env.savedLibraryEnabled
++    || env.savedCollectionsEnabled
++    || env.inventoryFoldersEnabled
+     || env.proAccountsEnabled
+     || env.proAccountsVisible
+     || env.proTrialsEnabled
+@@ -382,6 +388,9 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || publicFlagEnabled('NEXT_PUBLIC_PLUS_PUBLIC')
+     || publicFlagEnabled('NEXT_PUBLIC_AI_ASSIST_ENABLED')
+     || publicFlagEnabled('NEXT_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_SAVED_LIBRARY_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_SAVED_COLLECTIONS_ENABLED')
++    || publicFlagEnabled('NEXT_PUBLIC_INVENTORY_FOLDERS_ENABLED')
+     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED')
+     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
+     || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
+@@ -391,6 +400,9 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
+     || publicFlagEnabled('EXPO_PUBLIC_PLUS_PUBLIC')
+     || publicFlagEnabled('EXPO_PUBLIC_AI_ASSIST_ENABLED')
+     || publicFlagEnabled('EXPO_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_SAVED_LIBRARY_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED')
++    || publicFlagEnabled('EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED')
+     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED')
+     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE')
+     || publicFlagEnabled('EXPO_PUBLIC_PRO_TRIALS_ENABLED')
+diff --git a/apps/api/src/middleware/featureGates.ts b/apps/api/src/middleware/featureGates.ts
+index 27ed0f0..0824b74 100644
+--- a/apps/api/src/middleware/featureGates.ts
++++ b/apps/api/src/middleware/featureGates.ts
+@@ -105,3 +105,25 @@ export function requireProAccountsVisible(surface = 'Professional accounts'): Re
+   }
+   return (_req, _res, next) => next();
+ }
++
++
++export function requireSavedLibraryEnabled(surface = 'Saved Library'): RequestHandler {
++  if (!env.plusEnabled || !env.savedLibraryEnabled) {
++    return disabledSurface('saved_library_disabled', `${surface} is disabled for this launch.`);
++  }
++  return (_req, _res, next) => next();
++}
++
++export function requireSavedCollectionsEnabled(surface = 'Saved collections'): RequestHandler {
++  if (!env.plusEnabled || !env.savedLibraryEnabled || !env.savedCollectionsEnabled) {
++    return disabledSurface('saved_collections_disabled', `${surface} are disabled for this launch.`);
++  }
++  return (_req, _res, next) => next();
++}
++
++export function requireInventoryFoldersEnabled(surface = 'Inventory folders'): RequestHandler {
++  if (!env.plusEnabled || !env.inventoryFoldersEnabled) {
++    return disabledSurface('inventory_folders_disabled', `${surface} are disabled for this launch.`);
++  }
++  return (_req, _res, next) => next();
++}
+diff --git a/apps/api/src/modules/inventory-folders.routes.ts b/apps/api/src/modules/inventory-folders.routes.ts
+index a6f80d9..1f9b7c0 100644
+--- a/apps/api/src/modules/inventory-folders.routes.ts
++++ b/apps/api/src/modules/inventory-folders.routes.ts
+@@ -1,5 +1,6 @@
+ import { Router } from 'express';
+ import type { InventoryFolderItemType, Prisma } from '@prisma/client';
++import { evaluatePlusGate } from '@hellowhen/shared';
+ import {
+   addInventoryFolderItemRequestSchema,
+   createInventoryFolderRequestSchema,
+@@ -9,9 +10,12 @@ import {
+ import { asyncRoute } from '../lib/asyncRoute.js';
+ import { prisma } from '../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../middleware/auth.js';
++import { requireInventoryFoldersEnabled } from '../middleware/featureGates.js';
++import { plusConfigSnapshot } from './subscriptions/plus.routes.js';
+ 
+ export const inventoryFoldersRoutes = Router();
+ inventoryFoldersRoutes.use(requireAuth);
++inventoryFoldersRoutes.use(requireInventoryFoldersEnabled());
+ 
+ function isUniqueConstraintError(error: unknown) {
+   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+@@ -63,6 +67,26 @@ function duplicateFolderPayload() {
+   };
+ }
+ 
++
++async function requireInventoryFoldersPlus(ownerId: string, res: any) {
++  const user = await prisma.user.findUnique({
++    where: { id: ownerId },
++    select: { subscriptionTier: true, subscriptionStatus: true },
++  });
++  const gate = evaluatePlusGate(plusConfigSnapshot(), {
++    subscriptionTier: user?.subscriptionTier ?? 'free',
++    subscriptionStatus: user?.subscriptionStatus ?? 'none',
++  } as any);
++  if (gate.hasPlusAccess) return true;
++  res.status(403).json({
++    error: 'inventory_folders_plus_required',
++    message: 'Need/Offer folders are a Plus feature.',
++    upgradeRequired: true,
++    feature: 'inventory_folders',
++  });
++  return false;
++}
++
+ inventoryFoldersRoutes.get('/', asyncRoute(async (req, res) => {
+   const input = listInventoryFoldersQuerySchema.parse(req.query);
+   const baseQuery = {
+@@ -78,6 +102,7 @@ inventoryFoldersRoutes.get('/', asyncRoute(async (req, res) => {
+ 
+ inventoryFoldersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createInventoryFolderRequestSchema.parse(req.body);
++  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
+   try {
+     const folder = await prisma.inventoryFolder.create({
+       data: {
+@@ -97,6 +122,7 @@ inventoryFoldersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, re
+ 
+ inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updateInventoryFolderRequestSchema.parse(req.body);
++  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
+   const { folderId } = req.params;
+   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+ 
+@@ -123,6 +149,7 @@ inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(asyn
+ inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
+   const { folderId } = req.params;
+   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
++  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
+ 
+   const existing = await loadOwnedFolder(folderId, req.user!.id, false);
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+@@ -132,6 +159,7 @@ inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(asy
+ 
+ inventoryFoldersRoutes.post('/:folderId/items', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = addInventoryFolderItemRequestSchema.parse(req.body);
++  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
+   const { folderId } = req.params;
+   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+ 
+@@ -169,6 +197,7 @@ inventoryFoldersRoutes.delete('/:folderId/items/:itemId', requireActiveAccount,
+   const { folderId, itemId } = req.params;
+   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+   if (!itemId) return res.status(400).json({ error: 'missing_folder_item_id' });
++  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
+ 
+   const existing = await prisma.inventoryFolderItem.findFirst({
+     where: {
+diff --git a/apps/api/src/modules/saved/saved.routes.ts b/apps/api/src/modules/saved/saved.routes.ts
+index 3d2093b..690ee6a 100644
+--- a/apps/api/src/modules/saved/saved.routes.ts
++++ b/apps/api/src/modules/saved/saved.routes.ts
+@@ -11,9 +11,11 @@ import {
+   savedItemStatusQuerySchema,
+   updateSavedCollectionRequestSchema,
+ } from '@hellowhen/contracts';
++import { env } from '../../config/env.js';
+ import { asyncRoute } from '../../lib/asyncRoute.js';
+ import { prisma } from '../../lib/prisma.js';
+ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
++import { requireSavedCollectionsEnabled, requireSavedLibraryEnabled } from '../../middleware/featureGates.js';
+ import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
+@@ -21,6 +23,7 @@ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+ 
+ export const savedRoutes = Router();
+ savedRoutes.use(requireAuth);
++savedRoutes.use(requireSavedLibraryEnabled());
+ 
+ function isUniqueConstraintError(error: unknown) {
+   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
+@@ -311,7 +314,7 @@ savedRoutes.get('/status', asyncRoute(async (req, res) => {
+   });
+ }));
+ 
+-savedRoutes.get('/collections', asyncRoute(async (req, res) => {
++savedRoutes.get('/collections', requireSavedCollectionsEnabled(), asyncRoute(async (req, res) => {
+   const [collections, blockedUserIds] = await Promise.all([
+     prisma.savedCollection.findMany({
+       where: { ownerId: req.user!.id },
+@@ -323,7 +326,7 @@ savedRoutes.get('/collections', asyncRoute(async (req, res) => {
+   res.json({ collections: collections.map((collection: any) => toSavedCollectionDto(collection, blockedUserIds)) });
+ }));
+ 
+-savedRoutes.post('/collections', requireActiveAccount, asyncRoute(async (req, res) => {
++savedRoutes.post('/collections', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createSavedCollectionRequestSchema.parse(req.body);
+   if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
+   try {
+@@ -343,7 +346,7 @@ savedRoutes.post('/collections', requireActiveAccount, asyncRoute(async (req, re
+   }
+ }));
+ 
+-savedRoutes.patch('/collections/:collectionId', requireActiveAccount, asyncRoute(async (req, res) => {
++savedRoutes.patch('/collections/:collectionId', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = updateSavedCollectionRequestSchema.parse(req.body);
+   const { collectionId } = req.params;
+   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
+@@ -370,7 +373,7 @@ savedRoutes.patch('/collections/:collectionId', requireActiveAccount, asyncRoute
+   }
+ }));
+ 
+-savedRoutes.delete('/collections/:collectionId', requireActiveAccount, asyncRoute(async (req, res) => {
++savedRoutes.delete('/collections/:collectionId', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
+   const { collectionId } = req.params;
+   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
+ 
+@@ -380,7 +383,7 @@ savedRoutes.delete('/collections/:collectionId', requireActiveAccount, asyncRout
+   res.status(204).send();
+ }));
+ 
+-savedRoutes.post('/collections/:collectionId/items', requireActiveAccount, asyncRoute(async (req, res) => {
++savedRoutes.post('/collections/:collectionId/items', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = addSavedCollectionItemRequestSchema.parse(req.body);
+   const { collectionId } = req.params;
+   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
+@@ -403,7 +406,7 @@ savedRoutes.post('/collections/:collectionId/items', requireActiveAccount, async
+   res.status(201).json({ item: toSavedCollectionItemDto(item) });
+ }));
+ 
+-savedRoutes.delete('/collections/:collectionId/items/:savedItemId', requireActiveAccount, asyncRoute(async (req, res) => {
++savedRoutes.delete('/collections/:collectionId/items/:savedItemId', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
+   const { collectionId, savedItemId } = req.params;
+   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
+   if (!savedItemId) return res.status(400).json({ error: 'missing_saved_item_id' });
+@@ -455,6 +458,7 @@ savedRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   if (!targetIsSavable) return res.status(404).json({ error: 'saved_target_not_found' });
+ 
+   if (input.collectionId) {
++    if (!env.savedCollectionsEnabled) return res.status(404).json({ error: 'saved_collections_disabled' });
+     const collection = await loadOwnedCollection(input.collectionId, req.user!.id, false);
+     if (!collection) return res.status(404).json({ error: 'collection_not_found' });
+     if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
+@@ -488,7 +492,10 @@ savedRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+ }));
+ 
+ savedRoutes.delete('/:savedItemId', requireActiveAccount, asyncRoute(async (req, res) => {
+-  const existing = await prisma.savedItem.findFirst({ where: { id: req.params.savedItemId, ownerId: req.user!.id }, select: { id: true } });
++  const { savedItemId } = req.params;
++  if (!savedItemId) return res.status(400).json({ error: 'missing_saved_item_id' });
++
++  const existing = await prisma.savedItem.findFirst({ where: { id: savedItemId, ownerId: req.user!.id }, select: { id: true } });
+   if (!existing) return res.status(404).json({ error: 'not_found' });
+   await prisma.savedItem.delete({ where: { id: existing.id } });
+   res.status(204).send();
+diff --git a/apps/mobile/src/components/SavedToggleButton.tsx b/apps/mobile/src/components/SavedToggleButton.tsx
+index e7ddd9e..1010a84 100644
+--- a/apps/mobile/src/components/SavedToggleButton.tsx
++++ b/apps/mobile/src/components/SavedToggleButton.tsx
+@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { SavedItemType } from '@hellowhen/contracts';
+ import { api } from '../lib/api';
++import { betaFeatures } from '../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../lib/errors';
+ import type { RootStackParamList } from '../navigation/RootNavigator';
+ import { useAuth } from '../providers/AuthProvider';
+@@ -43,7 +44,7 @@ export function SavedToggleButton({
+   useEffect(() => {
+     let mounted = true;
+     async function loadSavedStatus() {
+-      if (!auth.isAuthenticated || !itemId || hidden) {
++      if (!auth.isAuthenticated || !itemId || hidden || !betaFeatures.savedLibraryEnabled) {
+         setSavedItemId(null);
+         return;
+       }
+@@ -62,7 +63,7 @@ export function SavedToggleButton({
+   }, [auth.isAuthenticated, hidden, itemId, itemType]);
+ 
+   async function toggleSaved() {
+-    if (busy || disabled || hidden) return;
++    if (busy || disabled || hidden || !betaFeatures.savedLibraryEnabled) return;
+     if (!auth.isAuthenticated) {
+       navigation.navigate('Login');
+       return;
+@@ -92,7 +93,7 @@ export function SavedToggleButton({
+     }
+   }
+ 
+-  if (hidden) return null;
++  if (hidden || !betaFeatures.savedLibraryEnabled) return null;
+ 
+   const isSaved = Boolean(savedItemId);
+   const label = busy ? t('common.states.saving') : isSaved ? t('common.states.saved') : t('common.actions.save');
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index ec7275a..5c02302 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -36,7 +36,7 @@ type AccountAction = {
+ const accountActions: AccountAction[] = [
+   { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile', group: 'activity' },
+   { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell', group: 'activity' },
+-  { titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal', route: 'SavedLibrary', icon: 'save', group: 'activity' },
++  ...(betaFeatures.savedLibraryEnabled ? [{ titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal' as SemanticColorName, route: 'SavedLibrary' as AccountRoute, icon: 'save' as MobileIconName, group: 'activity' as AccountGroupKey }] : []),
+   { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
+diff --git a/apps/mobile/src/features/account/SavedLibraryScreen.tsx b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+index 8c88ee6..3768bf2 100644
+--- a/apps/mobile/src/features/account/SavedLibraryScreen.tsx
++++ b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+@@ -139,11 +139,11 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+           take: 50,
+           sort,
+           ...(filter !== 'all' ? { itemType: filter } : {}),
+-          ...(selectedCollectionId ? { collectionId: selectedCollectionId } : {}),
++          ...(selectedCollectionId && betaFeatures.savedCollectionsEnabled ? { collectionId: selectedCollectionId } : {}),
+           ...(query ? { q: query } : {}),
+           ...(cursor ? { cursor } : {}),
+         }),
+-        api.saved.collections(),
++        betaFeatures.savedCollectionsEnabled ? api.saved.collections() : Promise.resolve({ collections: [] }),
+       ]);
+       setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
+       setNextCursor(savedResponse.nextCursor ?? null);
+@@ -181,6 +181,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   }
+ 
+   function openCreateCollection() {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setMessage(null);
+     setError(null);
+     setCollectionTitleError(null);
+@@ -190,6 +191,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   }
+ 
+   function openEditCollection() {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     if (!selectedCollection) return;
+     setMessage(null);
+     setError(null);
+@@ -200,6 +202,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   }
+ 
+   async function saveCollection() {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     const title = collectionTitle.trim();
+     const description = collectionDescription.trim();
+     if (!title) {
+@@ -231,6 +234,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   }
+ 
+   async function deleteSelectedCollection() {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     if (!selectedCollection) return;
+     const title = selectedCollection.title;
+     setBusyAction('collection-delete');
+@@ -269,6 +273,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   }
+ 
+   async function addItemToCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setBusyAction(`collection-item-${collection.id}-${item.id}`);
+     setError(null);
+     try {
+@@ -284,6 +289,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   }
+ 
+   async function removeItemFromCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setBusyAction(`collection-item-${collection.id}-${item.id}`);
+     setError(null);
+     try {
+@@ -306,6 +312,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+       if (initialCollectionId) navigation.navigate('SavedLibrary');
+       return;
+     }
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     if (initialCollectionId) {
+       setSelectedCollectionId(collection.id);
+       return;
+@@ -336,8 +343,19 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+   const hasCollections = collections.length > 0;
+   const searchActive = Boolean(query);
+   const plusPublic = betaFeatures.plusSubscriptionFeatures.plusPublic;
++  const collectionsEnabled = betaFeatures.savedCollectionsEnabled;
+   const headerTitle = selectedCollection?.title ?? initialTitle ?? t('account.saved.title');
+ 
++  if (!betaFeatures.savedLibraryEnabled) {
++    return (
++      <AppFixedHeaderScreen header={<AppHeader title={t('account.saved.title')} onBack={() => navigation.goBack()} />}>
++        <View style={styles.content}>
++          <DetailEmptyState icon="save" title={t('account.saved.title')} body={t('account.saved.plus.comingSoonBody', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })} />
++        </View>
++      </AppFixedHeaderScreen>
++    );
++  }
++
+   return (
+     <AppFixedHeaderScreen header={<AppHeader title={headerTitle} onBack={() => navigation.goBack()} /> }>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+@@ -402,16 +420,16 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+           </View>
+         </View>
+ 
+-        <View style={[styles.collectionToolbar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++        {collectionsEnabled ? <View style={[styles.collectionToolbar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+           <View style={styles.collectionToolbarCopy}>
+             <AppText style={styles.collectionToolbarTitle}>{t('account.saved.collections.title')}</AppText>
+             <AppText style={[styles.collectionToolbarBody, { color: theme.color.muted }]}>{t('account.saved.collections.manageBody')}</AppText>
+           </View>
+           <Pressable accessibilityRole="button" onPress={openCreateCollection} style={({ pressed }) => [styles.collectionCreateButton, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, pressed && styles.pressed]}>
+-            <MobileIcon name="add" size={17} color={theme.semantic.proposal.text} />
+-            <AppText style={[styles.collectionCreateText, { color: theme.semantic.proposal.text }]}>{t('account.saved.collections.create')}</AppText>
+-          </Pressable>
+-        </View>
++              <MobileIcon name="add" size={17} color={theme.semantic.proposal.text} />
++              <AppText style={[styles.collectionCreateText, { color: theme.semantic.proposal.text }]}>{t('account.saved.collections.create')}</AppText>
++            </Pressable>
++        </View> : null}
+ 
+         <View style={styles.filterWrap}>
+           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
+@@ -425,7 +443,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+             ))}
+           </ScrollView>
+ 
+-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
++          {collectionsEnabled ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
+             <CollectionChip label={t('account.saved.collections.allSaved')} active={!selectedCollectionId} onPress={() => openCollection(null)} />
+             {collections.map((collection) => (
+               <CollectionChip
+@@ -436,13 +454,13 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+                 onPress={() => openCollection(collection)}
+               />
+             ))}
+-          </ScrollView>
++          </ScrollView> : null}
+         </View>
+ 
+         {message ? <InfoNotice tone="success" title={t('common.states.saved')} body={message} /> : null}
+         {error && hasItems ? <InfoNotice tone="danger" title={t('account.saved.loadError')} body={error} /> : null}
+ 
+-        {!selectedCollection && hasCollections ? (
++        {collectionsEnabled && !selectedCollection && hasCollections ? (
+           <View style={[styles.collectionOverview, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+             <View style={styles.collectionOverviewHeader}>
+               <View style={styles.collectionOverviewCopy}>
+@@ -466,7 +484,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+           </View>
+         ) : null}
+ 
+-        {selectedCollection ? (
++        {collectionsEnabled && selectedCollection ? (
+           <View style={[styles.collectionCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+             <SemanticBadge label={t('account.saved.collections.collection')} tone="instruction" size="sm" />
+             <View style={styles.collectionCopy}>
+@@ -511,7 +529,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+                 body={itemBody(item, t)}
+                 targetId={itemTargetId(item)}
+                 updating={updatingId === item.id}
+-                onManageCollections={() => setManagingItem(item)}
++                onManageCollections={collectionsEnabled ? () => setManagingItem(item) : undefined}
+                 onOpen={() => openItem(item)}
+                 onRemove={() => { void removeSavedItem(item.id); }}
+               />
+@@ -525,7 +543,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+           </Pressable>
+         ) : null}
+ 
+-        {!hasCollections ? (
++        {collectionsEnabled && !hasCollections ? (
+           <View style={[styles.collectionsPreview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
+             <SemanticBadge label={t('account.saved.collections.title')} tone="instruction" />
+             <AppText style={styles.collectionTitle}>{t('account.saved.collections.emptyTitle')}</AppText>
+@@ -547,7 +565,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+         onSave={() => { void saveCollection(); }}
+         title={collectionTitle}
+         titleError={collectionTitleError}
+-        visible={Boolean(editorMode)}
++        visible={collectionsEnabled && Boolean(editorMode)}
+         mode={editorMode ?? 'create'}
+       />
+ 
+@@ -558,11 +576,11 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+         onAdd={(collection, item) => addItemToCollection(collection, item)}
+         onClose={() => setManagingItem(null)}
+         onRemove={(collection, item) => removeItemFromCollection(collection, item)}
+-        visible={Boolean(managingItem)}
++        visible={collectionsEnabled && Boolean(managingItem)}
+       />
+ 
+       <AppConfirmSheet
+-        visible={deleteConfirmVisible}
++        visible={collectionsEnabled && deleteConfirmVisible}
+         title={t('account.saved.collections.deleteTitle')}
+         body={selectedCollection ? t('account.saved.collections.deleteConfirm', { title: selectedCollection.title }) : undefined}
+         cancelLabel={t('common.actions.cancel')}
+@@ -599,7 +617,7 @@ function CollectionChip({ label, count, active, onPress }: { label: string; coun
+   );
+ }
+ 
+-function SavedItemCard({ item, title, body, targetId, updating, onManageCollections, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onManageCollections: () => void; onOpen: () => void; onRemove: () => void }) {
++function SavedItemCard({ item, title, body, targetId, updating, onManageCollections, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onManageCollections?: () => void; onOpen: () => void; onRemove: () => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const canOpen = Boolean(targetId);
+@@ -634,9 +652,11 @@ function SavedItemCard({ item, title, body, targetId, updating, onManageCollecti
+         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.open')} disabled={!canOpen} onPress={onOpen} style={({ pressed }) => [styles.itemPrimaryAction, { backgroundColor: canOpen ? theme.color.text : theme.color.border }, pressed && canOpen && styles.pressed]}>
+           <AppText style={[styles.itemPrimaryActionText, { color: theme.color.background }]}>{t('common.actions.open')}</AppText>
+         </Pressable>
+-        <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.collections.manage')} onPress={onManageCollections} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+-          <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('account.saved.collections.manage')}</AppText>
+-        </Pressable>
++        {onManageCollections ? (
++          <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.collections.manage')} onPress={onManageCollections} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, pressed && styles.pressed]}>
++            <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('account.saved.collections.manage')}</AppText>
++          </Pressable>
++        ) : null}
+         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} disabled={updating} onPress={onRemove} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, (pressed || updating) && styles.pressed]}>
+           {updating ? <ActivityIndicator color={theme.color.text} /> : <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('common.actions.remove')}</AppText>}
+         </Pressable>
+diff --git a/apps/mobile/src/features/trade/MyNeedsScreen.tsx b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+index 0dd7716..d7ebbb7 100644
+--- a/apps/mobile/src/features/trade/MyNeedsScreen.tsx
++++ b/apps/mobile/src/features/trade/MyNeedsScreen.tsx
+@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCollapsibleHeaderScreen } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppText } from '../../components/AppText';
+@@ -110,7 +111,7 @@ export function MyNeedsScreen() {
+           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+           {createdNeed ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: createdNeed.id, title: createdNeed.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.need.softBg, borderColor: theme.semantic.need.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.need.text }]}>{t('inventory.actions.openSavedNeed')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.need.text} /></Pressable> : null}
+           {sourceTab === 'starter' ? <StarterInventoryLibrary kind="need" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisNeed')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+-            <InventoryFoldersPanel kind="need" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} />
++            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="need" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadNeed')} body={error} /> : null}
+             {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="need" onPress={() => navigation.navigate('CreateNeed')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('NeedDetail', { needId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="need" item={item} /></Pressable>)}
+           </>}
+diff --git a/apps/mobile/src/features/trade/MyOffersScreen.tsx b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+index 71ac746..4f72f31 100644
+--- a/apps/mobile/src/features/trade/MyOffersScreen.tsx
++++ b/apps/mobile/src/features/trade/MyOffersScreen.tsx
+@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { InventoryTemplateDto } from '@hellowhen/contracts';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import { AppCollapsibleHeaderScreen } from '../../components/AppCollapsibleHeaderScreen';
+ import { AppText } from '../../components/AppText';
+@@ -110,7 +111,7 @@ export function MyOffersScreen() {
+           {notice ? <InfoNotice tone="success" title={t('inventory.messages.starterSaved')} body={notice} /> : null}
+           {createdOffer ? <Pressable accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: createdOffer.id, title: createdOffer.title })} style={({ pressed }) => [styles.openCreatedButton, { backgroundColor: theme.semantic.offer.softBg, borderColor: theme.semantic.offer.border }, pressed && styles.pressed]}><AppText style={[styles.openCreatedText, { color: theme.semantic.offer.text }]}>{t('inventory.actions.openSavedOffer')}</AppText><MobileIcon name="chevron-right" size={18} color={theme.semantic.offer.text} /></Pressable> : null}
+           {sourceTab === 'starter' ? <StarterInventoryLibrary kind="offer" templates={templates} loading={templateLoading} error={templateError} cloningTemplateId={cloningTemplateId} actionLabel={t('inventory.actions.useThisOffer')} onUseTemplate={(template) => { void cloneTemplate(template); }} /> : <>
+-            <InventoryFoldersPanel kind="offer" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} />
++            {betaFeatures.inventoryFoldersEnabled ? <InventoryFoldersPanel kind="offer" items={items.map((item) => ({ id: item.id, title: item.title }))} refreshKey={folderRefreshKey} onSelectionChange={setFolderSelection} /> : null}
+             {error ? <InfoNotice tone="danger" title={t('inventory.errors.couldNotLoadOffer')} body={error} /> : null}
+             {sortedItems.length === 0 ? <EmptyInventoryPlaceholder title={emptyTitle} body={emptyBody} tone="offer" onPress={() => navigation.navigate('CreateOffer')} /> : sortedItems.map((item) => <Pressable key={item.id} accessibilityRole="button" onPress={() => navigation.navigate('OfferDetail', { offerId: item.id, title: item.title })} style={({ pressed }) => [pressed && styles.pressed]}><InventoryCompactRow kind="offer" item={item} /></Pressable>)}
+           </>}
+diff --git a/apps/mobile/src/lib/betaFeatures.ts b/apps/mobile/src/lib/betaFeatures.ts
+index f7e0bda..37c4cfb 100644
+--- a/apps/mobile/src/lib/betaFeatures.ts
++++ b/apps/mobile/src/lib/betaFeatures.ts
+@@ -39,6 +39,9 @@ const plusSubscriptionFeatures = {
+   freeMonthlyAiAssistQuota: Number(process.env.EXPO_PUBLIC_FREE_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.freeMonthlyAiAssistQuota),
+   plusMonthlyAiAssistQuota: Number(process.env.EXPO_PUBLIC_PLUS_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.plusMonthlyAiAssistQuota),
+ } as const;
++const savedLibraryEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_SAVED_LIBRARY_ENABLED);
++const savedCollectionsEnabled = savedLibraryEnabled && enabled(process.env.EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED);
++const inventoryFoldersEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED);
+ const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED);
+ const proSubscriptionFeatures = {
+   ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
+@@ -79,6 +82,9 @@ export const betaFeatures = {
+   businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
+   businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
+   businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED),
++  savedLibraryEnabled,
++  savedCollectionsEnabled,
++  inventoryFoldersEnabled,
+   plusSubscriptionFeatures,
+   proSubscriptionFeatures,
+   proTradePackageFeatures,
+diff --git a/apps/web/src/app/account/saved/page.tsx b/apps/web/src/app/account/saved/page.tsx
+index ab8bf84..1ef2ef0 100644
+--- a/apps/web/src/app/account/saved/page.tsx
++++ b/apps/web/src/app/account/saved/page.tsx
+@@ -1,8 +1,12 @@
++import { notFound } from 'next/navigation';
+ import { MobilePage } from '../../../components/MobilePage';
+ import { TranslatedPageIntro } from '../../../components/TranslatedPageIntro';
+ import { SavedLibraryClient } from '../../../features/account/SavedLibraryClient';
++import { betaFeatures } from '../../../lib/betaFeatures';
+ 
+ export default function AccountSavedPage() {
++  if (!betaFeatures.savedLibraryEnabled) notFound();
++
+   return (
+     <MobilePage>
+       <TranslatedPageIntro
+diff --git a/apps/web/src/components/SavedToggleButton.tsx b/apps/web/src/components/SavedToggleButton.tsx
+index 8648c9f..ef4ca3d 100644
+--- a/apps/web/src/components/SavedToggleButton.tsx
++++ b/apps/web/src/components/SavedToggleButton.tsx
+@@ -4,6 +4,7 @@ import type { SavedItemType } from '@hellowhen/contracts';
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { api } from '../lib/api';
++import { betaFeatures } from '../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../lib/webErrors';
+ import { useWebAuth } from '../providers/WebAuthProvider';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+@@ -38,7 +39,7 @@ export function SavedToggleButton({
+   useEffect(() => {
+     let mounted = true;
+     async function loadSavedStatus() {
+-      if (!auth.isAuthenticated || !itemId || hidden) {
++      if (!auth.isAuthenticated || !itemId || hidden || !betaFeatures.savedLibraryEnabled) {
+         setSavedItemId(null);
+         return;
+       }
+@@ -57,7 +58,7 @@ export function SavedToggleButton({
+   }, [auth.isAuthenticated, hidden, itemId, itemType]);
+ 
+   async function toggleSaved() {
+-    if (busy || disabled || hidden) return;
++    if (busy || disabled || hidden || !betaFeatures.savedLibraryEnabled) return;
+     if (!auth.isAuthenticated) {
+       router.push('/auth');
+       return;
+@@ -87,7 +88,7 @@ export function SavedToggleButton({
+     }
+   }
+ 
+-  if (hidden) return null;
++  if (hidden || !betaFeatures.savedLibraryEnabled) return null;
+ 
+   const isSaved = Boolean(savedItemId);
+   const label = busy ? t('common.states.saving') : isSaved ? t('common.states.saved') : t('common.actions.save');
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index 3c2bee7..0a748f9 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -30,7 +30,7 @@ export function AccountHubClient() {
+ 
+   const accountItems = useMemo<AccountHubItem[]>(() => [
+     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
+-    { href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' },
++    ...(betaFeatures.savedLibraryEnabled ? [{ href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' as WebIconName }] : []),
+     { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
+     {
+       href: '/onboarding-guide?replay=1&next=/account',
+diff --git a/apps/web/src/features/account/SavedLibraryClient.tsx b/apps/web/src/features/account/SavedLibraryClient.tsx
+index b6484b5..aaedd43 100644
+--- a/apps/web/src/features/account/SavedLibraryClient.tsx
++++ b/apps/web/src/features/account/SavedLibraryClient.tsx
+@@ -151,11 +151,11 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+           take: 50,
+           sort,
+           ...(filter !== 'all' ? { itemType: filter } : {}),
+-          ...(selectedCollectionId ? { collectionId: selectedCollectionId } : {}),
++          ...(selectedCollectionId && betaFeatures.savedCollectionsEnabled ? { collectionId: selectedCollectionId } : {}),
+           ...(query ? { q: query } : {}),
+           ...(cursor ? { cursor } : {}),
+         }),
+-        api.saved.collections(),
++        betaFeatures.savedCollectionsEnabled ? api.saved.collections() : Promise.resolve({ collections: [] }),
+       ]);
+       setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
+       setNextCursor(savedResponse.nextCursor ?? null);
+@@ -194,6 +194,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   }
+ 
+   function openCreateCollection() {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setMessage(null);
+     setError(null);
+     setCollectionTitleError(null);
+@@ -203,6 +204,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   }
+ 
+   function openEditCollection(collection: SavedCollectionDto) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setMessage(null);
+     setError(null);
+     setCollectionTitleError(null);
+@@ -219,6 +221,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   }
+ 
+   async function saveCollection(event?: FormEvent<HTMLFormElement>) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     event?.preventDefault();
+     const title = collectionTitle.trim();
+     const description = collectionDescription.trim();
+@@ -251,6 +254,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   }
+ 
+   async function deleteCollection(collection: SavedCollectionDto) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     const confirmed = window.confirm(t('account.saved.collections.deleteConfirm', { title: collection.title }));
+     if (!confirmed) return;
+ 
+@@ -289,6 +293,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   }
+ 
+   async function addItemToCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setCollectionBusyId(`item-${collection.id}-${item.id}`);
+     setError(null);
+     try {
+@@ -303,6 +308,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   }
+ 
+   async function removeItemFromCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    if (!betaFeatures.savedCollectionsEnabled) return;
+     setCollectionBusyId(`item-${collection.id}-${item.id}`);
+     setError(null);
+     try {
+@@ -338,6 +344,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+   const hasCollections = collections.length > 0;
+   const searchActive = Boolean(query);
+   const plusPublic = betaFeatures.plusSubscriptionFeatures.plusPublic;
++  const collectionsEnabled = betaFeatures.savedCollectionsEnabled;
+   const collectionEditorTitle = collectionEditorMode === 'edit' ? t('account.saved.collections.editTitle') : t('account.saved.collections.createTitle');
+ 
+   return (
+@@ -368,7 +375,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+             <strong>{t('account.saved.collections.title')}</strong>
+             <span>{t('account.saved.collections.manageBody')}</span>
+           </div>
+-          <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
++          {collectionsEnabled ? <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button> : null}
+         </div>
+ 
+         <form className="saved-library-search-form" onSubmit={submitSearch} role="search">
+@@ -412,7 +419,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+           ))}
+         </div>
+ 
+-        <div className="saved-library-collections-strip" aria-label={t('account.saved.collectionsLabel')}>
++        {collectionsEnabled ? <div className="saved-library-collections-strip" aria-label={t('account.saved.collectionsLabel')}>
+           <button
+             type="button"
+             className={!selectedCollectionId ? 'is-active' : ''}
+@@ -433,10 +440,10 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+               <strong>{collectionItemCount(collection)}</strong>
+             </button>
+           ))}
+-        </div>
++        </div> : null}
+       </section>
+ 
+-      {collectionEditorMode ? (
++      {collectionsEnabled && collectionEditorMode ? (
+         <form className="saved-library-collection-editor" onSubmit={(event) => { void saveCollection(event); }}>
+           <div className="saved-library-collection-editor__header">
+             <span className="semantic-badge instruction">{t('account.saved.collections.collection')}</span>
+@@ -462,7 +469,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+       {message ? <p className="form-success">{message}</p> : null}
+       {error ? <p className="form-error">{error}</p> : null}
+ 
+-      {!selectedCollection && hasCollections ? (
++      {collectionsEnabled && !selectedCollection && hasCollections ? (
+         <section className="saved-library-collection-overview">
+           <div className="saved-library-collection-overview__header">
+             <div>
+@@ -470,7 +477,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+               <h3>{t('account.saved.collections.overviewTitle')}</h3>
+               <p>{t('account.saved.collections.overviewBody')}</p>
+             </div>
+-            <button type="button" className="ghost-button" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
++            {collectionsEnabled ? <button type="button" className="ghost-button" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button> : null}
+           </div>
+           <div className="saved-library-collection-grid">
+             {collections.slice(0, 6).map((collection) => (
+@@ -484,7 +491,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+         </section>
+       ) : null}
+ 
+-      {selectedCollection ? (
++      {collectionsEnabled && selectedCollection ? (
+         <section className="saved-library-selected-collection">
+           <span className="semantic-badge instruction">{t('account.saved.collections.collection')}</span>
+           <div>
+@@ -500,7 +507,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+         </section>
+       ) : null}
+ 
+-      {managingItem ? (
++      {collectionsEnabled && managingItem ? (
+         <section className="saved-library-item-collections-manager">
+           <div className="saved-library-item-collections-manager__header">
+             <div>
+@@ -510,7 +517,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+             </div>
+             <button type="button" className="ghost-button" onClick={() => setManagingItem(null)}>{t('common.actions.close')}</button>
+           </div>
+-          {!hasCollections ? (
++          {collectionsEnabled && !hasCollections ? (
+             <p>{t('account.saved.collections.createFirst')}</p>
+           ) : (
+             <div className="saved-library-collection-membership-list">
+@@ -573,7 +580,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+                 </div>
+                 <div className="saved-library-card__actions">
+                   {href ? <Link href={href} className="button secondary">{t('common.actions.open')}</Link> : <span className="saved-library-unavailable-chip">{t('account.saved.unavailable.badge')}</span>}
+-                  <button className="button secondary" type="button" onClick={() => setManagingItem(item)}>{t('account.saved.collections.manage')}</button>
++                  {collectionsEnabled ? <button className="button secondary" type="button" onClick={() => setManagingItem(item)}>{t('account.saved.collections.manage')}</button> : null}
+                   <button className="ghost-button" type="button" disabled={updatingId === item.id} onClick={() => { void removeSavedItem(item.id); }}>
+                     {updatingId === item.id ? t('common.states.working') : t('common.actions.remove')}
+                   </button>
+@@ -590,12 +597,12 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+         </button>
+       ) : null}
+ 
+-      {!hasCollections ? (
++      {collectionsEnabled && !hasCollections ? (
+         <section className="mobile-card mobile-card--soft saved-library-collections-preview">
+           <span className="semantic-badge instruction">{t('account.saved.collections.title')}</span>
+           <h3>{t('account.saved.collections.emptyTitle')}</h3>
+           <p>{t('account.saved.collections.emptyBody')}</p>
+-          <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
++          {collectionsEnabled ? <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button> : null}
+         </section>
+       ) : null}
+     </div>
+diff --git a/apps/web/src/features/inventory/InventoryListClient.tsx b/apps/web/src/features/inventory/InventoryListClient.tsx
+index 3c2bef6..c62c15a 100644
+--- a/apps/web/src/features/inventory/InventoryListClient.tsx
++++ b/apps/web/src/features/inventory/InventoryListClient.tsx
+@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
+ import { InventoryEmptyState } from '../../components/InventoryEmptyState';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { isWebDemoDataEnabled } from '../../lib/demoMode';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { mockNeeds, mockOffers } from '../../lib/mockData';
+@@ -252,6 +253,14 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+   const loadInventoryFolders = useCallback(async () => {
+     if (!auth.hydrated) return;
+ 
++    if (!betaFeatures.inventoryFoldersEnabled) {
++      setFolders([]);
++      setSelectedFolderId('all');
++      setFoldersError('');
++      setFoldersLoading(false);
++      return;
++    }
++
+     if (!auth.isAuthenticated) {
+       setFolders([]);
+       setSelectedFolderId('all');
+@@ -286,6 +295,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+     let mounted = true;
+     async function loadInventory() {
+       if (!auth.hydrated) return;
++
+       setLoading(true);
+ 
+       if (!auth.isAuthenticated) {
+@@ -533,7 +543,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
+         </div>
+       ) : null}
+ 
+-      {!isStarterTab && auth.isAuthenticated ? (
++      {!isStarterTab && auth.isAuthenticated && betaFeatures.inventoryFoldersEnabled ? (
+         <section className="inventory-folders-panel" aria-label={t('inventory.labels.myFolders')}>
+           <div className="inventory-folders-panel__header">
+             <div>
+diff --git a/apps/web/src/lib/betaFeatures.tsx b/apps/web/src/lib/betaFeatures.tsx
+index aa84d25..36fed15 100644
+--- a/apps/web/src/lib/betaFeatures.tsx
++++ b/apps/web/src/lib/betaFeatures.tsx
+@@ -39,6 +39,9 @@ const plusSubscriptionFeatures = {
+   freeMonthlyAiAssistQuota: Number(process.env.NEXT_PUBLIC_FREE_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.freeMonthlyAiAssistQuota),
+   plusMonthlyAiAssistQuota: Number(process.env.NEXT_PUBLIC_PLUS_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.plusMonthlyAiAssistQuota),
+ } as const;
++const savedLibraryEnabled = plusEnabled && enabled(process.env.NEXT_PUBLIC_SAVED_LIBRARY_ENABLED);
++const savedCollectionsEnabled = savedLibraryEnabled && enabled(process.env.NEXT_PUBLIC_SAVED_COLLECTIONS_ENABLED);
++const inventoryFoldersEnabled = plusEnabled && enabled(process.env.NEXT_PUBLIC_INVENTORY_FOLDERS_ENABLED);
+ const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED);
+ const proSubscriptionFeatures = {
+   ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
+@@ -79,6 +82,9 @@ export const betaFeatures = {
+   businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
+   businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
+   businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.NEXT_PUBLIC_BUSINESS_BUDGETS_ENABLED),
++  savedLibraryEnabled,
++  savedCollectionsEnabled,
++  inventoryFoldersEnabled,
+   plusSubscriptionFeatures,
+   proSubscriptionFeatures,
+   proTradePackageFeatures,
+diff --git a/packages/contracts/src/index.js b/packages/contracts/src/index.js
+index 6cc1072..971a9c6 100644
+--- a/packages/contracts/src/index.js
++++ b/packages/contracts/src/index.js
+@@ -2,6 +2,8 @@ export * from './auth.js';
+ export * from './profile.js';
+ export * from './settings.js';
+ export * from './trade.js';
++export * from './inventoryFolders.js';
++export * from './savedLibrary.js';
+ export * from './wallet.js';
+ export * from './media.js';
+ export * from './credits.js';
+diff --git a/packages/contracts/src/inventoryFolders.js b/packages/contracts/src/inventoryFolders.js
+new file mode 100644
+index 0000000..b8545b2
+--- /dev/null
++++ b/packages/contracts/src/inventoryFolders.js
+@@ -0,0 +1,58 @@
++import { z } from 'zod';
++import { needSchema, offerSchema } from './trade.js';
++
++export const INVENTORY_FOLDER_TITLE_MAX_LENGTH = 80;
++export const INVENTORY_FOLDER_DESCRIPTION_MAX_LENGTH = 240;
++
++export const inventoryFolderItemTypeSchema = z.enum(['need', 'offer']);
++
++export const createInventoryFolderRequestSchema = z.object({
++  title: z.string().trim().min(1).max(INVENTORY_FOLDER_TITLE_MAX_LENGTH),
++  description: z.string().trim().max(INVENTORY_FOLDER_DESCRIPTION_MAX_LENGTH).optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const updateInventoryFolderRequestSchema = z.object({
++  title: z.string().trim().min(1).max(INVENTORY_FOLDER_TITLE_MAX_LENGTH).optional(),
++  description: z.string().trim().max(INVENTORY_FOLDER_DESCRIPTION_MAX_LENGTH).nullable().optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Provide at least one folder field to update.' });
++
++export const addInventoryFolderItemRequestSchema = z.object({
++  itemType: inventoryFolderItemTypeSchema,
++  itemId: z.string().min(1),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const listInventoryFoldersQuerySchema = z.object({
++  itemType: inventoryFolderItemTypeSchema.optional(),
++  includeItems: z.coerce.boolean().optional().default(true),
++});
++
++export const inventoryFolderItemSchema = z.object({
++  id: z.string(),
++  folderId: z.string(),
++  ownerId: z.string(),
++  itemType: inventoryFolderItemTypeSchema,
++  needId: z.string().nullable().optional(),
++  offerId: z.string().nullable().optional(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  need: needSchema.nullable().optional(),
++  offer: offerSchema.nullable().optional(),
++});
++
++export const inventoryFolderSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string().nullable().optional(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++  items: z.array(inventoryFolderItemSchema).optional(),
++});
++
++export const inventoryFoldersResponseSchema = z.object({ folders: z.array(inventoryFolderSchema) });
++export const inventoryFolderResponseSchema = z.object({ folder: inventoryFolderSchema });
++export const inventoryFolderItemResponseSchema = z.object({ item: inventoryFolderItemSchema });
+diff --git a/packages/contracts/src/savedLibrary.js b/packages/contracts/src/savedLibrary.js
+new file mode 100644
+index 0000000..34ff41c
+--- /dev/null
++++ b/packages/contracts/src/savedLibrary.js
+@@ -0,0 +1,106 @@
++import { z } from 'zod';
++import { needSchema, offerSchema, tradeSchema, userPreviewSchema } from './trade.js';
++
++export const SAVED_COLLECTION_TITLE_MAX_LENGTH = 80;
++export const SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH = 240;
++export const SAVED_LIBRARY_FREE_ITEM_LIMIT = 10;
++export const SAVED_LIBRARY_FREE_COLLECTION_LIMIT = 0;
++
++export const savedItemTypeSchema = z.enum(['trade', 'need', 'offer', 'user']);
++export const savedLibrarySortSchema = z.enum(['newest', 'oldest']);
++
++export const createSavedItemRequestSchema = z.object({
++  itemType: savedItemTypeSchema,
++  itemId: z.string().min(1),
++  collectionId: z.string().min(1).optional(),
++});
++
++export const savedItemStatusQuerySchema = z.object({
++  itemType: savedItemTypeSchema,
++  itemId: z.string().min(1),
++});
++
++export const listSavedItemsQuerySchema = z.object({
++  itemType: savedItemTypeSchema.optional(),
++  collectionId: z.string().min(1).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++  cursor: z.string().min(1).optional(),
++  q: z.string().trim().min(1).max(80).optional(),
++  sort: savedLibrarySortSchema.optional().default('newest'),
++});
++
++export const createSavedCollectionRequestSchema = z.object({
++  title: z.string().trim().min(1).max(SAVED_COLLECTION_TITLE_MAX_LENGTH),
++  description: z.string().trim().max(SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH).optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const updateSavedCollectionRequestSchema = z.object({
++  title: z.string().trim().min(1).max(SAVED_COLLECTION_TITLE_MAX_LENGTH).optional(),
++  description: z.string().trim().max(SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH).nullable().optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Provide at least one collection field to update.' });
++
++export const addSavedCollectionItemRequestSchema = z.object({
++  savedItemId: z.string().min(1),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const savedCollectionSummarySchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string().nullable().optional(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++});
++
++export const savedItemSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  itemType: savedItemTypeSchema,
++  tradeId: z.string().nullable().optional(),
++  needId: z.string().nullable().optional(),
++  offerId: z.string().nullable().optional(),
++  targetUserId: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string().optional(),
++  trade: tradeSchema.nullable().optional(),
++  need: needSchema.nullable().optional(),
++  offer: offerSchema.nullable().optional(),
++  targetUser: userPreviewSchema.nullable().optional(),
++  collections: z.array(savedCollectionSummarySchema).optional(),
++});
++
++export const savedCollectionItemSchema = z.object({
++  id: z.string(),
++  collectionId: z.string(),
++  savedItemId: z.string(),
++  ownerId: z.string(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  savedItem: savedItemSchema.optional(),
++});
++
++export const savedCollectionSchema = savedCollectionSummarySchema.extend({
++  items: z.array(savedCollectionItemSchema).optional(),
++});
++
++export const savedItemsResponseSchema = z.object({
++  items: z.array(savedItemSchema),
++  nextCursor: z.string().nullable().optional(),
++});
++
++export const savedItemResponseSchema = z.object({ item: savedItemSchema });
++
++export const savedItemStatusResponseSchema = z.object({
++  itemType: savedItemTypeSchema,
++  itemId: z.string(),
++  isSaved: z.boolean(),
++  savedItem: savedItemSchema.nullable().optional(),
++});
++
++export const savedCollectionsResponseSchema = z.object({ collections: z.array(savedCollectionSchema) });
++export const savedCollectionResponseSchema = z.object({ collection: savedCollectionSchema });
++export const savedCollectionItemResponseSchema = z.object({ item: savedCollectionItemSchema });

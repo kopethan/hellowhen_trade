@@ -1,8 +1,12 @@
+import { notFound } from 'next/navigation';
 import { MobilePage } from '../../../components/MobilePage';
 import { TranslatedPageIntro } from '../../../components/TranslatedPageIntro';
 import { SavedLibraryClient } from '../../../features/account/SavedLibraryClient';
+import { betaFeatures } from '../../../lib/betaFeatures';
 
 export default function AccountSavedPage() {
+  if (!betaFeatures.savedLibraryEnabled) notFound();
+
   return (
     <MobilePage>
       <TranslatedPageIntro

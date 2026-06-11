@@ -4,6 +4,7 @@ import type { SavedItemType } from '@hellowhen/contracts';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '../lib/api';
+import { betaFeatures } from '../lib/betaFeatures';
 import { getFriendlyApiErrorMessage } from '../lib/webErrors';
 import { useWebAuth } from '../providers/WebAuthProvider';
 import { useWebTranslation } from '../providers/WebI18nProvider';
@@ -38,7 +39,7 @@ export function SavedToggleButton({
   useEffect(() => {
     let mounted = true;
     async function loadSavedStatus() {
-      if (!auth.isAuthenticated || !itemId || hidden) {
+      if (!auth.isAuthenticated || !itemId || hidden || !betaFeatures.savedLibraryEnabled) {
         setSavedItemId(null);
         return;
       }
@@ -57,7 +58,7 @@ export function SavedToggleButton({
   }, [auth.isAuthenticated, hidden, itemId, itemType]);
 
   async function toggleSaved() {
-    if (busy || disabled || hidden) return;
+    if (busy || disabled || hidden || !betaFeatures.savedLibraryEnabled) return;
     if (!auth.isAuthenticated) {
       router.push('/auth');
       return;
@@ -87,7 +88,7 @@ export function SavedToggleButton({
     }
   }
 
-  if (hidden) return null;
+  if (hidden || !betaFeatures.savedLibraryEnabled) return null;
 
   const isSaved = Boolean(savedItemId);
   const label = busy ? t('common.states.saving') : isSaved ? t('common.states.saved') : t('common.actions.save');

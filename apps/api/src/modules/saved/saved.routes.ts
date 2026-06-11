@@ -11,9 +11,11 @@ import {
   savedItemStatusQuerySchema,
   updateSavedCollectionRequestSchema,
 } from '@hellowhen/contracts';
+import { env } from '../../config/env.js';
 import { asyncRoute } from '../../lib/asyncRoute.js';
 import { prisma } from '../../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+import { requireSavedCollectionsEnabled, requireSavedLibraryEnabled } from '../../middleware/featureGates.js';
 import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
 import { publicUserPreviewSelect } from '../users/publicUser.js';
 import { usersHaveBlockBetween } from '../users/userBlocks.js';
@@ -21,6 +23,7 @@ import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
 
 export const savedRoutes = Router();
 savedRoutes.use(requireAuth);
+savedRoutes.use(requireSavedLibraryEnabled());
 
 function isUniqueConstraintError(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
@@ -311,7 +314,7 @@ savedRoutes.get('/status', asyncRoute(async (req, res) => {
   });
 }));
 
-savedRoutes.get('/collections', asyncRoute(async (req, res) => {
+savedRoutes.get('/collections', requireSavedCollectionsEnabled(), asyncRoute(async (req, res) => {
   const [collections, blockedUserIds] = await Promise.all([
     prisma.savedCollection.findMany({
       where: { ownerId: req.user!.id },
@@ -323,7 +326,7 @@ savedRoutes.get('/collections', asyncRoute(async (req, res) => {
   res.json({ collections: collections.map((collection: any) => toSavedCollectionDto(collection, blockedUserIds)) });
 }));
 
-savedRoutes.post('/collections', requireActiveAccount, asyncRoute(async (req, res) => {
+savedRoutes.post('/collections', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createSavedCollectionRequestSchema.parse(req.body);
   if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
   try {
@@ -343,7 +346,7 @@ savedRoutes.post('/collections', requireActiveAccount, asyncRoute(async (req, re
   }
 }));
 
-savedRoutes.patch('/collections/:collectionId', requireActiveAccount, asyncRoute(async (req, res) => {
+savedRoutes.patch('/collections/:collectionId', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateSavedCollectionRequestSchema.parse(req.body);
   const { collectionId } = req.params;
   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
@@ -370,7 +373,7 @@ savedRoutes.patch('/collections/:collectionId', requireActiveAccount, asyncRoute
   }
 }));
 
-savedRoutes.delete('/collections/:collectionId', requireActiveAccount, asyncRoute(async (req, res) => {
+savedRoutes.delete('/collections/:collectionId', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
   const { collectionId } = req.params;
   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
 
@@ -380,7 +383,7 @@ savedRoutes.delete('/collections/:collectionId', requireActiveAccount, asyncRout
   res.status(204).send();
 }));
 
-savedRoutes.post('/collections/:collectionId/items', requireActiveAccount, asyncRoute(async (req, res) => {
+savedRoutes.post('/collections/:collectionId/items', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
   const input = addSavedCollectionItemRequestSchema.parse(req.body);
   const { collectionId } = req.params;
   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
@@ -403,7 +406,7 @@ savedRoutes.post('/collections/:collectionId/items', requireActiveAccount, async
   res.status(201).json({ item: toSavedCollectionItemDto(item) });
 }));
 
-savedRoutes.delete('/collections/:collectionId/items/:savedItemId', requireActiveAccount, asyncRoute(async (req, res) => {
+savedRoutes.delete('/collections/:collectionId/items/:savedItemId', requireSavedCollectionsEnabled(), requireActiveAccount, asyncRoute(async (req, res) => {
   const { collectionId, savedItemId } = req.params;
   if (!collectionId) return res.status(400).json({ error: 'missing_collection_id' });
   if (!savedItemId) return res.status(400).json({ error: 'missing_saved_item_id' });
@@ -455,6 +458,7 @@ savedRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   if (!targetIsSavable) return res.status(404).json({ error: 'saved_target_not_found' });
 
   if (input.collectionId) {
+    if (!env.savedCollectionsEnabled) return res.status(404).json({ error: 'saved_collections_disabled' });
     const collection = await loadOwnedCollection(input.collectionId, req.user!.id, false);
     if (!collection) return res.status(404).json({ error: 'collection_not_found' });
     if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
@@ -488,7 +492,10 @@ savedRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
 }));
 
 savedRoutes.delete('/:savedItemId', requireActiveAccount, asyncRoute(async (req, res) => {
-  const existing = await prisma.savedItem.findFirst({ where: { id: req.params.savedItemId, ownerId: req.user!.id }, select: { id: true } });
+  const { savedItemId } = req.params;
+  if (!savedItemId) return res.status(400).json({ error: 'missing_saved_item_id' });
+
+  const existing = await prisma.savedItem.findFirst({ where: { id: savedItemId, ownerId: req.user!.id }, select: { id: true } });
   if (!existing) return res.status(404).json({ error: 'not_found' });
   await prisma.savedItem.delete({ where: { id: existing.id } });
   res.status(204).send();

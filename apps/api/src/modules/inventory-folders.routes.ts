@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { InventoryFolderItemType, Prisma } from '@prisma/client';
+import { evaluatePlusGate } from '@hellowhen/shared';
 import {
   addInventoryFolderItemRequestSchema,
   createInventoryFolderRequestSchema,
@@ -9,9 +10,12 @@ import {
 import { asyncRoute } from '../lib/asyncRoute.js';
 import { prisma } from '../lib/prisma.js';
 import { requireActiveAccount, requireAuth } from '../middleware/auth.js';
+import { requireInventoryFoldersEnabled } from '../middleware/featureGates.js';
+import { plusConfigSnapshot } from './subscriptions/plus.routes.js';
 
 export const inventoryFoldersRoutes = Router();
 inventoryFoldersRoutes.use(requireAuth);
+inventoryFoldersRoutes.use(requireInventoryFoldersEnabled());
 
 function isUniqueConstraintError(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
@@ -63,6 +67,26 @@ function duplicateFolderPayload() {
   };
 }
 
+
+async function requireInventoryFoldersPlus(ownerId: string, res: any) {
+  const user = await prisma.user.findUnique({
+    where: { id: ownerId },
+    select: { subscriptionTier: true, subscriptionStatus: true },
+  });
+  const gate = evaluatePlusGate(plusConfigSnapshot(), {
+    subscriptionTier: user?.subscriptionTier ?? 'free',
+    subscriptionStatus: user?.subscriptionStatus ?? 'none',
+  } as any);
+  if (gate.hasPlusAccess) return true;
+  res.status(403).json({
+    error: 'inventory_folders_plus_required',
+    message: 'Need/Offer folders are a Plus feature.',
+    upgradeRequired: true,
+    feature: 'inventory_folders',
+  });
+  return false;
+}
+
 inventoryFoldersRoutes.get('/', asyncRoute(async (req, res) => {
   const input = listInventoryFoldersQuerySchema.parse(req.query);
   const baseQuery = {
@@ -78,6 +102,7 @@ inventoryFoldersRoutes.get('/', asyncRoute(async (req, res) => {
 
 inventoryFoldersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = createInventoryFolderRequestSchema.parse(req.body);
+  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
   try {
     const folder = await prisma.inventoryFolder.create({
       data: {
@@ -97,6 +122,7 @@ inventoryFoldersRoutes.post('/', requireActiveAccount, asyncRoute(async (req, re
 
 inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = updateInventoryFolderRequestSchema.parse(req.body);
+  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
   const { folderId } = req.params;
   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
 
@@ -123,6 +149,7 @@ inventoryFoldersRoutes.patch('/:folderId', requireActiveAccount, asyncRoute(asyn
 inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(async (req, res) => {
   const { folderId } = req.params;
   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
+  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
 
   const existing = await loadOwnedFolder(folderId, req.user!.id, false);
   if (!existing) return res.status(404).json({ error: 'not_found' });
@@ -132,6 +159,7 @@ inventoryFoldersRoutes.delete('/:folderId', requireActiveAccount, asyncRoute(asy
 
 inventoryFoldersRoutes.post('/:folderId/items', requireActiveAccount, asyncRoute(async (req, res) => {
   const input = addInventoryFolderItemRequestSchema.parse(req.body);
+  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
   const { folderId } = req.params;
   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
 
@@ -169,6 +197,7 @@ inventoryFoldersRoutes.delete('/:folderId/items/:itemId', requireActiveAccount, 
   const { folderId, itemId } = req.params;
   if (!folderId) return res.status(400).json({ error: 'missing_folder_id' });
   if (!itemId) return res.status(400).json({ error: 'missing_folder_item_id' });
+  if (!(await requireInventoryFoldersPlus(req.user!.id, res))) return;
 
   const existing = await prisma.inventoryFolderItem.findFirst({
     where: {

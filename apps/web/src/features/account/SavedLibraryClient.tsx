@@ -151,11 +151,11 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
           take: 50,
           sort,
           ...(filter !== 'all' ? { itemType: filter } : {}),
-          ...(selectedCollectionId ? { collectionId: selectedCollectionId } : {}),
+          ...(selectedCollectionId && betaFeatures.savedCollectionsEnabled ? { collectionId: selectedCollectionId } : {}),
           ...(query ? { q: query } : {}),
           ...(cursor ? { cursor } : {}),
         }),
-        api.saved.collections(),
+        betaFeatures.savedCollectionsEnabled ? api.saved.collections() : Promise.resolve({ collections: [] }),
       ]);
       setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
       setNextCursor(savedResponse.nextCursor ?? null);
@@ -194,6 +194,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   }
 
   function openCreateCollection() {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setMessage(null);
     setError(null);
     setCollectionTitleError(null);
@@ -203,6 +204,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   }
 
   function openEditCollection(collection: SavedCollectionDto) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setMessage(null);
     setError(null);
     setCollectionTitleError(null);
@@ -219,6 +221,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   }
 
   async function saveCollection(event?: FormEvent<HTMLFormElement>) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     event?.preventDefault();
     const title = collectionTitle.trim();
     const description = collectionDescription.trim();
@@ -251,6 +254,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   }
 
   async function deleteCollection(collection: SavedCollectionDto) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     const confirmed = window.confirm(t('account.saved.collections.deleteConfirm', { title: collection.title }));
     if (!confirmed) return;
 
@@ -289,6 +293,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   }
 
   async function addItemToCollection(collection: SavedCollectionDto, item: SavedItemDto) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setCollectionBusyId(`item-${collection.id}-${item.id}`);
     setError(null);
     try {
@@ -303,6 +308,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   }
 
   async function removeItemFromCollection(collection: SavedCollectionDto, item: SavedItemDto) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setCollectionBusyId(`item-${collection.id}-${item.id}`);
     setError(null);
     try {
@@ -338,6 +344,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
   const hasCollections = collections.length > 0;
   const searchActive = Boolean(query);
   const plusPublic = betaFeatures.plusSubscriptionFeatures.plusPublic;
+  const collectionsEnabled = betaFeatures.savedCollectionsEnabled;
   const collectionEditorTitle = collectionEditorMode === 'edit' ? t('account.saved.collections.editTitle') : t('account.saved.collections.createTitle');
 
   return (
@@ -368,7 +375,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
             <strong>{t('account.saved.collections.title')}</strong>
             <span>{t('account.saved.collections.manageBody')}</span>
           </div>
-          <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
+          {collectionsEnabled ? <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button> : null}
         </div>
 
         <form className="saved-library-search-form" onSubmit={submitSearch} role="search">
@@ -412,7 +419,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
           ))}
         </div>
 
-        <div className="saved-library-collections-strip" aria-label={t('account.saved.collectionsLabel')}>
+        {collectionsEnabled ? <div className="saved-library-collections-strip" aria-label={t('account.saved.collectionsLabel')}>
           <button
             type="button"
             className={!selectedCollectionId ? 'is-active' : ''}
@@ -433,10 +440,10 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
               <strong>{collectionItemCount(collection)}</strong>
             </button>
           ))}
-        </div>
+        </div> : null}
       </section>
 
-      {collectionEditorMode ? (
+      {collectionsEnabled && collectionEditorMode ? (
         <form className="saved-library-collection-editor" onSubmit={(event) => { void saveCollection(event); }}>
           <div className="saved-library-collection-editor__header">
             <span className="semantic-badge instruction">{t('account.saved.collections.collection')}</span>
@@ -462,7 +469,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
       {message ? <p className="form-success">{message}</p> : null}
       {error ? <p className="form-error">{error}</p> : null}
 
-      {!selectedCollection && hasCollections ? (
+      {collectionsEnabled && !selectedCollection && hasCollections ? (
         <section className="saved-library-collection-overview">
           <div className="saved-library-collection-overview__header">
             <div>
@@ -470,7 +477,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
               <h3>{t('account.saved.collections.overviewTitle')}</h3>
               <p>{t('account.saved.collections.overviewBody')}</p>
             </div>
-            <button type="button" className="ghost-button" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
+            {collectionsEnabled ? <button type="button" className="ghost-button" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button> : null}
           </div>
           <div className="saved-library-collection-grid">
             {collections.slice(0, 6).map((collection) => (
@@ -484,7 +491,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
         </section>
       ) : null}
 
-      {selectedCollection ? (
+      {collectionsEnabled && selectedCollection ? (
         <section className="saved-library-selected-collection">
           <span className="semantic-badge instruction">{t('account.saved.collections.collection')}</span>
           <div>
@@ -500,7 +507,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
         </section>
       ) : null}
 
-      {managingItem ? (
+      {collectionsEnabled && managingItem ? (
         <section className="saved-library-item-collections-manager">
           <div className="saved-library-item-collections-manager__header">
             <div>
@@ -510,7 +517,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
             </div>
             <button type="button" className="ghost-button" onClick={() => setManagingItem(null)}>{t('common.actions.close')}</button>
           </div>
-          {!hasCollections ? (
+          {collectionsEnabled && !hasCollections ? (
             <p>{t('account.saved.collections.createFirst')}</p>
           ) : (
             <div className="saved-library-collection-membership-list">
@@ -573,7 +580,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
                 </div>
                 <div className="saved-library-card__actions">
                   {href ? <Link href={href} className="button secondary">{t('common.actions.open')}</Link> : <span className="saved-library-unavailable-chip">{t('account.saved.unavailable.badge')}</span>}
-                  <button className="button secondary" type="button" onClick={() => setManagingItem(item)}>{t('account.saved.collections.manage')}</button>
+                  {collectionsEnabled ? <button className="button secondary" type="button" onClick={() => setManagingItem(item)}>{t('account.saved.collections.manage')}</button> : null}
                   <button className="ghost-button" type="button" disabled={updatingId === item.id} onClick={() => { void removeSavedItem(item.id); }}>
                     {updatingId === item.id ? t('common.states.working') : t('common.actions.remove')}
                   </button>
@@ -590,12 +597,12 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
         </button>
       ) : null}
 
-      {!hasCollections ? (
+      {collectionsEnabled && !hasCollections ? (
         <section className="mobile-card mobile-card--soft saved-library-collections-preview">
           <span className="semantic-badge instruction">{t('account.saved.collections.title')}</span>
           <h3>{t('account.saved.collections.emptyTitle')}</h3>
           <p>{t('account.saved.collections.emptyBody')}</p>
-          <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
+          {collectionsEnabled ? <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button> : null}
         </section>
       ) : null}
     </div>

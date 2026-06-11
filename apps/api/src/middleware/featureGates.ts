@@ -105,3 +105,25 @@ export function requireProAccountsVisible(surface = 'Professional accounts'): Re
   }
   return (_req, _res, next) => next();
 }
+
+
+export function requireSavedLibraryEnabled(surface = 'Saved Library'): RequestHandler {
+  if (!env.plusEnabled || !env.savedLibraryEnabled) {
+    return disabledSurface('saved_library_disabled', `${surface} is disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireSavedCollectionsEnabled(surface = 'Saved collections'): RequestHandler {
+  if (!env.plusEnabled || !env.savedLibraryEnabled || !env.savedCollectionsEnabled) {
+    return disabledSurface('saved_collections_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}
+
+export function requireInventoryFoldersEnabled(surface = 'Inventory folders'): RequestHandler {
+  if (!env.plusEnabled || !env.inventoryFoldersEnabled) {
+    return disabledSurface('inventory_folders_disabled', `${surface} are disabled for this launch.`);
+  }
+  return (_req, _res, next) => next();
+}

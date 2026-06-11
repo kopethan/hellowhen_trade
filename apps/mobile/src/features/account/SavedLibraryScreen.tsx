@@ -139,11 +139,11 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
           take: 50,
           sort,
           ...(filter !== 'all' ? { itemType: filter } : {}),
-          ...(selectedCollectionId ? { collectionId: selectedCollectionId } : {}),
+          ...(selectedCollectionId && betaFeatures.savedCollectionsEnabled ? { collectionId: selectedCollectionId } : {}),
           ...(query ? { q: query } : {}),
           ...(cursor ? { cursor } : {}),
         }),
-        api.saved.collections(),
+        betaFeatures.savedCollectionsEnabled ? api.saved.collections() : Promise.resolve({ collections: [] }),
       ]);
       setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
       setNextCursor(savedResponse.nextCursor ?? null);
@@ -181,6 +181,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   function openCreateCollection() {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setMessage(null);
     setError(null);
     setCollectionTitleError(null);
@@ -190,6 +191,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   function openEditCollection() {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     if (!selectedCollection) return;
     setMessage(null);
     setError(null);
@@ -200,6 +202,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   async function saveCollection() {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     const title = collectionTitle.trim();
     const description = collectionDescription.trim();
     if (!title) {
@@ -231,6 +234,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   async function deleteSelectedCollection() {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     if (!selectedCollection) return;
     const title = selectedCollection.title;
     setBusyAction('collection-delete');
@@ -269,6 +273,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   async function addItemToCollection(collection: SavedCollectionDto, item: SavedItemDto) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setBusyAction(`collection-item-${collection.id}-${item.id}`);
     setError(null);
     try {
@@ -284,6 +289,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   }
 
   async function removeItemFromCollection(collection: SavedCollectionDto, item: SavedItemDto) {
+    if (!betaFeatures.savedCollectionsEnabled) return;
     setBusyAction(`collection-item-${collection.id}-${item.id}`);
     setError(null);
     try {
@@ -306,6 +312,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
       if (initialCollectionId) navigation.navigate('SavedLibrary');
       return;
     }
+    if (!betaFeatures.savedCollectionsEnabled) return;
     if (initialCollectionId) {
       setSelectedCollectionId(collection.id);
       return;
@@ -336,7 +343,18 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
   const hasCollections = collections.length > 0;
   const searchActive = Boolean(query);
   const plusPublic = betaFeatures.plusSubscriptionFeatures.plusPublic;
+  const collectionsEnabled = betaFeatures.savedCollectionsEnabled;
   const headerTitle = selectedCollection?.title ?? initialTitle ?? t('account.saved.title');
+
+  if (!betaFeatures.savedLibraryEnabled) {
+    return (
+      <AppFixedHeaderScreen header={<AppHeader title={t('account.saved.title')} onBack={() => navigation.goBack()} />}>
+        <View style={styles.content}>
+          <DetailEmptyState icon="save" title={t('account.saved.title')} body={t('account.saved.plus.comingSoonBody', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })} />
+        </View>
+      </AppFixedHeaderScreen>
+    );
+  }
 
   return (
     <AppFixedHeaderScreen header={<AppHeader title={headerTitle} onBack={() => navigation.goBack()} /> }>
@@ -402,16 +420,16 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
           </View>
         </View>
 
-        <View style={[styles.collectionToolbar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+        {collectionsEnabled ? <View style={[styles.collectionToolbar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
           <View style={styles.collectionToolbarCopy}>
             <AppText style={styles.collectionToolbarTitle}>{t('account.saved.collections.title')}</AppText>
             <AppText style={[styles.collectionToolbarBody, { color: theme.color.muted }]}>{t('account.saved.collections.manageBody')}</AppText>
           </View>
           <Pressable accessibilityRole="button" onPress={openCreateCollection} style={({ pressed }) => [styles.collectionCreateButton, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, pressed && styles.pressed]}>
-            <MobileIcon name="add" size={17} color={theme.semantic.proposal.text} />
-            <AppText style={[styles.collectionCreateText, { color: theme.semantic.proposal.text }]}>{t('account.saved.collections.create')}</AppText>
-          </Pressable>
-        </View>
+              <MobileIcon name="add" size={17} color={theme.semantic.proposal.text} />
+              <AppText style={[styles.collectionCreateText, { color: theme.semantic.proposal.text }]}>{t('account.saved.collections.create')}</AppText>
+            </Pressable>
+        </View> : null}
 
         <View style={styles.filterWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
@@ -425,7 +443,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
             ))}
           </ScrollView>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
+          {collectionsEnabled ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
             <CollectionChip label={t('account.saved.collections.allSaved')} active={!selectedCollectionId} onPress={() => openCollection(null)} />
             {collections.map((collection) => (
               <CollectionChip
@@ -436,13 +454,13 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
                 onPress={() => openCollection(collection)}
               />
             ))}
-          </ScrollView>
+          </ScrollView> : null}
         </View>
 
         {message ? <InfoNotice tone="success" title={t('common.states.saved')} body={message} /> : null}
         {error && hasItems ? <InfoNotice tone="danger" title={t('account.saved.loadError')} body={error} /> : null}
 
-        {!selectedCollection && hasCollections ? (
+        {collectionsEnabled && !selectedCollection && hasCollections ? (
           <View style={[styles.collectionOverview, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
             <View style={styles.collectionOverviewHeader}>
               <View style={styles.collectionOverviewCopy}>
@@ -466,7 +484,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
           </View>
         ) : null}
 
-        {selectedCollection ? (
+        {collectionsEnabled && selectedCollection ? (
           <View style={[styles.collectionCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
             <SemanticBadge label={t('account.saved.collections.collection')} tone="instruction" size="sm" />
             <View style={styles.collectionCopy}>
@@ -511,7 +529,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
                 body={itemBody(item, t)}
                 targetId={itemTargetId(item)}
                 updating={updatingId === item.id}
-                onManageCollections={() => setManagingItem(item)}
+                onManageCollections={collectionsEnabled ? () => setManagingItem(item) : undefined}
                 onOpen={() => openItem(item)}
                 onRemove={() => { void removeSavedItem(item.id); }}
               />
@@ -525,7 +543,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
           </Pressable>
         ) : null}
 
-        {!hasCollections ? (
+        {collectionsEnabled && !hasCollections ? (
           <View style={[styles.collectionsPreview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
             <SemanticBadge label={t('account.saved.collections.title')} tone="instruction" />
             <AppText style={styles.collectionTitle}>{t('account.saved.collections.emptyTitle')}</AppText>
@@ -547,7 +565,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
         onSave={() => { void saveCollection(); }}
         title={collectionTitle}
         titleError={collectionTitleError}
-        visible={Boolean(editorMode)}
+        visible={collectionsEnabled && Boolean(editorMode)}
         mode={editorMode ?? 'create'}
       />
 
@@ -558,11 +576,11 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
         onAdd={(collection, item) => addItemToCollection(collection, item)}
         onClose={() => setManagingItem(null)}
         onRemove={(collection, item) => removeItemFromCollection(collection, item)}
-        visible={Boolean(managingItem)}
+        visible={collectionsEnabled && Boolean(managingItem)}
       />
 
       <AppConfirmSheet
-        visible={deleteConfirmVisible}
+        visible={collectionsEnabled && deleteConfirmVisible}
         title={t('account.saved.collections.deleteTitle')}
         body={selectedCollection ? t('account.saved.collections.deleteConfirm', { title: selectedCollection.title }) : undefined}
         cancelLabel={t('common.actions.cancel')}
@@ -599,7 +617,7 @@ function CollectionChip({ label, count, active, onPress }: { label: string; coun
   );
 }
 
-function SavedItemCard({ item, title, body, targetId, updating, onManageCollections, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onManageCollections: () => void; onOpen: () => void; onRemove: () => void }) {
+function SavedItemCard({ item, title, body, targetId, updating, onManageCollections, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onManageCollections?: () => void; onOpen: () => void; onRemove: () => void }) {
   const theme = useThemeTokens();
   const { t } = useTranslation();
   const canOpen = Boolean(targetId);
@@ -634,9 +652,11 @@ function SavedItemCard({ item, title, body, targetId, updating, onManageCollecti
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.open')} disabled={!canOpen} onPress={onOpen} style={({ pressed }) => [styles.itemPrimaryAction, { backgroundColor: canOpen ? theme.color.text : theme.color.border }, pressed && canOpen && styles.pressed]}>
           <AppText style={[styles.itemPrimaryActionText, { color: theme.color.background }]}>{t('common.actions.open')}</AppText>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.collections.manage')} onPress={onManageCollections} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, pressed && styles.pressed]}>
-          <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('account.saved.collections.manage')}</AppText>
-        </Pressable>
+        {onManageCollections ? (
+          <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.collections.manage')} onPress={onManageCollections} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, pressed && styles.pressed]}>
+            <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('account.saved.collections.manage')}</AppText>
+          </Pressable>
+        ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} disabled={updating} onPress={onRemove} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, (pressed || updating) && styles.pressed]}>
           {updating ? <ActivityIndicator color={theme.color.text} /> : <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('common.actions.remove')}</AppText>}
         </Pressable>

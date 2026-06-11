@@ -156,6 +156,9 @@ export const env = {
   plusAiAssistEnabled: enabled(process.env.AI_ASSIST_ENABLED),
   plusCustomizationEnabled: enabled(process.env.PLUS_CUSTOMIZATION_ENABLED),
   plusAdminGrantsEnabled: enabled(process.env.PLUS_ADMIN_GRANTS_ENABLED),
+  savedLibraryEnabled: enabled(process.env.SAVED_LIBRARY_ENABLED),
+  savedCollectionsEnabled: enabled(process.env.SAVED_COLLECTIONS_ENABLED),
+  inventoryFoldersEnabled: enabled(process.env.INVENTORY_FOLDERS_ENABLED),
   plusMonthlyPriceCents: Number(process.env.PLUS_MONTHLY_PRICE_CENTS ?? 499),
   plusMonthlyPriceCurrency: (process.env.PLUS_MONTHLY_PRICE_CURRENCY ?? 'eur').toLowerCase(),
   plusYearlyPriceCents: Number(process.env.PLUS_YEARLY_PRICE_CENTS ?? 3999),
@@ -372,6 +375,9 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || env.plusAiAssistEnabled
     || env.plusCustomizationEnabled
     || env.plusAdminGrantsEnabled
+    || env.savedLibraryEnabled
+    || env.savedCollectionsEnabled
+    || env.inventoryFoldersEnabled
     || env.proAccountsEnabled
     || env.proAccountsVisible
     || env.proTrialsEnabled
@@ -382,6 +388,9 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || publicFlagEnabled('NEXT_PUBLIC_PLUS_PUBLIC')
     || publicFlagEnabled('NEXT_PUBLIC_AI_ASSIST_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_SAVED_LIBRARY_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_SAVED_COLLECTIONS_ENABLED')
+    || publicFlagEnabled('NEXT_PUBLIC_INVENTORY_FOLDERS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_ENABLED')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('NEXT_PUBLIC_PRO_TRIALS_ENABLED')
@@ -391,6 +400,9 @@ function pushFirstLaunchGuardErrors(errors: string[]) {
     || publicFlagEnabled('EXPO_PUBLIC_PLUS_PUBLIC')
     || publicFlagEnabled('EXPO_PUBLIC_AI_ASSIST_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PLUS_CUSTOMIZATION_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_SAVED_LIBRARY_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED')
+    || publicFlagEnabled('EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_ACCOUNTS_VISIBLE')
     || publicFlagEnabled('EXPO_PUBLIC_PRO_TRIALS_ENABLED')

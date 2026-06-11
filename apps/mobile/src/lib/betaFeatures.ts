@@ -39,6 +39,9 @@ const plusSubscriptionFeatures = {
   freeMonthlyAiAssistQuota: Number(process.env.EXPO_PUBLIC_FREE_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.freeMonthlyAiAssistQuota),
   plusMonthlyAiAssistQuota: Number(process.env.EXPO_PUBLIC_PLUS_MONTHLY_AI_ASSIST_QUOTA ?? PLUS_SUBSCRIPTION_FEATURE_DEFAULTS.plusMonthlyAiAssistQuota),
 } as const;
+const savedLibraryEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_SAVED_LIBRARY_ENABLED);
+const savedCollectionsEnabled = savedLibraryEnabled && enabled(process.env.EXPO_PUBLIC_SAVED_COLLECTIONS_ENABLED);
+const inventoryFoldersEnabled = plusEnabled && enabled(process.env.EXPO_PUBLIC_INVENTORY_FOLDERS_ENABLED);
 const proAccountsEnabled = subscriptionsEnabled && enabled(process.env.EXPO_PUBLIC_PRO_ACCOUNTS_ENABLED);
 const proSubscriptionFeatures = {
   ...PRO_SUBSCRIPTION_FEATURE_DEFAULTS,
@@ -79,6 +82,9 @@ export const betaFeatures = {
   businessSponsoredContentEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_SPONSORED_CONTENT_ENABLED),
   businessCampaignsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_CAMPAIGNS_ENABLED),
   businessBudgetsEnabled: businessAccountsEnabled && enabled(process.env.EXPO_PUBLIC_BUSINESS_BUDGETS_ENABLED),
+  savedLibraryEnabled,
+  savedCollectionsEnabled,
+  inventoryFoldersEnabled,
   plusSubscriptionFeatures,
   proSubscriptionFeatures,
   proTradePackageFeatures,

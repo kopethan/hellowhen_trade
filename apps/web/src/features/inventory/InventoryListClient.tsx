@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { InventoryEmptyState } from '../../components/InventoryEmptyState';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
+import { betaFeatures } from '../../lib/betaFeatures';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
@@ -252,6 +253,14 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
   const loadInventoryFolders = useCallback(async () => {
     if (!auth.hydrated) return;
 
+    if (!betaFeatures.inventoryFoldersEnabled) {
+      setFolders([]);
+      setSelectedFolderId('all');
+      setFoldersError('');
+      setFoldersLoading(false);
+      return;
+    }
+
     if (!auth.isAuthenticated) {
       setFolders([]);
       setSelectedFolderId('all');
@@ -286,6 +295,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
     let mounted = true;
     async function loadInventory() {
       if (!auth.hydrated) return;
+
       setLoading(true);
 
       if (!auth.isAuthenticated) {
@@ -533,7 +543,7 @@ export function InventoryListClient({ kind }: InventoryListClientProps) {
         </div>
       ) : null}
 
-      {!isStarterTab && auth.isAuthenticated ? (
+      {!isStarterTab && auth.isAuthenticated && betaFeatures.inventoryFoldersEnabled ? (
         <section className="inventory-folders-panel" aria-label={t('inventory.labels.myFolders')}>
           <div className="inventory-folders-panel__header">
             <div>
