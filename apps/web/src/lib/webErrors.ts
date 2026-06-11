@@ -44,8 +44,8 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
   if (apiError.body?.error === 'plans_disabled') return 'Plans are disabled by the API flag. Set PLANS_ENABLED=true in the root .env file and restart the API dev server.';
   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
-  if (apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Free accounts can keep up to 10 saved items. Upgrade to Plus for unlimited saved items and custom collections.';
-  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Custom saved collections are a Plus feature.';
+  if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.';
+  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are a Plus feature.';
   if (apiError.body?.error === 'not_found') return 'That item could not be found.';
   if (apiError.body?.message) return apiError.body.message;
   if (apiError.status === 401) return 'Please log in again to continue.';

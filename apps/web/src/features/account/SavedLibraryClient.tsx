@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { SAVED_LIBRARY_FREE_ITEM_LIMIT, type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
+import { type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -364,7 +364,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
         <span className="semantic-badge success">{t('account.saved.plus.badge')}</span>
         <div>
           <h3>{t('account.saved.plus.title')}</h3>
-          <p>{t('account.saved.plus.body', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })}</p>
+          <p>{t('account.saved.plus.body')}</p>
         </div>
         {plusPublic ? <Link href="/account/plans" className="button secondary">{t('account.saved.plus.action')}</Link> : <span className="saved-library-plus-card__note">{t('account.saved.plus.comingSoon')}</span>}
       </section>

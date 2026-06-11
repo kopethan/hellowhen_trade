@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import { SAVED_LIBRARY_FREE_ITEM_LIMIT, type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
+import { type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppCard } from '../../components/AppCard';
@@ -350,7 +350,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
     return (
       <AppFixedHeaderScreen header={<AppHeader title={t('account.saved.title')} onBack={() => navigation.goBack()} />}>
         <View style={styles.content}>
-          <DetailEmptyState icon="save" title={t('account.saved.title')} body={t('account.saved.plus.comingSoonBody', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })} />
+          <DetailEmptyState icon="save" title={t('account.saved.title')} body={t('account.saved.plus.comingSoonBody')} />
         </View>
       </AppFixedHeaderScreen>
     );
@@ -381,7 +381,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: 
         <InfoNotice
           tone="success"
           title={t('account.saved.plus.title')}
-          body={plusPublic ? t('account.saved.plus.body', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT }) : t('account.saved.plus.comingSoonBody', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })}
+          body={plusPublic ? t('account.saved.plus.body') : t('account.saved.plus.comingSoonBody')}
         />
 
         <View style={[styles.searchPanel, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>

@@ -273,7 +273,7 @@ async function requireSavedCollectionsPlus(ownerId: string, res: any) {
   if (gate.hasPlusAccess) return true;
   res.status(403).json({
     error: 'saved_collections_plus_required',
-    message: 'Custom saved collections are a Plus feature. You can still keep up to 10 saved items in your default saved list.',
+    message: 'Saved collections are a Plus feature. Upgrade to Plus to save items and organize them into private collections.',
     upgradeRequired: true,
     feature: 'saved_collections',
     freeLimit: SAVED_LIBRARY_FREE_COLLECTION_LIMIT,
@@ -281,14 +281,13 @@ async function requireSavedCollectionsPlus(ownerId: string, res: any) {
   return false;
 }
 
-async function enforceSavedItemFreeLimit(ownerId: string, res: any) {
+async function requireSavedLibraryPlus(ownerId: string, res: any) {
   const gate = await getSavedLibraryGate(ownerId);
   if (gate.hasPlusAccess) return true;
   const savedCount = await prisma.savedItem.count({ where: { ownerId } });
-  if (savedCount < SAVED_LIBRARY_FREE_ITEM_LIMIT) return true;
   res.status(403).json({
-    error: 'saved_library_limit_reached',
-    message: `Free accounts can keep up to ${SAVED_LIBRARY_FREE_ITEM_LIMIT} saved items. Upgrade to Plus for unlimited saved items and custom collections.`,
+    error: 'saved_library_plus_required',
+    message: 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.',
     upgradeRequired: true,
     feature: 'saved_library',
     freeLimit: SAVED_LIBRARY_FREE_ITEM_LIMIT,
@@ -468,7 +467,7 @@ savedRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
   let created = false;
 
   if (!item) {
-    if (!(await enforceSavedItemFreeLimit(req.user!.id, res))) return;
+    if (!(await requireSavedLibraryPlus(req.user!.id, res))) return;
     try {
       item = await prisma.savedItem.create({
         data: savedItemCreateData(req.user!.id, input.itemType, input.itemId),

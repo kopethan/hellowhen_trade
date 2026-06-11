@@ -3,7 +3,7 @@ import { needSchema, offerSchema, tradeSchema, userPreviewSchema } from './trade
 
 export const SAVED_COLLECTION_TITLE_MAX_LENGTH = 80;
 export const SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH = 240;
-export const SAVED_LIBRARY_FREE_ITEM_LIMIT = 10;
+export const SAVED_LIBRARY_FREE_ITEM_LIMIT = 0;
 export const SAVED_LIBRARY_FREE_COLLECTION_LIMIT = 0;
 
 export const savedItemTypeSchema = z.enum(['trade', 'need', 'offer', 'user']);
