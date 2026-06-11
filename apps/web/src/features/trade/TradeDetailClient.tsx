@@ -7,6 +7,7 @@ import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { ReportContentButton } from '../../components/ReportContentButton';
+import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { buildPublicTradeUrl, copyTextToClipboard } from '../../lib/publicUrls';
@@ -336,10 +337,19 @@ export function TradeDetailClient({ tradeId, initialTrade }: { tradeId: string; 
           <span aria-hidden="true">←</span>
           <span>{t('trade.labels.trade')}</span>
         </Link>
-        <button type="button" className="trade-detail-icon-button" onClick={() => void shareTrade()} disabled={shareLoading} aria-label={t('trade.detail.shareTrade')}>
-          <WebIcon name="share" size={17} decorative />
-          <span>{shareLoading ? t('trade.detail.sharing') : t('trade.detail.shareTrade')}</span>
-        </button>
+        <div className="trade-detail-toolbar-actions">
+          <SavedToggleButton
+            itemType="trade"
+            itemId={currentTrade.id}
+            className="trade-detail-icon-button"
+            showLabel={false}
+            hidden={isOwner}
+          />
+          <button type="button" className="trade-detail-icon-button" onClick={() => void shareTrade()} disabled={shareLoading} aria-label={t('trade.detail.shareTrade')}>
+            <WebIcon name="share" size={17} decorative />
+            <span>{shareLoading ? t('trade.detail.sharing') : t('trade.detail.shareTrade')}</span>
+          </button>
+        </div>
       </header>
 
       <section className="trade-hero-section trade-detail-hero">

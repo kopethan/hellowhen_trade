@@ -10,6 +10,7 @@ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen
 import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
 import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
 import { NotificationsScreen } from '../features/account/NotificationsScreen';
+import { SavedCollectionDetailScreen, SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
 import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
 import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
 import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
@@ -59,6 +60,8 @@ export type RootStackParamList = {
   TradeTabs: undefined;
   AccountProfile: undefined;
   Notifications: undefined;
+  SavedLibrary: undefined;
+  SavedLibraryCollection: { collectionId: string; title?: string };
   ProPlans: undefined;
   Wallet: undefined;
   Payouts: undefined;
@@ -136,6 +139,8 @@ const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers
 const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access your profile, settings, support, and account tools.');
 const ProtectedProfileScreen = withAuth(ProfileScreen);
 const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
+const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
+const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
 const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
 const ProtectedWalletScreen = withAuth(WalletScreen);
 const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
@@ -231,6 +236,8 @@ export function RootNavigator() {
       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
+      <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
+      <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}

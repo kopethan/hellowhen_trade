@@ -1,0 +1,464 @@
+diff --git a/apps/mobile/src/features/account/AccountScreen.tsx b/apps/mobile/src/features/account/AccountScreen.tsx
+index a019d9a..ec7275a 100644
+--- a/apps/mobile/src/features/account/AccountScreen.tsx
++++ b/apps/mobile/src/features/account/AccountScreen.tsx
+@@ -20,7 +20,7 @@ import { DetailInfoList, DetailSection } from '../../components/detail';
+ import { resolveMediaUrl } from '../trade/mediaUrls';
+ 
+ type WalletResponse = { wallet: (WalletDto & { entries?: LedgerEntryDto[] }) | null };
+-type AccountRoute = 'AccountProfile' | 'Notifications' | 'OnboardingGuide' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
++type AccountRoute = 'AccountProfile' | 'Notifications' | 'SavedLibrary' | 'OnboardingGuide' | 'ProPlans' | 'BusinessAccounts' | 'Wallet' | 'Payouts' | 'Settings' | 'LegalPolicy' | 'SupportCenter' | 'AccountDeletion' | 'BuyCredits';
+ type AccountGroupKey = 'activity' | 'settings' | 'future';
+ 
+ type AccountAction = {
+@@ -36,6 +36,7 @@ type AccountAction = {
+ const accountActions: AccountAction[] = [
+   { titleKey: 'account.items.profile.title', descriptionKey: 'account.items.profile.bodyNative', badgeKey: 'account.items.profile.badge', tone: 'info', route: 'AccountProfile', icon: 'profile', group: 'activity' },
+   { titleKey: 'account.items.notifications.title', descriptionKey: 'account.items.notifications.bodyNative', badgeKey: 'account.items.notifications.badge', tone: 'proposal', route: 'Notifications', icon: 'bell', group: 'activity' },
++  { titleKey: 'account.items.saved.title', descriptionKey: 'account.items.saved.bodyNative', badgeKey: 'account.items.saved.badge', tone: 'proposal', route: 'SavedLibrary', icon: 'save', group: 'activity' },
+   { titleKey: 'account.items.guide.title', descriptionKey: 'account.items.guide.bodyNative', badgeKey: 'account.items.guide.badge', tone: 'info', route: 'OnboardingGuide', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.support.title', descriptionKey: 'account.items.support.bodyNative', badgeKey: 'account.items.support.badge', tone: 'success', route: 'SupportCenter', icon: 'help', group: 'activity' },
+   { titleKey: 'account.items.settings.title', descriptionKey: 'account.items.settings.bodyNative', badgeKey: 'account.items.settings.badge', tone: 'instruction', route: 'Settings', icon: 'settings', group: 'settings' },
+@@ -136,6 +137,7 @@ export function AccountScreen() {
+   function navigate(route: AccountRoute) {
+     if (route === 'AccountProfile') navigation.navigate('AccountProfile');
+     else if (route === 'Notifications') navigation.navigate('Notifications');
++    else if (route === 'SavedLibrary') navigation.navigate('SavedLibrary');
+     else if (route === 'OnboardingGuide') navigation.navigate('OnboardingGuide', { replay: true });
+     else if (route === 'ProPlans') navigation.navigate('ProPlans');
+     else if (route === 'BusinessAccounts') navigation.navigate('BusinessAccounts');
+diff --git a/apps/mobile/src/features/account/SavedLibraryScreen.tsx b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+new file mode 100644
+index 0000000..d261986
+--- /dev/null
++++ b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+@@ -0,0 +1,393 @@
++import React, { useCallback, useMemo, useState } from 'react';
++import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { useFocusEffect } from '@react-navigation/native';
++import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { SavedCollectionDto, SavedItemDto, SavedItemType } from '@hellowhen/contracts';
++import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
++import { AppHeader } from '../../components/AppHeader';
++import { AppCard } from '../../components/AppCard';
++import { AppText } from '../../components/AppText';
++import { DetailEmptyState } from '../../components/detail';
++import { MobileIcon } from '../../components/MobileIcon';
++import { InfoNotice, SemanticBadge, toneForKind } from '../../components/SemanticUI';
++import { api } from '../../lib/api';
++import { getFriendlyApiErrorMessage } from '../../lib/errors';
++import type { RootStackParamList } from '../../navigation/RootNavigator';
++import { useTranslation } from '../../providers/MobileI18nProvider';
++import { useThemeTokens } from '../../providers/ThemeProvider';
++
++type Props = NativeStackScreenProps<RootStackParamList, 'SavedLibrary'>;
++type SavedFilter = 'all' | SavedItemType;
++
++type SavedTab = {
++  value: SavedFilter;
++  labelKey: string;
++};
++
++const savedTabs: SavedTab[] = [
++  { value: 'all', labelKey: 'account.saved.filters.all' },
++  { value: 'trade', labelKey: 'account.saved.filters.trades' },
++  { value: 'need', labelKey: 'account.saved.filters.needs' },
++  { value: 'offer', labelKey: 'account.saved.filters.offers' },
++  { value: 'user', labelKey: 'account.saved.filters.people' },
++];
++
++function itemTargetId(item: SavedItemDto) {
++  return item.tradeId ?? item.needId ?? item.offerId ?? item.targetUserId ?? '';
++}
++
++function itemTitle(item: SavedItemDto, t: (key: string) => string) {
++  switch (item.itemType) {
++    case 'trade':
++      return item.trade?.title ?? t('account.saved.unavailable.trade');
++    case 'need':
++      return item.need?.title ?? t('account.saved.unavailable.need');
++    case 'offer':
++      return item.offer?.title ?? t('account.saved.unavailable.offer');
++    case 'user': {
++      const profile = item.targetUser?.profile;
++      return profile?.displayName ?? (profile?.handle ? `@${profile.handle}` : t('account.saved.unavailable.user'));
++    }
++  }
++}
++
++function itemBody(item: SavedItemDto, t: (key: string) => string) {
++  switch (item.itemType) {
++    case 'trade':
++      return item.trade?.description || item.trade?.status || t('account.saved.itemBodies.trade');
++    case 'need':
++      return item.need?.description || t('account.saved.itemBodies.need');
++    case 'offer':
++      return item.offer?.description || t('account.saved.itemBodies.offer');
++    case 'user': {
++      const profile = item.targetUser?.profile;
++      if (profile?.handle) return `@${profile.handle}`;
++      if (profile?.countryCode) return profile.countryCode;
++      return t('account.saved.itemBodies.user');
++    }
++  }
++}
++
++function collectionItemCount(collection: SavedCollectionDto) {
++  return Array.isArray(collection.items) ? collection.items.length : 0;
++}
++
++function formatSavedDate(value: string) {
++  const date = new Date(value);
++  if (Number.isNaN(date.getTime())) return value;
++  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
++}
++
++export function SavedLibraryScreen({ navigation }: Props) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const [filter, setFilter] = useState<SavedFilter>('all');
++  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
++  const [items, setItems] = useState<SavedItemDto[]>([]);
++  const [collections, setCollections] = useState<SavedCollectionDto[]>([]);
++  const [nextCursor, setNextCursor] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [loadingMore, setLoadingMore] = useState(false);
++  const [updatingId, setUpdatingId] = useState<string | null>(null);
++  const [error, setError] = useState<string | null>(null);
++
++  const selectedCollection = useMemo(
++    () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
++    [collections, selectedCollectionId],
++  );
++
++  const load = useCallback(async ({ append = false, cursor }: { append?: boolean; cursor?: string } = {}) => {
++    if (append) setLoadingMore(true); else setLoading(true);
++    setError(null);
++
++    try {
++      const [savedResponse, collectionsResponse] = await Promise.all([
++        api.saved.list({
++          take: 50,
++          ...(filter !== 'all' ? { itemType: filter } : {}),
++          ...(selectedCollectionId ? { collectionId: selectedCollectionId } : {}),
++          ...(cursor ? { cursor } : {}),
++        }),
++        api.saved.collections(),
++      ]);
++      setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
++      setNextCursor(savedResponse.nextCursor ?? null);
++      setCollections(collectionsResponse.collections ?? []);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.loadError')));
++      if (!append) {
++        setItems([]);
++        setNextCursor(null);
++      }
++    } finally {
++      setLoading(false);
++      setLoadingMore(false);
++    }
++  }, [filter, selectedCollectionId, t]);
++
++  useFocusEffect(useCallback(() => { void load(); }, [load]));
++
++  async function removeSavedItem(savedItemId: string) {
++    setUpdatingId(savedItemId);
++    setError(null);
++    try {
++      await api.saved.remove(savedItemId);
++      setItems((current) => current.filter((item) => item.id !== savedItemId));
++      setCollections((current) => current.map((collection) => ({
++        ...collection,
++        items: collection.items?.filter((item) => item.savedItemId !== savedItemId),
++      })));
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.removeError')));
++    } finally {
++      setUpdatingId(null);
++    }
++  }
++
++  function openItem(item: SavedItemDto) {
++    if (item.itemType === 'trade' && item.tradeId) {
++      navigation.navigate('TradeDetail', { tradeId: item.tradeId, title: item.trade?.title, description: item.trade?.description, status: item.trade?.status });
++      return;
++    }
++    if (item.itemType === 'need' && item.needId) {
++      navigation.navigate('NeedDetail', { needId: item.needId, title: item.need?.title });
++      return;
++    }
++    if (item.itemType === 'offer' && item.offerId) {
++      navigation.navigate('OfferDetail', { offerId: item.offerId, title: item.offer?.title });
++      return;
++    }
++    if (item.itemType === 'user' && item.targetUserId) {
++      const profile = item.targetUser?.profile;
++      navigation.navigate('UserProfile', { userId: item.targetUserId, displayName: profile?.displayName ?? profile?.handle ?? undefined });
++    }
++  }
++
++  const hasItems = items.length > 0;
++  const hasCollections = collections.length > 0;
++
++  return (
++    <AppFixedHeaderScreen header={<AppHeader title={t('account.saved.title')} onBack={() => navigation.goBack()} />}>
++      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
++        <View style={styles.header}>
++          <View style={styles.badgeRow}>
++            <SemanticBadge label={t('account.saved.privateBadge')} tone="proposal" />
++            <SemanticBadge label={t('account.saved.collections.title')} tone="instruction" />
++          </View>
++          <AppText style={styles.title}>{t('account.saved.title')}</AppText>
++          <AppText style={[styles.subtitle, { color: theme.color.muted }]}>{t('account.saved.body')}</AppText>
++        </View>
++
++        <AppCard style={[styles.summaryCard, { backgroundColor: theme.color.subtleSurface }]}>
++          <View style={[styles.summaryIcon, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++            <MobileIcon name="save" size={22} color={theme.semantic.proposal.text} />
++          </View>
++          <View style={styles.summaryCopy}>
++            <AppText style={styles.summaryTitle}>{t('account.saved.summaryTitle')}</AppText>
++            <AppText style={[styles.summaryBody, { color: theme.color.muted }]}>{t('account.saved.summaryBody')}</AppText>
++          </View>
++        </AppCard>
++
++        <View style={styles.filterWrap}>
++          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
++            {savedTabs.map((tab) => (
++              <FilterChip
++                key={tab.value}
++                label={t(tab.labelKey)}
++                active={filter === tab.value}
++                onPress={() => { setFilter(tab.value); setNextCursor(null); }}
++              />
++            ))}
++          </ScrollView>
++
++          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
++            <CollectionChip label={t('account.saved.collections.allSaved')} active={!selectedCollectionId} onPress={() => { setSelectedCollectionId(null); setNextCursor(null); }} />
++            {collections.map((collection) => (
++              <CollectionChip
++                key={collection.id}
++                label={collection.title}
++                count={collectionItemCount(collection)}
++                active={selectedCollectionId === collection.id}
++                onPress={() => { setSelectedCollectionId(collection.id); setNextCursor(null); }}
++              />
++            ))}
++          </ScrollView>
++        </View>
++
++        {error && hasItems ? <InfoNotice tone="danger" title={t('account.saved.loadError')} body={error} /> : null}
++
++        {selectedCollection ? (
++          <View style={[styles.collectionCard, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++            <SemanticBadge label={t('account.saved.collections.collection')} tone="instruction" size="sm" />
++            <View style={styles.collectionCopy}>
++              <AppText style={styles.collectionTitle}>{selectedCollection.title}</AppText>
++              <AppText style={[styles.collectionBody, { color: theme.color.muted }]}>{selectedCollection.description || t('account.saved.collections.defaultBody')}</AppText>
++            </View>
++          </View>
++        ) : null}
++
++        {loading && !hasItems ? (
++          <View style={[styles.loadingState, { borderColor: theme.color.border }]}>
++            <ActivityIndicator color={theme.color.text} />
++            <AppText style={[styles.emptyBody, { color: theme.color.muted }]}>{t('account.saved.loading')}</AppText>
++          </View>
++        ) : null}
++
++        {!loading && !hasItems ? (
++          <DetailEmptyState
++            icon={error ? 'warning' : 'save'}
++            title={error ? t('account.saved.loadError') : (selectedCollection ? t('account.saved.emptyCollectionTitle') : t('account.saved.emptyTitle'))}
++            body={error ?? (selectedCollection ? t('account.saved.emptyCollectionBody') : t('account.saved.emptyBody'))}
++            actionLabel={error ? t('common.actions.tryAgain') : t('account.saved.browseTrades')}
++            onAction={error ? () => { void load(); } : () => navigation.navigate('TradeTabs')}
++          />
++        ) : null}
++
++        {hasItems ? (
++          <View style={styles.list}>
++            {items.map((item) => (
++              <SavedItemCard
++                key={item.id}
++                item={item}
++                title={itemTitle(item, t)}
++                body={itemBody(item, t)}
++                targetId={itemTargetId(item)}
++                updating={updatingId === item.id}
++                onOpen={() => openItem(item)}
++                onRemove={() => { void removeSavedItem(item.id); }}
++              />
++            ))}
++          </View>
++        ) : null}
++
++        {nextCursor ? (
++          <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.loadMore')} disabled={loadingMore} onPress={() => { void load({ append: true, cursor: nextCursor }); }} style={({ pressed }) => [styles.loadMoreButton, { borderColor: theme.color.border, backgroundColor: theme.color.surface }, (pressed || loadingMore) && styles.pressed]}>
++            {loadingMore ? <ActivityIndicator color={theme.color.text} /> : <AppText style={[styles.loadMoreText, { color: theme.color.text }]}>{t('account.saved.loadMore')}</AppText>}
++          </Pressable>
++        ) : null}
++
++        {!hasCollections ? (
++          <View style={[styles.collectionsPreview, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}>
++            <SemanticBadge label={t('account.saved.collections.title')} tone="instruction" />
++            <AppText style={styles.collectionTitle}>{t('account.saved.collections.emptyTitle')}</AppText>
++            <AppText style={[styles.collectionBody, { color: theme.color.muted }]}>{t('account.saved.collections.emptyBody')}</AppText>
++          </View>
++        ) : null}
++      </ScrollView>
++    </AppFixedHeaderScreen>
++  );
++}
++
++function FilterChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.filterChip, { backgroundColor: active ? theme.color.text : theme.color.surface, borderColor: active ? theme.color.text : theme.color.border }, pressed && styles.pressed]}>
++      <AppText style={[styles.filterChipText, { color: active ? theme.color.background : theme.color.text }]}>{label}</AppText>
++    </Pressable>
++  );
++}
++
++function CollectionChip({ label, count, active, onPress }: { label: string; count?: number; active: boolean; onPress: () => void }) {
++  const theme = useThemeTokens();
++  return (
++    <Pressable accessibilityRole="button" accessibilityLabel={typeof count === 'number' ? `${label} · ${count}` : label} accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.collectionChip, { backgroundColor: active ? theme.color.text : theme.color.surface, borderColor: active ? theme.color.text : theme.color.border }, pressed && styles.pressed]}>
++      <AppText style={[styles.collectionChipText, { color: active ? theme.color.background : theme.color.text }]} numberOfLines={1}>{label}</AppText>
++      {typeof count === 'number' ? (
++        <View style={[styles.collectionCount, { backgroundColor: active ? theme.color.background : theme.color.subtleSurface }]}>
++          <AppText style={[styles.collectionCountText, { color: active ? theme.color.text : theme.color.muted }]}>{count}</AppText>
++        </View>
++      ) : null}
++    </Pressable>
++  );
++}
++
++function SavedItemCard({ item, title, body, targetId, updating, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onOpen: () => void; onRemove: () => void }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  const canOpen = Boolean(targetId);
++  const tone = toneForKind(item.itemType === 'user' ? 'proposal' : item.itemType);
++  const semantic = theme.semantic[tone];
++
++  return (
++    <View style={[styles.itemCard, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++      <View style={styles.itemTopRow}>
++        <View style={[styles.itemIcon, { backgroundColor: semantic.softBg, borderColor: semantic.border }]}>
++          <MobileIcon name={item.itemType === 'user' ? 'profile' : item.itemType} size={18} color={semantic.text} />
++        </View>
++        <View style={styles.itemCopy}>
++          <SemanticBadge label={t(`account.saved.types.${item.itemType}`)} tone={tone} size="sm" />
++          <AppText style={styles.itemTitle} numberOfLines={2}>{title}</AppText>
++          <AppText style={[styles.itemBody, { color: theme.color.muted }]} numberOfLines={3}>{body}</AppText>
++        </View>
++      </View>
++
++      <View style={styles.itemMetaRow}>
++        <AppText style={[styles.itemMetaText, { color: theme.color.muted }]}>{t('account.saved.savedAt', { date: formatSavedDate(item.createdAt) })}</AppText>
++        {targetId ? <AppText style={[styles.itemMetaText, { color: theme.color.muted }]}>{t('account.saved.targetId', { id: targetId.slice(0, 8) })}</AppText> : null}
++      </View>
++
++      {item.collections?.length ? (
++        <View style={styles.itemCollections}>
++          {item.collections.map((collection) => <View key={collection.id} style={[styles.itemCollectionTag, { backgroundColor: theme.color.subtleSurface, borderColor: theme.color.border }]}><AppText style={[styles.itemCollectionTagText, { color: theme.color.muted }]}>{collection.title}</AppText></View>)}
++        </View>
++      ) : null}
++
++      <View style={styles.itemActions}>
++        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.open')} disabled={!canOpen} onPress={onOpen} style={({ pressed }) => [styles.itemPrimaryAction, { backgroundColor: canOpen ? theme.color.text : theme.color.border }, pressed && canOpen && styles.pressed]}>
++          <AppText style={[styles.itemPrimaryActionText, { color: theme.color.background }]}>{t('common.actions.open')}</AppText>
++        </Pressable>
++        <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} disabled={updating} onPress={onRemove} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, (pressed || updating) && styles.pressed]}>
++          {updating ? <ActivityIndicator color={theme.color.text} /> : <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('common.actions.remove')}</AppText>}
++        </Pressable>
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  content: { paddingBottom: 34, gap: 14 },
++  header: { gap: 8 },
++  badgeRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
++  title: { fontSize: 34, fontWeight: '900', letterSpacing: -0.9 },
++  subtitle: { lineHeight: 20, fontWeight: '600' },
++  summaryCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
++  summaryIcon: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  summaryCopy: { flex: 1, gap: 4 },
++  summaryTitle: { fontSize: 18, fontWeight: '900' },
++  summaryBody: { lineHeight: 19, fontWeight: '700' },
++  filterWrap: { gap: 8 },
++  horizontalChips: { gap: 8, paddingRight: 18 },
++  filterChip: { minHeight: 42, borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
++  filterChipText: { fontWeight: '900' },
++  collectionChip: { maxWidth: 210, minHeight: 42, borderRadius: 999, borderWidth: 1, paddingHorizontal: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
++  collectionChipText: { fontWeight: '900' },
++  collectionCount: { minWidth: 23, height: 23, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
++  collectionCountText: { fontSize: 12, fontWeight: '900' },
++  collectionCard: { borderRadius: 22, borderWidth: 1, padding: 14, gap: 10 },
++  collectionCopy: { gap: 4 },
++  collectionTitle: { fontSize: 18, fontWeight: '900' },
++  collectionBody: { lineHeight: 19, fontWeight: '700' },
++  loadingState: { minHeight: 116, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
++  emptyBody: { fontWeight: '700', lineHeight: 20, textAlign: 'center' },
++  list: { gap: 12 },
++  itemCard: { borderRadius: 24, borderWidth: 1, padding: 15, gap: 12 },
++  itemTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
++  itemIcon: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  itemCopy: { flex: 1, gap: 7 },
++  itemTitle: { fontSize: 19, lineHeight: 23, fontWeight: '900' },
++  itemBody: { lineHeight: 19, fontWeight: '700' },
++  itemMetaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
++  itemMetaText: { fontSize: 12, fontWeight: '800' },
++  itemCollections: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
++  itemCollectionTag: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
++  itemCollectionTagText: { fontSize: 12, fontWeight: '800' },
++  itemActions: { flexDirection: 'row', gap: 9 },
++  itemPrimaryAction: { flex: 1, minHeight: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
++  itemPrimaryActionText: { fontWeight: '900' },
++  itemSecondaryAction: { flex: 1, minHeight: 44, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
++  itemSecondaryActionText: { fontWeight: '900' },
++  loadMoreButton: { minHeight: 46, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  loadMoreText: { fontWeight: '900' },
++  collectionsPreview: { borderRadius: 22, borderWidth: 1, padding: 15, gap: 8 },
++  pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
++});
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 9c38d7c..69bc8cc 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -10,6 +10,7 @@ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen
+ import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+ import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+ import { NotificationsScreen } from '../features/account/NotificationsScreen';
++import { SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
+ import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
+ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
+ import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
+@@ -59,6 +60,7 @@ export type RootStackParamList = {
+   TradeTabs: undefined;
+   AccountProfile: undefined;
+   Notifications: undefined;
++  SavedLibrary: undefined;
+   ProPlans: undefined;
+   Wallet: undefined;
+   Payouts: undefined;
+@@ -136,6 +138,7 @@ const ProtectedMyOffersScreen = withAuth(MyOffersScreen, 'Login to manage offers
+ const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account', 'Sign in to access your profile, settings, support, and account tools.');
+ const ProtectedProfileScreen = withAuth(ProfileScreen);
+ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
++const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
+ const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
+ const ProtectedWalletScreen = withAuth(WalletScreen);
+ const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
+@@ -231,6 +234,7 @@ export function RootNavigator() {
+       <Stack.Screen name="LegalPolicy" component={LegalPolicyScreen} />
+       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
++      <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
+       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
+       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
+       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}

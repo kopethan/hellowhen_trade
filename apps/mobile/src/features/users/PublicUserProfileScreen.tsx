@@ -7,6 +7,7 @@ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
 import { MobileIcon } from '../../components/MobileIcon';
+import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { InfoNotice, SemanticBadge, StatusBadge } from '../../components/SemanticUI';
 import { ReportContentPanel } from '../../components/ReportContentPanel';
 import { api } from '../../lib/api';
@@ -294,6 +295,9 @@ export function PublicUserProfileScreen({ navigation, route }: Props) {
                   {profile.user.profile?.countryCode ? <SemanticBadge label={profile.user.profile.countryCode} tone="muted" size="sm" /> : null}
                   {memberSince ? <SemanticBadge label={t('profile.memberSince', { date: memberSince })} tone="info" size="sm" /> : null}
                 </View>
+                <View style={styles.profileActionRow}>
+                  <SavedToggleButton itemType="user" itemId={profile.user.id} hidden={auth.user?.id === profile.user.id} />
+                </View>
                 <ReportContentPanel targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" />
                 {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
                   <Pressable accessibilityRole="button" disabled={blockBusy} onPress={() => { void toggleBlock(); }} style={({ pressed }) => [styles.secondaryButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, blockBusy && styles.disabled, pressed && styles.pressed]}>
@@ -331,6 +335,7 @@ const styles = StyleSheet.create({
   handle: { fontSize: 14, fontWeight: '800' },
   bio: { fontSize: 15, lineHeight: 21, fontWeight: '700' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  profileActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   statTile: { width: '48%', flexGrow: 1, minHeight: 88, borderWidth: 1, borderRadius: 22, padding: 14, justifyContent: 'center' },

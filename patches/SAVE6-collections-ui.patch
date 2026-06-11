@@ -1,0 +1,1008 @@
+diff --git a/apps/mobile/src/features/account/SavedLibraryScreen.tsx b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+index d261986..82915e8 100644
+--- a/apps/mobile/src/features/account/SavedLibraryScreen.tsx
++++ b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+@@ -1,12 +1,13 @@
+ import React, { useCallback, useMemo, useState } from 'react';
+-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
++import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
++import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+ import type { SavedCollectionDto, SavedItemDto, SavedItemType } from '@hellowhen/contracts';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppCard } from '../../components/AppCard';
+ import { AppText } from '../../components/AppText';
++import { AppConfirmSheet } from '../../components/AppConfirmSheet';
+ import { DetailEmptyState } from '../../components/detail';
+ import { MobileIcon } from '../../components/MobileIcon';
+ import { InfoNotice, SemanticBadge, toneForKind } from '../../components/SemanticUI';
+@@ -16,8 +17,11 @@ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+ import { useThemeTokens } from '../../providers/ThemeProvider';
+ 
+-type Props = NativeStackScreenProps<RootStackParamList, 'SavedLibrary'>;
++type SavedLibraryProps = NativeStackScreenProps<RootStackParamList, 'SavedLibrary'>;
++type SavedCollectionProps = NativeStackScreenProps<RootStackParamList, 'SavedLibraryCollection'>;
++type SavedLibraryNavigation = NativeStackNavigationProp<RootStackParamList>;
+ type SavedFilter = 'all' | SavedItemType;
++type CollectionEditorMode = 'create' | 'edit';
+ 
+ type SavedTab = {
+   value: SavedFilter;
+@@ -72,24 +76,44 @@ function collectionItemCount(collection: SavedCollectionDto) {
+   return Array.isArray(collection.items) ? collection.items.length : 0;
+ }
+ 
++function collectionHasSavedItem(collection: SavedCollectionDto, savedItemId: string) {
++  return (collection.items ?? []).some((item) => item.savedItemId === savedItemId);
++}
++
+ function formatSavedDate(value: string) {
+   const date = new Date(value);
+   if (Number.isNaN(date.getTime())) return value;
+   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+ }
+ 
+-export function SavedLibraryScreen({ navigation }: Props) {
++export function SavedLibraryScreen({ navigation }: SavedLibraryProps) {
++  return <SavedLibraryContent navigation={navigation} />;
++}
++
++export function SavedCollectionDetailScreen({ navigation, route }: SavedCollectionProps) {
++  return <SavedLibraryContent initialCollectionId={route.params.collectionId} initialTitle={route.params.title} navigation={navigation} />;
++}
++
++function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }: { initialCollectionId?: string; initialTitle?: string; navigation: SavedLibraryNavigation }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const [filter, setFilter] = useState<SavedFilter>('all');
+-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
++  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(initialCollectionId ?? null);
+   const [items, setItems] = useState<SavedItemDto[]>([]);
+   const [collections, setCollections] = useState<SavedCollectionDto[]>([]);
+   const [nextCursor, setNextCursor] = useState<string | null>(null);
+   const [loading, setLoading] = useState(false);
+   const [loadingMore, setLoadingMore] = useState(false);
+   const [updatingId, setUpdatingId] = useState<string | null>(null);
++  const [busyAction, setBusyAction] = useState<string | null>(null);
+   const [error, setError] = useState<string | null>(null);
++  const [message, setMessage] = useState<string | null>(null);
++  const [editorMode, setEditorMode] = useState<CollectionEditorMode | null>(null);
++  const [collectionTitle, setCollectionTitle] = useState('');
++  const [collectionDescription, setCollectionDescription] = useState('');
++  const [collectionTitleError, setCollectionTitleError] = useState<string | null>(null);
++  const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
++  const [managingItem, setManagingItem] = useState<SavedItemDto | null>(null);
+ 
+   const selectedCollection = useMemo(
+     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
+@@ -112,7 +136,9 @@ export function SavedLibraryScreen({ navigation }: Props) {
+       ]);
+       setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
+       setNextCursor(savedResponse.nextCursor ?? null);
+-      setCollections(collectionsResponse.collections ?? []);
++      const nextCollections = collectionsResponse.collections ?? [];
++      setCollections(nextCollections);
++      setSelectedCollectionId((current) => (current && !nextCollections.some((collection) => collection.id === current) ? null : current));
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.loadError')));
+       if (!append) {
+@@ -127,6 +153,76 @@ export function SavedLibraryScreen({ navigation }: Props) {
+ 
+   useFocusEffect(useCallback(() => { void load(); }, [load]));
+ 
++  function openCreateCollection() {
++    setMessage(null);
++    setError(null);
++    setCollectionTitleError(null);
++    setCollectionTitle('');
++    setCollectionDescription('');
++    setEditorMode('create');
++  }
++
++  function openEditCollection() {
++    if (!selectedCollection) return;
++    setMessage(null);
++    setError(null);
++    setCollectionTitleError(null);
++    setCollectionTitle(selectedCollection.title);
++    setCollectionDescription(selectedCollection.description ?? '');
++    setEditorMode('edit');
++  }
++
++  async function saveCollection() {
++    const title = collectionTitle.trim();
++    const description = collectionDescription.trim();
++    if (!title) {
++      setCollectionTitleError(t('account.saved.collections.titleRequired'));
++      return;
++    }
++
++    setCollectionTitleError(null);
++    setBusyAction('collection-save');
++    setError(null);
++    try {
++      if (editorMode === 'edit' && selectedCollection) {
++        const response = await api.saved.updateCollection(selectedCollection.id, { title, description: description || null });
++        setCollections((current) => current.map((collection) => (collection.id === response.collection.id ? response.collection : collection)));
++        setMessage(t('account.saved.collections.updated', { title: response.collection.title }));
++      } else {
++        const response = await api.saved.createCollection({ title, description: description || undefined });
++        setCollections((current) => [response.collection, ...current.filter((collection) => collection.id !== response.collection.id)]);
++        setSelectedCollectionId(response.collection.id);
++        setMessage(t('account.saved.collections.created', { title: response.collection.title }));
++      }
++      setEditorMode(null);
++      await load();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.collections.saveError')));
++    } finally {
++      setBusyAction(null);
++    }
++  }
++
++  async function deleteSelectedCollection() {
++    if (!selectedCollection) return;
++    const title = selectedCollection.title;
++    setBusyAction('collection-delete');
++    setError(null);
++    try {
++      await api.saved.removeCollection(selectedCollection.id);
++      setCollections((current) => current.filter((collection) => collection.id !== selectedCollection.id));
++      setSelectedCollectionId(null);
++      setDeleteConfirmVisible(false);
++      setMessage(t('account.saved.collections.deleted', { title }));
++      if (initialCollectionId) navigation.navigate('SavedLibrary');
++      await load();
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.collections.deleteError')));
++    } finally {
++      setBusyAction(null);
++    }
++  }
++
+   async function removeSavedItem(savedItemId: string) {
+     setUpdatingId(savedItemId);
+     setError(null);
+@@ -137,6 +233,7 @@ export function SavedLibraryScreen({ navigation }: Props) {
+         ...collection,
+         items: collection.items?.filter((item) => item.savedItemId !== savedItemId),
+       })));
++      setManagingItem((current) => (current?.id === savedItemId ? null : current));
+     } catch (caughtError) {
+       setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.removeError')));
+     } finally {
+@@ -144,6 +241,51 @@ export function SavedLibraryScreen({ navigation }: Props) {
+     }
+   }
+ 
++  async function addItemToCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    setBusyAction(`collection-item-${collection.id}-${item.id}`);
++    setError(null);
++    try {
++      await api.saved.addCollectionItem(collection.id, { savedItemId: item.id });
++      setMessage(t('account.saved.collections.itemAdded', { title: itemTitle(item, t), collection: collection.title }));
++      await load();
++      setManagingItem(null);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.collections.itemAddError')));
++    } finally {
++      setBusyAction(null);
++    }
++  }
++
++  async function removeItemFromCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    setBusyAction(`collection-item-${collection.id}-${item.id}`);
++    setError(null);
++    try {
++      await api.saved.removeCollectionItem(collection.id, item.id);
++      setMessage(t('account.saved.collections.itemRemoved', { title: itemTitle(item, t), collection: collection.title }));
++      if (selectedCollectionId === collection.id) setItems((current) => current.filter((entry) => entry.id !== item.id));
++      await load();
++      setManagingItem(null);
++    } catch (caughtError) {
++      setError(getFriendlyApiErrorMessage(caughtError, t('account.saved.collections.itemRemoveError')));
++    } finally {
++      setBusyAction(null);
++    }
++  }
++
++  function openCollection(collection: SavedCollectionDto | null) {
++    setNextCursor(null);
++    if (!collection) {
++      setSelectedCollectionId(null);
++      if (initialCollectionId) navigation.navigate('SavedLibrary');
++      return;
++    }
++    if (initialCollectionId) {
++      setSelectedCollectionId(collection.id);
++      return;
++    }
++    navigation.navigate('SavedLibraryCollection', { collectionId: collection.id, title: collection.title });
++  }
++
+   function openItem(item: SavedItemDto) {
+     if (item.itemType === 'trade' && item.tradeId) {
+       navigation.navigate('TradeDetail', { tradeId: item.tradeId, title: item.trade?.title, description: item.trade?.description, status: item.trade?.status });
+@@ -165,9 +307,10 @@ export function SavedLibraryScreen({ navigation }: Props) {
+ 
+   const hasItems = items.length > 0;
+   const hasCollections = collections.length > 0;
++  const headerTitle = selectedCollection?.title ?? initialTitle ?? t('account.saved.title');
+ 
+   return (
+-    <AppFixedHeaderScreen header={<AppHeader title={t('account.saved.title')} onBack={() => navigation.goBack()} />}>
++    <AppFixedHeaderScreen header={<AppHeader title={headerTitle} onBack={() => navigation.goBack()} /> }>
+       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => { void load(); }} />}>
+         <View style={styles.header}>
+           <View style={styles.badgeRow}>
+@@ -188,6 +331,17 @@ export function SavedLibraryScreen({ navigation }: Props) {
+           </View>
+         </AppCard>
+ 
++        <View style={[styles.collectionToolbar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++          <View style={styles.collectionToolbarCopy}>
++            <AppText style={styles.collectionToolbarTitle}>{t('account.saved.collections.title')}</AppText>
++            <AppText style={[styles.collectionToolbarBody, { color: theme.color.muted }]}>{t('account.saved.collections.manageBody')}</AppText>
++          </View>
++          <Pressable accessibilityRole="button" onPress={openCreateCollection} style={({ pressed }) => [styles.collectionCreateButton, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, pressed && styles.pressed]}>
++            <MobileIcon name="add" size={17} color={theme.semantic.proposal.text} />
++            <AppText style={[styles.collectionCreateText, { color: theme.semantic.proposal.text }]}>{t('account.saved.collections.create')}</AppText>
++          </Pressable>
++        </View>
++
+         <View style={styles.filterWrap}>
+           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
+             {savedTabs.map((tab) => (
+@@ -201,19 +355,20 @@ export function SavedLibraryScreen({ navigation }: Props) {
+           </ScrollView>
+ 
+           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalChips}>
+-            <CollectionChip label={t('account.saved.collections.allSaved')} active={!selectedCollectionId} onPress={() => { setSelectedCollectionId(null); setNextCursor(null); }} />
++            <CollectionChip label={t('account.saved.collections.allSaved')} active={!selectedCollectionId} onPress={() => openCollection(null)} />
+             {collections.map((collection) => (
+               <CollectionChip
+                 key={collection.id}
+                 label={collection.title}
+                 count={collectionItemCount(collection)}
+                 active={selectedCollectionId === collection.id}
+-                onPress={() => { setSelectedCollectionId(collection.id); setNextCursor(null); }}
++                onPress={() => openCollection(collection)}
+               />
+             ))}
+           </ScrollView>
+         </View>
+ 
++        {message ? <InfoNotice tone="success" title={t('common.states.saved')} body={message} /> : null}
+         {error && hasItems ? <InfoNotice tone="danger" title={t('account.saved.loadError')} body={error} /> : null}
+ 
+         {selectedCollection ? (
+@@ -223,6 +378,10 @@ export function SavedLibraryScreen({ navigation }: Props) {
+               <AppText style={styles.collectionTitle}>{selectedCollection.title}</AppText>
+               <AppText style={[styles.collectionBody, { color: theme.color.muted }]}>{selectedCollection.description || t('account.saved.collections.defaultBody')}</AppText>
+             </View>
++            <View style={styles.collectionActions}>
++              <Pressable accessibilityRole="button" onPress={openEditCollection} style={({ pressed }) => [styles.collectionActionButton, { borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.collectionActionText, { color: theme.color.text }]}>{t('common.actions.edit')}</AppText></Pressable>
++              <Pressable accessibilityRole="button" onPress={() => setDeleteConfirmVisible(true)} style={({ pressed }) => [styles.collectionActionButton, { borderColor: theme.semantic.danger.border, backgroundColor: theme.semantic.danger.softBg }, pressed && styles.pressed]}><AppText style={[styles.collectionActionText, { color: theme.semantic.danger.text }]}>{t('account.saved.collections.delete')}</AppText></Pressable>
++            </View>
+           </View>
+         ) : null}
+ 
+@@ -253,6 +412,7 @@ export function SavedLibraryScreen({ navigation }: Props) {
+                 body={itemBody(item, t)}
+                 targetId={itemTargetId(item)}
+                 updating={updatingId === item.id}
++                onManageCollections={() => setManagingItem(item)}
+                 onOpen={() => openItem(item)}
+                 onRemove={() => { void removeSavedItem(item.id); }}
+               />
+@@ -271,9 +431,48 @@ export function SavedLibraryScreen({ navigation }: Props) {
+             <SemanticBadge label={t('account.saved.collections.title')} tone="instruction" />
+             <AppText style={styles.collectionTitle}>{t('account.saved.collections.emptyTitle')}</AppText>
+             <AppText style={[styles.collectionBody, { color: theme.color.muted }]}>{t('account.saved.collections.emptyBody')}</AppText>
++            <Pressable accessibilityRole="button" onPress={openCreateCollection} style={({ pressed }) => [styles.collectionCreateButton, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, pressed && styles.pressed]}>
++              <MobileIcon name="add" size={17} color={theme.semantic.proposal.text} />
++              <AppText style={[styles.collectionCreateText, { color: theme.semantic.proposal.text }]}>{t('account.saved.collections.create')}</AppText>
++            </Pressable>
+           </View>
+         ) : null}
+       </ScrollView>
++
++      <CollectionEditorModal
++        busy={busyAction === 'collection-save'}
++        description={collectionDescription}
++        onChangeDescription={setCollectionDescription}
++        onChangeTitle={setCollectionTitle}
++        onClose={() => setEditorMode(null)}
++        onSave={() => { void saveCollection(); }}
++        title={collectionTitle}
++        titleError={collectionTitleError}
++        visible={Boolean(editorMode)}
++        mode={editorMode ?? 'create'}
++      />
++
++      <CollectionMembershipModal
++        busyAction={busyAction}
++        collections={collections}
++        item={managingItem}
++        onAdd={(collection, item) => addItemToCollection(collection, item)}
++        onClose={() => setManagingItem(null)}
++        onRemove={(collection, item) => removeItemFromCollection(collection, item)}
++        visible={Boolean(managingItem)}
++      />
++
++      <AppConfirmSheet
++        visible={deleteConfirmVisible}
++        title={t('account.saved.collections.deleteTitle')}
++        body={selectedCollection ? t('account.saved.collections.deleteConfirm', { title: selectedCollection.title }) : undefined}
++        cancelLabel={t('common.actions.cancel')}
++        confirmLabel={busyAction === 'collection-delete' ? t('common.states.working') : t('account.saved.collections.delete')}
++        tone="danger"
++        confirmDisabled={busyAction === 'collection-delete'}
++        onCancel={() => setDeleteConfirmVisible(false)}
++        onConfirm={() => { void deleteSelectedCollection(); }}
++      />
+     </AppFixedHeaderScreen>
+   );
+ }
+@@ -301,7 +500,7 @@ function CollectionChip({ label, count, active, onPress }: { label: string; coun
+   );
+ }
+ 
+-function SavedItemCard({ item, title, body, targetId, updating, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onOpen: () => void; onRemove: () => void }) {
++function SavedItemCard({ item, title, body, targetId, updating, onManageCollections, onOpen, onRemove }: { item: SavedItemDto; title: string; body: string; targetId: string; updating: boolean; onManageCollections: () => void; onOpen: () => void; onRemove: () => void }) {
+   const theme = useThemeTokens();
+   const { t } = useTranslation();
+   const canOpen = Boolean(targetId);
+@@ -336,6 +535,9 @@ function SavedItemCard({ item, title, body, targetId, updating, onOpen, onRemove
+         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.open')} disabled={!canOpen} onPress={onOpen} style={({ pressed }) => [styles.itemPrimaryAction, { backgroundColor: canOpen ? theme.color.text : theme.color.border }, pressed && canOpen && styles.pressed]}>
+           <AppText style={[styles.itemPrimaryActionText, { color: theme.color.background }]}>{t('common.actions.open')}</AppText>
+         </Pressable>
++        <Pressable accessibilityRole="button" accessibilityLabel={t('account.saved.collections.manage')} onPress={onManageCollections} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, pressed && styles.pressed]}>
++          <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('account.saved.collections.manage')}</AppText>
++        </Pressable>
+         <Pressable accessibilityRole="button" accessibilityLabel={t('common.actions.remove')} disabled={updating} onPress={onRemove} style={({ pressed }) => [styles.itemSecondaryAction, { borderColor: theme.color.border }, (pressed || updating) && styles.pressed]}>
+           {updating ? <ActivityIndicator color={theme.color.text} /> : <AppText style={[styles.itemSecondaryActionText, { color: theme.color.text }]}>{t('common.actions.remove')}</AppText>}
+         </Pressable>
+@@ -344,6 +546,70 @@ function SavedItemCard({ item, title, body, targetId, updating, onOpen, onRemove
+   );
+ }
+ 
++function CollectionEditorModal({ busy, description, mode, onChangeDescription, onChangeTitle, onClose, onSave, title, titleError, visible }: { busy: boolean; description: string; mode: CollectionEditorMode; onChangeDescription: (value: string) => void; onChangeTitle: (value: string) => void; onClose: () => void; onSave: () => void; title: string; titleError: string | null; visible: boolean }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  return (
++    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
++      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalBackdrop}>
++        <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalTapArea}>
++          <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.modalSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
++            <View style={styles.modalHeader}>
++              <AppText style={styles.modalTitle}>{mode === 'edit' ? t('account.saved.collections.editTitle') : t('account.saved.collections.createTitle')}</AppText>
++              <AppText style={[styles.modalBody, { color: theme.color.muted }]}>{t('account.saved.collections.editorBody')}</AppText>
++            </View>
++            <View style={styles.formFields}>
++              <TextInput value={title} onChangeText={onChangeTitle} maxLength={80} placeholder={t('account.saved.collections.titlePlaceholder')} placeholderTextColor={theme.color.muted} style={[styles.input, { backgroundColor: theme.color.surface, borderColor: titleError ? theme.semantic.danger.border : theme.color.border, color: theme.color.text }]} />
++              {titleError ? <AppText style={[styles.fieldError, { color: theme.semantic.danger.text }]}>{titleError}</AppText> : null}
++              <TextInput value={description} onChangeText={onChangeDescription} maxLength={240} placeholder={t('account.saved.collections.descriptionPlaceholder')} placeholderTextColor={theme.color.muted} multiline textAlignVertical="top" style={[styles.input, styles.textArea, { backgroundColor: theme.color.surface, borderColor: theme.color.border, color: theme.color.text }]} />
++            </View>
++            <View style={styles.modalActions}>
++              <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.modalButton, { backgroundColor: theme.color.surface, borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.modalButtonText, { color: theme.color.text }]}>{t('common.actions.cancel')}</AppText></Pressable>
++              <Pressable accessibilityRole="button" disabled={busy} onPress={onSave} style={({ pressed }) => [styles.modalButton, { backgroundColor: theme.semantic.proposal.softBg, borderColor: theme.semantic.proposal.border }, pressed && !busy && styles.pressed, busy && styles.disabled]}><AppText style={[styles.modalButtonText, { color: theme.semantic.proposal.text }]}>{busy ? t('common.states.working') : t('common.actions.save')}</AppText></Pressable>
++            </View>
++          </Pressable>
++        </Pressable>
++      </KeyboardAvoidingView>
++    </Modal>
++  );
++}
++
++function CollectionMembershipModal({ busyAction, collections, item, onAdd, onClose, onRemove, visible }: { busyAction: string | null; collections: SavedCollectionDto[]; item: SavedItemDto | null; onAdd: (collection: SavedCollectionDto, item: SavedItemDto) => Promise<void>; onClose: () => void; onRemove: (collection: SavedCollectionDto, item: SavedItemDto) => Promise<void>; visible: boolean }) {
++  const theme = useThemeTokens();
++  const { t } = useTranslation();
++  if (!item) return null;
++  return (
++    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
++      <Pressable accessibilityRole="button" onPress={onClose} style={styles.modalBackdrop}>
++        <Pressable accessibilityRole="menu" onPress={(event) => event.stopPropagation()} style={[styles.modalSheet, styles.membershipModalSheet, { backgroundColor: theme.color.elevated, borderColor: theme.color.border }]}>
++          <View style={styles.modalHeader}>
++            <AppText style={styles.modalTitle} numberOfLines={2}>{t('account.saved.collections.manageItemTitle', { title: itemTitle(item, t) })}</AppText>
++            <AppText style={[styles.modalBody, { color: theme.color.muted }]}>{t('account.saved.collections.manageItemBody')}</AppText>
++          </View>
++          <ScrollView contentContainerStyle={styles.membershipList} showsVerticalScrollIndicator={false}>
++            {collections.length === 0 ? <AppText style={[styles.emptyInline, { color: theme.color.muted }]}>{t('account.saved.collections.createFirst')}</AppText> : collections.map((collection) => {
++              const inCollection = collectionHasSavedItem(collection, item.id);
++              const busyKey = `collection-item-${collection.id}-${item.id}`;
++              return (
++                <View key={collection.id} style={[styles.membershipRow, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
++                  <View style={styles.membershipCopy}>
++                    <AppText style={styles.membershipTitle} numberOfLines={1}>{collection.title}</AppText>
++                    <AppText style={[styles.membershipBody, { color: theme.color.muted }]} numberOfLines={2}>{collection.description || t('account.saved.collections.defaultBody')}</AppText>
++                  </View>
++                  <Pressable accessibilityRole="button" disabled={busyAction === busyKey} onPress={() => { void (inCollection ? onRemove(collection, item) : onAdd(collection, item)); }} style={({ pressed }) => [styles.membershipAction, { backgroundColor: inCollection ? theme.semantic.danger.softBg : theme.semantic.proposal.softBg, borderColor: inCollection ? theme.semantic.danger.border : theme.semantic.proposal.border }, pressed && busyAction !== busyKey && styles.pressed, busyAction === busyKey && styles.disabled]}>
++                    <AppText style={[styles.membershipActionText, { color: inCollection ? theme.semantic.danger.text : theme.semantic.proposal.text }]}>{busyAction === busyKey ? '…' : (inCollection ? t('account.saved.collections.removeFromCollection') : t('account.saved.collections.addToCollection'))}</AppText>
++                  </Pressable>
++                </View>
++              );
++            })}
++          </ScrollView>
++          <Pressable accessibilityRole="button" onPress={onClose} style={({ pressed }) => [styles.closeModalButton, { borderColor: theme.color.border }, pressed && styles.pressed]}><AppText style={[styles.closeModalText, { color: theme.color.muted }]}>{t('common.actions.close')}</AppText></Pressable>
++        </Pressable>
++      </Pressable>
++    </Modal>
++  );
++}
++
+ const styles = StyleSheet.create({
+   content: { paddingBottom: 34, gap: 14 },
+   header: { gap: 8 },
+@@ -355,6 +621,12 @@ const styles = StyleSheet.create({
+   summaryCopy: { flex: 1, gap: 4 },
+   summaryTitle: { fontSize: 18, fontWeight: '900' },
+   summaryBody: { lineHeight: 19, fontWeight: '700' },
++  collectionToolbar: { borderRadius: 22, borderWidth: 1, padding: 13, gap: 10 },
++  collectionToolbarCopy: { gap: 3 },
++  collectionToolbarTitle: { fontSize: 17, fontWeight: '900' },
++  collectionToolbarBody: { fontSize: 12, lineHeight: 17, fontWeight: '700' },
++  collectionCreateButton: { minHeight: 42, borderRadius: 17, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 13 },
++  collectionCreateText: { fontSize: 13, fontWeight: '900' },
+   filterWrap: { gap: 8 },
+   horizontalChips: { gap: 8, paddingRight: 18 },
+   filterChip: { minHeight: 42, borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+@@ -367,6 +639,9 @@ const styles = StyleSheet.create({
+   collectionCopy: { gap: 4 },
+   collectionTitle: { fontSize: 18, fontWeight: '900' },
+   collectionBody: { lineHeight: 19, fontWeight: '700' },
++  collectionActions: { flexDirection: 'row', gap: 9 },
++  collectionActionButton: { flex: 1, minHeight: 42, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  collectionActionText: { fontSize: 13, fontWeight: '900' },
+   loadingState: { minHeight: 116, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
+   emptyBody: { fontWeight: '700', lineHeight: 20, textAlign: 'center' },
+   list: { gap: 12 },
+@@ -381,13 +656,38 @@ const styles = StyleSheet.create({
+   itemCollections: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+   itemCollectionTag: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 6 },
+   itemCollectionTagText: { fontSize: 12, fontWeight: '800' },
+-  itemActions: { flexDirection: 'row', gap: 9 },
+-  itemPrimaryAction: { flex: 1, minHeight: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
++  itemActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
++  itemPrimaryAction: { flex: 1, minWidth: 96, minHeight: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+   itemPrimaryActionText: { fontWeight: '900' },
+-  itemSecondaryAction: { flex: 1, minHeight: 44, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
++  itemSecondaryAction: { flex: 1, minWidth: 96, minHeight: 44, borderRadius: 16, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+   itemSecondaryActionText: { fontWeight: '900' },
+   loadMoreButton: { minHeight: 46, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+   loadMoreText: { fontWeight: '900' },
+   collectionsPreview: { borderRadius: 22, borderWidth: 1, padding: 15, gap: 8 },
++  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(2, 6, 23, 0.62)', padding: 14 },
++  modalTapArea: { flex: 1, justifyContent: 'flex-end' },
++  modalSheet: { borderWidth: 1, borderRadius: 28, padding: 16, gap: 16, maxHeight: '86%' },
++  membershipModalSheet: { minHeight: 360 },
++  modalHeader: { gap: 5, paddingHorizontal: 2 },
++  modalTitle: { fontSize: 20, fontWeight: '900', letterSpacing: -0.25 },
++  modalBody: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
++  formFields: { gap: 8 },
++  input: { minHeight: 48, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, fontSize: 15, fontWeight: '700' },
++  textArea: { minHeight: 86, paddingTop: 12 },
++  fieldError: { fontSize: 12, fontWeight: '800' },
++  modalActions: { flexDirection: 'row', gap: 10 },
++  modalButton: { flex: 1, minHeight: 48, borderRadius: 18, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
++  modalButtonText: { fontSize: 14, fontWeight: '900' },
++  membershipList: { gap: 10, paddingBottom: 4 },
++  membershipRow: { minHeight: 66, borderWidth: 1, borderRadius: 18, padding: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
++  membershipCopy: { flex: 1, gap: 3 },
++  membershipTitle: { fontSize: 14, fontWeight: '900' },
++  membershipBody: { fontSize: 12, lineHeight: 16, fontWeight: '700' },
++  membershipAction: { minHeight: 38, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
++  membershipActionText: { fontSize: 12, fontWeight: '900' },
++  emptyInline: { fontSize: 13, lineHeight: 19, fontWeight: '700' },
++  closeModalButton: { minHeight: 48, borderTopWidth: 1, alignItems: 'center', justifyContent: 'center' },
++  closeModalText: { fontSize: 14, fontWeight: '900' },
+   pressed: { opacity: 0.78, transform: [{ scale: 0.98 }] },
++  disabled: { opacity: 0.5 },
+ });
+diff --git a/apps/mobile/src/navigation/RootNavigator.tsx b/apps/mobile/src/navigation/RootNavigator.tsx
+index 69bc8cc..94a64b2 100644
+--- a/apps/mobile/src/navigation/RootNavigator.tsx
++++ b/apps/mobile/src/navigation/RootNavigator.tsx
+@@ -10,7 +10,7 @@ import { AccountDeletionScreen } from '../features/account/AccountDeletionScreen
+ import { BusinessAccountsScreen } from '../features/account/BusinessAccountsScreen';
+ import { BuyCreditsScreen } from '../features/account/BuyCreditsScreen';
+ import { NotificationsScreen } from '../features/account/NotificationsScreen';
+-import { SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
++import { SavedCollectionDetailScreen, SavedLibraryScreen } from '../features/account/SavedLibraryScreen';
+ import { PlanSelectionScreen } from '../features/account/PlanSelectionScreen';
+ import { SupportCenterScreen } from '../features/account/SupportCenterScreen';
+ import { SupportTicketDetailScreen } from '../features/account/SupportTicketDetailScreen';
+@@ -61,6 +61,7 @@ export type RootStackParamList = {
+   AccountProfile: undefined;
+   Notifications: undefined;
+   SavedLibrary: undefined;
++  SavedLibraryCollection: { collectionId: string; title?: string };
+   ProPlans: undefined;
+   Wallet: undefined;
+   Payouts: undefined;
+@@ -139,6 +140,7 @@ const ProtectedAccountScreen = withAuth(AccountScreen, 'Login to open account',
+ const ProtectedProfileScreen = withAuth(ProfileScreen);
+ const ProtectedNotificationsScreen = withAuth(NotificationsScreen);
+ const ProtectedSavedLibraryScreen = withAuth(SavedLibraryScreen);
++const ProtectedSavedCollectionDetailScreen = withAuth(SavedCollectionDetailScreen);
+ const ProtectedPlanSelectionScreen = withAuth(PlanSelectionScreen);
+ const ProtectedWalletScreen = withAuth(WalletScreen);
+ const ProtectedPayoutsScreen = withAuth(PayoutsScreen);
+@@ -235,6 +237,7 @@ export function RootNavigator() {
+       <Stack.Screen name="AccountProfile" component={ProtectedProfileScreen} />
+       <Stack.Screen name="Notifications" component={ProtectedNotificationsScreen} />
+       <Stack.Screen name="SavedLibrary" component={ProtectedSavedLibraryScreen} />
++      <Stack.Screen name="SavedLibraryCollection" component={ProtectedSavedCollectionDetailScreen} />
+       {betaFeatures.plusSubscriptionFeatures.plusPublic ? <Stack.Screen name="ProPlans" component={ProtectedPlanSelectionScreen} /> : null}
+       {betaFeatures.walletVisible ? <Stack.Screen name="Wallet" component={ProtectedWalletScreen} /> : null}
+       {betaFeatures.payoutsVisible ? <Stack.Screen name="Payouts" component={ProtectedPayoutsScreen} /> : null}
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index e151549..56dfe7a 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -7971,6 +7971,35 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .saved-library-summary-card h3, .saved-library-summary-card p { margin: 7px 0 0; }
+ .saved-library-summary-card p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
+ .saved-library-toolbar { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 24px; background: color-mix(in srgb, var(--app-surface) 90%, var(--app-surface-soft)); padding: 10px; box-shadow: var(--app-control-shadow); }
++
++.saved-library-toolbar__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
++.saved-library-toolbar__header > div { display: grid; gap: 3px; min-width: 0; }
++.saved-library-toolbar__header strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
++.saved-library-toolbar__header span { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
++.saved-library-toolbar__header .button { min-height: 36px; padding: 0 12px; font-size: 12px; white-space: nowrap; }
++.saved-library-collection-editor { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--instruction-border) 44%, var(--app-border)); border-radius: 24px; background: color-mix(in srgb, var(--instruction-bg) 14%, var(--app-surface)); padding: 14px; box-shadow: var(--app-card-shadow); }
++.saved-library-collection-editor__header { display: grid; gap: 5px; }
++.saved-library-collection-editor__header h3, .saved-library-collection-editor__header p { margin: 0; }
++.saved-library-collection-editor__header p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.saved-library-collection-editor label { display: grid; gap: 6px; color: var(--app-text-muted); font-size: 12px; font-weight: 900; }
++.saved-library-collection-editor input, .saved-library-collection-editor textarea { width: 100%; border: 1px solid var(--app-border); border-radius: 16px; background: var(--app-surface); color: var(--app-text); padding: 12px 13px; font: inherit; font-weight: 750; outline: none; }
++.saved-library-collection-editor textarea { min-height: 92px; resize: vertical; }
++.saved-library-collection-editor input:focus, .saved-library-collection-editor textarea:focus { border-color: color-mix(in srgb, var(--proposal-border) 58%, var(--app-border-strong)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--proposal-bg) 22%, transparent); }
++.saved-library-collection-editor__actions { display: flex; justify-content: flex-end; gap: 8px; }
++.saved-library-selected-collection__actions { display: flex; flex-wrap: wrap; gap: 8px; }
++.saved-library-selected-collection__actions .ghost-button { min-height: 34px; padding: 0 11px; font-size: 12px; }
++.saved-library-item-collections-manager { display: grid; gap: 12px; border: 1px solid color-mix(in srgb, var(--proposal-border) 42%, var(--app-border)); border-radius: 26px; background: linear-gradient(135deg, color-mix(in srgb, var(--proposal-bg) 14%, var(--app-surface)), var(--app-surface)); padding: 14px; box-shadow: var(--app-card-shadow); }
++.saved-library-item-collections-manager__header { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
++.saved-library-item-collections-manager__header > div { display: grid; gap: 6px; min-width: 0; }
++.saved-library-item-collections-manager__header h3, .saved-library-item-collections-manager__header p { margin: 0; }
++.saved-library-item-collections-manager__header h3 { color: var(--app-text); font-size: 16px; line-height: 1.2; font-weight: 950; }
++.saved-library-item-collections-manager__header p, .saved-library-item-collections-manager > p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.saved-library-collection-membership-list { display: grid; gap: 8px; }
++.saved-library-collection-membership-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); padding: 10px; }
++.saved-library-collection-membership-row > div { display: grid; gap: 3px; min-width: 0; }
++.saved-library-collection-membership-row strong { overflow: hidden; color: var(--app-text); font-size: 14px; font-weight: 950; text-overflow: ellipsis; white-space: nowrap; }
++.saved-library-collection-membership-row span { display: -webkit-box; overflow: hidden; color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
++.saved-library-collection-membership-row .button, .saved-library-collection-membership-row .ghost-button { min-height: 34px; padding: 0 11px; font-size: 12px; }
+ .saved-library-tabs, .saved-library-collections-strip { display: flex; gap: 8px; overflow-x: auto; margin-inline: -2px; padding: 0 2px 2px; scrollbar-width: none; }
+ .saved-library-tabs::-webkit-scrollbar, .saved-library-collections-strip::-webkit-scrollbar { display: none; }
+ .saved-library-tabs button, .saved-library-collections-strip button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 8px; min-height: 38px; max-width: min(220px, 70vw); border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface); color: var(--app-text-muted); padding: 0 13px; font-size: 12px; font-weight: 950; cursor: pointer; box-shadow: none; }
+@@ -8002,4 +8031,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .saved-library-summary-card, .saved-library-card { grid-template-columns: 1fr; }
+   .saved-library-card__actions { justify-content: stretch; }
+   .saved-library-card__actions .button, .saved-library-card__actions .ghost-button { flex: 1 1 120px; }
++  .saved-library-toolbar__header, .saved-library-item-collections-manager__header, .saved-library-collection-membership-row { grid-template-columns: 1fr; align-items: stretch; }
++  .saved-library-toolbar__header { display: grid; }
++  .saved-library-collection-editor__actions, .saved-library-selected-collection__actions { display: grid; grid-template-columns: 1fr; }
++  .saved-library-collection-membership-row .button, .saved-library-collection-membership-row .ghost-button { width: 100%; }
+ }
+diff --git a/apps/web/src/features/account/SavedLibraryClient.tsx b/apps/web/src/features/account/SavedLibraryClient.tsx
+index 0b43f0e..134aed5 100644
+--- a/apps/web/src/features/account/SavedLibraryClient.tsx
++++ b/apps/web/src/features/account/SavedLibraryClient.tsx
+@@ -1,7 +1,7 @@
+ 'use client';
+ 
+ import Link from 'next/link';
+-import { useEffect, useMemo, useState } from 'react';
++import { type FormEvent, useEffect, useMemo, useState } from 'react';
+ import type { SavedCollectionDto, SavedItemDto, SavedItemType } from '@hellowhen/contracts';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+@@ -11,12 +11,17 @@ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ import { formatDateTime } from './accountPresentation';
+ 
+ type SavedFilter = 'all' | SavedItemType;
++type CollectionEditorMode = 'create' | 'edit';
+ 
+ type SavedTab = {
+   value: SavedFilter;
+   labelKey: string;
+ };
+ 
++type SavedLibraryClientProps = {
++  initialCollectionId?: string;
++};
++
+ const savedTabs: SavedTab[] = [
+   { value: 'all', labelKey: 'account.saved.filters.all' },
+   { value: 'trade', labelKey: 'account.saved.filters.trades' },
+@@ -85,18 +90,29 @@ function collectionItemCount(collection: SavedCollectionDto) {
+   return Array.isArray(collection.items) ? collection.items.length : 0;
+ }
+ 
+-export function SavedLibraryClient() {
++function collectionHasSavedItem(collection: SavedCollectionDto, savedItemId: string) {
++  return (collection.items ?? []).some((item) => item.savedItemId === savedItemId);
++}
++
++export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientProps = {}) {
+   const auth = useWebAuth();
+   const { t, language } = useWebTranslation();
+   const [filter, setFilter] = useState<SavedFilter>('all');
+-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
++  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(initialCollectionId ?? null);
+   const [items, setItems] = useState<SavedItemDto[]>([]);
+   const [collections, setCollections] = useState<SavedCollectionDto[]>([]);
+   const [nextCursor, setNextCursor] = useState<string | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [loadingMore, setLoadingMore] = useState(false);
+   const [updatingId, setUpdatingId] = useState<string | null>(null);
++  const [collectionBusyId, setCollectionBusyId] = useState<string | null>(null);
++  const [managingItem, setManagingItem] = useState<SavedItemDto | null>(null);
+   const [error, setError] = useState<string | null>(null);
++  const [message, setMessage] = useState<string | null>(null);
++  const [collectionEditorMode, setCollectionEditorMode] = useState<CollectionEditorMode | null>(null);
++  const [collectionTitle, setCollectionTitle] = useState('');
++  const [collectionDescription, setCollectionDescription] = useState('');
++  const [collectionTitleError, setCollectionTitleError] = useState<string | null>(null);
+ 
+   const selectedCollection = useMemo(
+     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
+@@ -128,7 +144,9 @@ export function SavedLibraryClient() {
+       ]);
+       setItems((current) => append ? [...current, ...(savedResponse.items ?? [])] : (savedResponse.items ?? []));
+       setNextCursor(savedResponse.nextCursor ?? null);
+-      setCollections(collectionsResponse.collections ?? []);
++      const nextCollections = collectionsResponse.collections ?? [];
++      setCollections(nextCollections);
++      setSelectedCollectionId((current) => (current && !nextCollections.some((collection) => collection.id === current) ? null : current));
+     } catch (err) {
+       setError(getFriendlyApiErrorMessage(err, t('account.saved.loadError')));
+       if (!append) {
+@@ -143,6 +161,83 @@ export function SavedLibraryClient() {
+ 
+   useEffect(() => { void load(); }, [auth.hydrated, auth.isAuthenticated, filter, selectedCollectionId]);
+ 
++  function openCreateCollection() {
++    setMessage(null);
++    setError(null);
++    setCollectionTitleError(null);
++    setCollectionTitle('');
++    setCollectionDescription('');
++    setCollectionEditorMode('create');
++  }
++
++  function openEditCollection(collection: SavedCollectionDto) {
++    setMessage(null);
++    setError(null);
++    setCollectionTitleError(null);
++    setCollectionTitle(collection.title);
++    setCollectionDescription(collection.description ?? '');
++    setCollectionEditorMode('edit');
++  }
++
++  function closeCollectionEditor() {
++    setCollectionEditorMode(null);
++    setCollectionTitle('');
++    setCollectionDescription('');
++    setCollectionTitleError(null);
++  }
++
++  async function saveCollection(event?: FormEvent<HTMLFormElement>) {
++    event?.preventDefault();
++    const title = collectionTitle.trim();
++    const description = collectionDescription.trim();
++    if (!title) {
++      setCollectionTitleError(t('account.saved.collections.titleRequired'));
++      return;
++    }
++
++    setCollectionTitleError(null);
++    setCollectionBusyId('collection-save');
++    setError(null);
++    try {
++      if (collectionEditorMode === 'edit' && selectedCollection) {
++        const response = await api.saved.updateCollection(selectedCollection.id, { title, description: description || null });
++        setCollections((current) => current.map((collection) => collection.id === response.collection.id ? response.collection : collection));
++        setMessage(t('account.saved.collections.updated', { title: response.collection.title }));
++      } else {
++        const response = await api.saved.createCollection({ title, description: description || undefined });
++        setCollections((current) => [response.collection, ...current.filter((collection) => collection.id !== response.collection.id)]);
++        setSelectedCollectionId(response.collection.id);
++        setMessage(t('account.saved.collections.created', { title: response.collection.title }));
++      }
++      closeCollectionEditor();
++      void load();
++    } catch (err) {
++      setError(getFriendlyApiErrorMessage(err, t('account.saved.collections.saveError')));
++    } finally {
++      setCollectionBusyId(null);
++    }
++  }
++
++  async function deleteCollection(collection: SavedCollectionDto) {
++    const confirmed = window.confirm(t('account.saved.collections.deleteConfirm', { title: collection.title }));
++    if (!confirmed) return;
++
++    setCollectionBusyId(`delete-${collection.id}`);
++    setError(null);
++    try {
++      await api.saved.removeCollection(collection.id);
++      setCollections((current) => current.filter((entry) => entry.id !== collection.id));
++      if (selectedCollectionId === collection.id) setSelectedCollectionId(null);
++      setManagingItem(null);
++      setMessage(t('account.saved.collections.deleted', { title: collection.title }));
++      void load();
++    } catch (err) {
++      setError(getFriendlyApiErrorMessage(err, t('account.saved.collections.deleteError')));
++    } finally {
++      setCollectionBusyId(null);
++    }
++  }
++
+   async function removeSavedItem(savedItemId: string) {
+     setUpdatingId(savedItemId);
+     setError(null);
+@@ -153,6 +248,7 @@ export function SavedLibraryClient() {
+         ...collection,
+         items: collection.items?.filter((item) => item.savedItemId !== savedItemId),
+       })));
++      setManagingItem((current) => current?.id === savedItemId ? null : current);
+     } catch (err) {
+       setError(getFriendlyApiErrorMessage(err, t('account.saved.removeError')));
+     } finally {
+@@ -160,6 +256,37 @@ export function SavedLibraryClient() {
+     }
+   }
+ 
++  async function addItemToCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    setCollectionBusyId(`item-${collection.id}-${item.id}`);
++    setError(null);
++    try {
++      await api.saved.addCollectionItem(collection.id, { savedItemId: item.id });
++      setMessage(t('account.saved.collections.itemAdded', { title: itemTitle(item, t), collection: collection.title }));
++      await load();
++    } catch (err) {
++      setError(getFriendlyApiErrorMessage(err, t('account.saved.collections.itemAddError')));
++    } finally {
++      setCollectionBusyId(null);
++    }
++  }
++
++  async function removeItemFromCollection(collection: SavedCollectionDto, item: SavedItemDto) {
++    setCollectionBusyId(`item-${collection.id}-${item.id}`);
++    setError(null);
++    try {
++      await api.saved.removeCollectionItem(collection.id, item.id);
++      setMessage(t('account.saved.collections.itemRemoved', { title: itemTitle(item, t), collection: collection.title }));
++      if (selectedCollectionId === collection.id) {
++        setItems((current) => current.filter((entry) => entry.id !== item.id));
++      }
++      await load();
++    } catch (err) {
++      setError(getFriendlyApiErrorMessage(err, t('account.saved.collections.itemRemoveError')));
++    } finally {
++      setCollectionBusyId(null);
++    }
++  }
++
+   if (!auth.hydrated || loading) {
+     return <section className="mobile-card mobile-card--soft"><p>{t('account.saved.loading')}</p></section>;
+   }
+@@ -177,6 +304,7 @@ export function SavedLibraryClient() {
+ 
+   const hasItems = items.length > 0;
+   const hasCollections = collections.length > 0;
++  const collectionEditorTitle = collectionEditorMode === 'edit' ? t('account.saved.collections.editTitle') : t('account.saved.collections.createTitle');
+ 
+   return (
+     <div className="saved-library-panel">
+@@ -192,6 +320,14 @@ export function SavedLibraryClient() {
+       </section>
+ 
+       <section className="saved-library-toolbar" aria-label={t('account.saved.filtersLabel')}>
++        <div className="saved-library-toolbar__header">
++          <div>
++            <strong>{t('account.saved.collections.title')}</strong>
++            <span>{t('account.saved.collections.manageBody')}</span>
++          </div>
++          <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
++        </div>
++
+         <div className="saved-library-tabs" role="tablist" aria-label={t('account.saved.filtersLabel')}>
+           {savedTabs.map((tab) => (
+             <button
+@@ -230,6 +366,30 @@ export function SavedLibraryClient() {
+         </div>
+       </section>
+ 
++      {collectionEditorMode ? (
++        <form className="saved-library-collection-editor" onSubmit={(event) => { void saveCollection(event); }}>
++          <div className="saved-library-collection-editor__header">
++            <span className="semantic-badge instruction">{t('account.saved.collections.collection')}</span>
++            <h3>{collectionEditorTitle}</h3>
++            <p>{t('account.saved.collections.editorBody')}</p>
++          </div>
++          <label>
++            <span>{t('account.saved.collections.titleLabel')}</span>
++            <input value={collectionTitle} maxLength={80} onChange={(event) => setCollectionTitle(event.target.value)} placeholder={t('account.saved.collections.titlePlaceholder')} />
++          </label>
++          {collectionTitleError ? <p className="field-error">{collectionTitleError}</p> : null}
++          <label>
++            <span>{t('account.saved.collections.descriptionLabel')}</span>
++            <textarea value={collectionDescription} maxLength={240} onChange={(event) => setCollectionDescription(event.target.value)} placeholder={t('account.saved.collections.descriptionPlaceholder')} rows={3} />
++          </label>
++          <div className="saved-library-collection-editor__actions">
++            <button type="button" className="button secondary" onClick={closeCollectionEditor}>{t('common.actions.cancel')}</button>
++            <button type="submit" className="button primary" disabled={collectionBusyId === 'collection-save'}>{collectionBusyId === 'collection-save' ? t('common.states.working') : t('common.actions.save')}</button>
++          </div>
++        </form>
++      ) : null}
++
++      {message ? <p className="form-success">{message}</p> : null}
+       {error ? <p className="form-error">{error}</p> : null}
+ 
+       {selectedCollection ? (
+@@ -239,6 +399,51 @@ export function SavedLibraryClient() {
+             <h3>{selectedCollection.title}</h3>
+             <p>{selectedCollection.description || t('account.saved.collections.defaultBody')}</p>
+           </div>
++          <div className="saved-library-selected-collection__actions">
++            <button type="button" className="ghost-button" onClick={() => openEditCollection(selectedCollection)}>{t('common.actions.edit')}</button>
++            <button type="button" className="ghost-button danger" disabled={collectionBusyId === `delete-${selectedCollection.id}`} onClick={() => { void deleteCollection(selectedCollection); }}>
++              {collectionBusyId === `delete-${selectedCollection.id}` ? t('common.states.working') : t('account.saved.collections.delete')}
++            </button>
++          </div>
++        </section>
++      ) : null}
++
++      {managingItem ? (
++        <section className="saved-library-item-collections-manager">
++          <div className="saved-library-item-collections-manager__header">
++            <div>
++              <span className={itemTypeClass(managingItem.itemType)}>{t(`account.saved.types.${managingItem.itemType}`)}</span>
++              <h3>{t('account.saved.collections.manageItemTitle', { title: itemTitle(managingItem, t) })}</h3>
++              <p>{t('account.saved.collections.manageItemBody')}</p>
++            </div>
++            <button type="button" className="ghost-button" onClick={() => setManagingItem(null)}>{t('common.actions.close')}</button>
++          </div>
++          {!hasCollections ? (
++            <p>{t('account.saved.collections.createFirst')}</p>
++          ) : (
++            <div className="saved-library-collection-membership-list">
++              {collections.map((collection) => {
++                const inCollection = collectionHasSavedItem(collection, managingItem.id);
++                const busyKey = `item-${collection.id}-${managingItem.id}`;
++                return (
++                  <div key={collection.id} className="saved-library-collection-membership-row">
++                    <div>
++                      <strong>{collection.title}</strong>
++                      <span>{collection.description || t('account.saved.collections.defaultBody')}</span>
++                    </div>
++                    <button
++                      type="button"
++                      className={inCollection ? 'ghost-button danger' : 'button secondary'}
++                      disabled={collectionBusyId === busyKey}
++                      onClick={() => { void (inCollection ? removeItemFromCollection(collection, managingItem) : addItemToCollection(collection, managingItem)); }}
++                    >
++                      {collectionBusyId === busyKey ? t('common.states.working') : (inCollection ? t('account.saved.collections.removeFromCollection') : t('account.saved.collections.addToCollection'))}
++                    </button>
++                  </div>
++                );
++              })}
++            </div>
++          )}
+         </section>
+       ) : null}
+ 
+@@ -272,6 +477,7 @@ export function SavedLibraryClient() {
+                 </div>
+                 <div className="saved-library-card__actions">
+                   {href ? <Link href={href} className="button secondary">{t('common.actions.open')}</Link> : null}
++                  <button className="button secondary" type="button" onClick={() => setManagingItem(item)}>{t('account.saved.collections.manage')}</button>
+                   <button className="ghost-button" type="button" disabled={updatingId === item.id} onClick={() => { void removeSavedItem(item.id); }}>
+                     {updatingId === item.id ? t('common.states.working') : t('common.actions.remove')}
+                   </button>
+@@ -293,6 +499,7 @@ export function SavedLibraryClient() {
+           <span className="semantic-badge instruction">{t('account.saved.collections.title')}</span>
+           <h3>{t('account.saved.collections.emptyTitle')}</h3>
+           <p>{t('account.saved.collections.emptyBody')}</p>
++          <button type="button" className="button secondary" onClick={openCreateCollection}>{t('account.saved.collections.create')}</button>
+         </section>
+       ) : null}
+     </div>
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 440c446..a80c11b 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -444,9 +444,39 @@ export const account = {
+       title: 'Collections',
+       allSaved: 'All saved',
+       collection: 'Collection',
++      detailTitle: 'Saved collection',
++      detailBody: 'Review and manage the saved items in this private collection.',
+       defaultBody: 'Saved items grouped privately by you.',
+-      emptyTitle: 'Collections arrive next',
+-      emptyBody: 'This hub can already read collections. Creating and managing saved collections comes in SAVE6.',
++      manageBody: 'Create private groups for saved trades, needs, offers, and people.',
++      create: 'Create collection',
++      createTitle: 'Create collection',
++      editTitle: 'Edit collection',
++      editorBody: 'Collections stay private and never notify the people or trades you saved.',
++      titleLabel: 'Collection name',
++      titlePlaceholder: 'Example: Paris launch contacts',
++      titleRequired: 'Add a collection name.',
++      descriptionLabel: 'Description',
++      descriptionPlaceholder: 'Optional note for yourself',
++      saveError: 'Could not save this collection.',
++      delete: 'Delete collection',
++      deleteTitle: 'Delete collection?',
++      deleteConfirm: 'Delete “{{title}}”? Saved items stay in your library.',
++      deleteError: 'Could not delete this collection.',
++      created: '“{{title}}” was created.',
++      updated: '“{{title}}” was updated.',
++      deleted: '“{{title}}” was deleted.',
++      manage: 'Collections',
++      manageItemTitle: 'Collections for {{title}}',
++      manageItemBody: 'Add or remove this saved item from your private collections.',
++      createFirst: 'Create a collection first, then add saved items to it.',
++      addToCollection: 'Add',
++      removeFromCollection: 'Remove',
++      itemAdded: '“{{title}}” was added to “{{collection}}”.',
++      itemRemoved: '“{{title}}” was removed from “{{collection}}”.',
++      itemAddError: 'Could not add this item to the collection.',
++      itemRemoveError: 'Could not remove this item from the collection.',
++      emptyTitle: 'No collections yet',
++      emptyBody: 'Create a collection to group saved trades, needs, offers, and people privately.',
+     },
+   },
+   items: {
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index c0af755..2034b10 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -444,9 +444,39 @@ export const account = {
+       title: 'Collections',
+       allSaved: 'Tous les enregistrés',
+       collection: 'Collection',
++      detailTitle: 'Collection enregistrée',
++      detailBody: 'Consultez et gérez les éléments enregistrés dans cette collection privée.',
+       defaultBody: 'Éléments enregistrés regroupés en privé par vous.',
+-      emptyTitle: 'Les collections arrivent ensuite',
+-      emptyBody: 'Ce hub peut déjà lire les collections. La création et gestion des collections enregistrées arrivera dans SAVE6.',
++      manageBody: 'Créez des groupes privés pour vos échanges, besoins, offres et personnes enregistrés.',
++      create: 'Créer une collection',
++      createTitle: 'Créer une collection',
++      editTitle: 'Modifier la collection',
++      editorBody: 'Les collections restent privées et ne préviennent jamais les personnes ou échanges enregistrés.',
++      titleLabel: 'Nom de la collection',
++      titlePlaceholder: 'Exemple : contacts lancement Paris',
++      titleRequired: 'Ajoutez un nom de collection.',
++      descriptionLabel: 'Description',
++      descriptionPlaceholder: 'Note optionnelle pour vous',
++      saveError: 'Impossible d’enregistrer cette collection.',
++      delete: 'Supprimer la collection',
++      deleteTitle: 'Supprimer la collection ?',
++      deleteConfirm: 'Supprimer « {{title}} » ? Les éléments restent dans vos Enregistrés.',
++      deleteError: 'Impossible de supprimer cette collection.',
++      created: '« {{title}} » a été créée.',
++      updated: '« {{title}} » a été mise à jour.',
++      deleted: '« {{title}} » a été supprimée.',
++      manage: 'Collections',
++      manageItemTitle: 'Collections pour {{title}}',
++      manageItemBody: 'Ajoutez ou retirez cet élément enregistré de vos collections privées.',
++      createFirst: 'Créez d’abord une collection, puis ajoutez-y des éléments enregistrés.',
++      addToCollection: 'Ajouter',
++      removeFromCollection: 'Retirer',
++      itemAdded: '« {{title}} » a été ajouté à « {{collection}} ».',
++      itemRemoved: '« {{title}} » a été retiré de « {{collection}} ».',
++      itemAddError: 'Impossible d’ajouter cet élément à la collection.',
++      itemRemoveError: 'Impossible de retirer cet élément de la collection.',
++      emptyTitle: 'Aucune collection pour le moment',
++      emptyBody: 'Créez une collection pour regrouper vos échanges, besoins, offres et personnes enregistrés en privé.',
+     },
+   },
+   items: {

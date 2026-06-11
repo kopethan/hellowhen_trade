@@ -167,6 +167,13 @@ enum InventoryFolderItemType {
   offer
 }
 
+enum SavedItemType {
+  trade
+  need
+  offer
+  user
+}
+
 enum PreviewCardTheme {
   default
   blue
@@ -710,6 +717,10 @@ model User {
   offers       Offer[]
   inventoryFolders InventoryFolder[] @relation("InventoryFolderOwner")
   inventoryFolderItems InventoryFolderItem[] @relation("InventoryFolderItemOwner")
+  savedItems SavedItem[] @relation("SavedItemOwner")
+  savedUserTargets SavedItem[] @relation("SavedUserTarget")
+  savedCollections SavedCollection[] @relation("SavedCollectionOwner")
+  savedCollectionItems SavedCollectionItem[] @relation("SavedCollectionItemOwner")
   inventoryTranslations InventoryTranslation[]
   trades       Trade[] @relation("OwnedTrades")
   providerTrades Trade[] @relation("ProvidedTrades")
@@ -1192,6 +1203,7 @@ model Need {
   proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageNeed")
   folderItems InventoryFolderItem[] @relation("NeedFolderItems")
+  savedItems SavedItem[] @relation("SavedNeedItems")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
@@ -1236,6 +1248,7 @@ model Offer {
   proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageOffer")
   folderItems InventoryFolderItem[] @relation("OfferFolderItems")
+  savedItems SavedItem[] @relation("SavedOfferItems")
 
   @@index([ownerId, status])
   @@index([businessProfileId, status])
@@ -1286,6 +1299,72 @@ model InventoryFolderItem {
   @@index([folderId, sortOrder, createdAt])
   @@index([needId])
   @@index([offerId])
+}
+
+model SavedItem {
+  id           String        @id @default(cuid())
+  ownerId      String
+  itemType     SavedItemType
+  tradeId      String?
+  needId       String?
+  offerId      String?
+  targetUserId String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  owner      User                  @relation("SavedItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  targetUser User?                 @relation("SavedUserTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  trade      Trade?                @relation("SavedTradeItems", fields: [tradeId], references: [id], onDelete: Cascade)
+  need       Need?                 @relation("SavedNeedItems", fields: [needId], references: [id], onDelete: Cascade)
+  offer      Offer?                @relation("SavedOfferItems", fields: [offerId], references: [id], onDelete: Cascade)
+  collectionItems SavedCollectionItem[]
+
+  @@unique([ownerId, itemType, tradeId])
+  @@unique([ownerId, itemType, needId])
+  @@unique([ownerId, itemType, offerId])
+  @@unique([ownerId, itemType, targetUserId])
+  @@index([ownerId, itemType, createdAt])
+  @@index([ownerId, createdAt])
+  @@index([tradeId])
+  @@index([needId])
+  @@index([offerId])
+  @@index([targetUserId])
+  @@index([createdAt])
+}
+
+model SavedCollection {
+  id          String   @id @default(cuid())
+  ownerId     String
+  title       String
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner User @relation("SavedCollectionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  items SavedCollectionItem[]
+
+  @@unique([ownerId, title])
+  @@index([ownerId, sortOrder, createdAt])
+  @@index([createdAt])
+}
+
+model SavedCollectionItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  savedItemId  String
+  ownerId      String
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  collection SavedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  savedItem  SavedItem       @relation(fields: [savedItemId], references: [id], onDelete: Cascade)
+  owner      User            @relation("SavedCollectionItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, savedItemId])
+  @@index([ownerId, createdAt])
+  @@index([collectionId, sortOrder, createdAt])
+  @@index([savedItemId])
 }
 
 model InventoryTranslation {
@@ -1413,6 +1492,7 @@ model Trade {
   ledgerEntries CreditLedgerEntry[]
   acceptedDealSnapshot AcceptedDealSnapshot?
   cashPromise CashPromise?
+  savedItems SavedItem[] @relation("SavedTradeItems")
 
   @@index([status, isPublic, createdAt])
   @@index([postType, status, isPublic, createdAt])

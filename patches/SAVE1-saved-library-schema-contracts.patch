@@ -1,0 +1,356 @@
+diff --git a/apps/api/prisma/migrations/20260611162000_saved_library/migration.sql b/apps/api/prisma/migrations/20260611162000_saved_library/migration.sql
+new file mode 100644
+index 0000000..7e236f5
+--- /dev/null
++++ b/apps/api/prisma/migrations/20260611162000_saved_library/migration.sql
+@@ -0,0 +1,86 @@
++-- SAVE1: private Saved Library foundation for saving public content and profiles.
++CREATE TYPE "SavedItemType" AS ENUM ('trade', 'need', 'offer', 'user');
++
++CREATE TABLE "SavedItem" (
++    "id" TEXT NOT NULL,
++    "ownerId" TEXT NOT NULL,
++    "itemType" "SavedItemType" NOT NULL,
++    "tradeId" TEXT,
++    "needId" TEXT,
++    "offerId" TEXT,
++    "targetUserId" TEXT,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "SavedItem_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "SavedCollection" (
++    "id" TEXT NOT NULL,
++    "ownerId" TEXT NOT NULL,
++    "title" TEXT NOT NULL,
++    "description" TEXT,
++    "sortOrder" INTEGER NOT NULL DEFAULT 0,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updatedAt" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "SavedCollection_pkey" PRIMARY KEY ("id")
++);
++
++CREATE TABLE "SavedCollectionItem" (
++    "id" TEXT NOT NULL,
++    "collectionId" TEXT NOT NULL,
++    "savedItemId" TEXT NOT NULL,
++    "ownerId" TEXT NOT NULL,
++    "sortOrder" INTEGER NOT NULL DEFAULT 0,
++    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++
++    CONSTRAINT "SavedCollectionItem_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "SavedItem_ownerId_itemType_tradeId_key" ON "SavedItem"("ownerId", "itemType", "tradeId");
++CREATE UNIQUE INDEX "SavedItem_ownerId_itemType_needId_key" ON "SavedItem"("ownerId", "itemType", "needId");
++CREATE UNIQUE INDEX "SavedItem_ownerId_itemType_offerId_key" ON "SavedItem"("ownerId", "itemType", "offerId");
++CREATE UNIQUE INDEX "SavedItem_ownerId_itemType_targetUserId_key" ON "SavedItem"("ownerId", "itemType", "targetUserId");
++CREATE INDEX "SavedItem_ownerId_itemType_createdAt_idx" ON "SavedItem"("ownerId", "itemType", "createdAt");
++CREATE INDEX "SavedItem_ownerId_createdAt_idx" ON "SavedItem"("ownerId", "createdAt");
++CREATE INDEX "SavedItem_tradeId_idx" ON "SavedItem"("tradeId");
++CREATE INDEX "SavedItem_needId_idx" ON "SavedItem"("needId");
++CREATE INDEX "SavedItem_offerId_idx" ON "SavedItem"("offerId");
++CREATE INDEX "SavedItem_targetUserId_idx" ON "SavedItem"("targetUserId");
++CREATE INDEX "SavedItem_createdAt_idx" ON "SavedItem"("createdAt");
++
++CREATE UNIQUE INDEX "SavedCollection_ownerId_title_key" ON "SavedCollection"("ownerId", "title");
++CREATE INDEX "SavedCollection_ownerId_sortOrder_createdAt_idx" ON "SavedCollection"("ownerId", "sortOrder", "createdAt");
++CREATE INDEX "SavedCollection_createdAt_idx" ON "SavedCollection"("createdAt");
++
++CREATE UNIQUE INDEX "SavedCollectionItem_collectionId_savedItemId_key" ON "SavedCollectionItem"("collectionId", "savedItemId");
++CREATE INDEX "SavedCollectionItem_ownerId_createdAt_idx" ON "SavedCollectionItem"("ownerId", "createdAt");
++CREATE INDEX "SavedCollectionItem_collectionId_sortOrder_createdAt_idx" ON "SavedCollectionItem"("collectionId", "sortOrder", "createdAt");
++CREATE INDEX "SavedCollectionItem_savedItemId_idx" ON "SavedCollectionItem"("savedItemId");
++
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_targetUserId_fkey" FOREIGN KEY ("targetUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_tradeId_fkey" FOREIGN KEY ("tradeId") REFERENCES "Trade"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_needId_fkey" FOREIGN KEY ("needId") REFERENCES "Need"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_offerId_fkey" FOREIGN KEY ("offerId") REFERENCES "Offer"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "SavedCollection" ADD CONSTRAINT "SavedCollection_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "SavedCollectionItem" ADD CONSTRAINT "SavedCollectionItem_collectionId_fkey" FOREIGN KEY ("collectionId") REFERENCES "SavedCollection"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "SavedCollectionItem" ADD CONSTRAINT "SavedCollectionItem_savedItemId_fkey" FOREIGN KEY ("savedItemId") REFERENCES "SavedItem"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "SavedCollectionItem" ADD CONSTRAINT "SavedCollectionItem_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_exactly_one_target_check" CHECK (
++    ("itemType" = 'trade' AND "tradeId" IS NOT NULL AND "needId" IS NULL AND "offerId" IS NULL AND "targetUserId" IS NULL)
++    OR
++    ("itemType" = 'need' AND "needId" IS NOT NULL AND "tradeId" IS NULL AND "offerId" IS NULL AND "targetUserId" IS NULL)
++    OR
++    ("itemType" = 'offer' AND "offerId" IS NOT NULL AND "tradeId" IS NULL AND "needId" IS NULL AND "targetUserId" IS NULL)
++    OR
++    ("itemType" = 'user' AND "targetUserId" IS NOT NULL AND "tradeId" IS NULL AND "needId" IS NULL AND "offerId" IS NULL)
++);
++
++ALTER TABLE "SavedItem" ADD CONSTRAINT "SavedItem_cannot_save_self_check" CHECK (
++    "targetUserId" IS NULL OR "targetUserId" <> "ownerId"
++);
+diff --git a/apps/api/prisma/schema.prisma b/apps/api/prisma/schema.prisma
+index 32b74ab..ce99edb 100644
+--- a/apps/api/prisma/schema.prisma
++++ b/apps/api/prisma/schema.prisma
+@@ -167,6 +167,13 @@ enum InventoryFolderItemType {
+   offer
+ }
+ 
++enum SavedItemType {
++  trade
++  need
++  offer
++  user
++}
++
+ enum PreviewCardTheme {
+   default
+   blue
+@@ -710,6 +717,10 @@ model User {
+   offers       Offer[]
+   inventoryFolders InventoryFolder[] @relation("InventoryFolderOwner")
+   inventoryFolderItems InventoryFolderItem[] @relation("InventoryFolderItemOwner")
++  savedItems SavedItem[] @relation("SavedItemOwner")
++  savedUserTargets SavedItem[] @relation("SavedUserTarget")
++  savedCollections SavedCollection[] @relation("SavedCollectionOwner")
++  savedCollectionItems SavedCollectionItem[] @relation("SavedCollectionItemOwner")
+   inventoryTranslations InventoryTranslation[]
+   trades       Trade[] @relation("OwnedTrades")
+   providerTrades Trade[] @relation("ProvidedTrades")
+@@ -1192,6 +1203,7 @@ model Need {
+   proposedInTradeProposals TradeProposal[] @relation("ProposalNeed")
+   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageNeed")
+   folderItems InventoryFolderItem[] @relation("NeedFolderItems")
++  savedItems SavedItem[] @relation("SavedNeedItems")
+ 
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+@@ -1236,6 +1248,7 @@ model Offer {
+   proposedInTradeProposals TradeProposal[] @relation("ProposalOffer")
+   proposalPackageItems TradeProposalPackageItem[] @relation("ProposalPackageOffer")
+   folderItems InventoryFolderItem[] @relation("OfferFolderItems")
++  savedItems SavedItem[] @relation("SavedOfferItems")
+ 
+   @@index([ownerId, status])
+   @@index([businessProfileId, status])
+@@ -1288,6 +1301,72 @@ model InventoryFolderItem {
+   @@index([offerId])
+ }
+ 
++model SavedItem {
++  id           String        @id @default(cuid())
++  ownerId      String
++  itemType     SavedItemType
++  tradeId      String?
++  needId       String?
++  offerId      String?
++  targetUserId String?
++  createdAt    DateTime      @default(now())
++  updatedAt    DateTime      @updatedAt
++
++  owner      User                  @relation("SavedItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
++  targetUser User?                 @relation("SavedUserTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
++  trade      Trade?                @relation("SavedTradeItems", fields: [tradeId], references: [id], onDelete: Cascade)
++  need       Need?                 @relation("SavedNeedItems", fields: [needId], references: [id], onDelete: Cascade)
++  offer      Offer?                @relation("SavedOfferItems", fields: [offerId], references: [id], onDelete: Cascade)
++  collectionItems SavedCollectionItem[]
++
++  @@unique([ownerId, itemType, tradeId])
++  @@unique([ownerId, itemType, needId])
++  @@unique([ownerId, itemType, offerId])
++  @@unique([ownerId, itemType, targetUserId])
++  @@index([ownerId, itemType, createdAt])
++  @@index([ownerId, createdAt])
++  @@index([tradeId])
++  @@index([needId])
++  @@index([offerId])
++  @@index([targetUserId])
++  @@index([createdAt])
++}
++
++model SavedCollection {
++  id          String   @id @default(cuid())
++  ownerId     String
++  title       String
++  description String?
++  sortOrder   Int      @default(0)
++  createdAt   DateTime @default(now())
++  updatedAt   DateTime @updatedAt
++
++  owner User @relation("SavedCollectionOwner", fields: [ownerId], references: [id], onDelete: Cascade)
++  items SavedCollectionItem[]
++
++  @@unique([ownerId, title])
++  @@index([ownerId, sortOrder, createdAt])
++  @@index([createdAt])
++}
++
++model SavedCollectionItem {
++  id           String   @id @default(cuid())
++  collectionId String
++  savedItemId  String
++  ownerId      String
++  sortOrder    Int      @default(0)
++  createdAt    DateTime @default(now())
++
++  collection SavedCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
++  savedItem  SavedItem       @relation(fields: [savedItemId], references: [id], onDelete: Cascade)
++  owner      User            @relation("SavedCollectionItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
++
++  @@unique([collectionId, savedItemId])
++  @@index([ownerId, createdAt])
++  @@index([collectionId, sortOrder, createdAt])
++  @@index([savedItemId])
++}
++
+ model InventoryTranslation {
+   id             String                         @id @default(cuid())
+   targetType     InventoryTranslationTargetType
+@@ -1413,6 +1492,7 @@ model Trade {
+   ledgerEntries CreditLedgerEntry[]
+   acceptedDealSnapshot AcceptedDealSnapshot?
+   cashPromise CashPromise?
++  savedItems SavedItem[] @relation("SavedTradeItems")
+ 
+   @@index([status, isPublic, createdAt])
+   @@index([postType, status, isPublic, createdAt])
+diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
+index f902611..ff4d241 100644
+--- a/packages/contracts/src/index.ts
++++ b/packages/contracts/src/index.ts
+@@ -3,6 +3,7 @@ export * from './profile.js';
+ export * from './settings.js';
+ export * from './trade.js';
+ export * from './inventoryFolders.js';
++export * from './savedLibrary.js';
+ export * from './wallet.js';
+ export * from './media.js';
+ export * from './credits.js';
+diff --git a/packages/contracts/src/savedLibrary.ts b/packages/contracts/src/savedLibrary.ts
+new file mode 100644
+index 0000000..0cd40d5
+--- /dev/null
++++ b/packages/contracts/src/savedLibrary.ts
+@@ -0,0 +1,120 @@
++import { z } from 'zod';
++import { needSchema, offerSchema, tradeSchema, userPreviewSchema } from './trade.js';
++
++export const SAVED_COLLECTION_TITLE_MAX_LENGTH = 80;
++export const SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH = 240;
++export const SAVED_LIBRARY_FREE_ITEM_LIMIT = 10;
++
++export const savedItemTypeSchema = z.enum(['trade', 'need', 'offer', 'user']);
++
++export const createSavedItemRequestSchema = z.object({
++  itemType: savedItemTypeSchema,
++  itemId: z.string().min(1),
++  collectionId: z.string().min(1).optional(),
++});
++
++export const savedItemStatusQuerySchema = z.object({
++  itemType: savedItemTypeSchema,
++  itemId: z.string().min(1),
++});
++
++export const listSavedItemsQuerySchema = z.object({
++  itemType: savedItemTypeSchema.optional(),
++  collectionId: z.string().min(1).optional(),
++  take: z.coerce.number().int().min(1).max(100).optional().default(50),
++  cursor: z.string().min(1).optional(),
++});
++
++export const createSavedCollectionRequestSchema = z.object({
++  title: z.string().trim().min(1).max(SAVED_COLLECTION_TITLE_MAX_LENGTH),
++  description: z.string().trim().max(SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH).optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const updateSavedCollectionRequestSchema = z.object({
++  title: z.string().trim().min(1).max(SAVED_COLLECTION_TITLE_MAX_LENGTH).optional(),
++  description: z.string().trim().max(SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH).nullable().optional(),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++}).refine((value) => Object.keys(value).length > 0, { message: 'Provide at least one collection field to update.' });
++
++export const addSavedCollectionItemRequestSchema = z.object({
++  savedItemId: z.string().min(1),
++  sortOrder: z.number().int().min(0).max(100000).optional(),
++});
++
++export const savedCollectionSummarySchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  title: z.string(),
++  description: z.string().nullable().optional(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  updatedAt: z.string(),
++});
++
++export const savedItemSchema = z.object({
++  id: z.string(),
++  ownerId: z.string(),
++  itemType: savedItemTypeSchema,
++  tradeId: z.string().nullable().optional(),
++  needId: z.string().nullable().optional(),
++  offerId: z.string().nullable().optional(),
++  targetUserId: z.string().nullable().optional(),
++  createdAt: z.string(),
++  updatedAt: z.string().optional(),
++  trade: tradeSchema.nullable().optional(),
++  need: needSchema.nullable().optional(),
++  offer: offerSchema.nullable().optional(),
++  targetUser: userPreviewSchema.nullable().optional(),
++  collections: z.array(savedCollectionSummarySchema).optional(),
++});
++
++export const savedCollectionItemSchema = z.object({
++  id: z.string(),
++  collectionId: z.string(),
++  savedItemId: z.string(),
++  ownerId: z.string(),
++  sortOrder: z.number().int().optional().default(0),
++  createdAt: z.string(),
++  savedItem: savedItemSchema.optional(),
++});
++
++export const savedCollectionSchema = savedCollectionSummarySchema.extend({
++  items: z.array(savedCollectionItemSchema).optional(),
++});
++
++export const savedItemsResponseSchema = z.object({
++  items: z.array(savedItemSchema),
++  nextCursor: z.string().nullable().optional(),
++});
++
++export const savedItemResponseSchema = z.object({ item: savedItemSchema });
++
++export const savedItemStatusResponseSchema = z.object({
++  itemType: savedItemTypeSchema,
++  itemId: z.string(),
++  isSaved: z.boolean(),
++  savedItem: savedItemSchema.nullable().optional(),
++});
++
++export const savedCollectionsResponseSchema = z.object({ collections: z.array(savedCollectionSchema) });
++export const savedCollectionResponseSchema = z.object({ collection: savedCollectionSchema });
++export const savedCollectionItemResponseSchema = z.object({ item: savedCollectionItemSchema });
++
++export type SavedItemType = z.infer<typeof savedItemTypeSchema>;
++export type CreateSavedItemRequest = z.infer<typeof createSavedItemRequestSchema>;
++export type SavedItemStatusQuery = z.infer<typeof savedItemStatusQuerySchema>;
++export type ListSavedItemsQuery = z.infer<typeof listSavedItemsQuerySchema>;
++export type CreateSavedCollectionRequest = z.infer<typeof createSavedCollectionRequestSchema>;
++export type UpdateSavedCollectionRequest = z.infer<typeof updateSavedCollectionRequestSchema>;
++export type AddSavedCollectionItemRequest = z.infer<typeof addSavedCollectionItemRequestSchema>;
++export type SavedCollectionSummaryDto = z.infer<typeof savedCollectionSummarySchema>;
++export type SavedItemDto = z.infer<typeof savedItemSchema>;
++export type SavedCollectionItemDto = z.infer<typeof savedCollectionItemSchema>;
++export type SavedCollectionDto = z.infer<typeof savedCollectionSchema>;
++export type SavedItemsResponse = z.infer<typeof savedItemsResponseSchema>;
++export type SavedItemResponse = z.infer<typeof savedItemResponseSchema>;
++export type SavedItemStatusResponse = z.infer<typeof savedItemStatusResponseSchema>;
++export type SavedCollectionsResponse = z.infer<typeof savedCollectionsResponseSchema>;
++export type SavedCollectionResponse = z.infer<typeof savedCollectionResponseSchema>;
++export type SavedCollectionItemResponse = z.infer<typeof savedCollectionItemResponseSchema>;

@@ -1,0 +1,481 @@
+diff --git a/apps/api/src/modules/saved/saved.routes.ts b/apps/api/src/modules/saved/saved.routes.ts
+index cb4fb32..4f04c21 100644
+--- a/apps/api/src/modules/saved/saved.routes.ts
++++ b/apps/api/src/modules/saved/saved.routes.ts
+@@ -1,6 +1,9 @@
+ import { Router } from 'express';
+ import type { Prisma, SavedItemType } from '@prisma/client';
++import { evaluatePlusGate } from '@hellowhen/shared';
+ import {
++  SAVED_LIBRARY_FREE_COLLECTION_LIMIT,
++  SAVED_LIBRARY_FREE_ITEM_LIMIT,
+   addSavedCollectionItemRequestSchema,
+   createSavedCollectionRequestSchema,
+   createSavedItemRequestSchema,
+@@ -14,6 +17,7 @@ import { requireActiveAccount, requireAuth } from '../../middleware/auth.js';
+ import { publicTradeVisibilityWhere } from '../trades/trades.routes.js';
+ import { publicUserPreviewSelect } from '../users/publicUser.js';
+ import { usersHaveBlockBetween } from '../users/userBlocks.js';
++import { plusConfigSnapshot } from '../subscriptions/plus.routes.js';
+ 
+ export const savedRoutes = Router();
+ savedRoutes.use(requireAuth);
+@@ -235,6 +239,46 @@ function duplicateCollectionPayload() {
+   };
+ }
+ 
++async function getSavedLibraryGate(ownerId: string) {
++  const user = await prisma.user.findUnique({
++    where: { id: ownerId },
++    select: { subscriptionTier: true, subscriptionStatus: true },
++  });
++  return evaluatePlusGate(plusConfigSnapshot(), {
++    subscriptionTier: user?.subscriptionTier ?? 'free',
++    subscriptionStatus: user?.subscriptionStatus ?? 'none',
++  } as any);
++}
++
++async function requireSavedCollectionsPlus(ownerId: string, res: any) {
++  const gate = await getSavedLibraryGate(ownerId);
++  if (gate.hasPlusAccess) return true;
++  res.status(403).json({
++    error: 'saved_collections_plus_required',
++    message: 'Custom saved collections are a Plus feature. You can still keep up to 10 saved items in your default saved list.',
++    upgradeRequired: true,
++    feature: 'saved_collections',
++    freeLimit: SAVED_LIBRARY_FREE_COLLECTION_LIMIT,
++  });
++  return false;
++}
++
++async function enforceSavedItemFreeLimit(ownerId: string, res: any) {
++  const gate = await getSavedLibraryGate(ownerId);
++  if (gate.hasPlusAccess) return true;
++  const savedCount = await prisma.savedItem.count({ where: { ownerId } });
++  if (savedCount < SAVED_LIBRARY_FREE_ITEM_LIMIT) return true;
++  res.status(403).json({
++    error: 'saved_library_limit_reached',
++    message: `Free accounts can keep up to ${SAVED_LIBRARY_FREE_ITEM_LIMIT} saved items. Upgrade to Plus for unlimited saved items and custom collections.`,
++    upgradeRequired: true,
++    feature: 'saved_library',
++    freeLimit: SAVED_LIBRARY_FREE_ITEM_LIMIT,
++    savedCount,
++  });
++  return false;
++}
++
+ savedRoutes.get('/status', asyncRoute(async (req, res) => {
+   const input = savedItemStatusQuerySchema.parse(req.query);
+   const blockedUserIds = await blockedUserIdsFor(req.user!.id);
+@@ -266,6 +310,7 @@ savedRoutes.get('/collections', asyncRoute(async (req, res) => {
+ 
+ savedRoutes.post('/collections', requireActiveAccount, asyncRoute(async (req, res) => {
+   const input = createSavedCollectionRequestSchema.parse(req.body);
++  if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
+   try {
+     const collection = await prisma.savedCollection.create({
+       data: {
+@@ -287,6 +332,7 @@ savedRoutes.patch('/collections/:collectionId', requireActiveAccount, asyncRoute
+   const input = updateSavedCollectionRequestSchema.parse(req.body);
+   const existing = await loadOwnedCollection(req.params.collectionId, req.user!.id, false);
+   if (!existing) return res.status(404).json({ error: 'not_found' });
++  if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
+ 
+   try {
+     const collection = await prisma.savedCollection.update({
+@@ -317,6 +363,7 @@ savedRoutes.post('/collections/:collectionId/items', requireActiveAccount, async
+   const input = addSavedCollectionItemRequestSchema.parse(req.body);
+   const collection = await loadOwnedCollection(req.params.collectionId, req.user!.id, false);
+   if (!collection) return res.status(404).json({ error: 'not_found' });
++  if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
+   const savedItem = await loadSavedItem(input.savedItemId, req.user!.id);
+   if (!savedItem) return res.status(404).json({ error: 'saved_item_not_found' });
+ 
+@@ -380,12 +427,14 @@ savedRoutes.post('/', requireActiveAccount, asyncRoute(async (req, res) => {
+   if (input.collectionId) {
+     const collection = await loadOwnedCollection(input.collectionId, req.user!.id, false);
+     if (!collection) return res.status(404).json({ error: 'collection_not_found' });
++    if (!(await requireSavedCollectionsPlus(req.user!.id, res))) return;
+   }
+ 
+   let item = await prisma.savedItem.findFirst({ where: savedItemTargetWhere(req.user!.id, input.itemType, input.itemId), include: savedItemWithCollectionsInclude });
+   let created = false;
+ 
+   if (!item) {
++    if (!(await enforceSavedItemFreeLimit(req.user!.id, res))) return;
+     try {
+       item = await prisma.savedItem.create({
+         data: savedItemCreateData(req.user!.id, input.itemType, input.itemId),
+diff --git a/apps/mobile/src/components/SavedToggleButton.tsx b/apps/mobile/src/components/SavedToggleButton.tsx
+index e1508cb..e7ddd9e 100644
+--- a/apps/mobile/src/components/SavedToggleButton.tsx
++++ b/apps/mobile/src/components/SavedToggleButton.tsx
+@@ -1,10 +1,11 @@
+ import React, { useEffect, useState } from 'react';
+-import { Pressable, StyleSheet } from 'react-native';
++import { Pressable, StyleSheet, View } from 'react-native';
+ import type { StyleProp, ViewStyle } from 'react-native';
+ import { useNavigation } from '@react-navigation/native';
+ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+ import type { SavedItemType } from '@hellowhen/contracts';
+ import { api } from '../lib/api';
++import { getFriendlyApiErrorMessage } from '../lib/errors';
+ import type { RootStackParamList } from '../navigation/RootNavigator';
+ import { useAuth } from '../providers/AuthProvider';
+ import { useThemeTokens } from '../providers/ThemeProvider';
+@@ -37,6 +38,7 @@ export function SavedToggleButton({
+   const { t } = useTranslation();
+   const [savedItemId, setSavedItemId] = useState<string | null>(null);
+   const [busy, setBusy] = useState(false);
++  const [upgradePrompt, setUpgradePrompt] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -67,6 +69,7 @@ export function SavedToggleButton({
+     }
+ 
+     setBusy(true);
++    setUpgradePrompt(null);
+     try {
+       if (savedItemId) {
+         const currentSavedItemId = savedItemId;
+@@ -76,7 +79,8 @@ export function SavedToggleButton({
+         const result = await api.saved.create({ itemType, itemId });
+         setSavedItemId(result.item.id);
+       }
+-    } catch {
++    } catch (caughtError) {
++      setUpgradePrompt(getFriendlyApiErrorMessage(caughtError, t('account.saved.plus.savePrompt')));
+       try {
+         const result = await api.saved.status({ itemType, itemId });
+         setSavedItemId(result.isSaved ? result.savedItem?.id ?? null : null);
+@@ -94,26 +98,33 @@ export function SavedToggleButton({
+   const label = busy ? t('common.states.saving') : isSaved ? t('common.states.saved') : t('common.actions.save');
+ 
+   return (
+-    <Pressable
+-      accessibilityRole="button"
+-      accessibilityLabel={label}
+-      accessibilityState={{ busy, disabled: disabled || busy, selected: isSaved }}
+-      disabled={disabled || busy}
+-      onPress={() => { void toggleSaved(); }}
+-      style={({ pressed }) => [
+-        styles.button,
+-        {
+-          backgroundColor: isSaved ? theme.semantic.proposal.softBg : theme.color.surface,
+-          borderColor: isSaved ? theme.semantic.proposal.border : theme.color.border,
+-        },
+-        !showLabel && styles.iconOnly,
+-        (pressed || busy) && styles.pressed,
+-        style,
+-      ]}
+-    >
+-      <MobileIcon name="save" size={iconSize} color={isSaved ? theme.semantic.proposal.text : theme.color.text} />
+-      {showLabel ? <AppText style={[styles.label, { color: isSaved ? theme.semantic.proposal.text : theme.color.text }]}>{label}</AppText> : null}
+-    </Pressable>
++    <>
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel={label}
++        accessibilityState={{ busy, disabled: disabled || busy, selected: isSaved }}
++        disabled={disabled || busy}
++        onPress={() => { void toggleSaved(); }}
++        style={({ pressed }) => [
++          styles.button,
++          {
++            backgroundColor: isSaved ? theme.semantic.proposal.softBg : theme.color.surface,
++            borderColor: isSaved ? theme.semantic.proposal.border : theme.color.border,
++          },
++          !showLabel && styles.iconOnly,
++          (pressed || busy) && styles.pressed,
++          style,
++        ]}
++      >
++        <MobileIcon name="save" size={iconSize} color={isSaved ? theme.semantic.proposal.text : theme.color.text} />
++        {showLabel ? <AppText style={[styles.label, { color: isSaved ? theme.semantic.proposal.text : theme.color.text }]}>{label}</AppText> : null}
++      </Pressable>
++      {upgradePrompt ? (
++        <View style={[styles.prompt, { backgroundColor: theme.semantic.warning.softBg, borderColor: theme.semantic.warning.border }]}>
++          <AppText style={[styles.promptText, { color: theme.semantic.warning.text }]}>{upgradePrompt}</AppText>
++        </View>
++      ) : null}
++    </>
+   );
+ }
+ 
+@@ -144,4 +155,16 @@ const styles = StyleSheet.create({
+     opacity: 0.72,
+     transform: [{ scale: 0.98 }],
+   },
++  prompt: {
++    marginTop: 6,
++    borderRadius: 12,
++    borderWidth: 1,
++    paddingHorizontal: 10,
++    paddingVertical: 8,
++  },
++  promptText: {
++    fontSize: 12,
++    lineHeight: 16,
++    fontWeight: '800',
++  },
+ });
+diff --git a/apps/mobile/src/features/account/SavedLibraryScreen.tsx b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+index 82915e8..d3b1b41 100644
+--- a/apps/mobile/src/features/account/SavedLibraryScreen.tsx
++++ b/apps/mobile/src/features/account/SavedLibraryScreen.tsx
+@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
+ import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+ import { useFocusEffect } from '@react-navigation/native';
+ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+-import type { SavedCollectionDto, SavedItemDto, SavedItemType } from '@hellowhen/contracts';
++import { SAVED_LIBRARY_FREE_ITEM_LIMIT, type SavedCollectionDto, type SavedItemDto, type SavedItemType } from '@hellowhen/contracts';
+ import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
+ import { AppHeader } from '../../components/AppHeader';
+ import { AppCard } from '../../components/AppCard';
+@@ -12,6 +12,7 @@ import { DetailEmptyState } from '../../components/detail';
+ import { MobileIcon } from '../../components/MobileIcon';
+ import { InfoNotice, SemanticBadge, toneForKind } from '../../components/SemanticUI';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/errors';
+ import type { RootStackParamList } from '../../navigation/RootNavigator';
+ import { useTranslation } from '../../providers/MobileI18nProvider';
+@@ -307,6 +308,7 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+ 
+   const hasItems = items.length > 0;
+   const hasCollections = collections.length > 0;
++  const plusPublic = betaFeatures.plusSubscriptionFeatures.plusPublic;
+   const headerTitle = selectedCollection?.title ?? initialTitle ?? t('account.saved.title');
+ 
+   return (
+@@ -331,6 +333,12 @@ function SavedLibraryContent({ initialCollectionId, initialTitle, navigation }:
+           </View>
+         </AppCard>
+ 
++        <InfoNotice
++          tone="success"
++          title={t('account.saved.plus.title')}
++          body={plusPublic ? t('account.saved.plus.body', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT }) : t('account.saved.plus.comingSoonBody', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })}
++        />
++
+         <View style={[styles.collectionToolbar, { backgroundColor: theme.color.surface, borderColor: theme.color.border }]}>
+           <View style={styles.collectionToolbarCopy}>
+             <AppText style={styles.collectionToolbarTitle}>{t('account.saved.collections.title')}</AppText>
+diff --git a/apps/mobile/src/lib/errors.ts b/apps/mobile/src/lib/errors.ts
+index 3f1ea78..773cb65 100644
+--- a/apps/mobile/src/lib/errors.ts
++++ b/apps/mobile/src/lib/errors.ts
+@@ -61,6 +61,9 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
+     return apiError.body.message ?? 'Please check the form fields and try again.';
+   }
+ 
++  if (apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Free accounts can keep up to 10 saved items. Upgrade to Plus for unlimited saved items and custom collections.';
++  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Custom saved collections are a Plus feature.';
++
+   if (apiError.body?.error === 'insufficient_wallet_balance') {
+     return apiError.body.message ?? 'This trade cannot be started right now.';
+   }
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index 56dfe7a..8246e90 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -7970,6 +7970,12 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .saved-library-summary-card__icon { display: grid; place-items: center; width: 46px; height: 46px; border: 1px solid color-mix(in srgb, var(--proposal-border) 42%, var(--app-border)); border-radius: 18px; background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-control-shadow); }
+ .saved-library-summary-card h3, .saved-library-summary-card p { margin: 7px 0 0; }
+ .saved-library-summary-card p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.saved-library-plus-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 1px solid color-mix(in srgb, var(--success-border) 46%, var(--app-border)); border-radius: 22px; background: color-mix(in srgb, var(--success-bg) 14%, var(--app-surface)); padding: 13px; }
++.saved-library-plus-card h3, .saved-library-plus-card p { margin: 0; }
++.saved-library-plus-card h3 { margin-top: 5px; color: var(--app-text); font-size: 15px; font-weight: 950; }
++.saved-library-plus-card p, .saved-library-plus-card__note { color: var(--app-text-muted); font-size: 12px; font-weight: 850; line-height: 1.45; }
++.saved-library-plus-card__note { justify-self: end; max-width: 150px; text-align: right; }
++.saved-toggle-upgrade-prompt { display: inline-flex; max-width: 260px; border: 1px solid color-mix(in srgb, var(--warning-border) 58%, var(--app-border)); border-radius: 13px; background: color-mix(in srgb, var(--warning-bg) 18%, var(--app-surface)); color: var(--warning-text); padding: 8px 10px; font-size: 12px; font-weight: 850; line-height: 1.35; }
+ .saved-library-toolbar { display: grid; gap: 10px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 24px; background: color-mix(in srgb, var(--app-surface) 90%, var(--app-surface-soft)); padding: 10px; box-shadow: var(--app-control-shadow); }
+ 
+ .saved-library-toolbar__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+@@ -8028,7 +8034,8 @@ html[data-theme="dark"] .onboarding-guide-primary {
+ .saved-library-collections-preview h3, .saved-library-collections-preview p { margin: 0; }
+ 
+ @media (max-width: 560px) {
+-  .saved-library-summary-card, .saved-library-card { grid-template-columns: 1fr; }
++  .saved-library-summary-card, .saved-library-plus-card, .saved-library-card { grid-template-columns: 1fr; }
++  .saved-library-plus-card__note { justify-self: start; max-width: none; text-align: left; }
+   .saved-library-card__actions { justify-content: stretch; }
+   .saved-library-card__actions .button, .saved-library-card__actions .ghost-button { flex: 1 1 120px; }
+   .saved-library-toolbar__header, .saved-library-item-collections-manager__header, .saved-library-collection-membership-row { grid-template-columns: 1fr; align-items: stretch; }
+diff --git a/apps/web/src/components/SavedToggleButton.tsx b/apps/web/src/components/SavedToggleButton.tsx
+index 52cf22c..8648c9f 100644
+--- a/apps/web/src/components/SavedToggleButton.tsx
++++ b/apps/web/src/components/SavedToggleButton.tsx
+@@ -4,6 +4,7 @@ import type { SavedItemType } from '@hellowhen/contracts';
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+ import { api } from '../lib/api';
++import { getFriendlyApiErrorMessage } from '../lib/webErrors';
+ import { useWebAuth } from '../providers/WebAuthProvider';
+ import { useWebTranslation } from '../providers/WebI18nProvider';
+ import { WebIcon } from './WebIcon';
+@@ -32,6 +33,7 @@ export function SavedToggleButton({
+   const { t } = useWebTranslation();
+   const [savedItemId, setSavedItemId] = useState<string | null>(null);
+   const [busy, setBusy] = useState(false);
++  const [upgradePrompt, setUpgradePrompt] = useState<string | null>(null);
+ 
+   useEffect(() => {
+     let mounted = true;
+@@ -62,6 +64,7 @@ export function SavedToggleButton({
+     }
+ 
+     setBusy(true);
++    setUpgradePrompt(null);
+     try {
+       if (savedItemId) {
+         const currentSavedItemId = savedItemId;
+@@ -71,7 +74,8 @@ export function SavedToggleButton({
+         const result = await api.saved.create({ itemType, itemId });
+         setSavedItemId(result.item.id);
+       }
+-    } catch {
++    } catch (err) {
++      setUpgradePrompt(getFriendlyApiErrorMessage(err, t('account.saved.plus.savePrompt')));
+       try {
+         const result = await api.saved.status({ itemType, itemId });
+         setSavedItemId(result.isSaved ? result.savedItem?.id ?? null : null);
+@@ -89,17 +93,20 @@ export function SavedToggleButton({
+   const label = busy ? t('common.states.saving') : isSaved ? t('common.states.saved') : t('common.actions.save');
+ 
+   return (
+-    <button
+-      type="button"
+-      className={className}
+-      aria-pressed={isSaved}
+-      aria-label={label}
+-      title={label}
+-      disabled={disabled || busy}
+-      onClick={() => { void toggleSaved(); }}
+-    >
+-      <WebIcon name="save" size={iconSize} decorative />
+-      {showLabel ? <span>{label}</span> : null}
+-    </button>
++    <>
++      <button
++        type="button"
++        className={className}
++        aria-pressed={isSaved}
++        aria-label={label}
++        title={label}
++        disabled={disabled || busy}
++        onClick={() => { void toggleSaved(); }}
++      >
++        <WebIcon name="save" size={iconSize} decorative />
++        {showLabel ? <span>{label}</span> : null}
++      </button>
++      {upgradePrompt ? <span className="saved-toggle-upgrade-prompt">{upgradePrompt}</span> : null}
++    </>
+   );
+ }
+diff --git a/apps/web/src/features/account/SavedLibraryClient.tsx b/apps/web/src/features/account/SavedLibraryClient.tsx
+index 134aed5..e1e6be1 100644
+--- a/apps/web/src/features/account/SavedLibraryClient.tsx
++++ b/apps/web/src/features/account/SavedLibraryClient.tsx
+@@ -2,9 +2,10 @@
+ 
+ import Link from 'next/link';
+ import { type FormEvent, useEffect, useMemo, useState } from 'react';
+-import type { SavedCollectionDto, SavedItemDto, SavedItemType } from '@hellowhen/contracts';
++import { SAVED_LIBRARY_FREE_ITEM_LIMIT, type SavedCollectionDto, type SavedItemDto, type SavedItemType } from '@hellowhen/contracts';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
++import { betaFeatures } from '../../lib/betaFeatures';
+ import { getFriendlyApiErrorMessage } from '../../lib/webErrors';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+@@ -304,6 +305,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+ 
+   const hasItems = items.length > 0;
+   const hasCollections = collections.length > 0;
++  const plusPublic = betaFeatures.plusSubscriptionFeatures.plusPublic;
+   const collectionEditorTitle = collectionEditorMode === 'edit' ? t('account.saved.collections.editTitle') : t('account.saved.collections.createTitle');
+ 
+   return (
+@@ -319,6 +321,15 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+         </div>
+       </section>
+ 
++      <section className="saved-library-plus-card">
++        <span className="semantic-badge success">{t('account.saved.plus.badge')}</span>
++        <div>
++          <h3>{t('account.saved.plus.title')}</h3>
++          <p>{t('account.saved.plus.body', { limit: SAVED_LIBRARY_FREE_ITEM_LIMIT })}</p>
++        </div>
++        {plusPublic ? <Link href="/account/plans" className="button secondary">{t('account.saved.plus.action')}</Link> : <span className="saved-library-plus-card__note">{t('account.saved.plus.comingSoon')}</span>}
++      </section>
++
+       <section className="saved-library-toolbar" aria-label={t('account.saved.filtersLabel')}>
+         <div className="saved-library-toolbar__header">
+           <div>
+diff --git a/apps/web/src/lib/webErrors.ts b/apps/web/src/lib/webErrors.ts
+index e42c5ea..7d8a58a 100644
+--- a/apps/web/src/lib/webErrors.ts
++++ b/apps/web/src/lib/webErrors.ts
+@@ -44,6 +44,8 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
+   if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
+   if (apiError.body?.error === 'plans_disabled') return 'Plans are disabled by the API flag. Set PLANS_ENABLED=true in the root .env file and restart the API dev server.';
+   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
++  if (apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Free accounts can keep up to 10 saved items. Upgrade to Plus for unlimited saved items and custom collections.';
++  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Custom saved collections are a Plus feature.';
+   if (apiError.body?.error === 'not_found') return 'That item could not be found.';
+   if (apiError.body?.message) return apiError.body.message;
+   if (apiError.status === 401) return 'Please log in again to continue.';
+diff --git a/packages/contracts/src/savedLibrary.ts b/packages/contracts/src/savedLibrary.ts
+index 0cd40d5..386bdae 100644
+--- a/packages/contracts/src/savedLibrary.ts
++++ b/packages/contracts/src/savedLibrary.ts
+@@ -4,6 +4,7 @@ import { needSchema, offerSchema, tradeSchema, userPreviewSchema } from './trade
+ export const SAVED_COLLECTION_TITLE_MAX_LENGTH = 80;
+ export const SAVED_COLLECTION_DESCRIPTION_MAX_LENGTH = 240;
+ export const SAVED_LIBRARY_FREE_ITEM_LIMIT = 10;
++export const SAVED_LIBRARY_FREE_COLLECTION_LIMIT = 0;
+ 
+ export const savedItemTypeSchema = z.enum(['trade', 'need', 'offer', 'user']);
+ 
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index a80c11b..a9bae74 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -405,6 +405,15 @@ export const account = {
+     privateBadge: 'Private',
+     summaryTitle: 'Your private saved space',
+     summaryBody: 'Saving does not notify anyone and does not create a follow or subscription relationship.',
++    plus: {
++      badge: 'Plus tool',
++      title: 'Free saved limit',
++      body: 'Free accounts can keep up to {{limit}} saved items. Plus unlocks unlimited saved items and private custom collections.',
++      action: 'Review Plus',
++      comingSoon: 'Plus upgrade coming later',
++      comingSoonBody: 'Free accounts can keep up to {{limit}} saved items. Plus will unlock unlimited saved items and private custom collections when the upgrade is enabled.',
++      savePrompt: 'Free accounts can keep up to 10 saved items. Upgrade to Plus for unlimited saved items and custom collections.',
++    },
+     filtersLabel: 'Saved Library filters',
+     collectionsLabel: 'Saved collections',
+     emptyTitle: 'Nothing saved yet',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index 2034b10..6e35e09 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -405,6 +405,15 @@ export const account = {
+     privateBadge: 'Privé',
+     summaryTitle: 'Votre espace privé enregistré',
+     summaryBody: 'Enregistrer ne prévient personne et ne crée pas de relation d’abonnement ou de suivi.',
++    plus: {
++      badge: 'Outil Plus',
++      title: 'Limite des enregistrés gratuits',
++      body: 'Les comptes gratuits peuvent garder jusqu’à {{limit}} éléments enregistrés. Plus débloque les enregistrés illimités et les collections privées personnalisées.',
++      action: 'Voir Plus',
++      comingSoon: 'La mise à niveau Plus arrive plus tard',
++      comingSoonBody: 'Les comptes gratuits peuvent garder jusqu’à {{limit}} éléments enregistrés. Plus débloquera les enregistrés illimités et les collections privées personnalisées quand la mise à niveau sera activée.',
++      savePrompt: 'Les comptes gratuits peuvent garder jusqu’à 10 éléments enregistrés. Passez à Plus pour les enregistrés illimités et les collections personnalisées.',
++    },
+     filtersLabel: 'Filtres des éléments enregistrés',
+     collectionsLabel: 'Collections enregistrées',
+     emptyTitle: 'Rien d’enregistré pour le moment',

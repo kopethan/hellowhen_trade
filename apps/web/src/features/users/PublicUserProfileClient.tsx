@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { WebIcon } from '../../components/WebIcon';
 import { ReportContentButton } from '../../components/ReportContentButton';
+import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { api, resolveWebAssetUrl } from '../../lib/api';
 import { UserAvatar } from './UserAvatar';
 import { VerificationBadgeList } from './VerificationBadgeList';
@@ -294,6 +295,7 @@ export function PublicUserProfileClient({ userId, username }: { userId?: string;
           </div>
           {profile.user.profile?.bio ? <p>{profile.user.profile.bio}</p> : <p className="meta">{t('profile.noBio')}</p>}
           <div className="cta-row">
+            <SavedToggleButton itemType="user" itemId={profile.user.id} hidden={auth.user?.id === profile.user.id} />
             <ReportContentButton targetType="profile" targetId={profile.user.id} labelKey="report.profile" helperKey="report.helper.profile" buttonClassName="button secondary danger-text" />
             {auth.isAuthenticated && auth.user?.id !== profile.user.id ? (
               <button type="button" className="button secondary" disabled={blockBusy} onClick={() => void toggleBlock()}>{isBlockedByMe ? t('common.actions.unblockUser') : t('common.actions.blockUser')}</button>

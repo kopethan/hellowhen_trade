@@ -15,6 +15,7 @@ import { AppConfirmSheet } from '../../components/AppConfirmSheet';
 import { AppFixedHeaderScreen } from '../../components/AppFixedHeaderScreen';
 import { AppHeader } from '../../components/AppHeader';
 import { AppText } from '../../components/AppText';
+import { SavedToggleButton } from '../../components/SavedToggleButton';
 import {
   DetailBottomActionBar,
   DetailEmptyState,
@@ -26,6 +27,7 @@ import {
 } from '../../components/detail';
 import { InfoNotice, StatusBadge } from '../../components/SemanticUI';
 import { useTranslation } from '../../providers/MobileI18nProvider';
+import { useAuth } from '../../providers/AuthProvider';
 import { useThemeTokens } from '../../providers/ThemeProvider';
 import { ImagePickerField } from './components/ImagePickerField';
 import {
@@ -162,6 +164,7 @@ export function InventoryDetailScreen({
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }) {
   const theme = useThemeTokens();
+  const auth = useAuth();
   const { t, language } = useTranslation();
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [title, setTitle] = useState('');
@@ -518,6 +521,8 @@ export function InventoryDetailScreen({
   );
   const status = typeof item?.status === 'string' ? item.status : 'draft';
   const isActive = status === 'active';
+  const ownerId = typeof item?.ownerId === 'string' ? item.ownerId : null;
+  const isOwner = Boolean(ownerId && auth.user?.id === ownerId);
   const detailInfoRows: React.ComponentProps<typeof DetailInfoList>['rows'] = [
     {
       label: t('inventory.labels.status'),
@@ -572,6 +577,7 @@ export function InventoryDetailScreen({
               : label
           }
           onBack={() => navigation.goBack()}
+          rightSlot={item && !editing ? <SavedToggleButton itemType={kind} itemId={itemId} showLabel={false} hidden={isOwner} /> : undefined}
         />
       }
     >

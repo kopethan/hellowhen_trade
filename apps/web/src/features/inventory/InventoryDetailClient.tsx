@@ -2,8 +2,10 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { SavedToggleButton } from '../../components/SavedToggleButton';
 import { api } from '../../lib/api';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
+import { useWebAuth } from '../../providers/WebAuthProvider';
 import { isWebDemoDataEnabled } from '../../lib/demoMode';
 import { mockNeeds, mockOffers } from '../../lib/mockData';
 import { formatInventoryDate, getInventoryDurationLabel, getInventoryMetadata, inventoryCategoryLabel, inventoryStatusLabel, itemTypeLabel, getInventoryTags, kindLabel, kindPluralLabel, mediaSrc, modeLabel, normalizeInventoryItem, sideClassName, sideLabel, type InventoryItem, type InventoryKind } from './inventoryPresentation';
@@ -15,6 +17,7 @@ type InventoryDetailClientProps = {
 
 export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientProps) {
   const demoDataEnabled = isWebDemoDataEnabled();
+  const auth = useWebAuth();
   const { t, language } = useWebTranslation();
   const [item, setItem] = useState<InventoryItem | null>(() => demoDataEnabled ? (kind === 'need' ? mockNeeds : mockOffers).find((entry) => entry.id === itemId) ?? null : null);
   const [loading, setLoading] = useState(true);
@@ -77,6 +80,8 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
   const metadata = getInventoryMetadata(item, i18n);
   const tags = getInventoryTags(item);
   const durationLabel = getInventoryDurationLabel(item, i18n);
+  const ownerId = typeof item.ownerId === 'string' ? item.ownerId : null;
+  const isOwner = Boolean(ownerId && auth.user?.id === ownerId);
 
   return (
     <article className="trade-detail-page">
@@ -92,6 +97,7 @@ export function InventoryDetailClient({ kind, itemId }: InventoryDetailClientPro
         <div className="inventory-detail-actions">
           <Link href={`${baseHref}/${item.id}/edit`} className="button">{kind === 'need' ? t('inventory.actions.editNeed') : t('inventory.actions.editOffer')}</Link>
           <Link href={kind === 'need' ? `/trades/create?needId=${item.id}` : `/trades/create?offerId=${item.id}`} className="button secondary">{t('inventory.actions.useInTrade')}</Link>
+          <SavedToggleButton itemType={kind} itemId={item.id} hidden={isOwner} />
         </div>
       </section>
 
