@@ -442,6 +442,7 @@ function BusinessBoundaryPanel({ t }: { t: WebTranslator }) {
 
 function BusinessIdentityCard({ card, t }: { card: AccountIdentityMetadata; t: WebTranslator }) {
   const namespace = HANDLE_NAMESPACE_METADATA[card.handleNamespace];
+  const legacyExamplePath = 'currentLegacyExamplePath' in namespace ? namespace.currentLegacyExamplePath : null;
   const action: MembershipCardAction = betaFeatures.businessAccountsVisible
     ? { label: t('account.membership.actions.openBusinessArea'), href: '/account/business' }
     : { label: t('account.membership.actions.businessHidden'), disabled: true };
@@ -473,9 +474,9 @@ function BusinessIdentityCard({ card, t }: { card: AccountIdentityMetadata; t: W
           organizationExample: namespace.examplePath,
         })}
       </p>
-      {namespace.currentLegacyExamplePath ? (
+      {legacyExamplePath ? (
         <p className="membership-card__legacy-note">
-          {t('account.membership.identityCard.legacyRouteNote', { path: namespace.currentLegacyExamplePath })}
+          {t('account.membership.identityCard.legacyRouteNote', { path: legacyExamplePath })}
         </p>
       ) : null}
       <CardAction action={action} />
