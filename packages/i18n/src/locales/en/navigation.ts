@@ -13,6 +13,7 @@ export const navigation = {
     needs: 'Needs',
     offers: 'Offers',
     account: 'Account',
+    membership: 'Membership',
     createTrade: 'Create trade',
     plan: 'Plan',
     plans: 'Plans',

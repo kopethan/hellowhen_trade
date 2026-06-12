@@ -1,0 +1,335 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index df848ef..d41aa98 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -8314,3 +8314,24 @@ html[data-theme="dark"] .onboarding-guide-primary {
+   .add-to-agenda-sheet__time-grid, .add-to-agenda-sheet__actions { grid-template-columns: 1fr; }
+   .add-to-agenda-sheet__panel { border-radius: 28px 28px 22px 22px; }
+ }
++
++/* Shared Membership upgrade prompts. */
++.membership-upgrade-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px; align-items: center; border: 1px solid color-mix(in srgb, var(--success-border) 48%, var(--app-border)); border-radius: 26px; background: linear-gradient(135deg, color-mix(in srgb, var(--success-bg) 16%, var(--app-surface)), var(--app-surface)); padding: 16px; box-shadow: var(--app-card-shadow); }
++.membership-upgrade-card--compact { border-radius: 22px; padding: 13px; }
++.membership-upgrade-card--disabled { border-color: color-mix(in srgb, var(--app-border) 74%, transparent); background: color-mix(in srgb, var(--app-surface) 88%, var(--app-surface-soft)); }
++.membership-upgrade-card__icon { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid color-mix(in srgb, var(--success-border) 40%, var(--app-border)); border-radius: 17px; background: var(--app-surface); color: var(--app-text); box-shadow: var(--app-control-shadow); }
++.membership-upgrade-card--compact .membership-upgrade-card__icon { width: 38px; height: 38px; border-radius: 15px; }
++.membership-upgrade-card--disabled .membership-upgrade-card__icon { border-color: var(--app-border); color: var(--app-text-muted); }
++.membership-upgrade-card__body { display: grid; gap: 5px; min-width: 0; }
++.membership-upgrade-card__body h3, .membership-upgrade-card__body p { margin: 0; }
++.membership-upgrade-card__body h3 { color: var(--app-text); font-size: 16px; font-weight: 950; letter-spacing: -0.015em; }
++.membership-upgrade-card__body p, .membership-upgrade-card__action span { color: var(--app-text-muted); font-size: 12px; font-weight: 850; line-height: 1.45; }
++.membership-upgrade-card__body code { display: block; width: fit-content; max-width: 100%; overflow-x: auto; border: 1px solid var(--app-border); border-radius: 14px; background: var(--app-surface-soft); color: var(--app-text-muted); padding: 8px 10px; font-size: 12px; font-weight: 850; }
++.membership-upgrade-card__action { display: flex; justify-content: flex-end; min-width: max-content; }
++.saved-toggle-upgrade-prompt { display: inline-grid; gap: 6px; }
++.saved-toggle-upgrade-prompt a { color: var(--warning-text); font-weight: 950; text-decoration: underline; text-underline-offset: 2px; }
++@media (max-width: 760px) {
++  .membership-upgrade-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
++  .membership-upgrade-card__action { grid-column: 1 / -1; justify-content: flex-start; min-width: 0; }
++  .membership-upgrade-card__action .button { width: 100%; }
++}
+diff --git a/apps/web/src/components/MembershipUpgradeCard.tsx b/apps/web/src/components/MembershipUpgradeCard.tsx
+new file mode 100644
+index 0000000..51a7df2
+--- /dev/null
++++ b/apps/web/src/components/MembershipUpgradeCard.tsx
+@@ -0,0 +1,49 @@
++'use client';
++
++import Link from 'next/link';
++import { WebIcon, type WebIconName } from './WebIcon';
++
++type MembershipUpgradeCardProps = {
++  badge: string;
++  title: string;
++  body: string;
++  actionLabel: string;
++  comingSoonLabel: string;
++  href?: string;
++  icon?: WebIconName;
++  variant?: 'plus' | 'pro' | 'disabled';
++  compact?: boolean;
++  code?: string;
++};
++
++export function MembershipUpgradeCard({
++  badge,
++  title,
++  body,
++  actionLabel,
++  comingSoonLabel,
++  href = '/account/membership',
++  icon = 'profile',
++  variant = 'plus',
++  compact = false,
++  code,
++}: MembershipUpgradeCardProps) {
++  const canOpenMembership = Boolean(href);
++
++  return (
++    <section className={`membership-upgrade-card membership-upgrade-card--${variant} ${compact ? 'membership-upgrade-card--compact' : ''}`.trim()}>
++      <span className="membership-upgrade-card__icon" aria-hidden="true">
++        <WebIcon name={icon} size={compact ? 18 : 22} decorative />
++      </span>
++      <div className="membership-upgrade-card__body">
++        <span className={`semantic-badge ${variant === 'disabled' ? 'instruction' : 'success'}`}>{badge}</span>
++        <h3>{title}</h3>
++        <p>{body}</p>
++        {code ? <code>{code}</code> : null}
++      </div>
++      <div className="membership-upgrade-card__action">
++        {canOpenMembership ? <Link href={href} className="button primary">{actionLabel}</Link> : <span>{comingSoonLabel}</span>}
++      </div>
++    </section>
++  );
++}
+diff --git a/apps/web/src/components/SavedToggleButton.tsx b/apps/web/src/components/SavedToggleButton.tsx
+index ef4ca3d..f4de986 100644
+--- a/apps/web/src/components/SavedToggleButton.tsx
++++ b/apps/web/src/components/SavedToggleButton.tsx
+@@ -1,5 +1,6 @@
+ 'use client';
+ 
++import Link from 'next/link';
+ import type { SavedItemType } from '@hellowhen/contracts';
+ import { useEffect, useState } from 'react';
+ import { useRouter } from 'next/navigation';
+@@ -76,7 +77,7 @@ export function SavedToggleButton({
+         setSavedItemId(result.item.id);
+       }
+     } catch (err) {
+-      setUpgradePrompt(getFriendlyApiErrorMessage(err, t('account.saved.plus.savePrompt')));
++      setUpgradePrompt(getFriendlyApiErrorMessage(err, t('account.membershipUpgrade.savedPrompt')));
+       try {
+         const result = await api.saved.status({ itemType, itemId });
+         setSavedItemId(result.isSaved ? result.savedItem?.id ?? null : null);
+@@ -107,7 +108,12 @@ export function SavedToggleButton({
+         <WebIcon name="save" size={iconSize} decorative />
+         {showLabel ? <span>{label}</span> : null}
+       </button>
+-      {upgradePrompt ? <span className="saved-toggle-upgrade-prompt">{upgradePrompt}</span> : null}
++      {upgradePrompt ? (
++        <span className="saved-toggle-upgrade-prompt">
++          <span>{upgradePrompt}</span>
++          <Link href="/account/membership">{t('account.membershipUpgrade.action')}</Link>
++        </span>
++      ) : null}
+     </>
+   );
+ }
+diff --git a/apps/web/src/features/account/AgendaClient.tsx b/apps/web/src/features/account/AgendaClient.tsx
+index 57c8dcd..87ae253 100644
+--- a/apps/web/src/features/account/AgendaClient.tsx
++++ b/apps/web/src/features/account/AgendaClient.tsx
+@@ -3,6 +3,7 @@
+ import Link from 'next/link';
+ import { type FormEvent, useEffect, useMemo, useState } from 'react';
+ import type { AgendaItemDto, AgendaItemStatus, AgendaItemType, PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
++import { MembershipUpgradeCard } from '../../components/MembershipUpgradeCard';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+@@ -557,12 +558,17 @@ export function AgendaClient() {
+ 
+   if (!agendaEnabled) {
+     return (
+-      <section className="agenda-locked-card">
+-        <span className="semantic-badge instruction">{t('account.agenda.plus.badge')}</span>
+-        <h3>{t('account.agenda.disabledTitle')}</h3>
+-        <p>{t('account.agenda.disabledBody')}</p>
+-        <code>AGENDA_ENABLED=false · NEXT_PUBLIC_AGENDA_ENABLED=false</code>
+-      </section>
++      <MembershipUpgradeCard
++        badge={t('account.membershipUpgrade.disabledBadge')}
++        title={t('account.agenda.disabledTitle')}
++        body={t('account.agenda.disabledBody')}
++        actionLabel={t('account.membershipUpgrade.action')}
++        comingSoonLabel={t('account.membershipUpgrade.disabled')}
++        href=""
++        icon="calendar"
++        variant="disabled"
++        code="AGENDA_ENABLED=false · NEXT_PUBLIC_AGENDA_ENABLED=false"
++      />
+     );
+   }
+ 
+@@ -583,12 +589,15 @@ export function AgendaClient() {
+ 
+   if (!hasPlusAccess) {
+     return (
+-      <section className="agenda-locked-card">
+-        <span className="semantic-badge success">{t('account.agenda.plus.badge')}</span>
+-        <h3>{t('account.agenda.plus.title')}</h3>
+-        <p>{t('account.agenda.plus.body', { price: plusPrice })}</p>
+-        {plusPublic ? <Link href="/account/membership" className="button primary">{t('account.agenda.plus.action')}</Link> : <span>{t('account.agenda.plus.comingSoon')}</span>}
+-      </section>
++      <MembershipUpgradeCard
++        badge={t('account.agenda.plus.badge')}
++        title={t('account.agenda.plus.title')}
++        body={t('account.agenda.plus.body', { price: plusPrice })}
++        actionLabel={t('account.membershipUpgrade.action')}
++        comingSoonLabel={t('account.membershipUpgrade.comingSoon')}
++        href={plusPublic ? '/account/membership' : ''}
++        icon="calendar"
++      />
+     );
+   }
+ 
+diff --git a/apps/web/src/features/account/SavedLibraryClient.tsx b/apps/web/src/features/account/SavedLibraryClient.tsx
+index 2461d8c..2daa8b2 100644
+--- a/apps/web/src/features/account/SavedLibraryClient.tsx
++++ b/apps/web/src/features/account/SavedLibraryClient.tsx
+@@ -4,6 +4,7 @@ import Link from 'next/link';
+ import { type FormEvent, useEffect, useMemo, useState } from 'react';
+ import { type AgendaItemType, type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
+ import { AddToAgendaButton } from '../../components/AddToAgendaButton';
++import { MembershipUpgradeCard } from '../../components/MembershipUpgradeCard';
+ import { WebIcon } from '../../components/WebIcon';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
+@@ -367,14 +368,16 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+         </div>
+       </section>
+ 
+-      <section className="saved-library-plus-card">
+-        <span className="semantic-badge success">{t('account.saved.plus.badge')}</span>
+-        <div>
+-          <h3>{t('account.saved.plus.title')}</h3>
+-          <p>{t('account.saved.plus.body')}</p>
+-        </div>
+-        {plusPublic ? <Link href="/account/membership" className="button secondary">{t('account.saved.plus.action')}</Link> : <span className="saved-library-plus-card__note">{t('account.saved.plus.comingSoon')}</span>}
+-      </section>
++      <MembershipUpgradeCard
++        badge={t('account.saved.plus.badge')}
++        title={t('account.saved.plus.title')}
++        body={t('account.saved.plus.body')}
++        actionLabel={t('account.membershipUpgrade.action')}
++        comingSoonLabel={t('account.membershipUpgrade.comingSoon')}
++        href={plusPublic ? '/account/membership' : ''}
++        icon="save"
++        compact
++      />
+ 
+       <section className="saved-library-toolbar" aria-label={t('account.saved.filtersLabel')}>
+         <div className="saved-library-toolbar__header">
+diff --git a/apps/web/src/lib/webErrors.ts b/apps/web/src/lib/webErrors.ts
+index 0cc4b17..5419b16 100644
+--- a/apps/web/src/lib/webErrors.ts
++++ b/apps/web/src/lib/webErrors.ts
+@@ -44,10 +44,10 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
+   if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
+   if (apiError.body?.error === 'plans_disabled') return 'Plans are disabled by the API flag. Set PLANS_ENABLED=true in the root .env file and restart the API dev server.';
+   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
+-  if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.';
+-  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are a Plus feature.';
++  if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.';
++  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are included with Plus Membership. Review Membership to unlock private organization tools when upgrades are available.';
+   if (apiError.body?.error === 'agenda_disabled') return apiError.body.message ?? 'Agenda is disabled by the API flag.';
+-  if (apiError.body?.error === 'agenda_plus_required') return apiError.body.message ?? 'Agenda is a Plus feature.';
++  if (apiError.body?.error === 'agenda_plus_required') return apiError.body.message ?? 'Agenda is included with Plus Membership. Review Membership to unlock private reminders, deadlines, and follow-ups when upgrades are available.';
+   if (apiError.body?.error === 'agenda_item_not_found' || apiError.body?.error === 'agenda_source_not_found') return apiError.body.message ?? 'That Agenda item could not be found.';
+   if (apiError.body?.error === 'not_found') return 'That item could not be found.';
+   if (apiError.body?.message) return apiError.body.message;
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index 2bec96d..d190171 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -407,12 +407,12 @@ export const account = {
+     summaryBody: 'Saving does not notify anyone and does not create a follow or subscription relationship.',
+     plus: {
+       badge: 'Plus tool',
+-      title: 'Saved Library is Plus-only',
+-      body: 'Plus unlocks Saved Library, saved people, saved trades, and private custom collections.',
++      title: 'Saved Library is included with Plus Membership',
++      body: 'Review Membership to see how Plus unlocks private saves, saved people, saved trades, and custom collections.',
+       action: 'Review Membership',
+-      comingSoon: 'Plus upgrade coming later',
++      comingSoon: 'Membership upgrades are coming later',
+       comingSoonBody: 'Saved Library is prepared as a Plus feature and will unlock when the upgrade is enabled.',
+-      savePrompt: 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.',
++      savePrompt: 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.',
+     },
+     filtersLabel: 'Saved Library filters',
+     resultSummary: '{{count}} saved items shown',
+@@ -558,10 +558,10 @@ export const account = {
+     confirmDelete: 'Delete “{{title}}” from Agenda?',
+     plus: {
+       badge: 'Plus tool',
+-      title: 'Agenda is Plus-only',
+-      body: 'Plus unlocks private Agenda organization for trades, reminders, follow-ups, and deadlines. Planned price: {{price}}.',
++      title: 'Agenda is included with Plus Membership',
++      body: 'Review Membership to see how Plus unlocks private Agenda organization for trades, reminders, follow-ups, and deadlines. Planned price: {{price}}.',
+       action: 'Review Membership',
+-      comingSoon: 'Plus upgrade coming later',
++      comingSoon: 'Membership upgrades are coming later',
+     },
+     filters: {
+       all: 'All',
+@@ -639,6 +639,16 @@ export const account = {
+       privacyNote: 'Manual notes are private. Agenda is not a booking system and has no external calendar sync in this version.',
+     },
+   },
++  membershipUpgrade: {
++    badge: 'Plus membership',
++    disabledBadge: 'Feature disabled',
++    action: 'Review Membership',
++    comingSoon: 'Membership upgrades are coming later',
++    disabled: 'Disabled by feature flags',
++    savedPrompt: 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.',
++    savedCollectionsPrompt: 'Saved collections are included with Plus Membership. Review Membership to unlock private organization tools when upgrades are available.',
++    agendaPrompt: 'Agenda is included with Plus Membership. Review Membership to unlock private reminders, deadlines, and follow-ups when upgrades are available.',
++  },
+   membership: {
+     eyebrow: 'Membership',
+     title: 'Membership',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index 1a31b0b..4dfc91b 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -407,12 +407,12 @@ export const account = {
+     summaryBody: 'Enregistrer ne prévient personne et ne crée pas de relation d’abonnement ou de suivi.',
+     plus: {
+       badge: 'Outil Plus',
+-      title: 'Les Enregistrés sont réservés à Plus',
+-      body: 'Plus débloque les Enregistrés, les personnes enregistrées, les échanges enregistrés et les collections privées personnalisées.',
++      title: 'Saved Library est inclus avec Membership Plus',
++      body: 'Consultez Membership pour voir comment Plus débloque les sauvegardes privées, les personnes, les échanges et les collections personnalisées.',
+       action: 'Voir Membership',
+-      comingSoon: 'La mise à niveau Plus arrive plus tard',
++      comingSoon: 'Les upgrades Membership arrivent plus tard',
+       comingSoonBody: 'Les Enregistrés sont préparés comme fonctionnalité Plus et seront débloqués quand la mise à niveau sera activée.',
+-      savePrompt: 'Les Enregistrés sont une fonctionnalité Plus. Passez à Plus pour enregistrer des échanges, besoins, offres et personnes.',
++      savePrompt: 'Saved Library est inclus avec Membership Plus. Consultez Membership pour débloquer les sauvegardes privées, les personnes et les collections quand les upgrades seront disponibles.',
+     },
+     filtersLabel: 'Filtres des éléments enregistrés',
+     resultSummary: '{{count}} éléments affichés',
+@@ -558,10 +558,10 @@ export const account = {
+     confirmDelete: 'Supprimer « {{title}} » de l’Agenda ?',
+     plus: {
+       badge: 'Outil Plus',
+-      title: 'Agenda est réservé à Plus',
+-      body: 'Plus débloque l’organisation privée Agenda pour échanges, rappels, relances et échéances. Prix prévu : {{price}}.',
++      title: 'Agenda est inclus avec Membership Plus',
++      body: 'Consultez Membership pour voir comment Plus débloque l’organisation Agenda privée pour les échanges, rappels, relances et échéances. Prix prévu : {{price}}.',
+       action: 'Voir Membership',
+-      comingSoon: 'La mise à niveau Plus arrive plus tard',
++      comingSoon: 'Les upgrades Membership arrivent plus tard',
+     },
+     filters: {
+       all: 'Tout',
+@@ -639,6 +639,16 @@ export const account = {
+       privacyNote: 'Les notes manuelles sont privées. Agenda n’est pas un système de réservation et n’a pas de synchronisation calendrier externe dans cette version.',
+     },
+   },
++  membershipUpgrade: {
++    badge: 'Membership Plus',
++    disabledBadge: 'Fonction désactivée',
++    action: 'Voir Membership',
++    comingSoon: 'Les upgrades Membership arrivent plus tard',
++    disabled: 'Désactivé par les feature flags',
++    savedPrompt: 'Saved Library est inclus avec Membership Plus. Consultez Membership pour débloquer les sauvegardes privées, les personnes et les collections quand les upgrades seront disponibles.',
++    savedCollectionsPrompt: 'Les collections sauvegardées sont incluses avec Membership Plus. Consultez Membership pour débloquer les outils privés d’organisation quand les upgrades seront disponibles.',
++    agendaPrompt: 'Agenda est inclus avec Membership Plus. Consultez Membership pour débloquer les rappels, échéances et suivis privés quand les upgrades seront disponibles.',
++  },
+   membership: {
+     eyebrow: 'Membership',
+     title: 'Membership',

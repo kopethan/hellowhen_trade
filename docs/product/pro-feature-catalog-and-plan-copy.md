@@ -35,35 +35,29 @@ A user who only pays is not Pro if identity verification is missing, rejected, e
 
 A user who is identity-verified is not Pro if the subscription is inactive, expired, canceled, past due, or missing.
 
-## Plan selection purpose
+## Membership page purpose
 
-The future plan selection area should help users understand the difference between Free, Pro, and later Business before any payment or verification step.
+The Membership area should help users understand the difference between Free, Plus, Pro, and separate Business/organization identity before any payment or verification step.
 
 It should not pressure first-launch users or create the impression that the app is incomplete without payment.
 
-Primary future route candidates:
+Primary route:
 
 ```txt
-/account/plans
-/account/upgrade
+/account/membership
 ```
 
-Recommended first implementation:
+The legacy `/account/plans` route should redirect to `/account/membership` so old internal links land on the safe account information page.
+
+## Membership card order
+
+Use personal tier cards plus a separated Business identity card:
 
 ```txt
-/account/plans
-```
-
-The route can exist behind hidden flags later, but it must not be linked from Account while Pro is not visible.
-
-## Plan card order
-
-Use three cards:
-
-```txt
-Free
+Free / Basic
+Plus
 Pro
-Business
+Business / organization identity
 ```
 
 Why this order:
@@ -72,7 +66,7 @@ Why this order:
 - Pro introduces the one paid professional tier.
 - Business is clearly positioned as later, not mixed into Pro.
 
-Do not show Plus in the first plan-selection UI. Plus remains an undecided future non-professional upgrade and should not distract from the Pro decision.
+Show Plus as the personal premium tier, but keep Business visually separated because it is an identity/account type, not simply a personal tier.
 
 ## Free plan card copy
 
@@ -560,22 +554,22 @@ Business:
   Separate organization/enterprise design.
 ```
 
-## Hidden UI implementation note
+## Membership implementation note
 
-The first hidden plan-selection UI may live at:
+The tier explanation UI lives at:
 
 ```txt
-/account/plans
+/account/membership
 ```
 
-It must be guarded by Pro visibility flags. If `PRO_ACCOUNTS_VISIBLE` / `NEXT_PUBLIC_PRO_ACCOUNTS_VISIBLE` are false, the route should not be visible or reachable as a normal user-facing page.
+The Membership page can stay visible from Account as an information page, but Pro/Business actions must remain disabled unless their existing visibility and provider flags are intentionally enabled.
 
-The hidden UI can show the Free, Pro, and Business cards for internal review, but every Pro/Business action must remain non-functional until provider phases are implemented.
+The Membership page can show Free/Plus/Pro and a separated Business identity explanation, but every Pro/Business action must remain non-functional until provider phases are implemented.
 
 Allowed hidden behavior:
 
 ```txt
-Show the future Free / Pro / Business cards
+Show the Free / Plus / Pro personal tier cards and separated Business identity card
 Show EUR 14.99/month planning price for Pro
 Show identity + subscription requirements
 Show Business as coming later
@@ -588,7 +582,7 @@ Forbidden in this phase:
 checkout
 identity verification launch
 native purchase buttons
-Account nav link while Pro is hidden
+checkout/provider CTA while Pro is hidden
 public upgrade prompts
 Business onboarding
 ```
@@ -671,7 +665,7 @@ show planned price and trial duration
 show identity + subscription requirement
 show disabled provider buttons
 show sign-in reminder
-link back to /account/plans
+link back to /account/membership
 ```
 
 Forbidden in this hidden skeleton:
@@ -690,16 +684,16 @@ Business onboarding
 
 ## Patch 14 — hidden account entry point
 
-Patch 14 adds the first hidden Account entry point for the plan/prototype plan-selection area.
+Patch 14 originally added the first hidden Account entry point for the plan/prototype tier area. TIERS10 supersedes the old route by redirecting it to Membership.
 
 Scope:
 
 ```txt
 Web Account:
-  Account -> Plan & Pro -> /account/plans
+  Account -> Membership -> /account/membership
 
 Native Account:
-  Account -> Plan & Pro -> hidden plan preview screen
+  Account -> Membership -> hidden tier preview screen
 ```
 
 Visibility rule:

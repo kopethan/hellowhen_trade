@@ -2,13 +2,30 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import type { PlusSubscriptionSnapshotResponse, PayoutSummaryDto, WalletDto } from '@hellowhen/contracts';
+import { PERSONAL_MEMBERSHIP_TIER_METADATA, normalizePersonalMembershipTier, normalizeSubscriptionStatus, type SubscriptionStatus } from '@hellowhen/shared';
 import { WebIcon, type WebIconName } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { useWebAuth } from '../../providers/WebAuthProvider';
 import { useWebTranslation } from '../../providers/WebI18nProvider';
 import { assetUrl, fallbackCurrency, formatMoney, formatPayoutFeeRate, normalizePayoutFeeRateBps, normalizePayouts, normalizeWallet } from './accountPresentation';
+
+
+function membershipStatusTone(status: SubscriptionStatus) {
+  switch (status) {
+    case 'active':
+    case 'trialing':
+      return 'success';
+    case 'past_due':
+    case 'expired':
+      return 'warning';
+    case 'canceled':
+      return 'neutral';
+    default:
+      return 'neutral';
+  }
+}
 
 type AccountHubItem = {
   href: string;
@@ -27,11 +44,15 @@ export function AccountHubClient() {
   const [wallet, setWallet] = useState<WalletDto | null>(null);
   const [summary, setSummary] = useState<PayoutSummaryDto | null>(null);
   const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
+  const [membershipSnapshot, setMembershipSnapshot] = useState<PlusSubscriptionSnapshotResponse | null>(null);
+  const [membershipPreviewLoaded, setMembershipPreviewLoaded] = useState(false);
+  const [membershipPreviewError, setMembershipPreviewError] = useState(false);
 
   const accountItems = useMemo<AccountHubItem[]>(() => [
     { href: '/account/profile', titleKey: 'account.items.profile.title', bodyKey: 'account.items.profile.body', icon: 'profile' },
     ...(betaFeatures.savedLibraryEnabled ? [{ href: '/account/saved', titleKey: 'account.items.saved.title', bodyKey: 'account.items.saved.body', icon: 'save' as WebIconName }] : []),
     ...(betaFeatures.agendaEnabled ? [{ href: '/account/agenda', titleKey: 'account.items.agenda.title', bodyKey: 'account.items.agenda.body', icon: 'calendar' as WebIconName }] : []),
+    { href: '/account/membership', titleKey: 'account.items.membership.title', bodyKey: 'account.items.membership.body', icon: 'profile' },
     { href: '/account/notifications', titleKey: 'account.items.notifications.title', bodyKey: 'account.items.notifications.body', icon: 'bell' },
     {
       href: '/onboarding-guide?replay=1&next=/account',
@@ -43,7 +64,6 @@ export function AccountHubClient() {
       badgeKey: 'account.items.guide.badge',
       actionKey: 'account.items.guide.action',
     },
-    ...(betaFeatures.plusSubscriptionFeatures.plusPublic ? [{ href: '/account/plans', titleKey: 'account.items.plans.title', bodyKey: 'account.items.plans.body', icon: 'profile' as WebIconName }] : []),
     ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
     ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),
@@ -73,6 +93,37 @@ export function AccountHubClient() {
     return () => { mounted = false; };
   }, [auth.hydrated, auth.isAuthenticated]);
 
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadMembershipPreview() {
+      if (!auth.hydrated || !auth.isAuthenticated) {
+        if (mounted) {
+          setMembershipSnapshot(null);
+          setMembershipPreviewLoaded(auth.hydrated);
+          setMembershipPreviewError(false);
+        }
+        return;
+      }
+      try {
+        const response = await api.plus.me();
+        if (mounted) {
+          setMembershipSnapshot(response);
+          setMembershipPreviewLoaded(true);
+          setMembershipPreviewError(false);
+        }
+      } catch {
+        if (mounted) {
+          setMembershipSnapshot(null);
+          setMembershipPreviewLoaded(true);
+          setMembershipPreviewError(true);
+        }
+      }
+    }
+    void loadMembershipPreview();
+    return () => { mounted = false; };
+  }, [auth.hydrated, auth.isAuthenticated]);
+
   useEffect(() => {
     let mounted = true;
     async function loadNotificationPreview() {
@@ -93,6 +144,10 @@ export function AccountHubClient() {
 
   const currency = wallet?.currency ?? auth.user?.profile?.preferredCurrency ?? fallbackCurrency;
   const platformFeeRateBps = normalizePayoutFeeRateBps(summary?.platformFeeRateBps);
+  const membershipTier = normalizePersonalMembershipTier(membershipSnapshot?.state.subscriptionTier);
+  const membershipStatus = normalizeSubscriptionStatus(membershipSnapshot?.state.subscriptionStatus);
+  const membershipMetadata = PERSONAL_MEMBERSHIP_TIER_METADATA[membershipTier];
+  const hasPlusAccess = Boolean(membershipSnapshot?.access.hasPlusAccess);
 
   return (
     <div className="mobile-page">
@@ -114,6 +169,23 @@ export function AccountHubClient() {
           <p>{t('account.signedOut.body')}</p>
           <Link href="/auth?next=/account" className="button primary">{t('common.actions.loginOrRegister')}</Link>
         </section>
+      ) : null}
+
+      {auth.isAuthenticated ? (
+        <Link href="/account/membership" className="membership-hub-preview-card" aria-label={t('account.membershipPreview.openAria')}>
+          <span className="membership-hub-preview-card__icon" aria-hidden="true">★</span>
+          <span className="membership-hub-preview-card__body">
+            <span className="semantic-badge instruction">{t('account.items.membership.badge')}</span>
+            <strong>{membershipPreviewError ? t('account.membershipPreview.unavailable') : membershipPreviewLoaded ? membershipMetadata.displayName : t('account.membershipPreview.loading')}</strong>
+            <span>{membershipPreviewError ? t('account.membershipPreview.unavailableBody') : membershipPreviewLoaded ? t(`account.membershipPreview.status.${membershipStatus}`) : t('account.membershipPreview.loadingBody')}</span>
+            <small>{t('account.membershipPreview.boundary')}</small>
+          </span>
+          <span className="membership-hub-preview-card__meta">
+            <span className={`semantic-badge ${membershipPreviewError ? 'warning' : membershipStatusTone(membershipStatus)}`}>{membershipPreviewError ? t('account.membershipPreview.unavailableShort') : membershipPreviewLoaded ? t(`account.membershipPreview.statusShort.${membershipStatus}`) : t('account.membershipPreview.loadingShort')}</span>
+            <span className={`semantic-badge ${hasPlusAccess ? 'success' : 'neutral'}`}>{hasPlusAccess ? t('account.membershipPreview.plusActive') : t('account.membershipPreview.plusInactive')}</span>
+          </span>
+          <WebIcon name="arrow-right" size={17} decorative className="membership-hub-preview-card__arrow" />
+        </Link>
       ) : null}
 
       {auth.isAuthenticated && (betaFeatures.walletVisible || betaFeatures.payoutsVisible) ? (

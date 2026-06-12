@@ -1,0 +1,980 @@
+diff --git a/apps/web/src/features/account/MembershipClient.tsx b/apps/web/src/features/account/MembershipClient.tsx
+--- a/apps/web/src/features/account/MembershipClient.tsx
++++ b/apps/web/src/features/account/MembershipClient.tsx
+@@ -3,7 +3,7 @@
+ import Link from 'next/link';
+ import { useEffect, useMemo, useState } from 'react';
+ import type { PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
+-import type { SupportedLanguage } from '@hellowhen/i18n';
++import type { SupportedLanguage, TranslationValues } from '@hellowhen/i18n';
+ import {
+   ACCOUNT_IDENTITY_METADATA,
+   HANDLE_NAMESPACE_METADATA,
+@@ -32,8 +32,10 @@
+ ] as const;
+ 
+ const featureLimit = 5;
++const membershipRoute = '/account/membership';
+ 
+ type MembershipSnapshot = PlusSubscriptionSnapshotResponse | null;
++type WebTranslator = (key: string, values?: TranslationValues) => string;
+ 
+ type MembershipCardAction = {
+   label: string;
+@@ -41,26 +43,12 @@
+   disabled?: boolean;
+ };
+ 
+-function formatStatus(status: SubscriptionStatus) {
+-  return status.replaceAll('_', ' ');
++function formatStatus(status: SubscriptionStatus, t: WebTranslator) {
++  return t(`account.membership.statusLabels.${status}`);
+ }
+ 
+-function formatStatusTitle(status: SubscriptionStatus) {
+-  switch (status) {
+-    case 'active':
+-      return 'Active';
+-    case 'trialing':
+-      return 'Trial';
+-    case 'past_due':
+-      return 'Past due';
+-    case 'canceled':
+-      return 'Canceled';
+-    case 'expired':
+-      return 'Expired';
+-    case 'none':
+-    default:
+-      return 'No paid membership';
+-  }
++function formatStatusTitle(status: SubscriptionStatus, t: WebTranslator) {
++  return t(`account.membership.statusTitles.${status}`);
+ }
+ 
+ function statusTone(status: SubscriptionStatus) {
+@@ -79,8 +67,8 @@
+   }
+ }
+ 
+-function boolStatusLabel(value: boolean) {
+-  return value ? 'Enabled' : 'Hidden';
++function boolStatusLabel(value: boolean, t: WebTranslator) {
++  return value ? t('account.membership.booleans.enabled') : t('account.membership.booleans.hidden');
+ }
+ 
+ function boolStatusTone(value: boolean) {
+@@ -91,19 +79,27 @@
+   return formatWebDate(value, '—', language);
+ }
+ 
+-function formatPeriodSummary(snapshot: MembershipSnapshot, language: SupportedLanguage) {
++function formatPeriodSummary(snapshot: MembershipSnapshot, language: SupportedLanguage, t: WebTranslator) {
+   const state = snapshot?.subscriptionState;
+-  if (!state) return 'No billing period is attached.';
+-  if (state.trialEndsAt) return `Trial ends ${formatSubscriptionDate(state.trialEndsAt, language)}`;
+-  if (state.currentPeriodEndsAt) return `Current period ends ${formatSubscriptionDate(state.currentPeriodEndsAt, language)}`;
+-  if (state.expiresAt) return `Access expires ${formatSubscriptionDate(state.expiresAt, language)}`;
+-  if (state.canceledAt) return `Canceled ${formatSubscriptionDate(state.canceledAt, language)}`;
+-  return 'No renewal or expiry date is attached.';
++  if (!state) return t('account.membership.statusOverview.noBillingPeriod');
++  if (state.trialEndsAt) {
++    return t('account.membership.statusOverview.periodTrialEnds', { date: formatSubscriptionDate(state.trialEndsAt, language) });
++  }
++  if (state.currentPeriodEndsAt) {
++    return t('account.membership.statusOverview.periodCurrentEnds', { date: formatSubscriptionDate(state.currentPeriodEndsAt, language) });
++  }
++  if (state.expiresAt) {
++    return t('account.membership.statusOverview.periodAccessExpires', { date: formatSubscriptionDate(state.expiresAt, language) });
++  }
++  if (state.canceledAt) {
++    return t('account.membership.statusOverview.periodCanceled', { date: formatSubscriptionDate(state.canceledAt, language) });
++  }
++  return t('account.membership.statusOverview.noPeriod');
+ }
+ 
+-function formatUpdatedAt(value: string | null | undefined, language: SupportedLanguage) {
+-  if (!value) return 'No status update date';
+-  return `Updated ${formatSubscriptionDate(value, language)}`;
++function formatUpdatedAt(value: string | null | undefined, language: SupportedLanguage, t: WebTranslator) {
++  if (!value) return t('account.membership.statusOverview.noStatusUpdate');
++  return t('account.membership.statusOverview.statusUpdated', { date: formatSubscriptionDate(value, language) });
+ }
+ 
+ function availabilityTone(availability: MembershipFeatureAvailability) {
+@@ -120,26 +116,66 @@
+   }
+ }
+ 
+-function featureLabel(key: MembershipFeatureKey) {
+-  return MEMBERSHIP_FEATURE_CATALOG[key].shortLabel;
++function availabilityLabel(availability: MembershipFeatureAvailability, t: WebTranslator) {
++  return t(`account.membership.availability.${availability}`);
++}
++
++function featureLabel(key: MembershipFeatureKey, t: WebTranslator) {
++  const catalogEntry = MEMBERSHIP_FEATURE_CATALOG[key];
++  const label = t(`account.membership.features.${key}.shortLabel`);
++  return label === `account.membership.features.${key}.shortLabel` ? catalogEntry.shortLabel : label;
++}
++
++function featureNote(feature: MembershipFeatureInclusion, t: WebTranslator) {
++  if (!feature.note) return null;
++  const key = `account.membership.featureNotes.${feature.key}.${feature.availability}`;
++  const note = t(key);
++  return note === key ? feature.note : note;
++}
++
++function tierDisplayName(tier: PersonalMembershipTier, t: WebTranslator) {
++  return t(`account.membership.tiers.${tier}.displayName`);
++}
++
++function tierDescription(tier: PersonalMembershipTier, t: WebTranslator) {
++  return t(`account.membership.tiers.${tier}.description`);
++}
++
++function tierBadgeLabel(tier: PersonalMembershipTier, t: WebTranslator) {
++  return t(`account.membership.tiers.${tier}.badgeLabel`);
++}
++
++function identityDisplayName(identityType: AccountIdentityMetadata['identityType'], t: WebTranslator) {
++  return t(`account.membership.identities.${identityType}.displayName`);
++}
++
++function identityDescription(identityType: AccountIdentityMetadata['identityType'], t: WebTranslator) {
++  return t(`account.membership.identities.${identityType}.description`);
++}
++
++function identityBadgeLabel(identityType: AccountIdentityMetadata['identityType'], t: WebTranslator) {
++  return t(`account.membership.identities.${identityType}.badgeLabel`);
+ }
+ 
+-function FeatureList({ features }: { features: readonly MembershipFeatureInclusion[] }) {
++function FeatureList({ features, t }: { features: readonly MembershipFeatureInclusion[]; t: WebTranslator }) {
+   const visibleFeatures = features.slice(0, featureLimit);
+   const extraCount = Math.max(features.length - visibleFeatures.length, 0);
+ 
+   return (
+     <ul className="membership-card__features">
+-      {visibleFeatures.map((feature) => (
+-        <li key={`${feature.key}-${feature.availability}`}>
+-          <span className={`semantic-badge ${availabilityTone(feature.availability)}`}>{feature.availability}</span>
+-          <span>
+-            <strong>{featureLabel(feature.key)}</strong>
+-            {feature.note ? <small>{feature.note}</small> : null}
+-          </span>
+-        </li>
+-      ))}
+-      {extraCount > 0 ? <li className="membership-card__feature-more">+{extraCount} more</li> : null}
++      {visibleFeatures.map((feature) => {
++        const note = featureNote(feature, t);
++        return (
++          <li key={`${feature.key}-${feature.availability}`}>
++            <span className={`semantic-badge ${availabilityTone(feature.availability)}`}>{availabilityLabel(feature.availability, t)}</span>
++            <span>
++              <strong>{featureLabel(feature.key, t)}</strong>
++              {note ? <small>{note}</small> : null}
++            </span>
++          </li>
++        );
++      })}
++      {extraCount > 0 ? <li className="membership-card__feature-more">{t('account.membership.moreFeatures', { count: extraCount })}</li> : null}
+     </ul>
+   );
+ }
+@@ -155,12 +191,14 @@
+   currentStatus,
+   action,
+   statusLoaded,
++  t,
+ }: {
+   card: PersonalMembershipTierMetadata;
+   currentTier: PersonalMembershipTier;
+   currentStatus: SubscriptionStatus;
+   action: MembershipCardAction;
+   statusLoaded: boolean;
++  t: WebTranslator;
+ }) {
+   const isCurrent = statusLoaded && card.tier === currentTier;
+   const currentIsActive = currentStatus === 'active' || currentStatus === 'trialing';
+@@ -170,24 +208,18 @@
+     <article className={`membership-card ${card.featured ? 'is-featured' : ''}`.trim()}>
+       <div className="membership-card__header">
+         <div>
+-          <span className={`semantic-badge ${badgeClass}`}>{card.badgeLabel}</span>
+-          <h3>{card.displayName}</h3>
+-          <p>{card.description}</p>
++          <span className={`semantic-badge ${badgeClass}`}>{tierBadgeLabel(card.tier, t)}</span>
++          <h3>{tierDisplayName(card.tier, t)}</h3>
++          <p>{tierDescription(card.tier, t)}</p>
+         </div>
+         {isCurrent ? (
+           <span className={`semantic-badge ${currentIsActive ? 'success' : 'instruction'}`}>
+-            {currentIsActive ? 'Your tier' : formatStatus(currentStatus)}
++            {currentIsActive ? t('account.membership.currentTierBadge') : formatStatus(currentStatus, t)}
+           </span>
+         ) : null}
+       </div>
+-      <FeatureList features={card.featureInclusions} />
+-      <p className="membership-card__boundary">
+-        {card.tier === 'free'
+-          ? 'Free / Basic keeps core Need + Offer exchanges available.'
+-          : card.tier === 'plus'
+-            ? 'Plus is for private organization and assistance tools. It does not bypass safety or moderation.'
+-            : 'Pro stays a personal membership tier for professional trust and package features.'}
+-      </p>
++      <FeatureList features={card.featureInclusions} t={t} />
++      <p className="membership-card__boundary">{t(`account.membership.tiers.${card.tier}.boundary`)}</p>
+       <CardAction action={action} />
+     </article>
+   );
+@@ -199,15 +231,16 @@
+   currentStatus,
+   loadError,
+   language,
++  t,
+ }: {
+   snapshot: MembershipSnapshot;
+   currentTier: PersonalMembershipTier;
+   currentStatus: SubscriptionStatus;
+   loadError: boolean;
+   language: SupportedLanguage;
++  t: WebTranslator;
+ }) {
+-  const tierMetadata = PERSONAL_MEMBERSHIP_TIER_METADATA[currentTier];
+-  const statusLabel = formatStatusTitle(currentStatus);
++  const statusLabel = formatStatusTitle(currentStatus, t);
+   const hasSnapshot = Boolean(snapshot);
+   const hasPlusAccess = Boolean(snapshot?.access.hasPlusAccess);
+   const canSeePlusSurfaces = Boolean(snapshot?.access.canSeePlusSurfaces);
+@@ -221,9 +254,9 @@
+     return (
+       <section className="membership-status-overview membership-status-overview--error">
+         <div className="membership-status-overview__main">
+-          <span className="semantic-badge warning">Account status</span>
+-          <h3>Membership status unavailable</h3>
+-          <p>Could not load the account membership snapshot. The comparison cards below are still available.</p>
++          <span className="semantic-badge warning">{t('account.membership.statusOverview.errorBadge')}</span>
++          <h3>{t('account.membership.statusOverview.errorTitle')}</h3>
++          <p>{t('account.membership.statusOverview.errorBody')}</p>
+         </div>
+       </section>
+     );
+@@ -232,71 +265,79 @@
+   return (
+     <section className="membership-status-overview">
+       <div className="membership-status-overview__main">
+-        <span className="semantic-badge info">Current account</span>
+-        <h3>{hasSnapshot ? `${tierMetadata.displayName} · ${statusLabel}` : 'Loading membership status…'}</h3>
+-        <p>Read-only status for this account. Checkout and billing actions are intentionally not connected on this page.</p>
++        <span className="semantic-badge info">{t('account.membership.statusOverview.currentBadge')}</span>
++        <h3>
++          {hasSnapshot
++            ? t('account.membership.statusOverview.loadedTitle', { tier: tierDisplayName(currentTier, t), status: statusLabel })
++            : t('account.membership.statusOverview.loadingTitle')}
++        </h3>
++        <p>{t('account.membership.statusOverview.body')}</p>
+       </div>
+-      <div className="membership-status-grid" aria-label="Current membership status details">
++      <div className="membership-status-grid" aria-label={t('account.membership.statusOverview.gridAria')}>
+         <div className="membership-status-tile">
+-          <span>Personal tier</span>
+-          <strong>{tierMetadata.displayName}</strong>
+-          <small>{tierMetadata.description}</small>
++          <span>{t('account.membership.statusOverview.personalTier')}</span>
++          <strong>{tierDisplayName(currentTier, t)}</strong>
++          <small>{tierDescription(currentTier, t)}</small>
+         </div>
+         <div className="membership-status-tile">
+-          <span>Subscription status</span>
++          <span>{t('account.membership.statusOverview.subscriptionStatus')}</span>
+           <strong><span className={`semantic-badge ${statusTone(currentStatus)}`}>{statusLabel}</span></strong>
+-          <small>{formatUpdatedAt(snapshot?.state.subscriptionStatusUpdatedAt, language)}</small>
++          <small>{formatUpdatedAt(snapshot?.state.subscriptionStatusUpdatedAt, language, t)}</small>
+         </div>
+         <div className="membership-status-tile">
+-          <span>Plus access</span>
+-          <strong><span className={`semantic-badge ${hasPlusAccess ? 'success' : 'neutral'}`}>{hasPlusAccess ? 'Available' : 'Not active'}</span></strong>
+-          <small>{canSeePlusSurfaces ? 'Plus surfaces can be shown.' : 'Plus surfaces are hidden by current flags.'}</small>
++          <span>{t('account.membership.statusOverview.plusAccess')}</span>
++          <strong>
++            <span className={`semantic-badge ${hasPlusAccess ? 'success' : 'neutral'}`}>
++              {hasPlusAccess ? t('account.membership.statusOverview.plusAccessAvailable') : t('account.membership.statusOverview.plusAccessNotActive')}
++            </span>
++          </strong>
++          <small>{canSeePlusSurfaces ? t('account.membership.statusOverview.plusSurfacesVisible') : t('account.membership.statusOverview.plusSurfacesHidden')}</small>
+         </div>
+         <div className="membership-status-tile">
+-          <span>AI assistance quota</span>
++          <span>{t('account.membership.statusOverview.aiQuota')}</span>
+           <strong>{quota ? `${quota.remaining}/${quota.quota}` : '—'}</strong>
+-          <small>{quota ? `Remaining this month · resets ${formatSubscriptionDate(quota.resetAt, language)}` : 'Quota loads with the account snapshot.'}</small>
++          <small>{quota ? t('account.membership.statusOverview.aiQuotaDetails', { date: formatSubscriptionDate(quota.resetAt, language) }) : t('account.membership.statusOverview.aiQuotaEmpty')}</small>
+         </div>
+         <div className="membership-status-tile">
+-          <span>Period</span>
+-          <strong>{formatPeriodSummary(snapshot, language)}</strong>
+-          <small>No payment provider action is exposed here.</small>
++          <span>{t('account.membership.statusOverview.period')}</span>
++          <strong>{formatPeriodSummary(snapshot, language, t)}</strong>
++          <small>{t('account.membership.statusOverview.noPaymentProvider')}</small>
+         </div>
+         <div className="membership-status-tile">
+-          <span>Reference price</span>
+-          <strong>{monthlyPrice}/mo</strong>
+-          <small>Display metadata only. Checkout remains out of scope.</small>
++          <span>{t('account.membership.statusOverview.referencePrice')}</span>
++          <strong>{t('account.membership.statusOverview.monthlyPrice', { price: monthlyPrice })}</strong>
++          <small>{t('account.membership.statusOverview.referencePriceNote')}</small>
+         </div>
+       </div>
+     </section>
+   );
+ }
+ 
+-function MembershipAvailabilityPanel() {
++function MembershipAvailabilityPanel({ t }: { t: WebTranslator }) {
+   const featureRows = [
+-    { label: 'Plus membership surfaces', enabled: betaFeatures.plusSubscriptionFeatures.plusPublic, note: 'Controlled by existing Plus flags.' },
+-    { label: 'Saved Library', enabled: betaFeatures.savedLibraryEnabled, note: 'Plus private organization feature.' },
+-    { label: 'Agenda', enabled: betaFeatures.agendaEnabled, note: 'Plus private calendar-style feature.' },
+-    { label: 'AI assistance', enabled: betaFeatures.plusSubscriptionFeatures.aiAssistEnabled, note: 'Plus assistance quota and draft help.' },
+-    { label: 'Customization', enabled: betaFeatures.plusSubscriptionFeatures.customizationEnabled, note: 'Plus presentation options.' },
+-    { label: 'Pro account surfaces', enabled: betaFeatures.proSubscriptionFeatures.proAccountsVisible, note: 'Personal professional tier visibility.' },
+-    { label: 'Business identity surfaces', enabled: betaFeatures.businessAccountsVisible, note: 'Separate organization identity area.' },
++    { key: 'plusMembershipSurfaces', enabled: betaFeatures.plusSubscriptionFeatures.plusPublic },
++    { key: 'savedLibrary', enabled: betaFeatures.savedLibraryEnabled },
++    { key: 'agenda', enabled: betaFeatures.agendaEnabled },
++    { key: 'aiAssistance', enabled: betaFeatures.plusSubscriptionFeatures.aiAssistEnabled },
++    { key: 'customization', enabled: betaFeatures.plusSubscriptionFeatures.customizationEnabled },
++    { key: 'proAccountSurfaces', enabled: betaFeatures.proSubscriptionFeatures.proAccountsVisible },
++    { key: 'businessIdentitySurfaces', enabled: betaFeatures.businessAccountsVisible },
+   ] as const;
+ 
+   return (
+     <section className="membership-availability-panel">
+       <div>
+-        <span className="semantic-badge neutral">Build availability</span>
+-        <h3>What this build can show</h3>
+-        <p>These rows read the existing public flags. They do not add new environment variables.</p>
++        <span className="semantic-badge neutral">{t('account.membership.availabilityPanel.badge')}</span>
++        <h3>{t('account.membership.availabilityPanel.title')}</h3>
++        <p>{t('account.membership.availabilityPanel.body')}</p>
+       </div>
+       <div className="membership-availability-list">
+         {featureRows.map((row) => (
+-          <div key={row.label} className="membership-availability-row">
+-            <span className={`semantic-badge ${boolStatusTone(row.enabled)}`}>{boolStatusLabel(row.enabled)}</span>
++          <div key={row.key} className="membership-availability-row">
++            <span className={`semantic-badge ${boolStatusTone(row.enabled)}`}>{boolStatusLabel(row.enabled, t)}</span>
+             <div>
+-              <strong>{row.label}</strong>
+-              <small>{row.note}</small>
++              <strong>{t(`account.membership.availabilityPanel.rows.${row.key}.label`)}</strong>
++              <small>{t(`account.membership.availabilityPanel.rows.${row.key}.note`)}</small>
+             </div>
+           </div>
+         ))}
+@@ -305,57 +346,62 @@
+   );
+ }
+ 
+-function BusinessBoundaryPanel() {
++function BusinessBoundaryPanel({ t }: { t: WebTranslator }) {
+   return (
+-    <section className="membership-boundary-panel" aria-label="Membership and identity boundary">
++    <section className="membership-boundary-panel" aria-label={t('account.membership.boundaryPanel.aria')}>
+       <div className="membership-boundary-card">
+-        <span className="semantic-badge neutral">Personal membership</span>
+-        <h3>Free / Basic, Plus, and Pro stay personal</h3>
+-        <p>These tiers control what a person can access on their own account. A personal handle remains in the personal namespace.</p>
++        <span className="semantic-badge neutral">{t('account.membership.boundaryPanel.personalBadge')}</span>
++        <h3>{t('account.membership.boundaryPanel.personalTitle')}</h3>
++        <p>{t('account.membership.boundaryPanel.personalBody')}</p>
+         <strong>{HANDLE_NAMESPACE_METADATA.personal.pathPattern}</strong>
+       </div>
+       <div className="membership-boundary-card membership-boundary-card--business">
+-        <span className="semantic-badge business">Business identity</span>
+-        <h3>Business is an organization identity</h3>
+-        <p>Organization handles should live separately so a future official brand account does not need a personal user’s handle.</p>
++        <span className="semantic-badge business">{t('account.membership.boundaryPanel.businessBadge')}</span>
++        <h3>{t('account.membership.boundaryPanel.businessTitle')}</h3>
++        <p>{t('account.membership.boundaryPanel.businessBody')}</p>
+         <strong>{HANDLE_NAMESPACE_METADATA.organization.pathPattern}</strong>
+       </div>
+     </section>
+   );
+ }
+ 
+-function BusinessIdentityCard({ card }: { card: AccountIdentityMetadata }) {
++function BusinessIdentityCard({ card, t }: { card: AccountIdentityMetadata; t: WebTranslator }) {
+   const namespace = HANDLE_NAMESPACE_METADATA[card.handleNamespace];
+   const action: MembershipCardAction = betaFeatures.businessAccountsVisible
+-    ? { label: 'Open business area', href: '/account/business' }
+-    : { label: 'Business identity is not public yet', disabled: true };
++    ? { label: t('account.membership.actions.openBusinessArea'), href: '/account/business' }
++    : { label: t('account.membership.actions.businessHidden'), disabled: true };
+ 
+   return (
+     <article className="membership-card membership-card--business">
+       <div className="membership-card__header">
+         <div>
+-          <span className="semantic-badge business">{card.badgeLabel}</span>
+-          <h3>{card.displayName}</h3>
+-          <p>{card.description}</p>
++          <span className="semantic-badge business">{identityBadgeLabel(card.identityType, t)}</span>
++          <h3>{identityDisplayName(card.identityType, t)}</h3>
++          <p>{identityDescription(card.identityType, t)}</p>
+         </div>
+-        <span className="semantic-badge info">Separate identity</span>
++        <span className="semantic-badge info">{t('account.membership.identityCard.separateIdentityBadge')}</span>
+       </div>
+-      <div className="membership-namespace-grid" aria-label="Handle namespace examples">
++      <div className="membership-namespace-grid" aria-label={t('account.membership.identityCard.namespaceAria')}>
+         <div>
+-          <span>Personal namespace</span>
++          <span>{t('account.membership.identityCard.personalNamespace')}</span>
+           <strong>{HANDLE_NAMESPACE_METADATA.personal.examplePath}</strong>
+         </div>
+         <div>
+-          <span>Organization namespace</span>
++          <span>{t('account.membership.identityCard.organizationNamespace')}</span>
+           <strong>{namespace.examplePath}</strong>
+         </div>
+       </div>
+-      <FeatureList features={card.featureInclusions} />
++      <FeatureList features={card.featureInclusions} t={t} />
+       <p className="membership-card__boundary">
+-        Business is not a personal tier. It uses a separate organization namespace so a personal handle like /u/apple does not block an official organization handle like /org/apple later.
++        {t('account.membership.identityCard.boundary', {
++          personalExample: HANDLE_NAMESPACE_METADATA.personal.examplePath,
++          organizationExample: namespace.examplePath,
++        })}
+       </p>
+       {namespace.currentLegacyExamplePath ? (
+-        <p className="membership-card__legacy-note">Current repo route note: business profiles may still use {namespace.currentLegacyExamplePath} until the future /org namespace is introduced.</p>
++        <p className="membership-card__legacy-note">
++          {t('account.membership.identityCard.legacyRouteNote', { path: namespace.currentLegacyExamplePath })}
++        </p>
+       ) : null}
+       <CardAction action={action} />
+     </article>
+@@ -400,58 +446,58 @@
+   const currentStatus = normalizeSubscriptionStatus(plusSnapshot?.state?.subscriptionStatus);
+ 
+   const actions = useMemo<Record<PersonalMembershipTier, MembershipCardAction>>(() => {
+-    const loginHref = `/auth?next=${encodeURIComponent('/account/membership')}`;
++    const loginHref = `/auth?next=${encodeURIComponent(membershipRoute)}`;
+     if (!auth.isAuthenticated) {
+       return {
+-        free: { label: 'Login or register', href: loginHref },
+-        plus: { label: 'Login to view access', href: loginHref },
+-        pro: { label: 'Login to view access', href: loginHref },
++        free: { label: t('account.membership.actions.loginOrRegister'), href: loginHref },
++        plus: { label: t('account.membership.actions.loginToViewAccess'), href: loginHref },
++        pro: { label: t('account.membership.actions.loginToViewAccess'), href: loginHref },
+       };
+     }
+ 
+     if (!statusLoaded && !loadError) {
+       return {
+-        free: { label: 'Loading status…', disabled: true },
+-        plus: { label: 'Loading status…', disabled: true },
+-        pro: { label: 'Loading status…', disabled: true },
++        free: { label: t('account.membership.actions.loadingStatus'), disabled: true },
++        plus: { label: t('account.membership.actions.loadingStatus'), disabled: true },
++        pro: { label: t('account.membership.actions.loadingStatus'), disabled: true },
+       };
+     }
+ 
+     return {
+-      free: { label: statusLoaded && currentTier === 'free' ? 'Current membership' : 'Included by default', disabled: true },
+-      plus: { label: statusLoaded && currentTier === 'plus' ? 'Current membership' : 'Checkout not connected', disabled: true },
+-      pro: { label: statusLoaded && currentTier === 'pro' ? 'Current membership' : 'Checkout not connected', disabled: true },
++      free: { label: statusLoaded && currentTier === 'free' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.includedByDefault'), disabled: true },
++      plus: { label: statusLoaded && currentTier === 'plus' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.checkoutNotConnected'), disabled: true },
++      pro: { label: statusLoaded && currentTier === 'pro' ? t('account.membership.actions.currentMembership') : t('account.membership.actions.checkoutNotConnected'), disabled: true },
+     };
+-  }, [auth.isAuthenticated, currentTier, loadError, statusLoaded]);
++  }, [auth.isAuthenticated, currentTier, loadError, statusLoaded, t]);
+ 
+   return (
+     <div className="membership-page">
+       <div className="page-intro">
+         <div>
+-          <p className="eyebrow">Membership</p>
+-          <h2>Membership</h2>
+-          <p>Compare personal membership tiers and the separate Business / organization identity type.</p>
++          <p className="eyebrow">{t('account.membership.eyebrow')}</p>
++          <h2>{t('account.membership.title')}</h2>
++          <p>{t('account.membership.intro')}</p>
+         </div>
+         <div className="page-intro__action">
+-          <Link href="/account" className="button secondary">Back to account</Link>
++          <Link href="/account" className="button secondary">{t('account.membership.backToAccount')}</Link>
+         </div>
+       </div>
+ 
+       <section className="membership-hero-card">
+         <div className="membership-hero-card__icon" aria-hidden="true">★</div>
+         <div>
+-          <span className="semantic-badge instruction">No checkout</span>
+-          <h3>Display foundation only</h3>
+-          <p>This page shows Free / Basic, Plus, Pro, and Business metadata without Stripe, Apple, Google, or any billing provider.</p>
++          <span className="semantic-badge instruction">{t('account.membership.hero.badge')}</span>
++          <h3>{t('account.membership.hero.title')}</h3>
++          <p>{t('account.membership.hero.body')}</p>
+         </div>
+       </section>
+ 
+       {auth.hydrated && !auth.isAuthenticated ? (
+         <section className="mobile-card mobile-card--soft membership-status-card">
+-          <span className="semantic-badge instruction">Signed out</span>
+-          <h3>Login to compare against your account</h3>
+-          <p>You can still read the membership structure here. Login to see which personal tier is attached to your account.</p>
+-          <Link className="button primary" href={`/auth?next=${encodeURIComponent('/account/membership')}`}>{t('common.actions.loginOrRegister')}</Link>
++          <span className="semantic-badge instruction">{t('account.membership.signedOut.badge')}</span>
++          <h3>{t('account.membership.signedOut.title')}</h3>
++          <p>{t('account.membership.signedOut.body')}</p>
++          <Link className="button primary" href={`/auth?next=${encodeURIComponent(membershipRoute)}`}>{t('common.actions.loginOrRegister')}</Link>
+         </section>
+       ) : null}
+ 
+@@ -462,17 +508,18 @@
+           language={language}
+           loadError={loadError}
+           snapshot={plusSnapshot}
++          t={t}
+         />
+       ) : null}
+ 
+-      <MembershipBoundaryPanel />
++      <BusinessBoundaryPanel t={t} />
+ 
+       <section className="membership-section">
+         <div className="membership-section__header">
+-          <span className="semantic-badge neutral">Personal tiers</span>
++          <span className="semantic-badge neutral">{t('account.membership.sections.personalBadge')}</span>
+           <div>
+-            <h3>Personal membership</h3>
+-            <p>Free / Basic, Plus, and Pro belong to the personal user account.</p>
++            <h3>{t('account.membership.sections.personalTitle')}</h3>
++            <p>{t('account.membership.sections.personalBody')}</p>
+           </div>
+         </div>
+         <div className="membership-grid membership-grid--personal">
+@@ -484,6 +531,7 @@
+               currentStatus={currentStatus}
+               currentTier={currentTier}
+               statusLoaded={statusLoaded}
++              t={t}
+             />
+           ))}
+         </div>
+@@ -491,19 +539,19 @@
+ 
+       <section className="membership-section membership-section--identity">
+         <div className="membership-section__header">
+-          <span className="semantic-badge business">Identity type</span>
++          <span className="semantic-badge business">{t('account.membership.sections.identityBadge')}</span>
+           <div>
+-            <h3>Business is separate from personal tiers</h3>
+-            <p>Business / organization accounts should not compete with personal handles.</p>
++            <h3>{t('account.membership.sections.identityTitle')}</h3>
++            <p>{t('account.membership.sections.identityBody')}</p>
+           </div>
+         </div>
+-        <BusinessIdentityCard card={ACCOUNT_IDENTITY_METADATA.business_organization} />
++        <BusinessIdentityCard card={ACCOUNT_IDENTITY_METADATA.business_organization} t={t} />
+       </section>
+ 
+-      <MembershipAvailabilityPanel />
++      <MembershipAvailabilityPanel t={t} />
+ 
+       <section className="notice-box info membership-next-note">
+-        <strong>TIERS3 boundary:</strong> this is still a web account foundation page. Payment checkout, public pricing, mobile UI, organization routes, and schema changes are intentionally out of scope.
++        <strong>{t('account.membership.nextNote.label')}</strong> {t('account.membership.nextNote.body')}
+       </section>
+     </div>
+   );
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -639,6 +639,187 @@
+       privacyNote: 'Manual notes are private. Agenda is not a booking system and has no external calendar sync in this version.',
+     },
+   },
++  membership: {
++    eyebrow: 'Membership',
++    title: 'Membership',
++    intro: 'Compare personal membership tiers and the separate Business / organization identity type.',
++    backToAccount: 'Back to account',
++    moreFeatures: '+{{count}} more',
++    currentTierBadge: 'Your tier',
++    hero: {
++      badge: 'No checkout',
++      title: 'Display foundation only',
++      body: 'This page shows Free / Basic, Plus, Pro, and Business metadata without Stripe, Apple, Google, or any billing provider.',
++    },
++    signedOut: {
++      badge: 'Signed out',
++      title: 'Login to compare against your account',
++      body: 'You can still read the membership structure here. Login to see which personal tier is attached to your account.',
++    },
++    statusLabels: {
++      none: 'no paid membership',
++      trialing: 'trial',
++      active: 'active',
++      past_due: 'past due',
++      canceled: 'canceled',
++      expired: 'expired',
++    },
++    statusTitles: {
++      none: 'No paid membership',
++      trialing: 'Trial',
++      active: 'Active',
++      past_due: 'Past due',
++      canceled: 'Canceled',
++      expired: 'Expired',
++    },
++    booleans: {
++      enabled: 'Enabled',
++      hidden: 'Hidden',
++    },
++    availability: {
++      included: 'Included',
++      limited: 'Limited',
++      upgrade: 'Upgrade',
++      future: 'Future',
++    },
++    features: {
++      need_offer_trades: { shortLabel: 'Trades' },
++      public_profile: { shortLabel: 'Profile' },
++      safety_moderation: { shortLabel: 'Safety' },
++      saved_library: { shortLabel: 'Saved' },
++      saved_collections: { shortLabel: 'Collections' },
++      agenda: { shortLabel: 'Agenda' },
++      ai_assistance: { shortLabel: 'AI assist' },
++      card_customization: { shortLabel: 'Customization' },
++      professional_profile: { shortLabel: 'Pro profile' },
++      identity_verification: { shortLabel: 'Verification' },
++      pro_trade_packages: { shortLabel: 'Packages' },
++      organization_namespace: { shortLabel: 'Org handle' },
++      organization_profile: { shortLabel: 'Org profile' },
++      business_badge: { shortLabel: 'Business badge' },
++      team_members: { shortLabel: 'Team' },
++      business_mini_app: { shortLabel: 'Mini-app' },
++    },
++    featureNotes: {
++      saved_library: { upgrade: 'Plus private organization feature.' },
++      agenda: { upgrade: 'Plus private organization feature.' },
++      ai_assistance: { upgrade: 'Plus assistance feature.' },
++      organization_namespace: { included: 'Separate from personal /u handles.' },
++    },
++    tiers: {
++      free: {
++        displayName: 'Free / Basic',
++        badgeLabel: 'Basic',
++        description: 'Core personal account for posting needs, offers, and exchanges.',
++        boundary: 'Free / Basic keeps core Need + Offer exchanges available.',
++      },
++      plus: {
++        displayName: 'Plus',
++        badgeLabel: 'Plus',
++        description: 'Personal membership for private organization, assistance, and customization tools.',
++        boundary: 'Plus is for private organization and assistance tools. It does not bypass safety or moderation.',
++      },
++      pro: {
++        displayName: 'Pro',
++        badgeLabel: 'Pro',
++        description: 'Professional personal membership with Plus features and pro trust/package foundations.',
++        boundary: 'Pro stays a personal membership tier for professional trust and package features.',
++      },
++    },
++    identities: {
++      business_organization: {
++        displayName: 'Business / organization account',
++        badgeLabel: 'Business',
++        description: 'A separate organization identity with its own handle namespace, badge, profile, and future team/app surfaces.',
++      },
++    },
++    actions: {
++      loginOrRegister: 'Login or register',
++      loginToViewAccess: 'Login to view access',
++      loadingStatus: 'Loading status…',
++      currentMembership: 'Current membership',
++      includedByDefault: 'Included by default',
++      checkoutNotConnected: 'Checkout not connected',
++      openBusinessArea: 'Open business area',
++      businessHidden: 'Business identity is not public yet',
++    },
++    statusOverview: {
++      errorBadge: 'Account status',
++      errorTitle: 'Membership status unavailable',
++      errorBody: 'Could not load the account membership snapshot. The comparison cards below are still available.',
++      currentBadge: 'Current account',
++      loadedTitle: '{{tier}} · {{status}}',
++      loadingTitle: 'Loading membership status…',
++      body: 'Read-only status for this account. Checkout and billing actions are intentionally not connected on this page.',
++      gridAria: 'Current membership status details',
++      personalTier: 'Personal tier',
++      subscriptionStatus: 'Subscription status',
++      plusAccess: 'Plus access',
++      plusAccessAvailable: 'Available',
++      plusAccessNotActive: 'Not active',
++      plusSurfacesVisible: 'Plus surfaces can be shown.',
++      plusSurfacesHidden: 'Plus surfaces are hidden by current flags.',
++      aiQuota: 'AI assistance quota',
++      aiQuotaEmpty: 'Quota loads with the account snapshot.',
++      aiQuotaDetails: 'Remaining this month · resets {{date}}',
++      period: 'Period',
++      noPaymentProvider: 'No payment provider action is exposed here.',
++      referencePrice: 'Reference price',
++      monthlyPrice: '{{price}}/mo',
++      referencePriceNote: 'Display metadata only. Checkout remains out of scope.',
++      noBillingPeriod: 'No billing period is attached.',
++      periodTrialEnds: 'Trial ends {{date}}',
++      periodCurrentEnds: 'Current period ends {{date}}',
++      periodAccessExpires: 'Access expires {{date}}',
++      periodCanceled: 'Canceled {{date}}',
++      noPeriod: 'No renewal or expiry date is attached.',
++      noStatusUpdate: 'No status update date',
++      statusUpdated: 'Updated {{date}}',
++    },
++    boundaryPanel: {
++      aria: 'Membership and identity boundary',
++      personalBadge: 'Personal membership',
++      personalTitle: 'Free / Basic, Plus, and Pro stay personal',
++      personalBody: 'These tiers control what a person can access on their own account. A personal handle remains in the personal namespace.',
++      businessBadge: 'Business identity',
++      businessTitle: 'Business is an organization identity',
++      businessBody: 'Organization handles should live separately so a future official brand account does not need a personal user’s handle.',
++    },
++    sections: {
++      personalBadge: 'Personal tiers',
++      personalTitle: 'Personal membership',
++      personalBody: 'Free / Basic, Plus, and Pro belong to the personal user account.',
++      identityBadge: 'Identity type',
++      identityTitle: 'Business is separate from personal tiers',
++      identityBody: 'Business / organization accounts should not compete with personal handles.',
++    },
++    identityCard: {
++      separateIdentityBadge: 'Separate identity',
++      namespaceAria: 'Handle namespace examples',
++      personalNamespace: 'Personal namespace',
++      organizationNamespace: 'Organization namespace',
++      boundary: 'Business is not a personal tier. It uses a separate organization namespace so a personal handle like {{personalExample}} does not block an official organization handle like {{organizationExample}} later.',
++      legacyRouteNote: 'Current repo route note: business profiles may still use {{path}} until the future /org namespace is introduced.',
++    },
++    availabilityPanel: {
++      badge: 'Build availability',
++      title: 'What this build can show',
++      body: 'These rows read the existing public flags. They do not add new environment variables.',
++      rows: {
++        plusMembershipSurfaces: { label: 'Plus membership surfaces', note: 'Controlled by existing Plus flags.' },
++        savedLibrary: { label: 'Saved Library', note: 'Plus private organization feature.' },
++        agenda: { label: 'Agenda', note: 'Plus private calendar-style feature.' },
++        aiAssistance: { label: 'AI assistance', note: 'Plus assistance quota and draft help.' },
++        customization: { label: 'Customization', note: 'Plus presentation options.' },
++        proAccountSurfaces: { label: 'Pro account surfaces', note: 'Personal professional tier visibility.' },
++        businessIdentitySurfaces: { label: 'Business identity surfaces', note: 'Separate organization identity area.' },
++      },
++    },
++    nextNote: {
++      label: 'TIERS6 boundary:',
++      body: 'this is still a web account foundation page. Payment checkout, public pricing, mobile UI, organization routes, and schema changes are intentionally out of scope.',
++    },
++  },
+   membershipPreview: {
+     openAria: 'Open Membership details',
+     loading: 'Loading membership…',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -639,6 +639,187 @@
+       privacyNote: 'Les notes manuelles sont privées. Agenda n’est pas un système de réservation et n’a pas de synchronisation calendrier externe dans cette version.',
+     },
+   },
++  membership: {
++    eyebrow: 'Membership',
++    title: 'Membership',
++    intro: 'Comparez les niveaux personnels et le type d’identité Business / organisation séparé.',
++    backToAccount: 'Retour au compte',
++    moreFeatures: '+{{count}} de plus',
++    currentTierBadge: 'Votre niveau',
++    hero: {
++      badge: 'Pas de paiement',
++      title: 'Base d’affichage uniquement',
++      body: 'Cette page affiche les métadonnées Free / Basic, Plus, Pro et Business sans Stripe, Apple, Google ni fournisseur de facturation.',
++    },
++    signedOut: {
++      badge: 'Déconnecté',
++      title: 'Connectez-vous pour comparer avec votre compte',
++      body: 'Vous pouvez quand même lire la structure du Membership ici. Connectez-vous pour voir quel niveau personnel est attaché à votre compte.',
++    },
++    statusLabels: {
++      none: 'aucun membership payant',
++      trialing: 'essai',
++      active: 'actif',
++      past_due: 'en retard',
++      canceled: 'annulé',
++      expired: 'expiré',
++    },
++    statusTitles: {
++      none: 'Aucun membership payant',
++      trialing: 'Essai',
++      active: 'Actif',
++      past_due: 'En retard',
++      canceled: 'Annulé',
++      expired: 'Expiré',
++    },
++    booleans: {
++      enabled: 'Activé',
++      hidden: 'Masqué',
++    },
++    availability: {
++      included: 'Inclus',
++      limited: 'Limité',
++      upgrade: 'Plus requis',
++      future: 'Plus tard',
++    },
++    features: {
++      need_offer_trades: { shortLabel: 'Échanges' },
++      public_profile: { shortLabel: 'Profil' },
++      safety_moderation: { shortLabel: 'Sécurité' },
++      saved_library: { shortLabel: 'Enregistrés' },
++      saved_collections: { shortLabel: 'Collections' },
++      agenda: { shortLabel: 'Agenda' },
++      ai_assistance: { shortLabel: 'Aide IA' },
++      card_customization: { shortLabel: 'Personnalisation' },
++      professional_profile: { shortLabel: 'Profil Pro' },
++      identity_verification: { shortLabel: 'Vérification' },
++      pro_trade_packages: { shortLabel: 'Packages' },
++      organization_namespace: { shortLabel: 'Identifiant org' },
++      organization_profile: { shortLabel: 'Profil org' },
++      business_badge: { shortLabel: 'Badge Business' },
++      team_members: { shortLabel: 'Équipe' },
++      business_mini_app: { shortLabel: 'Mini-app' },
++    },
++    featureNotes: {
++      saved_library: { upgrade: 'Fonction privée d’organisation Plus.' },
++      agenda: { upgrade: 'Fonction privée d’organisation Plus.' },
++      ai_assistance: { upgrade: 'Fonction d’assistance Plus.' },
++      organization_namespace: { included: 'Séparé des identifiants personnels /u.' },
++    },
++    tiers: {
++      free: {
++        displayName: 'Free / Basic',
++        badgeLabel: 'Basic',
++        description: 'Compte personnel de base pour publier des besoins, des offres et des échanges.',
++        boundary: 'Free / Basic garde les échanges essentiels Besoin + Offre disponibles.',
++      },
++      plus: {
++        displayName: 'Plus',
++        badgeLabel: 'Plus',
++        description: 'Membership personnel pour les outils privés d’organisation, d’assistance et de personnalisation.',
++        boundary: 'Plus sert aux outils privés d’organisation et d’assistance. Il ne contourne pas la sécurité ni la modération.',
++      },
++      pro: {
++        displayName: 'Pro',
++        badgeLabel: 'Pro',
++        description: 'Membership personnel professionnel avec les fonctions Plus et des bases de confiance/packages Pro.',
++        boundary: 'Pro reste un niveau personnel pour la confiance professionnelle et les futures fonctions de packages.',
++      },
++    },
++    identities: {
++      business_organization: {
++        displayName: 'Compte Business / organisation',
++        badgeLabel: 'Business',
++        description: 'Une identité d’organisation séparée avec son propre espace d’identifiants, badge, profil et futures surfaces équipe/app.',
++      },
++    },
++    actions: {
++      loginOrRegister: 'Se connecter ou s’inscrire',
++      loginToViewAccess: 'Se connecter pour voir l’accès',
++      loadingStatus: 'Chargement du statut…',
++      currentMembership: 'Membership actuel',
++      includedByDefault: 'Inclus par défaut',
++      checkoutNotConnected: 'Paiement non connecté',
++      openBusinessArea: 'Ouvrir l’espace Business',
++      businessHidden: 'L’identité Business n’est pas encore publique',
++    },
++    statusOverview: {
++      errorBadge: 'Statut du compte',
++      errorTitle: 'Statut Membership indisponible',
++      errorBody: 'Impossible de charger l’instantané Membership du compte. Les cartes de comparaison restent disponibles ci-dessous.',
++      currentBadge: 'Compte actuel',
++      loadedTitle: '{{tier}} · {{status}}',
++      loadingTitle: 'Chargement du statut Membership…',
++      body: 'Statut en lecture seule pour ce compte. Les actions de paiement et facturation ne sont volontairement pas connectées sur cette page.',
++      gridAria: 'Détails du statut Membership actuel',
++      personalTier: 'Niveau personnel',
++      subscriptionStatus: 'Statut d’abonnement',
++      plusAccess: 'Accès Plus',
++      plusAccessAvailable: 'Disponible',
++      plusAccessNotActive: 'Non actif',
++      plusSurfacesVisible: 'Les surfaces Plus peuvent être affichées.',
++      plusSurfacesHidden: 'Les surfaces Plus sont masquées par les flags actuels.',
++      aiQuota: 'Quota d’aide IA',
++      aiQuotaEmpty: 'Le quota se charge avec l’instantané du compte.',
++      aiQuotaDetails: 'Restant ce mois-ci · réinitialisation {{date}}',
++      period: 'Période',
++      noPaymentProvider: 'Aucune action de fournisseur de paiement n’est exposée ici.',
++      referencePrice: 'Prix de référence',
++      monthlyPrice: '{{price}}/mois',
++      referencePriceNote: 'Métadonnée d’affichage uniquement. Le paiement reste hors périmètre.',
++      noBillingPeriod: 'Aucune période de facturation n’est attachée.',
++      periodTrialEnds: 'L’essai se termine le {{date}}',
++      periodCurrentEnds: 'La période actuelle se termine le {{date}}',
++      periodAccessExpires: 'L’accès expire le {{date}}',
++      periodCanceled: 'Annulé le {{date}}',
++      noPeriod: 'Aucune date de renouvellement ou d’expiration n’est attachée.',
++      noStatusUpdate: 'Aucune date de mise à jour du statut',
++      statusUpdated: 'Mis à jour le {{date}}',
++    },
++    boundaryPanel: {
++      aria: 'Frontière entre membership et identité',
++      personalBadge: 'Membership personnel',
++      personalTitle: 'Free / Basic, Plus et Pro restent personnels',
++      personalBody: 'Ces niveaux contrôlent ce qu’une personne peut utiliser sur son propre compte. Un identifiant personnel reste dans l’espace personnel.',
++      businessBadge: 'Identité Business',
++      businessTitle: 'Business est une identité d’organisation',
++      businessBody: 'Les identifiants d’organisation doivent vivre séparément pour qu’un futur compte de marque officiel n’ait pas besoin de l’identifiant d’un utilisateur personnel.',
++    },
++    sections: {
++      personalBadge: 'Niveaux personnels',
++      personalTitle: 'Membership personnel',
++      personalBody: 'Free / Basic, Plus et Pro appartiennent au compte utilisateur personnel.',
++      identityBadge: 'Type d’identité',
++      identityTitle: 'Business est séparé des niveaux personnels',
++      identityBody: 'Les comptes Business / organisation ne doivent pas entrer en concurrence avec les identifiants personnels.',
++    },
++    identityCard: {
++      separateIdentityBadge: 'Identité séparée',
++      namespaceAria: 'Exemples d’espaces d’identifiants',
++      personalNamespace: 'Espace personnel',
++      organizationNamespace: 'Espace organisation',
++      boundary: 'Business n’est pas un niveau personnel. Il utilise un espace d’organisation séparé pour qu’un identifiant personnel comme {{personalExample}} ne bloque pas plus tard un identifiant officiel comme {{organizationExample}}.',
++      legacyRouteNote: 'Note sur la route actuelle du repo : les profils Business peuvent encore utiliser {{path}} jusqu’à l’introduction du futur espace /org.',
++    },
++    availabilityPanel: {
++      badge: 'Disponibilité du build',
++      title: 'Ce que ce build peut afficher',
++      body: 'Ces lignes lisent les flags publics existants. Elles n’ajoutent aucune nouvelle variable d’environnement.',
++      rows: {
++        plusMembershipSurfaces: { label: 'Surfaces Membership Plus', note: 'Contrôlé par les flags Plus existants.' },
++        savedLibrary: { label: 'Saved Library', note: 'Fonction privée d’organisation Plus.' },
++        agenda: { label: 'Agenda', note: 'Fonction Plus privée de type calendrier.' },
++        aiAssistance: { label: 'Aide IA', note: 'Quota d’assistance Plus et aide à la rédaction.' },
++        customization: { label: 'Personnalisation', note: 'Options de présentation Plus.' },
++        proAccountSurfaces: { label: 'Surfaces compte Pro', note: 'Visibilité du niveau personnel professionnel.' },
++        businessIdentitySurfaces: { label: 'Surfaces identité Business', note: 'Zone d’identité d’organisation séparée.' },
++      },
++    },
++    nextNote: {
++      label: 'Limite TIERS6 :',
++      body: 'cela reste une page de base du compte web. Paiement, tarification publique, UI mobile, routes d’organisation et changements de schéma sont volontairement hors périmètre.',
++    },
++  },
+   membershipPreview: {
+     openAria: 'Ouvrir les détails Membership',
+     loading: 'Chargement du membership…',

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type { SavedItemType } from '@hellowhen/contracts';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -76,7 +77,7 @@ export function SavedToggleButton({
         setSavedItemId(result.item.id);
       }
     } catch (err) {
-      setUpgradePrompt(getFriendlyApiErrorMessage(err, t('account.saved.plus.savePrompt')));
+      setUpgradePrompt(getFriendlyApiErrorMessage(err, t('account.membershipUpgrade.savedPrompt')));
       try {
         const result = await api.saved.status({ itemType, itemId });
         setSavedItemId(result.isSaved ? result.savedItem?.id ?? null : null);
@@ -107,7 +108,12 @@ export function SavedToggleButton({
         <WebIcon name="save" size={iconSize} decorative />
         {showLabel ? <span>{label}</span> : null}
       </button>
-      {upgradePrompt ? <span className="saved-toggle-upgrade-prompt">{upgradePrompt}</span> : null}
+      {upgradePrompt ? (
+        <span className="saved-toggle-upgrade-prompt">
+          <span>{upgradePrompt}</span>
+          <Link href="/account/membership">{t('account.membershipUpgrade.action')}</Link>
+        </span>
+      ) : null}
     </>
   );
 }

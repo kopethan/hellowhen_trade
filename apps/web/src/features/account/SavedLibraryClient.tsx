@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { type AgendaItemType, type SavedCollectionDto, type SavedItemDto, type SavedItemType, type SavedLibrarySort } from '@hellowhen/contracts';
 import { AddToAgendaButton } from '../../components/AddToAgendaButton';
+import { MembershipUpgradeCard } from '../../components/MembershipUpgradeCard';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -367,14 +368,16 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
         </div>
       </section>
 
-      <section className="saved-library-plus-card">
-        <span className="semantic-badge success">{t('account.saved.plus.badge')}</span>
-        <div>
-          <h3>{t('account.saved.plus.title')}</h3>
-          <p>{t('account.saved.plus.body')}</p>
-        </div>
-        {plusPublic ? <Link href="/account/plans" className="button secondary">{t('account.saved.plus.action')}</Link> : <span className="saved-library-plus-card__note">{t('account.saved.plus.comingSoon')}</span>}
-      </section>
+      <MembershipUpgradeCard
+        badge={t('account.saved.plus.badge')}
+        title={t('account.saved.plus.title')}
+        body={t('account.saved.plus.body')}
+        actionLabel={t('account.membershipUpgrade.action')}
+        comingSoonLabel={t('account.membershipUpgrade.comingSoon')}
+        href={plusPublic ? '/account/membership' : ''}
+        icon="save"
+        compact
+      />
 
       <section className="saved-library-toolbar" aria-label={t('account.saved.filtersLabel')}>
         <div className="saved-library-toolbar__header">

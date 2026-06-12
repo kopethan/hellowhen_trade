@@ -605,42 +605,44 @@ Business:
 
 
 
-## Phase 11 — Pro feature catalog and plan selection copy
+## Phase 11 — Pro feature catalog and Membership copy
 
-Define the future plan-selection copy in `docs/product/pro-feature-catalog-and-plan-copy.md`.
+Define the future Membership and Pro copy in `docs/product/pro-feature-catalog-and-plan-copy.md`.
 
 This phase is planning/copy only. It should not add UI, checkout, identity-provider calls, billing-provider calls, native purchase UI, or first-launch visible behavior.
 
-The plan-selection copy should describe:
+The Membership copy should describe:
 
-- Free as the default individual marketplace tier
-- Pro as one professional tier at `EUR 14.99/month`
+- Free / Basic as the default personal marketplace tier
+- Plus as the personal premium tier for private organization and assistance tools
+- Pro as one future professional tier at `EUR 14.99/month`
 - identity verification as required for Pro access
 - active or trialing subscription as required for Pro access
-- Business as a later separate account/enterprise decision
+- Business as a later separate organization identity, not a personal tier
 
-The first future pricing UI should show only:
+The first Membership UI should show:
 
 ```txt
-Free
+Free / Basic
+Plus
 Pro
-Business coming later
+Business / organization identity
 ```
 
-Do not show Plus in the first plan-selection UI. Plus remains an undecided future non-professional upgrade.
+Keep Business visually separated from personal tiers.
 
 
-## Phase 12 — Hidden pricing / plan selection UI
+## Phase 12 — Membership route foundation
 
-Add a hidden web plan-selection route:
+Use the Membership account route as the future tier explanation surface:
 
 ```txt
-/account/plans
+/account/membership
 ```
 
-The route must remain unavailable unless Pro surfaces are explicitly visible through hidden flags. With default first-launch flags, there must be no Account nav link, no public pricing card, no checkout, no identity-verification prompt, and no visible behavior change.
+The route may remain visible as an account information page, but it must not start checkout, identity verification, billing, or Pro entitlement activation. Pro and Business actions stay disabled unless their existing future flags are intentionally enabled.
 
-When the hidden UI is enabled for dev/internal testing, it should show the future plan cards from `docs/product/pro-feature-catalog-and-plan-copy.md`:
+When Pro/Business preview copy is enabled for dev/internal testing, Membership should keep personal tiers and business identity visually separated:
 
 ```txt
 Free
@@ -731,21 +733,21 @@ no provider API call
 no Pro entitlement activation
 ```
 
-The hidden `/account/plans` Pro card can link to this skeleton only when Pro visibility and identity-verification flags are enabled for internal testing.
+The Membership Pro card can link to this skeleton only when Pro visibility and identity-verification flags are enabled for internal testing.
 ---
 
 ## Patch 14 — hidden account entry point
 
-Patch 14 adds the first hidden Account entry point for the plan/prototype plan-selection area.
+Patch 14 originally added the first hidden Account entry point for the plan/prototype tier area. TIERS10 supersedes the old route by redirecting it to Membership.
 
 Scope:
 
 ```txt
 Web Account:
-  Account -> Plan & Pro -> /account/plans
+  Account -> Membership -> /account/membership
 
 Native Account:
-  Account -> Plan & Pro -> hidden plan preview screen
+  Account -> Membership -> hidden tier preview screen
 ```
 
 Visibility rule:

@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import type { AgendaItemDto, AgendaItemStatus, AgendaItemType, PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
+import { MembershipUpgradeCard } from '../../components/MembershipUpgradeCard';
 import { WebIcon } from '../../components/WebIcon';
 import { api } from '../../lib/api';
 import { betaFeatures } from '../../lib/betaFeatures';
@@ -557,12 +558,17 @@ export function AgendaClient() {
 
   if (!agendaEnabled) {
     return (
-      <section className="agenda-locked-card">
-        <span className="semantic-badge instruction">{t('account.agenda.plus.badge')}</span>
-        <h3>{t('account.agenda.disabledTitle')}</h3>
-        <p>{t('account.agenda.disabledBody')}</p>
-        <code>AGENDA_ENABLED=false · NEXT_PUBLIC_AGENDA_ENABLED=false</code>
-      </section>
+      <MembershipUpgradeCard
+        badge={t('account.membershipUpgrade.disabledBadge')}
+        title={t('account.agenda.disabledTitle')}
+        body={t('account.agenda.disabledBody')}
+        actionLabel={t('account.membershipUpgrade.action')}
+        comingSoonLabel={t('account.membershipUpgrade.disabled')}
+        href=""
+        icon="calendar"
+        variant="disabled"
+        code="AGENDA_ENABLED=false · NEXT_PUBLIC_AGENDA_ENABLED=false"
+      />
     );
   }
 
@@ -583,12 +589,15 @@ export function AgendaClient() {
 
   if (!hasPlusAccess) {
     return (
-      <section className="agenda-locked-card">
-        <span className="semantic-badge success">{t('account.agenda.plus.badge')}</span>
-        <h3>{t('account.agenda.plus.title')}</h3>
-        <p>{t('account.agenda.plus.body', { price: plusPrice })}</p>
-        {plusPublic ? <Link href="/account/plans" className="button primary">{t('account.agenda.plus.action')}</Link> : <span>{t('account.agenda.plus.comingSoon')}</span>}
-      </section>
+      <MembershipUpgradeCard
+        badge={t('account.agenda.plus.badge')}
+        title={t('account.agenda.plus.title')}
+        body={t('account.agenda.plus.body', { price: plusPrice })}
+        actionLabel={t('account.membershipUpgrade.action')}
+        comingSoonLabel={t('account.membershipUpgrade.comingSoon')}
+        href={plusPublic ? '/account/membership' : ''}
+        icon="calendar"
+      />
     );
   }
 

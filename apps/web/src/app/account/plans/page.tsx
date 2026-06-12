@@ -1,14 +1,6 @@
-import { notFound } from 'next/navigation';
-import { MobilePage } from '../../../components/MobilePage';
-import { PlanSelectionClient } from '../../../features/account/PlanSelectionClient';
-import { betaFeatures } from '../../../lib/betaFeatures';
+import { redirect } from 'next/navigation';
 
 export default function AccountPlansPage() {
-  if (!betaFeatures.plusSubscriptionFeatures.plusPublic) notFound();
-
-  return (
-    <MobilePage>
-      <PlanSelectionClient />
-    </MobilePage>
-  );
+  // Legacy /account/plans is kept only as a safe redirect for old internal links.
+  redirect('/account/membership');
 }

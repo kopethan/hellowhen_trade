@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { betaFeatures } from '../../lib/betaFeatures';
 import { formatWebProMonthlyPrice, getWebProGate } from '../../lib/proGate';
 import { useWebAuth } from '../../providers/WebAuthProvider';
+import { useWebTranslation } from '../../providers/WebI18nProvider';
 
 type ProOnboardingStep = {
   id: string;
@@ -14,9 +15,10 @@ type ProOnboardingStep = {
 };
 
 function StepStatusBadge({ status }: { status: ProOnboardingStep['status'] }) {
-  if (status === 'available') return <span className="semantic-badge success">Ready later</span>;
-  if (status === 'blocked') return <span className="semantic-badge warning">Required</span>;
-  return <span className="semantic-badge instruction">Placeholder</span>;
+  const { t } = useWebTranslation();
+  if (status === 'available') return <span className="semantic-badge success">{t('account.proOnboarding.status.available')}</span>;
+  if (status === 'blocked') return <span className="semantic-badge warning">{t('account.proOnboarding.status.blocked')}</span>;
+  return <span className="semantic-badge instruction">{t('account.proOnboarding.status.placeholder')}</span>;
 }
 
 function ProOnboardingStepCard({ step, index }: { step: ProOnboardingStep; index: number }) {
@@ -37,6 +39,7 @@ function ProOnboardingStepCard({ step, index }: { step: ProOnboardingStep; index
 
 export function ProOnboardingClient() {
   const auth = useWebAuth();
+  const { t } = useWebTranslation();
   const gate = getWebProGate();
   const proPrice = formatWebProMonthlyPrice(gate);
   const identityConnected = betaFeatures.proSubscriptionFeatures.identityVerificationEnabled;
@@ -45,34 +48,34 @@ export function ProOnboardingClient() {
   const steps: ProOnboardingStep[] = [
     {
       id: 'review',
-      label: 'Review',
-      title: 'Review the Pro upgrade',
-      body: `Pro is planned at ${proPrice}/month with a ${gate.trialDays}-day trial model. It is for verified professionals who need stronger profile, proposal, and package tools.`,
+      label: t('account.proOnboarding.steps.review.label'),
+      title: t('account.proOnboarding.steps.review.title'),
+      body: t('account.proOnboarding.steps.review.body', { price: proPrice, trialDays: gate.trialDays }),
       status: 'available',
     },
     {
       id: 'identity',
-      label: 'Identity',
-      title: 'Verify identity',
+      label: t('account.proOnboarding.steps.identity.label'),
+      title: t('account.proOnboarding.steps.identity.title'),
       body: identityConnected
-        ? 'Identity verification will be required before Pro access. This skeleton does not connect to a verification provider yet.'
-        : 'Identity verification is required for Pro, but the provider is not connected in this hidden prototype.',
+        ? t('account.proOnboarding.steps.identity.bodyConnected')
+        : t('account.proOnboarding.steps.identity.bodyHidden'),
       status: 'blocked',
     },
     {
       id: 'subscription',
-      label: 'Billing',
-      title: 'Start the Pro subscription',
+      label: t('account.proOnboarding.steps.subscription.label'),
+      title: t('account.proOnboarding.steps.subscription.title'),
       body: trialsEnabled
-        ? 'A trialing or active subscription will be required after identity verification. Checkout is intentionally not connected yet.'
-        : 'Subscription billing is not connected yet. This step stays as a placeholder until the billing provider is selected and implemented.',
+        ? t('account.proOnboarding.steps.subscription.bodyTrials')
+        : t('account.proOnboarding.steps.subscription.bodyPlaceholder'),
       status: 'placeholder',
     },
     {
       id: 'access',
-      label: 'Access',
-      title: 'Unlock Pro features later',
-      body: 'After verified identity and an active or trialing subscription, Pro can unlock features like Pro Trade Packages, professional profile sections, and future portfolio tools.',
+      label: t('account.proOnboarding.steps.access.label'),
+      title: t('account.proOnboarding.steps.access.title'),
+      body: t('account.proOnboarding.steps.access.body'),
       status: 'placeholder',
     },
   ];
@@ -81,31 +84,31 @@ export function ProOnboardingClient() {
     <div className="pro-onboarding-page">
       <div className="page-intro">
         <div>
-          <p className="eyebrow">Pro setup</p>
-          <h2>Professional upgrade preview</h2>
-          <p>This hidden flow explains the future Pro onboarding path without starting verification, checkout, or native purchases.</p>
+          <p className="eyebrow">{t('account.proOnboarding.eyebrow')}</p>
+          <h2>{t('account.proOnboarding.title')}</h2>
+          <p>{t('account.proOnboarding.intro')}</p>
         </div>
       </div>
 
       <section className="mobile-card mobile-card--soft pro-onboarding-summary">
         <div>
-          <span className="semantic-badge instruction">Hidden prototype</span>
-          <h3>Pro requires verification + subscription</h3>
-          <p>Pro access will only be available when identity is verified and the subscription status is active or trialing.</p>
+          <span className="semantic-badge instruction">{t('account.proOnboarding.summary.badge')}</span>
+          <h3>{t('account.proOnboarding.summary.title')}</h3>
+          <p>{t('account.proOnboarding.summary.body')}</p>
         </div>
         <div className="pro-onboarding-summary__price">
-          <span>Planned price</span>
-          <strong>{proPrice}/month</strong>
-          <small>{gate.trialDays}-day trial planned</small>
+          <span>{t('account.proOnboarding.summary.priceLabel')}</span>
+          <strong>{t('account.proOnboarding.summary.monthlyPrice', { price: proPrice })}</strong>
+          <small>{t('account.proOnboarding.summary.trialLabel', { trialDays: gate.trialDays })}</small>
         </div>
       </section>
 
       {!auth.hydrated ? null : !auth.isAuthenticated ? (
         <section className="mobile-card mobile-card--soft pro-onboarding-auth">
-          <span className="semantic-badge warning">Sign in required</span>
-          <h3>Create or sign in to continue later</h3>
-          <p>This skeleton does not create a Pro account yet, but the real flow will require an authenticated account first.</p>
-          <Link className="button primary" href={`/auth?next=${encodeURIComponent('/account/pro/setup')}`}>Login or register</Link>
+          <span className="semantic-badge warning">{t('account.proOnboarding.auth.badge')}</span>
+          <h3>{t('account.proOnboarding.auth.title')}</h3>
+          <p>{t('account.proOnboarding.auth.body')}</p>
+          <Link className="button primary" href={`/auth?next=${encodeURIComponent('/account/pro/setup')}`}>{t('account.proOnboarding.auth.action')}</Link>
         </section>
       ) : null}
 
@@ -114,13 +117,13 @@ export function ProOnboardingClient() {
       </div>
 
       <section className="mobile-card mobile-card--soft pro-onboarding-actions">
-        <h3>Provider steps are intentionally disabled</h3>
-        <p>No payment provider, identity provider, checkout session, native purchase, or Pro entitlement activation is connected in this prototype.</p>
+        <h3>{t('account.proOnboarding.disabled.title')}</h3>
+        <p>{t('account.proOnboarding.disabled.body')}</p>
         <div className="pro-onboarding-actions__row">
-          <button className="button primary" type="button" disabled>Start verification later</button>
-          <button className="secondary" type="button" disabled>Start subscription later</button>
+          <button className="button primary" type="button" disabled>{t('account.proOnboarding.disabled.verifyAction')}</button>
+          <button className="secondary" type="button" disabled>{t('account.proOnboarding.disabled.subscribeAction')}</button>
         </div>
-        <Link className="secondary full" href="/account/plans">Back to plans</Link>
+        <Link className="secondary full" href="/account/membership">{t('account.proOnboarding.disabled.backToMembership')}</Link>
       </section>
     </div>
   );

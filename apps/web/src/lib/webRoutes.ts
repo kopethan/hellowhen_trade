@@ -50,6 +50,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
   { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true },
   { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true },
   { match: (pathname) => pathname === '/account', titleKey: 'navigation.routes.account', root: true },
+  { match: (pathname) => pathname === '/account/membership', titleKey: 'navigation.routes.membership', backHref: '/account' },
   { match: (pathname) => pathname === '/plans', titleKey: 'navigation.routes.plans', root: true },
   { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
   { match: (pathname) => pathname === '/plans/new', titleKey: 'navigation.routes.createPlan', backHref: '/plans' },

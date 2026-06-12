@@ -1,0 +1,331 @@
+diff --git a/apps/web/src/app/globals.css b/apps/web/src/app/globals.css
+index dc7cb99..9421c48 100644
+--- a/apps/web/src/app/globals.css
++++ b/apps/web/src/app/globals.css
+@@ -3076,15 +3076,46 @@ html.dark .pro-package-prototype__item.selected {
+ .membership-namespace-grid span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; }
+ .membership-namespace-grid strong { color: var(--app-text); font-size: 15px; font-weight: 950; }
+ .membership-next-note { font-size: 13px; line-height: 1.45; }
++.membership-status-overview { display: grid; gap: 14px; border: 1px solid color-mix(in srgb, var(--info-border) 42%, var(--app-border)); border-radius: 30px; background: linear-gradient(135deg, color-mix(in srgb, var(--info-bg) 18%, var(--app-surface)), var(--app-surface)); padding: 16px; box-shadow: var(--app-card-shadow); }
++.membership-status-overview--error { border-color: color-mix(in srgb, var(--warning-border) 58%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--warning-bg) 24%, var(--app-surface)), var(--app-surface)); }
++.membership-status-overview__main { display: grid; gap: 8px; }
++.membership-status-overview__main h3, .membership-status-overview__main p { margin: 0; }
++.membership-status-overview__main h3 { color: var(--app-text); font-size: 24px; font-weight: 950; letter-spacing: -0.03em; line-height: 1.08; }
++.membership-status-overview__main p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.membership-status-grid { display: grid; gap: 10px; }
++.membership-status-tile { display: grid; gap: 6px; min-width: 0; border: 1px solid var(--app-border); border-radius: 20px; background: color-mix(in srgb, var(--app-surface) 86%, var(--app-surface-soft)); padding: 12px; }
++.membership-status-tile > span { color: var(--app-text-muted); font-size: 11px; font-weight: 950; letter-spacing: .06em; text-transform: uppercase; }
++.membership-status-tile strong { overflow-wrap: anywhere; color: var(--app-text); font-size: 16px; font-weight: 950; line-height: 1.2; }
++.membership-status-tile small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
++.membership-boundary-panel { display: grid; gap: 12px; }
++.membership-boundary-card { display: grid; gap: 8px; border: 1px solid color-mix(in srgb, var(--app-border) 82%, transparent); border-radius: 26px; background: var(--app-surface); padding: 15px; box-shadow: var(--app-card-shadow); }
++.membership-boundary-card--business { border-color: color-mix(in srgb, var(--trade-border) 48%, var(--app-border)); background: linear-gradient(135deg, color-mix(in srgb, var(--trade-bg) 18%, var(--app-surface)), var(--app-surface)); }
++.membership-boundary-card h3, .membership-boundary-card p { margin: 0; }
++.membership-boundary-card h3 { color: var(--app-text); font-size: 18px; font-weight: 950; letter-spacing: -0.02em; }
++.membership-boundary-card p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.membership-boundary-card > strong { width: fit-content; border: 1px solid var(--app-border); border-radius: 999px; background: var(--app-surface-soft); color: var(--app-text); padding: 7px 10px; font-size: 13px; font-weight: 950; }
++.membership-availability-panel { display: grid; gap: 14px; border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent); border-radius: 28px; background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-soft)); padding: 16px; }
++.membership-availability-panel h3, .membership-availability-panel p { margin: 7px 0 0; }
++.membership-availability-panel h3 { color: var(--app-text); font-size: 18px; font-weight: 950; letter-spacing: -0.02em; }
++.membership-availability-panel p { color: var(--app-text-muted); font-size: 13px; font-weight: 800; line-height: 1.45; }
++.membership-availability-list { display: grid; gap: 8px; }
++.membership-availability-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; border: 1px solid var(--app-border); border-radius: 18px; background: var(--app-surface); padding: 10px; }
++.membership-availability-row > div { display: grid; gap: 3px; min-width: 0; }
++.membership-availability-row strong { color: var(--app-text); font-size: 14px; font-weight: 950; }
++.membership-availability-row small { color: var(--app-text-muted); font-size: 12px; font-weight: 800; line-height: 1.35; }
+ 
+ @media (min-width: 760px) {
+   .membership-grid--personal { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+   .membership-namespace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .membership-status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
++  .membership-boundary-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
++  .membership-availability-panel { grid-template-columns: minmax(0, .7fr) minmax(0, 1fr); align-items: start; }
+ }
+ 
+ @media (max-width: 560px) {
+-  .membership-hero-card, .membership-section__header, .membership-card__header { grid-template-columns: 1fr; }
++  .membership-hero-card, .membership-section__header, .membership-card__header, .membership-availability-row { grid-template-columns: 1fr; }
+   .membership-status-card .button { width: 100%; }
++  .membership-status-overview__main h3 { font-size: 21px; }
+ }
+ 
+ /* Hidden Pro onboarding skeleton. Route is not reachable unless Pro visibility flags are enabled. */
+diff --git a/apps/web/src/features/account/MembershipClient.tsx b/apps/web/src/features/account/MembershipClient.tsx
+index ac95315..3fdf54f 100644
+--- a/apps/web/src/features/account/MembershipClient.tsx
++++ b/apps/web/src/features/account/MembershipClient.tsx
+@@ -3,6 +3,7 @@
+ import Link from 'next/link';
+ import { useEffect, useMemo, useState } from 'react';
+ import type { PlusSubscriptionSnapshotResponse } from '@hellowhen/contracts';
++import type { SupportedLanguage } from '@hellowhen/i18n';
+ import {
+   ACCOUNT_IDENTITY_METADATA,
+   HANDLE_NAMESPACE_METADATA,
+@@ -20,6 +21,7 @@ import {
+ } from '@hellowhen/shared';
+ import { api } from '../../lib/api';
+ import { betaFeatures } from '../../lib/betaFeatures';
++import { formatWebDate, formatWebMoney } from '../../lib/webFormat';
+ import { useWebAuth } from '../../providers/WebAuthProvider';
+ import { useWebTranslation } from '../../providers/WebI18nProvider';
+ 
+@@ -31,6 +33,8 @@ const personalCards = [
+ 
+ const featureLimit = 5;
+ 
++type MembershipSnapshot = PlusSubscriptionSnapshotResponse | null;
++
+ type MembershipCardAction = {
+   label: string;
+   href?: string;
+@@ -41,6 +45,67 @@ function formatStatus(status: SubscriptionStatus) {
+   return status.replaceAll('_', ' ');
+ }
+ 
++function formatStatusTitle(status: SubscriptionStatus) {
++  switch (status) {
++    case 'active':
++      return 'Active';
++    case 'trialing':
++      return 'Trial';
++    case 'past_due':
++      return 'Past due';
++    case 'canceled':
++      return 'Canceled';
++    case 'expired':
++      return 'Expired';
++    case 'none':
++    default:
++      return 'No paid membership';
++  }
++}
++
++function statusTone(status: SubscriptionStatus) {
++  switch (status) {
++    case 'active':
++    case 'trialing':
++      return 'success';
++    case 'past_due':
++      return 'warning';
++    case 'canceled':
++    case 'expired':
++      return 'danger';
++    case 'none':
++    default:
++      return 'neutral';
++  }
++}
++
++function boolStatusLabel(value: boolean) {
++  return value ? 'Enabled' : 'Hidden';
++}
++
++function boolStatusTone(value: boolean) {
++  return value ? 'success' : 'neutral';
++}
++
++function formatSubscriptionDate(value: string | null | undefined, language: SupportedLanguage) {
++  return formatWebDate(value, '—', language);
++}
++
++function formatPeriodSummary(snapshot: MembershipSnapshot, language: SupportedLanguage) {
++  const state = snapshot?.subscriptionState;
++  if (!state) return 'No billing period is attached.';
++  if (state.trialEndsAt) return `Trial ends ${formatSubscriptionDate(state.trialEndsAt, language)}`;
++  if (state.currentPeriodEndsAt) return `Current period ends ${formatSubscriptionDate(state.currentPeriodEndsAt, language)}`;
++  if (state.expiresAt) return `Access expires ${formatSubscriptionDate(state.expiresAt, language)}`;
++  if (state.canceledAt) return `Canceled ${formatSubscriptionDate(state.canceledAt, language)}`;
++  return 'No renewal or expiry date is attached.';
++}
++
++function formatUpdatedAt(value: string | null | undefined, language: SupportedLanguage) {
++  if (!value) return 'No status update date';
++  return `Updated ${formatSubscriptionDate(value, language)}`;
++}
++
+ function availabilityTone(availability: MembershipFeatureAvailability) {
+   switch (availability) {
+     case 'included':
+@@ -128,6 +193,137 @@ function PersonalTierCard({
+   );
+ }
+ 
++function MembershipStatusOverview({
++  snapshot,
++  currentTier,
++  currentStatus,
++  loadError,
++  language,
++}: {
++  snapshot: MembershipSnapshot;
++  currentTier: PersonalMembershipTier;
++  currentStatus: SubscriptionStatus;
++  loadError: boolean;
++  language: SupportedLanguage;
++}) {
++  const tierMetadata = PERSONAL_MEMBERSHIP_TIER_METADATA[currentTier];
++  const statusLabel = formatStatusTitle(currentStatus);
++  const hasSnapshot = Boolean(snapshot);
++  const hasPlusAccess = Boolean(snapshot?.access.hasPlusAccess);
++  const canSeePlusSurfaces = Boolean(snapshot?.access.canSeePlusSurfaces);
++  const quota = snapshot?.aiAssistUsage;
++  const monthlyPrice = formatWebMoney(
++    snapshot?.price.monthlyCents ?? betaFeatures.plusSubscriptionFeatures.monthlyPriceCents,
++    snapshot?.price.monthlyCurrency ?? betaFeatures.plusSubscriptionFeatures.monthlyPriceCurrency,
++  );
++
++  if (loadError) {
++    return (
++      <section className="membership-status-overview membership-status-overview--error">
++        <div className="membership-status-overview__main">
++          <span className="semantic-badge warning">Account status</span>
++          <h3>Membership status unavailable</h3>
++          <p>Could not load the account membership snapshot. The comparison cards below are still available.</p>
++        </div>
++      </section>
++    );
++  }
++
++  return (
++    <section className="membership-status-overview">
++      <div className="membership-status-overview__main">
++        <span className="semantic-badge info">Current account</span>
++        <h3>{hasSnapshot ? `${tierMetadata.displayName} · ${statusLabel}` : 'Loading membership status…'}</h3>
++        <p>Read-only status for this account. Checkout and billing actions are intentionally not connected on this page.</p>
++      </div>
++      <div className="membership-status-grid" aria-label="Current membership status details">
++        <div className="membership-status-tile">
++          <span>Personal tier</span>
++          <strong>{tierMetadata.displayName}</strong>
++          <small>{tierMetadata.description}</small>
++        </div>
++        <div className="membership-status-tile">
++          <span>Subscription status</span>
++          <strong><span className={`semantic-badge ${statusTone(currentStatus)}`}>{statusLabel}</span></strong>
++          <small>{formatUpdatedAt(snapshot?.state.subscriptionStatusUpdatedAt, language)}</small>
++        </div>
++        <div className="membership-status-tile">
++          <span>Plus access</span>
++          <strong><span className={`semantic-badge ${hasPlusAccess ? 'success' : 'neutral'}`}>{hasPlusAccess ? 'Available' : 'Not active'}</span></strong>
++          <small>{canSeePlusSurfaces ? 'Plus surfaces can be shown.' : 'Plus surfaces are hidden by current flags.'}</small>
++        </div>
++        <div className="membership-status-tile">
++          <span>AI assistance quota</span>
++          <strong>{quota ? `${quota.remaining}/${quota.quota}` : '—'}</strong>
++          <small>{quota ? `Remaining this month · resets ${formatSubscriptionDate(quota.resetAt, language)}` : 'Quota loads with the account snapshot.'}</small>
++        </div>
++        <div className="membership-status-tile">
++          <span>Period</span>
++          <strong>{formatPeriodSummary(snapshot, language)}</strong>
++          <small>No payment provider action is exposed here.</small>
++        </div>
++        <div className="membership-status-tile">
++          <span>Reference price</span>
++          <strong>{monthlyPrice}/mo</strong>
++          <small>Display metadata only. Checkout remains out of scope.</small>
++        </div>
++      </div>
++    </section>
++  );
++}
++
++function MembershipAvailabilityPanel() {
++  const featureRows = [
++    { label: 'Plus membership surfaces', enabled: betaFeatures.plusSubscriptionFeatures.plusPublic, note: 'Controlled by existing Plus flags.' },
++    { label: 'Saved Library', enabled: betaFeatures.savedLibraryEnabled, note: 'Plus private organization feature.' },
++    { label: 'Agenda', enabled: betaFeatures.agendaEnabled, note: 'Plus private calendar-style feature.' },
++    { label: 'AI assistance', enabled: betaFeatures.plusSubscriptionFeatures.aiAssistEnabled, note: 'Plus assistance quota and draft help.' },
++    { label: 'Customization', enabled: betaFeatures.plusSubscriptionFeatures.customizationEnabled, note: 'Plus presentation options.' },
++    { label: 'Pro account surfaces', enabled: betaFeatures.proSubscriptionFeatures.proAccountsVisible, note: 'Personal professional tier visibility.' },
++    { label: 'Business identity surfaces', enabled: betaFeatures.businessAccountsVisible, note: 'Separate organization identity area.' },
++  ] as const;
++
++  return (
++    <section className="membership-availability-panel">
++      <div>
++        <span className="semantic-badge neutral">Build availability</span>
++        <h3>What this build can show</h3>
++        <p>These rows read the existing public flags. They do not add new environment variables.</p>
++      </div>
++      <div className="membership-availability-list">
++        {featureRows.map((row) => (
++          <div key={row.label} className="membership-availability-row">
++            <span className={`semantic-badge ${boolStatusTone(row.enabled)}`}>{boolStatusLabel(row.enabled)}</span>
++            <div>
++              <strong>{row.label}</strong>
++              <small>{row.note}</small>
++            </div>
++          </div>
++        ))}
++      </div>
++    </section>
++  );
++}
++
++function BusinessBoundaryPanel() {
++  return (
++    <section className="membership-boundary-panel" aria-label="Membership and identity boundary">
++      <div className="membership-boundary-card">
++        <span className="semantic-badge neutral">Personal membership</span>
++        <h3>Free / Basic, Plus, and Pro stay personal</h3>
++        <p>These tiers control what a person can access on their own account. A personal handle remains in the personal namespace.</p>
++        <strong>{HANDLE_NAMESPACE_METADATA.personal.pathPattern}</strong>
++      </div>
++      <div className="membership-boundary-card membership-boundary-card--business">
++        <span className="semantic-badge business">Business identity</span>
++        <h3>Business is an organization identity</h3>
++        <p>Organization handles should live separately so a future official brand account does not need a personal user’s handle.</p>
++        <strong>{HANDLE_NAMESPACE_METADATA.organization.pathPattern}</strong>
++      </div>
++    </section>
++  );
++}
++
+ function BusinessIdentityCard({ card }: { card: AccountIdentityMetadata }) {
+   const namespace = HANDLE_NAMESPACE_METADATA[card.handleNamespace];
+   const action: MembershipCardAction = betaFeatures.businessAccountsVisible
+@@ -168,7 +364,7 @@ function BusinessIdentityCard({ card }: { card: AccountIdentityMetadata }) {
+ 
+ export function MembershipClient() {
+   const auth = useWebAuth();
+-  const { t } = useWebTranslation();
++  const { t, language } = useWebTranslation();
+   const [plusSnapshot, setPlusSnapshot] = useState<PlusSubscriptionSnapshotResponse | null>(null);
+   const [loadError, setLoadError] = useState(false);
+ 
+@@ -260,13 +456,17 @@ export function MembershipClient() {
+       ) : null}
+ 
+       {auth.isAuthenticated ? (
+-        <section className="mobile-card mobile-card--soft membership-status-card">
+-          <span className="semantic-badge info">Account status</span>
+-          <h3>{plusSnapshot ? `${PERSONAL_MEMBERSHIP_TIER_METADATA[currentTier].displayName} · ${formatStatus(currentStatus)}` : loadError ? 'Membership status unavailable' : 'Loading membership status…'}</h3>
+-          <p>{loadError ? 'Could not load the account membership snapshot. The comparison cards are still available.' : 'Membership status is read-only here. No checkout or billing action is connected.'}</p>
+-        </section>
++        <MembershipStatusOverview
++          currentStatus={currentStatus}
++          currentTier={currentTier}
++          language={language}
++          loadError={loadError}
++          snapshot={plusSnapshot}
++        />
+       ) : null}
+ 
++      <MembershipBoundaryPanel />
++
+       <section className="membership-section">
+         <div className="membership-section__header">
+           <span className="semantic-badge neutral">Personal tiers</span>
+@@ -300,8 +500,10 @@ export function MembershipClient() {
+         <BusinessIdentityCard card={ACCOUNT_IDENTITY_METADATA.business_organization} />
+       </section>
+ 
++      <MembershipAvailabilityPanel />
++
+       <section className="notice-box info membership-next-note">
+-        <strong>TIERS2 boundary:</strong> this is a web account foundation page only. Payment checkout, public pricing, mobile UI, organization routes, and schema changes are intentionally out of scope.
++        <strong>TIERS3 boundary:</strong> this is still a web account foundation page. Payment checkout, public pricing, mobile UI, organization routes, and schema changes are intentionally out of scope.
+       </section>
+     </div>
+   );

@@ -1,0 +1,147 @@
+diff --git a/apps/web/src/features/account/AccountHubClient.tsx b/apps/web/src/features/account/AccountHubClient.tsx
+index dbd358b..4c933aa 100644
+--- a/apps/web/src/features/account/AccountHubClient.tsx
++++ b/apps/web/src/features/account/AccountHubClient.tsx
+@@ -64,7 +64,6 @@ export function AccountHubClient() {
+       badgeKey: 'account.items.guide.badge',
+       actionKey: 'account.items.guide.action',
+     },
+-    ...(betaFeatures.plusSubscriptionFeatures.plusPublic ? [{ href: '/account/plans', titleKey: 'account.items.plans.title', bodyKey: 'account.items.plans.body', icon: 'profile' as WebIconName }] : []),
+     ...(betaFeatures.businessAccountsVisible ? [{ href: '/account/business', titleKey: 'account.items.business.title', bodyKey: 'account.items.business.body' }] : []),
+     ...(betaFeatures.walletVisible ? [{ href: '/account/wallet', titleKey: 'account.items.wallet.title', bodyKey: 'account.items.wallet.body' }] : []),
+     ...(betaFeatures.payoutsVisible ? [{ href: '/account/payouts', titleKey: 'account.items.payouts.title', bodyKey: 'account.items.payouts.body' }] : []),
+diff --git a/apps/web/src/features/account/AgendaClient.tsx b/apps/web/src/features/account/AgendaClient.tsx
+index 4d6c3e5..57c8dcd 100644
+--- a/apps/web/src/features/account/AgendaClient.tsx
++++ b/apps/web/src/features/account/AgendaClient.tsx
+@@ -587,7 +587,7 @@ export function AgendaClient() {
+         <span className="semantic-badge success">{t('account.agenda.plus.badge')}</span>
+         <h3>{t('account.agenda.plus.title')}</h3>
+         <p>{t('account.agenda.plus.body', { price: plusPrice })}</p>
+-        {plusPublic ? <Link href="/account/plans" className="button primary">{t('account.agenda.plus.action')}</Link> : <span>{t('account.agenda.plus.comingSoon')}</span>}
++        {plusPublic ? <Link href="/account/membership" className="button primary">{t('account.agenda.plus.action')}</Link> : <span>{t('account.agenda.plus.comingSoon')}</span>}
+       </section>
+     );
+   }
+diff --git a/apps/web/src/features/account/PlanSelectionClient.tsx b/apps/web/src/features/account/PlanSelectionClient.tsx
+index 0b5719e..bc0a256 100644
+--- a/apps/web/src/features/account/PlanSelectionClient.tsx
++++ b/apps/web/src/features/account/PlanSelectionClient.tsx
+@@ -56,7 +56,7 @@ export function PlanSelectionClient() {
+ 
+   const freeAction: PlanCard['action'] = auth.isAuthenticated
+     ? { label: 'Current plan', kind: 'current' }
+-    : { label: 'Get started', kind: 'link', href: `/auth?next=${encodeURIComponent('/account/plans')}` };
++    : { label: 'Get started', kind: 'link', href: `/auth?next=${encodeURIComponent('/account/membership')}` };
+ 
+   const cards: PlanCard[] = [
+     {
+diff --git a/apps/web/src/features/account/ProOnboardingClient.tsx b/apps/web/src/features/account/ProOnboardingClient.tsx
+index 1670d51..bea753e 100644
+--- a/apps/web/src/features/account/ProOnboardingClient.tsx
++++ b/apps/web/src/features/account/ProOnboardingClient.tsx
+@@ -120,7 +120,7 @@ export function ProOnboardingClient() {
+           <button className="button primary" type="button" disabled>Start verification later</button>
+           <button className="secondary" type="button" disabled>Start subscription later</button>
+         </div>
+-        <Link className="secondary full" href="/account/plans">Back to plans</Link>
++        <Link className="secondary full" href="/account/membership">Back to membership</Link>
+       </section>
+     </div>
+   );
+diff --git a/apps/web/src/features/account/SavedLibraryClient.tsx b/apps/web/src/features/account/SavedLibraryClient.tsx
+index 142d7b5..2461d8c 100644
+--- a/apps/web/src/features/account/SavedLibraryClient.tsx
++++ b/apps/web/src/features/account/SavedLibraryClient.tsx
+@@ -373,7 +373,7 @@ export function SavedLibraryClient({ initialCollectionId }: SavedLibraryClientPr
+           <h3>{t('account.saved.plus.title')}</h3>
+           <p>{t('account.saved.plus.body')}</p>
+         </div>
+-        {plusPublic ? <Link href="/account/plans" className="button secondary">{t('account.saved.plus.action')}</Link> : <span className="saved-library-plus-card__note">{t('account.saved.plus.comingSoon')}</span>}
++        {plusPublic ? <Link href="/account/membership" className="button secondary">{t('account.saved.plus.action')}</Link> : <span className="saved-library-plus-card__note">{t('account.saved.plus.comingSoon')}</span>}
+       </section>
+ 
+       <section className="saved-library-toolbar" aria-label={t('account.saved.filtersLabel')}>
+diff --git a/apps/web/src/lib/webRoutes.ts b/apps/web/src/lib/webRoutes.ts
+index af20baf..4689c85 100644
+--- a/apps/web/src/lib/webRoutes.ts
++++ b/apps/web/src/lib/webRoutes.ts
+@@ -50,6 +50,8 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; titleKey: strin
+   { match: (pathname) => pathname === '/needs', titleKey: 'navigation.routes.needs', root: true },
+   { match: (pathname) => pathname === '/offers', titleKey: 'navigation.routes.offers', root: true },
+   { match: (pathname) => pathname === '/account', titleKey: 'navigation.routes.account', root: true },
++  { match: (pathname) => pathname === '/account/membership', titleKey: 'navigation.routes.membership', backHref: '/account' },
++  { match: (pathname) => pathname === '/account/plans', titleKey: 'navigation.routes.membershipPreview', backHref: '/account/membership' },
+   { match: (pathname) => pathname === '/plans', titleKey: 'navigation.routes.plans', root: true },
+   { match: (pathname) => pathname === '/trades/create', titleKey: 'navigation.routes.createTrade', backHref: '/trades' },
+   { match: (pathname) => pathname === '/plans/new', titleKey: 'navigation.routes.createPlan', backHref: '/plans' },
+diff --git a/packages/i18n/src/locales/en/account.ts b/packages/i18n/src/locales/en/account.ts
+index ecc9127..266fd2a 100644
+--- a/packages/i18n/src/locales/en/account.ts
++++ b/packages/i18n/src/locales/en/account.ts
+@@ -409,7 +409,7 @@ export const account = {
+       badge: 'Plus tool',
+       title: 'Saved Library is Plus-only',
+       body: 'Plus unlocks Saved Library, saved people, saved trades, and private custom collections.',
+-      action: 'Review Plus',
++      action: 'Review Membership',
+       comingSoon: 'Plus upgrade coming later',
+       comingSoonBody: 'Saved Library is prepared as a Plus feature and will unlock when the upgrade is enabled.',
+       savePrompt: 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.',
+@@ -560,7 +560,7 @@ export const account = {
+       badge: 'Plus tool',
+       title: 'Agenda is Plus-only',
+       body: 'Plus unlocks private Agenda organization for trades, reminders, follow-ups, and deadlines. Planned price: {{price}}.',
+-      action: 'Review Plus',
++      action: 'Review Membership',
+       comingSoon: 'Plus upgrade coming later',
+     },
+     filters: {
+diff --git a/packages/i18n/src/locales/en/navigation.ts b/packages/i18n/src/locales/en/navigation.ts
+index 780d184..05bf537 100644
+--- a/packages/i18n/src/locales/en/navigation.ts
++++ b/packages/i18n/src/locales/en/navigation.ts
+@@ -13,6 +13,8 @@ export const navigation = {
+     needs: 'Needs',
+     offers: 'Offers',
+     account: 'Account',
++    membership: 'Membership',
++    membershipPreview: 'Plus preview',
+     createTrade: 'Create trade',
+     plan: 'Plan',
+     plans: 'Plans',
+diff --git a/packages/i18n/src/locales/fr/account.ts b/packages/i18n/src/locales/fr/account.ts
+index 8ed0c74..95262aa 100644
+--- a/packages/i18n/src/locales/fr/account.ts
++++ b/packages/i18n/src/locales/fr/account.ts
+@@ -409,7 +409,7 @@ export const account = {
+       badge: 'Outil Plus',
+       title: 'Les Enregistrés sont réservés à Plus',
+       body: 'Plus débloque les Enregistrés, les personnes enregistrées, les échanges enregistrés et les collections privées personnalisées.',
+-      action: 'Voir Plus',
++      action: 'Voir Membership',
+       comingSoon: 'La mise à niveau Plus arrive plus tard',
+       comingSoonBody: 'Les Enregistrés sont préparés comme fonctionnalité Plus et seront débloqués quand la mise à niveau sera activée.',
+       savePrompt: 'Les Enregistrés sont une fonctionnalité Plus. Passez à Plus pour enregistrer des échanges, besoins, offres et personnes.',
+@@ -560,7 +560,7 @@ export const account = {
+       badge: 'Outil Plus',
+       title: 'Agenda est réservé à Plus',
+       body: 'Plus débloque l’organisation privée Agenda pour échanges, rappels, relances et échéances. Prix prévu : {{price}}.',
+-      action: 'Voir Plus',
++      action: 'Voir Membership',
+       comingSoon: 'La mise à niveau Plus arrive plus tard',
+     },
+     filters: {
+diff --git a/packages/i18n/src/locales/fr/navigation.ts b/packages/i18n/src/locales/fr/navigation.ts
+index ef4cc43..e2977f5 100644
+--- a/packages/i18n/src/locales/fr/navigation.ts
++++ b/packages/i18n/src/locales/fr/navigation.ts
+@@ -13,6 +13,8 @@ export const navigation = {
+     needs: 'Besoins',
+     offers: 'Offres',
+     account: 'Compte',
++    membership: 'Membership',
++    membershipPreview: 'Aperçu Plus',
+     createTrade: 'Créer un échange',
+     plan: 'Plan',
+     plans: 'Plans',

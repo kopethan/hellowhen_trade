@@ -44,10 +44,10 @@ export function getFriendlyApiErrorMessage(error: unknown, fallback = 'Something
   if (apiError.body?.error === 'validation_error') return apiError.body.message ?? 'Please check the form fields and try again.';
   if (apiError.body?.error === 'plans_disabled') return 'Plans are disabled by the API flag. Set PLANS_ENABLED=true in the root .env file and restart the API dev server.';
   if (apiError.body?.error === 'plans_hidden') return 'Plans are hidden by the API visibility flag.';
-  if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is a Plus feature. Upgrade to Plus to save trades, needs, offers, and people.';
-  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are a Plus feature.';
+  if (apiError.body?.error === 'saved_library_plus_required' || apiError.body?.error === 'saved_library_limit_reached') return apiError.body.message ?? 'Saved Library is included with Plus Membership. Review Membership to unlock private saves, people, and collections when upgrades are available.';
+  if (apiError.body?.error === 'saved_collections_plus_required') return apiError.body.message ?? 'Saved collections are included with Plus Membership. Review Membership to unlock private organization tools when upgrades are available.';
   if (apiError.body?.error === 'agenda_disabled') return apiError.body.message ?? 'Agenda is disabled by the API flag.';
-  if (apiError.body?.error === 'agenda_plus_required') return apiError.body.message ?? 'Agenda is a Plus feature.';
+  if (apiError.body?.error === 'agenda_plus_required') return apiError.body.message ?? 'Agenda is included with Plus Membership. Review Membership to unlock private reminders, deadlines, and follow-ups when upgrades are available.';
   if (apiError.body?.error === 'agenda_item_not_found' || apiError.body?.error === 'agenda_source_not_found') return apiError.body.message ?? 'That Agenda item could not be found.';
   if (apiError.body?.error === 'not_found') return 'That item could not be found.';
   if (apiError.body?.message) return apiError.body.message;
